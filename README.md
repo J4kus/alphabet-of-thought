@@ -2,6 +2,18 @@
 
 Alpha is a text-based knowledge-representation language that organises ideas as indented code trees.
 
+Designed for real-world cognitive and collaborative work, for teams who want to formulate, connect, communicate, and automate their knowledge. It's not about organising information — Alpha helps you abstract meaning from existing knowledge and share understanding with others and yourself over time.
+
+Alpha is built on a few powerful principles:
+
+- You can think uniquely, but you always extend existing thought structures to think.
+- Clear thoughts are the elements of alpha, they are _ideas_ that _connect_ to each other.
+- Knowledge works best when organised as a *tree* of text — not linear text, visuals, or code
+- The formulate and communicate of complicated ideas can be done effortlessly when a shared and modal context is already memorised
+- The capability is now available to automate of the synthsis and avbstraction of knowledge with new AI tools 
+
+Ideal for knowledge workers, business documentation, and enterprise architecture.
+
 ## Example
 
 ```aot
