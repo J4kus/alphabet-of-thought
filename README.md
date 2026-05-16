@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-Alpha is a text-based knowledge-representation language that organises ideas as indented trees. A companion [VS Code extension](https://marketplace.visualstudio.com/items?itemName=Jakus.alphabet-of-thought) provides syntax support.
+Alpha is a text-based knowledge-representation language that organises ideas as indented code trees.
 
 ## Example
 

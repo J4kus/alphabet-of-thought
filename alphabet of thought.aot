@@ -219,8 +219,8 @@ Function
         Create `vsix` File
             command: C:\Users\27837\OneDrive\alphabet-of-thought-main> vsce package
         Go To Extensions
-        Drag The `vsix` File Into The Extension 
-        Upload Changes To GitHub    
+        Drag The `vsix` File Into The Extension
+        Upload Changes To GitHub
         Drag Into `vsix` File Into `Visual Studio Code` Window
     Make Changes To Marketplace
         Go To `https://marketplace.visualstudio.com/manage/publishers/Jakus` Link
