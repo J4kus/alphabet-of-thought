@@ -1,18 +1,18 @@
 # Alpha (.aot)
 
-Alpha is a text-based knowledge-representation language that organises ideas as indented code trees.
+Alpha is a text-based language for representing knowledge as a tree of indented text.
 
-Designed for real-world cognitive and collaborative work, for teams who want to formulate, connect, communicate, and automate their knowledge. It's not about organising information — Alpha helps you abstract meaning from existing knowledge and share understanding with others and yourself over time.
+Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part was never storage — it's working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
-Alpha is built on a few powerful principles:
+It rests on three observations:
 
-- You can think uniquely, but you always extend existing thought structures to think.
-- Clear thoughts are the elements of alpha, they are _ideas_ that _connect_ to each other.
-- Knowledge works best when organised as a *tree* of text — not linear text, visuals, or code
-- The formulate and communicate of complicated ideas can be done effortlessly when a shared and modal context is already memorised
-- The capability is now available to automate of the synthsis and avbstraction of knowledge with new AI tools 
+- You never think from nothing. Every new thought extends structures you already have.
+- A thought is only clear once it connects to other thoughts. An *idea* in isolation isn't yet an idea; the *connections* make it one.
+- Knowledge holds its shape best as a *tree* of plain text — not prose, not diagrams, not code. Prose hides structure, diagrams don't scale, and code is written for machines.
 
-Ideal for knowledge workers, business documentation, and enterprise architecture.
+Once a shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone is extending the same structure rather than rebuilding it in their heads. And once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
+
+It's built for the people who do this for a living: knowledge workers, business documentation, and enterprise architecture.
 
 ## Example
 
