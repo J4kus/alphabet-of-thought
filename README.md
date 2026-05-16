@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-Alpha is a text-based knowledge representation language that organises ideas as indented code trees. See the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=Jakus.alphabet-of-thought).
+Alpha is a text-based knowledge-representation language that organises ideas as indented trees. A companion [VS Code extension](https://marketplace.visualstudio.com/items?itemName=Jakus.alphabet-of-thought) provides syntax support.
 
 ## Example
 
@@ -18,27 +18,27 @@ Person
 - Extension: `.aot`
 - Indentation: exactly 4 spaces per level (Do NOT use tabs)
 - Every line is a node
-- The **file name is the root concept** — do NOT repeat it as the first line in the file. The top-level nodes in the file are children of the file-name concept (e.g. in `Person.aot`, start directly with `full name`, `age`, etc.)
+- The **file name is the root concept**. Do not repeat it as the first line — the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
 
 ## Node Types
 
-All nodes and relationships use case-sensitivity, syntax and indentation for definition — never explicit keywords.
+Node types and relationships are determined entirely by capitalisation, punctuation, and indentation — never by explicit keywords.
 
 ### Context (Structure)
 
 | Node Type | How to Recognise | Purpose | Extra Rules | Example |
 |-----------|------------------|---------|-------------|---------|
-| **Concept** | First letter is capitalised | Defines a class / type of thing | Repeating the same concept somewhere else in the file is only acceptable if it has a distinguishing qualifier prefix | `Person` |
-| **Attribute** | All lowercase | Defines a property that a concept has | All attributes are undefined (or defined) concepts too | `full name` |
-| **Alias** | Text in parentheses after a concept, example, OR a lowercase term that matches an existing concept name as part of an attribute | provides another name or description for an idea | some or all of an attributes last words can match a concept, if it does, it is an alias, no need to brackets | `(Natural Person)`, `(natural person)` |
-| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | extremely helpfull to describe terms and provide extra information | `... irrelevant data not included` |
+| **Concept** | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Person` |
+| **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
+| **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative name or description for an idea | If some or all of an attribute's trailing words match a concept, those words act as an alias — no parentheses required | `(Natural Person)`, `(natural person)` |
+| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | Especially useful for describing terms or recording supplementary information | `... irrelevant data not included` |
 
 ### Content (Data)
 
 | Node Type | How to Recognise | Purpose | Example |
 |-----------|------------------|---------|---------|
 | **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
-| **Example** | **Must** start with `- ` (dash + space), or use in front of concept | Used as a list of instance (objects) of the parent concept or attribute instead of just one default value | `- Mark Zuckerberg` or `Mark Zuckerberg` |
+| **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value | `- Mark Zuckerberg` or `Mark Zuckerberg` |
 
 > **Critical**: The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute — even if it reads like a sentence or a list item. Plain indented text like `outcomes` is an **attribute**, not an example. To make it an example, write `- outcomes`.
 
@@ -60,15 +60,15 @@ This is the hardest part. Apply these tests in order:
 
 ### 1. Exhaustion test (Concept vs Example)
 
-If the children together **partition** the parent — every instance of the parent falls into exactly one child — they are **Concepts** (subtypes). If the children are just **some items picked from the world**, they are **Examples**.
+If the children together **partition** the parent — every instance of the parent falls into exactly one child — they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
 
 ### 2. Abstraction test (Concept vs Example)
 
-**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances you could point at or name. When in doubt: Is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example
+**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
 
-### 4. Attributes describe, they don't classify
+### 3. Attributes describe, they don't classify
 
-Attributes are lowercase properties a concept **has**. They are not leaf nodes — an attribute can have its own children: examples, concepts, values, or further attributes underneath it.
+Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes — an attribute may have its own children: examples, concepts, values, or further attributes.
 
 ## Style Rules
 
@@ -80,8 +80,8 @@ Attributes are lowercase properties a concept **has**. They are not leaf nodes �
 - Remove redundant concepts
 - Add qualifiers to distinguish similar concepts
 - Only decompose further when detail adds meaningful value
-- As many concept and attribute examples as possible
-- higher up examples are better
+- Provide as many concept and attribute examples as possible
+- Examples placed higher in the tree are preferable
 
 ## Design Rules
 
@@ -114,14 +114,7 @@ Parent
 - Do NOT write examples without the `- ` prefix — a line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an example
 
 ## Aspects
-
-# Alpha Aspects — Detailed Reference
-
-Linked from [Alphabet of Thought.md](Alphabet%20of%20Thought.md). Use these patterns when building thorough `.aot` models.
-
-This taxonomy was invented by Aristotle as Categories. Your thinking will be civilised if you adopt it.
-
-There are no special `.aot` syntax for aspects. This artifact serves as explanation of how to use the aspects.
+The aspect taxonomy derives from Aristotle's *Categories*; and modern interpretations. Adopting it brings discipline and rigour to your modelling. Aspects require no special `.aot` syntax — this section explains how to apply them.
 
 ---
 
@@ -192,7 +185,7 @@ John
         updating author: John
 ```
 
-Here are the concepts used in motivation
+The concepts used in the Motivation aspect:
 
 ```
 Measurement
@@ -506,37 +499,38 @@ Focus: **what the system does**, decomposed as a tree.
 
 ### Naming Rules
 
-- **Classifications** (types): convetionally it is nouns only as Example ideas → `- Payment Type`
-- **Functions** (actions): verb + object → `Calculate Payment`
+- **Classifications** (types): conventionally nouns only, expressed as example ideas → `- Payment Type`
+- **Functions** (actions): verb + qualified object → `Calculate Payment`
 - One verb per function, matched to its object
-- Functions need to be objectively named according to its essence. No "Business", "IT", "Management", "Support" and "Execution" language games are allowed
+- Name every function objectively, according to its essence
 
 ### Forbidden in Names
 
 - "And" (split the function)
 - Vague words for services ("manage", "ensure"), performance ("good", "acceptable") and information management ("information", "data", "content", "info")
+- no policically loaded words ("Business", "IT", "Management", "Support", or "Execution")
 - Flow words ("then", "next")
 
 ### Decomposition Rules
 
 - 3 to 7 sub-functions per parent
-- Ask **Why** does a sub-function exist? It should be its parent
-- Ask **How** is a parent achieved? It is through its children exclusively
+- Ask **Why** does a sub-function exist? The answer should be its parent
+- Ask **How** is a parent achieved? Exclusively through its children
 - All sub-functions together fully achieve the parent function
 
 ### Pitch Level
 
-Start 2 levels of granuarity above the detail you need. Prune until every leaf is directly executable. Remove anything that does not serve the model.
+Start two levels of granularity above the detail you need, then prune until every leaf is directly executable. Remove anything that does not serve the model.
 
 ### Include attributes
 
-It is okay to include attributes for functions to describe them better
+Attributes may be attached to functions to describe them more precisely.
 
 ---
 
 ## Domain Aspect
 
-Focus: **what data/things exist** (concepts, attributes, business rules), and what events triggers them
+Focus: **what data and things exist** (concepts, attributes, business rules) and the events that trigger them.
 
 ### Non-Tree Structures
 
@@ -663,7 +657,7 @@ Repository Structure
 
 ## Workflow Aspect
 
-Focus: **integration layer** connecting all other aspects into executable specs.
+Focus: the **integration layer** that connects all other aspects into executable specifications.
 
 ### Core Questions
 
