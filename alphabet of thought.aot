@@ -1,6 +1,6 @@
 Token
     Context
-        Concept 
+        Concept
             is: Context
             begin: Uppercase Letter
             end:

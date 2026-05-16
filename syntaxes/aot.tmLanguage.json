@@ -4,41 +4,42 @@
     "fileTypes": ["json"],
 	"patterns": [
 		{
-            "name": "keyword.control.custom",
+            "name": "constant.character.concept",
             "match": "[A-Z][^(:\"'`]*(?=[(:\"'`]|$)"
         },
         {
-            "name": "variable.parameter.custom",
+            "name": "variable.parameter.attribute.aot",
             "match": "\\b[a-z]\\w*\\b"
         },
         {
-            "name": "string.unquoted.default.custom",
+            "name": "string.quoted.double.value.aot",
             "match": ":.*$"
         },
         {
-            "name": "string.unquoted.terminal.custom", 
+            "name": "keyword.control.example.aot",
             "match": "-.*$"
         },
         {
-            "name": "string.note.custom",
+            "name": "constant.numeric.alias.aot", 
+            "match": "\\([^)]*\\)"
+        },
+        {
+            "name": "support.type.literal.aot",
             "match": "`[^`]*`"
         },
         {
-            "name": "string.note.custom",
-            "match": "\"([^\"]*)\""
+            "name": "comment.line.map.aot",
+            "match": "\\.{3}.*$"
         },
         {
-            "name": "string.unquoted.tilde.custom",
+            "name": "invalid.deprecated.aot",
             "match": "~.*"
         },
         {
-            "name": "string.unquoted.pipe.custom", 
+            "name": "support.type.table.aot", 
             "match": "\\|.*$"
-        },
-        {
-            "name": "string.note.custom",
-            "match": "\\.{3}.*$"
         }
+        
 	],
 	"scopeName": "source.aot"
 }
