@@ -499,16 +499,14 @@ Focus: **what the system does**, decomposed as a tree.
 
 ### Naming Rules
 
-- **Classifications** (types): conventionally nouns only, expressed as example ideas → `- Payment Type`
-- **Functions** (actions): verb + qualified object → `Calculate Payment`
-- One verb per function, matched to its object
-- Name every function objectively, according to its essence
+- **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
+- **Types**: conventionally nouns only, expressed as example ideas → `- Payment Type`
 
 ### Forbidden in Names
 
 - "And" (split the function)
 - Vague words for services ("manage", "ensure"), performance ("good", "acceptable") and information management ("information", "data", "content", "info")
-- no policically loaded words ("Business", "IT", "Management", "Support", or "Execution")
+- Political words ("Business", "IT", "Management", "Support", or "Execution")
 - Flow words ("then", "next")
 
 ### Decomposition Rules
