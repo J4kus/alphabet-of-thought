@@ -122,7 +122,7 @@ The aspect taxonomy derives from Aristotle's *Categories*; and modern interpreta
 
 Example
 
-```
+```aot
 last update time: 2026-03-31
 measurement interval: Quarterly
 Mike
@@ -187,7 +187,7 @@ John
 
 The concepts used in the Motivation aspect:
 
-```
+```aot
 Measurement
     superordinate measurement: None
     name
