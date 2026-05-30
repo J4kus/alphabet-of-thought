@@ -1,18 +1,22 @@
 # Alpha (.aot)
 
-Alpha is a text-based language for representing knowledge as a tree of indented text.
+In the 17th century, Gottfried Wilhelm Leibniz proposed an *alphabetum cogitationum humanarum*, an alphabet of human thought. His idea: every concept reducible to primitive elements, every complex idea expressible as a combination of those elements, every argument verifiable like arithmetic. He never built it.
 
-Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part was never storage — it's working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
+Alpha is the digital version of that idea.
 
-It rests on three observations:
+It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part was never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
-- You never think from nothing. Every new thought extends structures you already have.
-- A thought is only clear once it connects to other thoughts. An *idea* in isolation isn't yet an idea; the *connections* make it one.
-- Knowledge holds its shape best as a *tree* of plain text — not prose, not diagrams, not code. Prose hides structure, diagrams don't scale, and code is written for machines.
+Three observations drove its design:
 
-Once a shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone is extending the same structure rather than rebuilding it in their heads. And once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
+- You never think from nothing. Every new thought extends structures you already know.
+- A thought only becomes clear once it connects to other thoughts. An *idea* in isolation is not yet an idea; the *connections* make it one.
+- Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 
-It's built for the people who do this for a living: knowledge workers, business documentation, and enterprise architecture.
+Alpha is a human-first interface. It compiles to a token-connection-value triple, not binary.
+
+Once a shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
+
+Built for people who do this for a living: knowledge workers, business analysts, and enterprise architects.
 
 ## Example
 
@@ -20,9 +24,11 @@ It's built for the people who do this for a living: knowledge workers, business 
 Person
     full name
     age
-    - Mark Zuckerberg
-        full name: Mark Zuckerberg
-        age: 40
+    - Gottfried Wilhelm Leibniz
+        full name: Gottfried Wilhelm Leibniz
+        known for: Alphabet of human thought
+
+        age: 70
 ```
 
 ## File Format
@@ -30,11 +36,11 @@ Person
 - Extension: `.aot`
 - Indentation: exactly 4 spaces per level (Do NOT use tabs)
 - Every line is a node
-- The **file name is the root concept**. Do not repeat it as the first line — the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
+- The **file name is the root concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
 
 ## Node Types
 
-Node types and relationships are determined entirely by capitalisation, punctuation, and indentation — never by explicit keywords.
+Node types and relationships are determined entirely by capitalisation, punctuation, and indentation, never by explicit keywords.
 
 ### Context (Structure)
 
@@ -42,7 +48,7 @@ Node types and relationships are determined entirely by capitalisation, punctuat
 |-----------|------------------|---------|-------------|---------|
 | **Concept** | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Person` |
 | **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
-| **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative name or description for an idea | If some or all of an attribute's trailing words match a concept, those words act as an alias — no parentheses required | `(Natural Person)`, `(natural person)` |
+| **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative name or description for an idea | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
 | **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | Especially useful for describing terms or recording supplementary information | `... irrelevant data not included` |
 
 ### Content (Data)
@@ -50,9 +56,9 @@ Node types and relationships are determined entirely by capitalisation, punctuat
 | Node Type | How to Recognise | Purpose | Example |
 |-----------|------------------|---------|---------|
 | **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
-| **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value | `- Mark Zuckerberg` or `Mark Zuckerberg` |
+| **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value | `- Gottfried Wilhelm Leibniz` or `Gottfried Wilhelm Leibniz` |
 
-> **Critical**: The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute — even if it reads like a sentence or a list item. Plain indented text like `outcomes` is an **attribute**, not an example. To make it an example, write `- outcomes`.
+> **Critical**: The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute, even if it reads like a sentence or a list item. Plain indented text like `outcomes` is an **attribute**, not an example. To make it an example, write `- outcomes`.
 
 ## Relationships
 
@@ -62,17 +68,17 @@ Node types and relationships are determined entirely by capitalisation, punctuat
 | has-a | Indent attribute under Concept | `Person` → indent → `full name` |
 | value-is | Colon after term | `full name: Gottfried Leibniz` |
 | has-another-name | Parentheses | `Person (Natural Person)` |
-| has-example | Dash prefix under concept | `Person` → indent → `- Mark Zuckerberg` |
+| has-example | Dash prefix under concept | `Person` → indent → `- Gottfried Wilhelm Leibniz` |
 | attribute-is-a-concept | Attribute name (or last word) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept |
-| default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Mark Zuckerberg` — value references the example |
+| default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example |
 
 ## How to Decide: Concept vs Example vs Attribute
 
-This is the hardest part. Apply these tests in order:
+Correct classification here is what separates a model that communicates from one that merely stores. Apply these tests in order:
 
 ### 1. Exhaustion test (Concept vs Example)
 
-If the children together **partition** the parent — every instance of the parent falls into exactly one child — they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
+If the children together **partition** the parent, such that every instance of the parent falls into exactly one child, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
 
 ### 2. Abstraction test (Concept vs Example)
 
@@ -80,13 +86,15 @@ If the children together **partition** the parent — every instance of the pare
 
 ### 3. Attributes describe, they don't classify
 
-Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes — an attribute may have its own children: examples, concepts, values, or further attributes.
+Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: examples, concepts, values, or further attributes.
 
 ## Style Rules
 
-- Use full words — never abbreviate
+These rules keep a model readable and unambiguous. Violating them is how two people end up with two different mental models of the same file.
+
+- Use full words, never abbreviate
 - Fix all misspellings
-- One name per thing — never use synonyms
+- One name per thing, never use synonyms
 - Always singular form: `Person` not `People`
 - Use the most general accurate term
 - Remove redundant concepts
@@ -96,6 +104,8 @@ Attributes are lowercase properties a concept **has**. They are not necessarily 
 - Examples placed higher in the tree are preferable
 
 ## Design Rules
+
+The following rules govern how Alpha handles inheritance, incomplete models, and the tension between structure and data.
 
 - **Inheritance**: Child concepts inherit all parent attributes (never examples)
 - **Polymorphism**: Child concepts may add attributes beyond the parent
@@ -116,21 +126,26 @@ Parent
 
 ## What NOT to Do
 
-- Do NOT use tabs — 4 spaces only
+- Do NOT use tabs; 4 spaces only
 - Do NOT abbreviate or use synonyms
 - Do NOT create sub-concepts when examples + attributes suffice
 - Do NOT use plural concept names
 - Do NOT add structure without meaningful value
 - Do NOT leave misspellings uncorrected
-- Do NOT use explicit relationship keywords — indentation expresses all relationships
-- Do NOT write examples without the `- ` prefix — a line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an example
+- Do NOT use explicit relationship keywords; indentation expresses all relationships
+- Do NOT write examples without the `- ` prefix. A line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an example
 
 ## Aspects
-The aspect taxonomy derives from Aristotle's *Categories*; and modern interpretations. Adopting it brings discipline and rigour to your modelling. Aspects require no special `.aot` syntax — this section explains how to apply them.
+
+The aspect taxonomy derives from Aristotle's *Categories* and modern interpretations. Adopting it brings discipline and rigour to your modelling. Aspects require no special `.aot` syntax; this section explains how to apply them.
 
 ---
 
 ## Motivation Aspect
+
+Focus: **what and why things are measured**, and who is responsible for them.
+
+The Motivation Aspect answers two questions at once: what are we trying to achieve, and who owns it? It models stakeholders alongside their measurements, so that every number has a name behind it and every name has a number in front of it.
 
 Example
 
@@ -183,12 +198,12 @@ John
             actual: 265,235
             target: 200,000
             measurement operation used: Observation
-            superordiate influance: Negative
+            superordinate influence: Negative
         - business cases handled
             actual: 23
             target: 56
             measurement operation used: Observation
-            influence on superordiate measure: Negative
+            influence on superordinate measure: Negative
     - quality
         actual: A
         target: C
@@ -262,7 +277,7 @@ Measurement
             offset scaling magnitude
                 - 0
                     is integer: Yes
-                - ... anything other then 0
+                - ... anything other than 0
                     is integer: No
             numeric base: 10
             is signed: true
@@ -297,11 +312,11 @@ Measurement
             - 1
                 ... quantity
             - container
-                ... more then one
+                ... more than one
                 - 2
                 - ...
             - stream
-                ... unknown quanity
+                ... unknown quantity
                 end of stream
                     ... signifier for simple value streams
                     ... for complex streams like video or audio, use reference to external specification
@@ -336,7 +351,7 @@ Stakeholder
         gender
         home language
         nationality (country)
-        residencial country
+        residential country
         is living
         is sa citizen
         occupation status
@@ -397,9 +412,9 @@ Stakeholder
         Continent
         Country
             short name
-            common monetory area
-            dailing code
-        Provice
+            common monetary area
+            dialling code
+        Province
         Suburb
         Street And Number
     Address
@@ -418,7 +433,7 @@ Stakeholder
         Email
             is personally owned
             email address
-            receipent name
+            recipient name
         Physical Address
             code
             country
@@ -448,7 +463,7 @@ Focus: **when and how things happen**.
 
 ```aot
 Time: 12:00
-    Syncronuous
+    Synchronous
         Fire and Forget Time
             Date
                 - 2026-03-15
@@ -494,7 +509,7 @@ Time: 12:00
             minimum duration
             maximum duration
     Concurrent
-        Asyncronous
+        Asynchronous
         Multithread
         ...
     timeline
@@ -511,8 +526,8 @@ Focus: **what the system does**, decomposed as a tree.
 
 ### Naming Rules
 
-- **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
-- **Types**: conventionally nouns only, expressed as example ideas → `- Payment Type`
+- **Objective ("action")**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
+- **Types ("passion")**: conventionally nouns only, expressed as example ideas → `- Payment Type`
 
 ### Forbidden in Names
 
@@ -521,12 +536,12 @@ Focus: **what the system does**, decomposed as a tree.
 - Political words ("Business", "IT", "Management", "Support", or "Execution")
 - Flow words ("then", "next")
 
-### Decomposition Rules
+### Decomposition Rules for Objectives
 
-- 3 to 7 sub-functions per parent
-- Ask **Why** does a sub-function exist? The answer should be its parent
-- Ask **How** is a parent achieved? Exclusively through its children
-- All sub-functions together fully achieve the parent function
+- 3 to 7 sub-objectives per parent objective
+- Ask **Why** does a sub-objectives exist? The answer should be its parent
+- Ask **How** is a parent objectives achieved? Exclusively through its children
+- All sub-objectives together fully achieve the parent objectives
 
 ### Pitch Level
 
@@ -540,7 +555,7 @@ Attributes may be attached to functions to describe them more precisely.
 
 ## Domain Aspect
 
-Focus: **what data and things exist** (concepts, attributes, business rules) and the events that trigger them.
+Focus: **what data and things exist** — concepts, attributes, business rules, and the events that trigger them.
 
 ### Non-Tree Structures
 
@@ -590,7 +605,7 @@ Object
 - Each Concept = one record type with a fixed number of attributes
 - Non-nullable attributes listed first; attribute order otherwise meaningless
 - A relational attribute referencing another Concept uses that Concept's name (lowercase)
-- No many-to-many relations on attributes — use Event Associations
+- No many-to-many relations on attributes; use Event Associations
 - Every concept and attribute name must be unique
 
 ### Cleanup Checklist
@@ -598,11 +613,11 @@ Object
 - Identify functional dependencies between attributes
 - Use subset data to clarify scope
 - Use aliases to describe concepts
-- Use full (unabbreviated) names — final names must be unique and implementable
+- Use full, unabbreviated names; final names must be unique and implementable
 - Prefer fewer concepts with more examples over many concepts with few examples
 - Prioritise concepts by relevance
 - Create parent concepts to group related children
-- Look for likeness/differences to form general structures
+- Look for likenesses and differences to form general structures
 - Remove attributes that do not serve the model
 
 ### Armstrong's Axioms (Dependency Inference)
@@ -610,7 +625,7 @@ Object
 | Rule | In Alpha Terms |
 |------|----------------|
 | Reflexivity | A concept determines any subset of its own attributes |
-| Augmentation | Adding an attribute to a Concept referenceing another concept preserves a dependency |
+| Augmentation | Adding an attribute to a Concept referencing another concept preserves a dependency |
 | Transitivity | If Concept Z depends on Concept Y and Concept Y depends on Concept X, then Concept Z depends on Concept X |
 | Union | Multiple dependencies from same source combine into one |
 | Decomposition | A composite dependency breaks into individual parts |
@@ -635,7 +650,7 @@ Z
 
 ## Network Aspect
 
-Focus: **where things reside** (physical and logical).
+Focus: **where things reside**, both physically and logically.
 
 ```aot
 Location
@@ -669,15 +684,17 @@ Repository Structure
 
 Focus: the **integration layer** that connects all other aspects into executable specifications.
 
+A workflow is not a diagram or a flowchart. It is a precise specification of a function that references the domain, timing, stakeholders, and location that make it real. Think of it as the executable surface of a model.
+
 ### Core Questions
 
 | Question | Aspect | Specify |
 |----------|--------|---------|
 | What must be done? | Function | The function being executed |
 | What data is needed? | Domain | Inputs, outputs, data stores |
-| Who must do it? | Metric | Role, ownership |
-| When must it be done? | Event | Schedule, triggers |
-| Where must it be done? | Location | Execution and data location |
+| Who must do it? | Motivation | Role, ownership |
+| When must it be done? | Timing | Schedule, triggers |
+| Where must it be done? | Network | Execution and data location |
 | In what format? | Object | Delivery mechanism, format |
 | How must it be done? | Process | Logic, algorithms |
 
