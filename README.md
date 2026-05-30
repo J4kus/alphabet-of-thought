@@ -462,39 +462,27 @@ Stakeholder
 Focus: **when and how things happen**.
 
 ```aot
-
-Workload
-    result
-    is done
-    exception
-    Thread
-        maximum worker pool: 1
-        Syncronous Thread
+Workload (Exclusive Window)
+    Concurrent (Single-Threading)
+        Synchronous
             - Lock
                 ... only one thread may hold it at a time
             - Reentrant Lock
                 ... the holding thread may acquire it repeatedly
-            - Semaphore
-                permit count
-                ... allows a fixed number of threads through at once
             - Event
                 ... one thread sets a flag, others wait on it
             - Condition
                 ... a thread waits until another notifies it
             - Barrier
                 ... releases all parties together once the count arrives
-            risk
-                - Race Condition
-                    ... unsynchronised access to shared memory corrupts state
-                - Deadlock
-                        ... two threads each wait on a lock the other holds
-        Asynchronous Thread (Wrapped Coroutine)
-            wrapped synchronous thread
-            is suspended: no
+        Asynchronous
+            wrapped synchronous
+            waiting for: external
             suspension event
             awaiting event
             wrapped coroutine
-    Parallel
+        maximum worker pool: 1
+    Parallel (Multithreading)
         maximum worker pool: many
         is worker pool count known: no
         processing rule
@@ -502,9 +490,20 @@ Workload
                 has lock: yes
             - Dedicated
                 has lock: no
+            - Semaphore
+                permit count
+                ... allows a fixed number of threads through at once
         is memory shared in pool of workers
             - Thread
             - Process
+        risk
+            - Race Condition
+                ... unsynchronised access to shared memory corrupts state
+            - Deadlock
+                    ... two threads each wait on a lock the other holds
+    result
+    is done
+    exception
 Duration
     - Milestone
         interval count: 0
