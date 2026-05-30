@@ -478,6 +478,7 @@ Duration
         interval count: 1
     - Cycle
         interval count: 2 or more
+        ... most expensive
     start condition
     interval: 5 seconds
     timeout
@@ -491,9 +492,13 @@ Duration
         - Failed Trigger
         - Finalised
     ...
+    Maintain a model of system variety
+    Name the dependency
+    
+    
 Workload (Exclusive Window)
     Concurrent (Single-Threading)
-        Synchronous
+        Synchronous (Lock)
             - Lock
                 ... only one thread may hold it at a time
             - Reentrant Lock
@@ -504,6 +509,44 @@ Workload (Exclusive Window)
                 ... a thread waits until another notifies it
             - Barrier
                 ... releases all parties together once the count arrives
+            fix dependency
+                - shared state
+                    - delete (design away)
+                    - clamp into single complex
+                        - no shared medium
+                    - coordiante once, offline, by convention
+                        ... not at runtime
+                    - pass messages and isolate (gaurd)
+                        - separate service
+                        - hide information
+                    - reduce costs
+                        - free riding
+                        - unreliable channels sacrifice consistancy or availablity
+                - externalise
+                    - precompute
+                    - parallelise
+                    - asyncrononise
+                    - defer
+                - add cheaper resources
+                    ... the bill arrives later
+                    - diversified copies
+                        - multiversion concurrency
+                        - readers never block writers
+                        - (no lock at all)
+                        - validate on commit only
+                    - buffer ("Slack")
+                        - me
+                        - another party
+                    - fastest gun redundency
+                        - fire at several replicas and take first answer
+                        - multiple nodes with same data
+                    - speculate and reconcile on rare miss
+                        - optimistic concurrency
+                - decorrelate the need (activity based costing)
+                - satisficing (good enough optimisation of requirements)
+                    - net and clear, collapse the obligation graph
+                - outsource dependency to whoever can handle it better
+                - substituate collateral
         Asynchronous
             wrapped synchronous
             waiting for: external
