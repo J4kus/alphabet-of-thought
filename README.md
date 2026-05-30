@@ -462,60 +462,79 @@ Stakeholder
 Focus: **when and how things happen**.
 
 ```aot
-Time: 12:00
-    Synchronous
-        Fire and Forget Time
-            Date
-                - 2026-03-15
-                precision: no time component
-            Date And Time
-                - 2026-03-15 12:00
-                precision: no seconds
-            Precise Date And Time: 2026-03-15 12:00:00:00000
-                precision: microseconds
-        Period
-            Time Box
-            Fire and Wait (Synchronous)
-                end response event
-                timeout duration: 0 seconds
-                - Trade
-                    execution start precise date and time
-                    settlement end date
-            Polling
-                end response event
-                timeout duration: 30 seconds
-                polling interval: 24 hours
-            start time
-            end time
-            status
-                - Time Set
-                - Cleared
-                - Triggered
-                - Failed Trigger
-                - Finalised
-            Interval
-                - Scheduled Interval
-                    - Cron
-                    - Batch
-                    interval: 24 hours
-                    - ...
-                start time: now
-                interval: 5 minutes
-            precision: in today but no seconds
-            displacement from greenwich meridian hours: +0
-        Duration: 5 hours
-            average duration
-            modal duration
-            minimum duration
-            maximum duration
-    Concurrent
-        Asynchronous
-        Multithread
-        ...
-    timeline
-Event
-    time
+
+Workload
+    result
+    is done
+    exception
+    Thread
+        maximum worker pool: 1
+        Syncronous Thread
+            - Lock
+                ... only one thread may hold it at a time
+            - Reentrant Lock
+                ... the holding thread may acquire it repeatedly
+            - Semaphore
+                permit count
+                ... allows a fixed number of threads through at once
+            - Event
+                ... one thread sets a flag, others wait on it
+            - Condition
+                ... a thread waits until another notifies it
+            - Barrier
+                ... releases all parties together once the count arrives
+            risk
+                - Race Condition
+                    ... unsynchronised access to shared memory corrupts state
+                - Deadlock
+                        ... two threads each wait on a lock the other holds
+        Asynchronous Thread (Wrapped Coroutine)
+            wrapped synchronous thread
+            is suspended: no
+            suspension event
+            awaiting event
+            wrapped coroutine
+    Parallel
+        maximum worker pool: many
+        is worker pool count known: no
+        processing rule
+            - Queue 
+                has lock: yes
+            - Dedicated
+                has lock: no
+        is memory shared in pool of workers
+            - Thread
+            - Process
+Duration
+    - Milestone
+        interval count: 0
+        Time: 15:00
+            precision: no seconds
+            date: today
+                Date
+                precision:  no time component
+                Date and Time
+                    precision: no seconds
+                Precise Date and Time
+                    precision: microseconds
+    - Period
+        interval count: 1
+    - Cycle
+        interval count: 2 or more
+    start condition
+    interval: 5 seconds
+    timeout
+    polling duration
+    precision: up to minutes
+    displacement from greenwich meridian hours: +0
+    status
+        - Time Set
+        - Cleared
+        - Triggered
+        - Failed Trigger
+        - Finalised
     ...
+
 ```
 
 ---
