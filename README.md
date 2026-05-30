@@ -462,6 +462,35 @@ Stakeholder
 Focus: **when and how things happen**.
 
 ```aot
+Duration
+    - Milestone
+        interval count: 0
+        Time: 15:00
+            precision: no seconds
+            date: today
+                Date
+                precision:  no time component
+                Date and Time
+                    precision: no seconds
+                Precise Date and Time
+                    precision: microseconds
+    - Period
+        interval count: 1
+    - Cycle
+        interval count: 2 or more
+    start condition
+    interval: 5 seconds
+    timeout
+    polling duration
+    precision: up to minutes
+    displacement from greenwich meridian hours: +0
+    status
+        - Time Set
+        - Cleared
+        - Triggered
+        - Failed Trigger
+        - Finalised
+    ...
 Workload (Exclusive Window)
     Concurrent (Single-Threading)
         Synchronous
@@ -504,35 +533,7 @@ Workload (Exclusive Window)
     result
     is done
     exception
-Duration
-    - Milestone
-        interval count: 0
-        Time: 15:00
-            precision: no seconds
-            date: today
-                Date
-                precision:  no time component
-                Date and Time
-                    precision: no seconds
-                Precise Date and Time
-                    precision: microseconds
-    - Period
-        interval count: 1
-    - Cycle
-        interval count: 2 or more
-    start condition
-    interval: 5 seconds
-    timeout
-    polling duration
-    precision: up to minutes
-    displacement from greenwich meridian hours: +0
-    status
-        - Time Set
-        - Cleared
-        - Triggered
-        - Failed Trigger
-        - Finalised
-    ...
+
 
 ```
 
