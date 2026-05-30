@@ -21,13 +21,12 @@ Built for people who do this for a living: knowledge workers, business analysts,
 ## Example
 
 ```aot
-Person
+Person (Natural Person)
     full name
     age
     - Gottfried Wilhelm Leibniz
         full name: Gottfried Wilhelm Leibniz
         known for: Alphabet of human thought
-
         age: 70
 ```
 
@@ -115,13 +114,14 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 
 ```aot
 Parent
-    attribute
+    attribute: normal value
     Child
-        ... inherits `attribute` from Parent
+        ... inherits `attribute` and `normal value` from Parent
         extra attribute
         - Child Example
-            attribute: value
+            attribute: suprising value
             extra attribute: value
+            ... Child Example overrides `normal value` from `attribute` and replaces it with `suprising value` 
 ```
 
 ## What NOT to Do
@@ -457,7 +457,7 @@ Stakeholder
 
 ---
 
-## Timing Aspect
+## Timeline Aspect
 
 Focus: **when and how things happen**.
 
