@@ -15,8 +15,7 @@ It is a text-based language for representing knowledge as a tree of indented tex
 - An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 ### The Aristotelian Foundation
-- **Priority of the individual.** Ideas *acting on* are the *schemas* of our thoughts, and the ideas *being acted upon* are the *content* that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.  Software practice treats the schema as primary and the rest as content. Aristotle holds, and Alpha agrees, that the reverse is true. The **Example** is what most fully *is* — it is *primary*. The **Concept** is only *secondary*: real, but said of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled; it is the ground every schema stands on.
-- The alphabet of thought ontology combines Aristotle's *Categories*, *causes* and Kipling's *Six Serving Men* to support disciplined, rigorous thought.
+- The alphabet of thought ontology combines Aristotle's *Categories*, *causes*, *Prior Analytics*, and  Kipling's *Six Serving Men*,  to support disciplined, rigorous thought.
 
 Alpha models things that *come to be* — processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic aetiology.
 
@@ -26,7 +25,7 @@ Alpha models things that *come to be* — processes that transform resources. Th
 | **Material** — that out of which | Timeline | Workload | Duration | When |
 | **Formal** — the form, the essence | Function | Activity | Type | What |
 | **Efficient** — the agent and the means | Workflow | Principle | Agent | How |
-| **Format** — the format in which it resides | Network | Location | Entity | Where |
+| **Validity** — the format in which it resides | Network | Location | Entity | Where |
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -57,6 +56,8 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 ### Ideas
 
+**Priority of the individual.** Ideas *acting on* are the *schemas* of our thoughts, and the ideas *being acted upon* are the *content* that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.  Software practice treats the schema as primary and the rest as content. Aristotle holds, and Alpha agrees, that the reverse is true. The **Example** is what most fully *is* — it is *primary*. The **Concept** is only *secondary*: real, but said of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled; it is the ground every schema stands on.
+
 #### Content (Being acted upon)
 
 | Node Type | How to Recognise | Purpose | Example |
@@ -72,6 +73,8 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 | **Concept** | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Person` |
 | **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
 | **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative or derived name for an idea (a name taken from another, as *the brave* from *bravery*) | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
+
+
 
 ### Connections
 
