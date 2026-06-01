@@ -1,6 +1,9 @@
 # Alpha (.aot)
 
-In the 17th century, Gottfried Wilhelm Leibniz proposed an *alphabetum cogitationum humanarum*, an alphabet of human thought. His idea: every concept reducible to primitive elements, every complex idea expressible as a combination of those elements, every argument verifiable like arithmetic. He never built it.
+Gottfried Wilhelm Leibniz proposed an alphabet of human thought. The idea he never built: 
+- every concept reducible to primitive elements,
+- every complex idea expressible as a combination of those elements,
+- every argument verifiable like arithmetic.
 
 Alpha is the digital version of that idea.
 
@@ -9,10 +12,10 @@ It is a text-based language for representing knowledge as a tree of indented tex
 Three observations drove its design:
 
 - You never think from nothing. Every new thought extends structures you already know.
-- A thought only becomes clear once it connects to other thoughts. An *idea* in isolation is not yet an idea; the *connections* make it one.
+- An *idea* becomes clear after the *connections* to other ideas is defined
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 
-Alpha is a human-first interface. It compiles to a token-connection-value triple, not binary.
+Alpha is a human-first interface. It compiles to a idea-connection key-value store, not binary.
 
 Once a shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -55,21 +58,7 @@ Node types and relationships are determined entirely by capitalisation, punctuat
 | Node Type | How to Recognise | Purpose | Example |
 |-----------|------------------|---------|---------|
 | **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
-| **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value | `- Gottfried Wilhelm Leibniz` or `Gottfried Wilhelm Leibniz` |
-
-> **Critical**: The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute, even if it reads like a sentence or a list item. Plain indented text like `outcomes` is an **attribute**, not an example. To make it an example, write `- outcomes`.
-
-## Relationships
-
-| Relationship | Expression | Example |
-|--------------|------------|---------|
-| is-a | Indent Concept under Concept | `Organisation` → indent → `Business` |
-| has-a | Indent attribute under Concept | `Person` → indent → `full name` |
-| value-is | Colon after term | `full name: Gottfried Leibniz` |
-| has-another-name | Parentheses | `Person (Natural Person)` |
-| has-example | Dash prefix under concept | `Person` → indent → `- Gottfried Wilhelm Leibniz` |
-| attribute-is-a-concept | Attribute name (or last word) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept |
-| default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example |
+| **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
 
 ## How to Decide: Concept vs Example vs Attribute
 
@@ -77,15 +66,28 @@ Correct classification here is what separates a model that communicates from one
 
 ### 1. Exhaustion test (Concept vs Example)
 
-If the children together **partition** the parent, such that every instance of the parent falls into exactly one child, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
+If the children together **partition** the parent, such that every child is a subtype of the parent, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
 
 ### 2. Abstraction test (Concept vs Example)
 
-**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
+**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world examples of the parent you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
 
 ### 3. Attributes describe, they don't classify
 
 Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: examples, concepts, values, or further attributes.
+
+## Relationships
+
+| Relationship | Expression | Example |
+|--------------|------------|---------|
+| is-a | Indent Concept under a term | `Organisation` → indent → `Business` |
+| has-a | Indent attribute under a term  | `Person` → indent → `full name` |
+| value-is | Colon after a term | `full name: Gottfried Leibniz` |
+| has-another-name | Parentheses after a term | `Person (Natural Person)` |
+| has-example | Indent Dash prefix after a term | `Person` → indent → `- Gottfried Wilhelm Leibniz` |
+| attribute-is-a-concept | Attribute name (or last words) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept |
+| default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example |
+
 
 ## Style Rules
 
@@ -106,11 +108,11 @@ These rules keep a model readable and unambiguous. Violating them is how two peo
 
 The following rules govern how Alpha handles inheritance, incomplete models, and the tension between structure and data.
 
-- **Inheritance**: Child concepts inherit all parent attributes (never examples)
-- **Polymorphism**: Child concepts may add attributes beyond the parent
+- **Inheritance**: Child concepts and examples inherit all parent attributes (never examples)
+- **Polymorphism**: Child concepts and examples may add attributes beyond the parent
 - **Incompleteness**: Use `... explanation` (Map) to mark intentionally incomplete sections. Normal and accepted.
-- **Data over structure**: Prefer examples + attributes + defaults over creating new sub-concepts. Keep the concept tree lean.
-- **Assimilate facts**: Convert raw data into example-attribute-value relationships
+- **Data over structure**: Prefer examples + attributes + defaults over creating new concept. Keep the concept tree lean.
+- **Assimilate facts**: Convert raw data into example-attribute-value relationships under a concept
 
 ```aot
 Parent
@@ -119,9 +121,13 @@ Parent
         ... inherits `attribute` and `normal value` from Parent
         extra attribute
         - Child Example
-            attribute: suprising value
+            attribute: new value
+                ... `- Child Example` overrides `normal value` from `attribute` and replaces it with `new value`
             extra attribute: value
-            ... Child Example overrides `normal value` from `attribute` and replaces it with `suprising value` 
+                ... `- Child Example` overrides assigns a default for `extra attribute`
+            child example attribute
+                ... `- Child Example` adds a child exmaple attribute that isn't present in the `Child` concept
+            
 ```
 
 ## What NOT to Do
