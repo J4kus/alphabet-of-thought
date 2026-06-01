@@ -11,14 +11,14 @@ It is a text-based language for representing knowledge as a tree of indented tex
 
 ## Newtonian
 - You never think from nothing. Every new thought extends structures you already know.
-## Pragmatic 
+## Pragmatic
 - An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 ## The Aristotelian Foundation
-- Ideas *acting on* are the *schemas* of our thoughts, and the ideas *being acted upon* are the *content* that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
-- The alphabet of thought ontology combines Aristotle's *Categories*, *causes* and Kipling's *Six Serving Men* to support disciplined, rigorous thought. 
+- **Priority of the individual.** Ideas *acting on* are the *schemas* of our thoughts, and the ideas *being acted upon* are the *content* that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.  Software practice treats the schema as primary and the rest as content. Aristotle holds, and Alpha agrees, that the reverse is true. The **Example** is what most fully *is* — it is *primary*. The **Concept** is only *secondary*: real, but said of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled; it is the ground every schema stands on.
+- The alphabet of thought ontology combines Aristotle's *Categories*, *causes* and Kipling's *Six Serving Men* to support disciplined, rigorous thought.
 
-Alpha models things that *come to be* — processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic etiology.
+Alpha models things that *come to be* — processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic aetiology.
 
 | Cause | Category | Acting on | Being acted upon | Serving man's interrogative |
 |-----------|-----------|------------------|------------------|-----------------------------|
@@ -26,7 +26,7 @@ Alpha models things that *come to be* — processes that transform resources. Th
 | **Material** — that out of which | Timeline | Workload | Duration | When |
 | **Formal** — the form, the essence | Function | Activity | Type | What |
 | **Efficient** — the agent and the means | Workflow | Principle | Agent | How |
-| **Place** | Network | Location | Entity | Where |
+| **Format** — the format in which it resides | Network | Location | Entity | Where |
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -73,7 +73,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 | **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
 | **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative or derived name for an idea (a name taken from another, as *the brave* from *bravery*) | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
 
-**Priority of the individual.** Software practice treats the schema as primary and the rest as content. Aristotle holds, and Alpha agrees, that the reverse is true. The **Example** is what most fully is *primary*. The **Concept** is only *secondary*. Real, but said-of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled, it is the ground every schema stands on.
+
 
 
 ### Connections
@@ -117,7 +117,7 @@ This is Aristotle's fourfold division of being. *Said-of* is predication — the
 
 ## Classical Style Rules
 
-These rules keep a model readable and unambiguous. Violating them is how two people end up with two different mental models of the same file. 
+These rules keep a model readable and unambiguous. Violating them is how two people end up with two different mental models of the same file.
 
 - You place a thing by naming its nearest kind (the *genus*, its parent) together with the qualifier that sets it apart from its siblings (the *differentia*).
 - One term with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
@@ -184,7 +184,7 @@ The Motivation Primitive answers two questions at once: what are we trying to ac
 
 Treat motivation and responsibility as one primitive: this prevents conflating the goal with who owns it.
 
-Alpha folds **ownership** (divourced from the agent / efficient cause) into **Motivation** (a stakeholder owning a measurement).
+Alpha folds **ownership** (divorced from the agent / efficient cause) into **Motivation** (a stakeholder owning a measurement).
 
 
 #### Potentiality and actuality
