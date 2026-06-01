@@ -7,14 +7,14 @@ Alpha is the digital version of Gottfried Wilhelm Leibniz's proposed alphabet of
 
 It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part is never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
-# The Five Foundations
+## The Five Foundations
 
-## Newtonian
+### Newtonian
 - You never think from nothing. Every new thought extends structures you already know.
-## Pragmatic
+### Pragmatic
 - An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
-## The Aristotelian Foundation
+### The Aristotelian Foundation
 - **Priority of the individual.** Ideas *acting on* are the *schemas* of our thoughts, and the ideas *being acted upon* are the *content* that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.  Software practice treats the schema as primary and the rest as content. Aristotle holds, and Alpha agrees, that the reverse is true. The **Example** is what most fully *is* — it is *primary*. The **Concept** is only *secondary*: real, but said of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled; it is the ground every schema stands on.
 - The alphabet of thought ontology combines Aristotle's *Categories*, *causes* and Kipling's *Six Serving Men* to support disciplined, rigorous thought.
 
@@ -72,9 +72,6 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 | **Concept** | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Person` |
 | **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
 | **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative or derived name for an idea (a name taken from another, as *the brave* from *bravery*) | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
-
-
-
 
 ### Connections
 
@@ -372,11 +369,9 @@ Measurement
         maximum bit count: infinite
         is constant value: No
     superordinate measurement influence
-        - Invariant
-        - Variant
-            - Positive
-            - Negative
-        - Unknown
+        - Red
+        - Amber
+        - Green
         - None
     instrument
     author
