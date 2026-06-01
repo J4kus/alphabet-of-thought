@@ -15,9 +15,9 @@ Five observations drove its design:
 - Ideas *acting on* are the schemas of our thoughts, and the ideas *being acted upon* are the data that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
 - The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to help disciplined and rigorous thought.
 
-| Primitive | Acting on | Being acted upon | Serving Men's interrogative |
+| Category | Acting on | Being acted upon | Serving Men's interrogative |
 |-----------|-----------|------------------|-----------------------------|
-| Motivation | People | Measurements | Who & why |
+| Motivation | Stakeholder | Measurements | Who & why |
 | Timeline | Workload | Duration | When |
 | Function | Goal | Type | What |
 | Network | Location | Entity | Where |
@@ -46,37 +46,40 @@ Person (Natural Person)
 - Every line is a node
 - The **file name is the root concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
 
-## Node Types
+## Ideas and connections
 
-Node types and relationships are determined entirely by capitalisation, punctuation, and indentation, never by explicit keywords.
+Ideas and connections are determined entirely by capitalisation, punctuation, and indentation, never by explicit keywords. The only keywords are the Examples.
 
-### Schemas (Acting on)
+### Ideas
+
+#### Schemas (Acting on)
 
 | Node Type | How to Recognise | Purpose | Extra Rules | Example |
 |-----------|------------------|---------|-------------|---------|
 | **Concept** | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Person` |
 | **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
 | **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative name or description for an idea | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
-| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | Especially useful for describing terms or recording supplementary information | `... irrelevant data not included` |
 
-### Content (Being acted upon)
+
+#### Content (Being acted upon)
 
 | Node Type | How to Recognise | Purpose | Example |
 |-----------|------------------|---------|---------|
 | **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
 | **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
+| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information  | `...Especially useful for describing terms or recording supplementary information` |
 
-## Relationships
+### Connections
 
-| Relationship | Expression | Example |
-|--------------|------------|---------|
-| is-a | Indent Concept under a term | `Organisation` → indent → `Business` |
-| has-a | Indent attribute under a term  | `Person` → indent → `full name` |
-| value-is | Colon after a term | `full name: Gottfried Leibniz` |
-| has-another-name | Parentheses after a term | `Person (Natural Person)` |
-| has-example | Indent Dash prefix after a term | `Person` → indent → `- Gottfried Wilhelm Leibniz` |
-| attribute-is-a-concept | Attribute name (or last words) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept |
-| default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example |
+|Type| Connections | Expression | Example |
+|----|--------------|------------|---------|
+|Embedded| is-a | Indent Concept under a term | `Organisation` → indent → `Business` |
+|Embedded| has-a | Indent attribute under a term  | `Person` → indent → `full name` |
+|Embedded| value-is | Colon after a term | `full name: Gottfried Leibniz` |
+|Embedded| has-another-name | Parentheses after a term | `Person (Natural Person)` |
+|Embedded| has-example | Indent Dash prefix after a term | `Person` → indent → `- Gottfried Wilhelm Leibniz` |
+|Reference| attribute-is-a-concept | Attribute name (or last words) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept |
+|Reference| default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example |
 
 ## How to Decide: Concept vs Example vs Attribute
 
@@ -153,7 +156,7 @@ Parent
 - Do NOT use plural concept names
 - Do NOT add structure without meaningful value
 - Do NOT leave misspellings uncorrected
-- Do NOT use explicit relationship keywords; indentation expresses all relationships
+- Do NOT use explicit connection keywords; indentation, colons and parentisis expresses all connections
 - Do NOT write examples without the `- ` prefix. A line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an example
 
 ## Primitives
