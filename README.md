@@ -1,11 +1,9 @@
 # Alpha (.aot)
 
-Gottfried Wilhelm Leibniz proposed an alphabet of human thought. The idea he never built:
+Alpha is the digital version of Gottfried Wilhelm Leibniz proposed alphabet of human thought.
 - every concept reducible to primitive elements,
 - every complex idea expressible as a combination of those elements,
 - every argument verifiable like arithmetic.
-
-Alpha is the digital version of that idea.
 
 It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part was never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
@@ -15,19 +13,17 @@ Five observations drove its design:
 - An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 - Ideas *acting on* are the schemas of our thoughts, and the ideas *being acted upon* are the data that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
-- The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to help you become disciplined and rigorous in thought.
+- The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to help disciplined and rigorous thought.
 
-| Category | Acting on | Being acted upon | Serving Men's interrogative |
-|-|-|-|-|
+| Primitive | Acting on | Being acted upon | Serving Men's interrogative |
+|-----------|-----------|------------------|-----------------------------|
 | Motivation | People | Measurements | Who & why |
-| Timeline | Duration | Workload | When |
+| Timeline | Workload | Duration | When |
 | Function | Goal | Type | What |
 | Network | Location | Entity | Where |
 | Workflow | Format | Resources | How |
 
-Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary.
-
-Once a shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
+Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea have one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
 Built for people who do this for a living: knowledge workers, business analysts, and enterprise architects.
 
