@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-Gottfried Wilhelm Leibniz proposed an alphabet of human thought. The idea he never built: 
+Gottfried Wilhelm Leibniz proposed an alphabet of human thought. The idea he never built:
 - every concept reducible to primitive elements,
 - every complex idea expressible as a combination of those elements,
 - every argument verifiable like arithmetic.
@@ -17,7 +17,7 @@ Five observations drove its design:
 - Ideas *acting on* are the schemas of our thoughts, and the ideas *being acted upon* are the data that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
 - The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to help you become disciplined and rigorous in thought.
 
-| Category | Acting on | Being acted upon | Serving Men's Primitive interrogative  |
+| Category | Acting on | Being acted upon | Serving Men's interrogative |
 |-|-|-|-|
 | Motivation | People | Measurements | Who & why |
 | Timeline | Duration | Workload | When |
@@ -544,16 +544,16 @@ Workload (Exclusive Window)
                         - no shared medium
                     - coordinate once, offline, by convention
                         ... not at runtime
-                    - pass messages and isolate (gaurd)
+                    - pass messages and isolate (guard)
                         - separate service
                         - hide information
                     - reduce costs
                         - free riding
-                        - unreliable channels sacrifice consistancy or availablity
+                        - unreliable channels sacrifice consistency or availability
                 - externalise
                     - precompute
                     - parallelise
-                    - asyncrononise
+                    - asynchronise
                     - defer
                 - add cheaper resources
                     ... the bill arrives later
@@ -565,7 +565,7 @@ Workload (Exclusive Window)
                     - buffer ("Slack")
                         - me
                         - another party
-                    - fastest gun redundency
+                    - fastest gun redundancy
                         - fire at several replicas and take first answer
                         - multiple nodes with same data
                     - speculate and reconcile on rare miss
@@ -574,7 +574,7 @@ Workload (Exclusive Window)
                 - satisficing (good enough optimisation of requirements)
                     - net and clear, collapse the obligation graph
                 - outsource dependency to whoever can handle it better
-                - substituate collateral
+                - substitute collateral
         Asynchronous
             wrapped synchronous
             waiting for: external
@@ -600,7 +600,7 @@ Workload (Exclusive Window)
             - Race Condition
                 ... unsynchronised access to shared memory corrupts state
             - Deadlock
-                    ... two threads each wait on a lock the other holds
+                ... two threads each wait on a lock the other holds
     result
     is done
     exception
@@ -770,7 +770,7 @@ Z
 
 ## Operations
 
-Focus: the **integration layer** that connects all Primitives together work together in a process to transforms resources. 
+Focus: the **integration layer** that connects all Primitives so they work together in a process that transforms resources.
 
 A workflow is not a diagram or a flowchart. It is a precise specification that references the primitives. Think of it as the executable surface of a model.
 
