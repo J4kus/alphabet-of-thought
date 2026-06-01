@@ -7,21 +7,26 @@ Alpha is the digital version of Gottfried Wilhelm Leibniz's proposed alphabet of
 
 It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part is never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
-Five observations drove its design:
+# The Five Foundations
 
+## Newtonian
 - You never think from nothing. Every new thought extends structures you already know.
+## Pragmatic 
 - An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
-- Ideas *acting on* are the schemas of our thoughts, and the ideas *being acted upon* are the data that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
-- The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to support disciplined, rigorous thought.
+## The Aristotelian Foundation
+- Ideas *acting on* are the *schemas* of our thoughts, and the ideas *being acted upon* are the *content* that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
+- The alphabet of thought ontology combines Aristotle's *Categories*, *causes* and Kipling's *Six Serving Men* to support disciplined, rigorous thought. 
 
-| Category | Acting on | Being acted upon | Serving Men's interrogative |
-|-----------|-----------|------------------|-----------------------------|
-| Motivation | Stakeholder | Measurements | Who & why |
-| Timeline | Workload | Duration | When |
-| Function | Activity | Type | What |
-| Network | Location | Entity | Where |
-| Workflow | Format | Resources | How |
+Alpha models things that *come to be* — processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic etiology.
+
+| Cause | Category | Acting on | Being acted upon | Serving man's interrogative |
+|-----------|-----------|------------------|------------------|-----------------------------|
+| **Final** — for the sake of which | Motivation | Owner | Measurements | Why |
+| **Material** — that out of which | Timeline | Workload | Duration | When |
+| **Formal** — the form, the essence | Function | Activity | Type | What |
+| **Efficient** — the agent and the means | Workflow | Principle | Agent | How |
+| **Place** | Network | Location | Entity | Where |
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -52,22 +57,24 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 ### Ideas
 
+#### Content (Being acted upon)
+
+| Node Type | How to Recognise | Purpose | Example |
+|-----------|------------------|---------|---------|
+| **Example** | **Must** start with `- ` (dash + space) | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
+| **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
+| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` |
+
 #### Schemas (Acting on)
 
 | Node Type | How to Recognise | Purpose | Extra Rules | Example |
 |-----------|------------------|---------|-------------|---------|
 | **Concept** | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Person` |
 | **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
-| **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative name or description for an idea | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
+| **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative or derived name for an idea (a name taken from another, as *the brave* from *bravery*) | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
 
+**Priority of the individual.** Software practice treats the schema as primary and the rest as content. Aristotle holds, and Alpha agrees, that the reverse is true. The **Example** is what most fully is *primary*. The **Concept** is only *secondary*. Real, but said-of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled, it is the ground every schema stands on.
 
-#### Content (Being acted upon)
-
-| Node Type | How to Recognise | Purpose | Example |
-|-----------|------------------|---------|---------|
-| **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
-| **Example** | **Must** start with `- ` (dash + space) | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
-| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` |
 
 ### Connections
 
@@ -97,7 +104,9 @@ If the children together **partition** the parent, such that every child is a su
 
 Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: examples, concepts, values, or further attributes.
 
-### 4. Aristotle's Variant / Invariant test
+### 4. Aristotle's Said-of / Present-in test
+
+This is Aristotle's fourfold division of being. *Said-of* is predication — the **is-a** connection; *present-in* is inherence — the **has-a** connection. The two axes cross to give the four kinds of idea in Alpha:
 
 | Said of (S) | Present in (P) | Idea | Example |
 | :--- | :--- | :--- | :--- |
@@ -106,17 +115,19 @@ Attributes are lowercase properties a concept **has**. They are not necessarily 
 | **True (S)** | **False (~P)** | **Concept** (Universal Substance) | The species or genus (e.g., Human) |
 | **True (S)** | **True (P)** | **Attribute** (Universal Accident) | A general property (e.g., Knowledge) |
 
-## Style Rules
+## Classical Style Rules
 
-These rules keep a model readable and unambiguous. Violating them is how two people end up with two different mental models of the same file.
+These rules keep a model readable and unambiguous. Violating them is how two people end up with two different mental models of the same file. 
 
+- You place a thing by naming its nearest kind (the *genus*, its parent) together with the qualifier that sets it apart from its siblings (the *differentia*).
+- One term with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
 - Use full words, never abbreviate
 - Fix all misspellings
-- One name per thing, never use synonyms
+- One name per thing; never give a single thing two names (forbid **homonymy** — one name, two meanings; require **synonymy** — one name applied with one and the same definition)
 - Always singular form: `Person` not `People`
-- Use the most general accurate term
+- Use the most general accurate term (the *genus*)
 - Remove redundant concepts
-- Add qualifiers to distinguish similar concepts
+- Add qualifiers to distinguish similar concepts (the *differentia*)
 - Only decompose further when detail adds meaningful value
 - Provide as many concept and attribute examples as possible
 - Examples placed higher in the tree are preferable
@@ -125,10 +136,11 @@ These rules keep a model readable and unambiguous. Violating them is how two peo
 
 The following rules govern how Alpha handles inheritance, incomplete models, and the tension between structure and data.
 
-- **Inheritance**: Child concepts and examples inherit all parent attributes (never examples)
-- **Polymorphism**: Child concepts and examples may add attributes beyond the parent
+- **Essence and accident**: **Attributes** defined on a **Concept** are *essential* — part of what the thing is — so every child concept and example inherits them necessarily. **Attribute**s an **Example** introduces on its own are *accidental* — true of that individual but not of its kind. A schema therefore introduces essence; an Example may add only accidents, never a new essential attribute (changing the essence is the Concept's prerogative, not the individual's).
+- **Inheritance**: Child concepts and examples inherit all parent (essential) attributes (never examples)
+- **Polymorphism**: Child concepts may add further essential attributes; examples may add only accidental ones
 - **Incompleteness**: Use `... explanation` (Map) to mark intentionally incomplete sections. Normal and accepted.
-- **Data over structure**: Prefer examples + attributes + defaults over creating new concepts. Keep the concept tree lean.
+- **Content over structure**: Prefer examples + attributes + defaults over creating new concepts. Keep the concept tree lean.
 - **Assimilate facts**: Convert raw data into example-attribute-value relationships under a concept
 
 ```aot
@@ -171,6 +183,13 @@ Focus: **what and why things are measured** by **who is responsible for them.**
 The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models stakeholders alongside the measurements they use, so that every number has a name behind it.
 
 Treat motivation and responsibility as one primitive: this prevents conflating the goal with who owns it.
+
+Alpha folds **ownership** (divourced from the agent / efficient cause) into **Motivation** (a stakeholder owning a measurement).
+
+
+#### Potentiality and actuality
+
+Every measurement carries both a `target`/`expected` value and an `actual` value. This is *dunamis* and *energeia* (*Metaphysics* IX): what a thing can be against what it is. A target without an actual is bare potential; an actual without a target has no standard. To measure is to weigh the one against the other, so Alpha requires both. The **Map** (`...`) is potentiality of another kind — a place marked as fillable but not yet actual.
 
 Example
 
