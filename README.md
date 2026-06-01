@@ -1,11 +1,11 @@
 # Alpha (.aot)
 
-Alpha is the digital version of Gottfried Wilhelm Leibniz proposed alphabet of human thought.
+Alpha is the digital version of Gottfried Wilhelm Leibniz's proposed alphabet of human thought.
 - every concept reducible to primitive elements,
 - every complex idea expressible as a combination of those elements,
 - every argument verifiable like arithmetic.
 
-It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part was never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
+It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part is never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
 Five observations drove its design:
 
@@ -13,7 +13,7 @@ Five observations drove its design:
 - An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 - Ideas *acting on* are the schemas of our thoughts, and the ideas *being acted upon* are the data that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
-- The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to help disciplined and rigorous thought.
+- The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to support disciplined, rigorous thought.
 
 | Category | Acting on | Being acted upon | Serving Men's interrogative |
 |-----------|-----------|------------------|-----------------------------|
@@ -23,7 +23,7 @@ Five observations drove its design:
 | Network | Location | Entity | Where |
 | Workflow | Format | Resources | How |
 
-Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea have one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
+Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
 Built for people who do this for a living: knowledge workers, business analysts, and enterprise architects.
 
@@ -48,7 +48,7 @@ Person (Natural Person)
 
 ## Ideas and connections
 
-Ideas and connections are determined entirely by capitalisation, punctuation, and indentation, never by explicit keywords. The only keywords are the Examples.
+Ideas and connections are determined entirely by capitalisation, punctuation, and indentation. The only keywords are the Category Examples.
 
 ### Ideas
 
@@ -66,8 +66,8 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 | Node Type | How to Recognise | Purpose | Example |
 |-----------|------------------|---------|---------|
 | **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
-| **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
-| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information  | `...Especially useful for describing terms or recording supplementary information` |
+| **Example** | **Must** start with `- ` (dash + space) | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
+| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` |
 
 ### Connections
 
@@ -91,7 +91,7 @@ If the children together **partition** the parent, such that every child is a su
 
 ### 2. Abstraction test (Concept vs Example)
 
-**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world examples of the parent you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
+**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances of the parent you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
 
 ### 3. Attributes describe, they don't classify
 
@@ -99,13 +99,12 @@ Attributes are lowercase properties a concept **has**. They are not necessarily 
 
 ### 4. Aristotle's Variant / Invariant test
 
-S = Said of
-P = Present in
-
-~S.~P -> Example
-~S.P -> Value
-S.~P -> Concept
-S.P -> Attribute
+| Said of (S) | Present in (P) | Category | Example |
+| :--- | :--- | :--- | :--- |
+| **False (~S)** | **False (~P)** | **Example** (Individual Substance) | A specific person (e.g., Socrates) |
+| **False (~S)** | **True (P)** | **Value** (Individual Accident) | The specific redness of an apple |
+| **True (S)** | **False (~P)** | **Concept** (Universal Substance) | The species or genus (e.g., Human) |
+| **True (S)** | **True (P)** | **Attribute** (Universal Accident) | A general property (e.g., Knowledge) |
 
 ## Style Rules
 
@@ -156,7 +155,7 @@ Parent
 - Do NOT use plural concept names
 - Do NOT add structure without meaningful value
 - Do NOT leave misspellings uncorrected
-- Do NOT use explicit connection keywords; indentation, colons and parentisis expresses all connections
+- Do NOT use explicit connection keywords; indentation, colons and parentheses express all connections
 - Do NOT write examples without the `- ` prefix. A line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an example
 
 ## Primitives
@@ -165,13 +164,13 @@ Primitives require no special `.aot` syntax; this section explains how to apply 
 
 ---
 
-## Motivation Primitive
+### Motivation Primitive
 
 Focus: **what and why things are measured** by **who is responsible for them.**
 
 The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models stakeholders alongside the measurements they use, so that every number has a name behind it.
 
-Motivation primitives are no different from responsibility primitives (which stops the goal vs. motivation conflation).
+Treat motivation and responsibility as one primitive: this prevents conflating the goal with who owns it.
 
 Example
 
@@ -187,8 +186,8 @@ Example
             measurement operation used: Formula
             updating author: Mike
             - this year revenue
-                actual: 105MIL
-                target: 120MILL
+                actual: $105M
+                target: $120M
                 updated time: 2023-03-22
                 updating author: Brett
                 influence: Red
@@ -200,17 +199,17 @@ Example
                     influence: Green
                     updating author: John
                 - customer basket size
-                    actual: $ 5,235,345
-                    target: $ 6,000,000
+                    actual: $5,235,345
+                    target: $6,000,000
                     influence: Red
                     updating author: Jake
                 - existing customer revenue lost (churn)
-                    actual: $ 21Mill
-                    target: $ 0
+                    actual: $21M
+                    target: $0
                     influence: Red
                     updating author: Matt
             - last year revenue
-                actual: $100MIL
+                actual: $100M
 
     John
         ... looking after development
@@ -225,12 +224,12 @@ Example
                 actual: 265,235
                 target: 200,000
                 measurement operation used: Observation
-                superordinate influence: Negative
+                superordinate influence: Red
             - business cases handled
                 actual: 23
                 target: 56
                 measurement operation used: Observation
-                influence on superordinate measure: Negative
+                superordinate influence: Red
         - quality
             actual: A
             target: C
@@ -268,9 +267,9 @@ Measurement
                 - Maximum
                 - Minimum
                 - Average
-                    Mean
-                    Mode
-                    Median
+                    - Mean
+                    - Mode
+                    - Median
                 - Standard Deviation
                 - Sample Size
                 - ...
@@ -484,7 +483,7 @@ Stakeholder
 
 ---
 
-## Timeline Primitive
+### Timeline Primitive
 
 Focus: **when and how things happen**.
 
@@ -496,7 +495,7 @@ Duration
             precision: no seconds
             date: today
                 Date
-                precision:  no time component
+                precision: no time component
                 Date and Time
                     precision: no seconds
                 Precise Date and Time
@@ -511,7 +510,7 @@ Duration
     timeout
     polling duration
     precision: up to minutes
-    displacement from greenwich meridian hours: +0
+    displacement from Greenwich meridian hours: +0
     status
         - Time Set
         - Cleared
@@ -585,7 +584,7 @@ Workload (Exclusive Window)
         maximum worker pool: many
         is worker pool count known: no
         processing rule
-            - Queue 
+            - Queue
                 has lock: yes
             - Dedicated
                 has lock: no
@@ -609,42 +608,42 @@ Workload (Exclusive Window)
 
 ---
 
-## Function Primitive
+### Function Primitive
 
 Focus: **what the system does**, decomposed as a tree.
 
-### Naming Rules
+#### Naming Rules
 
 - **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
 - **Types**: conventionally nouns only, expressed as example ideas → `- Payment Type`
 
-### Forbidden in Names
+#### Forbidden in Names
 
 - "And" (split the function)
 - Vague words for services ("manage", "ensure"), performance ("good", "acceptable") and information management ("information", "data", "content", "info")
 - Political words ("Business", "IT", "Management", "Support", or "Execution")
 - Flow words ("then", "next")
 
-### Decomposition Rules for Objectives
+#### Decomposition Rules for Objectives
 
 - 3 to 7 sub-objectives per parent objective
 - Ask **Why** does a sub-objective exist? The answer should be its parent
 - Ask **How** is a parent objective achieved? Exclusively through its children
 - All sub-objectives together fully achieve the parent objective
 
-### Pitch Level
+#### Pitch Level
 
 Start two levels of granularity above the detail you need, then prune until every leaf is directly executable. Remove anything that does not serve the model.
 
-### Include attributes
+#### Include attributes
 
 Attributes may be attached to functions to describe them more precisely.
 
 ---
 
-## Network Primitive
+### Network Primitive
 
-Focus: **where things reside** are concepts that act on, and **what data and things exist** are examples being acted upon.
+Focus: **where things reside** (the *acting-on* concepts) and **what data and entities exist** there (the *acted-upon* examples).
 
 
 ```aot
@@ -674,7 +673,7 @@ Repository Structure
 ...
 ```
 
-### Abstract Structures
+#### Abstract Structures
 
 We will need to model entities in a network.
 
@@ -718,7 +717,7 @@ Object
 ...
 ```
 
-### Core Rules
+#### Core Rules
 
 - Model data as sets of facts
 - Each Concept = one record type with a fixed number of attributes
@@ -727,7 +726,7 @@ Object
 - No many-to-many relations on attributes; use Event Associations
 - Every concept and attribute name must be unique
 
-### Cleanup Checklist
+#### Cleanup Checklist
 
 - Identify functional dependencies between attributes
 - Use subset data to clarify scope
@@ -739,7 +738,7 @@ Object
 - Look for likenesses and differences to form general structures
 - Remove attributes that do not serve the model
 
-### Armstrong's Axioms (Dependency Inference)
+#### Armstrong's Axioms (Dependency Inference)
 
 | Rule | In Alpha Terms |
 |------|----------------|
@@ -759,7 +758,7 @@ Z
     ... Z is transitively dependent on X (through Y)
 ```
 
-### Modelling Approach
+#### Modelling Approach
 
 1. Start with natural business entities
 2. Build up from facts OR normalise existing data structures
@@ -767,13 +766,13 @@ Z
 
 ---
 
-## Operations
+### Workflow Primitive
 
 Focus: the **integration layer** that connects all Primitives so they work together in a process that transforms resources.
 
 A workflow is not a diagram or a flowchart. It is a precise specification that references the primitives. Think of it as the executable surface of a model.
 
-### Resources
+#### Resources
 
 Every function must specify inputs and outputs:
 
@@ -794,7 +793,7 @@ Function Resource
 ...
 ```
 
-### Workflow Flow (3 Layers)
+#### The 3 Flow Layers
 
 **1. Data Flow:**
 ```aot
@@ -828,7 +827,7 @@ Control Flow
 ...
 ```
 
-### Workflow Example
+#### Workflow Example
 
 ```aot
 Acquire Stock
@@ -864,7 +863,7 @@ Acquire Stock
 ...
 ```
 
-### Verification Checklist
+#### Verification Checklist
 
 - Every referenced element exists on its structural model
 - Base-level flows support higher-level flows
