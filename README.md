@@ -9,13 +9,23 @@ Alpha is the digital version of that idea.
 
 It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part was never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
-Three observations drove its design:
+Five observations drove its design:
 
 - You never think from nothing. Every new thought extends structures you already know.
-- An *idea* becomes clear after the *connections* to other ideas is defined
+- An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
+- Ideas *acting on* are the schemas of our thoughts, and the ideas *being acted upon* are the data that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.
+- The alphabet of thought ontology combines Aristotle's *Categories* and Kipling's *Six Serving Men* to help you become disciplined and rigorous in thought.
 
-Alpha is a human-first interface. It compiles to a idea-connection key-value store, not binary.
+| Category | Acting on | Being acted upon | Serving Men's Primitive interrogative  |
+|-|-|-|-|
+| Motivation | People | Measurements | Who & why |
+| Timeline | Duration | Workload | When |
+| Function | Goal | Type | What |
+| Network | Location | Entity | Where |
+| Workflow | Format | Resources | How |
+
+Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary.
 
 Once a shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -44,7 +54,7 @@ Person (Natural Person)
 
 Node types and relationships are determined entirely by capitalisation, punctuation, and indentation, never by explicit keywords.
 
-### Context (Structure)
+### Schemas (Acting on)
 
 | Node Type | How to Recognise | Purpose | Extra Rules | Example |
 |-----------|------------------|---------|-------------|---------|
@@ -53,28 +63,12 @@ Node types and relationships are determined entirely by capitalisation, punctuat
 | **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative name or description for an idea | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
 | **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | Especially useful for describing terms or recording supplementary information | `... irrelevant data not included` |
 
-### Content (Data)
+### Content (Being acted upon)
 
 | Node Type | How to Recognise | Purpose | Example |
 |-----------|------------------|---------|---------|
 | **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
 | **Example** | **Must** start with `- ` (dash + space), or precede a concept | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
-
-## How to Decide: Concept vs Example vs Attribute
-
-Correct classification here is what separates a model that communicates from one that merely stores. Apply these tests in order:
-
-### 1. Exhaustion test (Concept vs Example)
-
-If the children together **partition** the parent, such that every child is a subtype of the parent, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
-
-### 2. Abstraction test (Concept vs Example)
-
-**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world examples of the parent you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
-
-### 3. Attributes describe, they don't classify
-
-Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: examples, concepts, values, or further attributes.
 
 ## Relationships
 
@@ -88,6 +82,31 @@ Attributes are lowercase properties a concept **has**. They are not necessarily 
 | attribute-is-a-concept | Attribute name (or last words) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept |
 | default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example |
 
+## How to Decide: Concept vs Example vs Attribute
+
+Correct classification here is what separates a model that communicates from one that merely stores. For a more pragmatic approach, apply these tests in order:
+
+### 1. Exhaustion test (Concept vs Example)
+
+If the children together **partition** the parent, such that every child is a subtype of the parent, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
+
+### 2. Abstraction test (Concept vs Example)
+
+**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world examples of the parent you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
+
+### 3. Attributes describe, they don't classify
+
+Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: examples, concepts, values, or further attributes.
+
+### 4. Aristotle's Variant / Invariant test
+
+S = Said of
+P = Present in
+
+~S.~P -> Example
+~S.P -> Value
+S.~P -> Concept
+S.P -> Attribute
 
 ## Style Rules
 
@@ -111,7 +130,7 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 - **Inheritance**: Child concepts and examples inherit all parent attributes (never examples)
 - **Polymorphism**: Child concepts and examples may add attributes beyond the parent
 - **Incompleteness**: Use `... explanation` (Map) to mark intentionally incomplete sections. Normal and accepted.
-- **Data over structure**: Prefer examples + attributes + defaults over creating new concept. Keep the concept tree lean.
+- **Data over structure**: Prefer examples + attributes + defaults over creating new concepts. Keep the concept tree lean.
 - **Assimilate facts**: Convert raw data into example-attribute-value relationships under a concept
 
 ```aot
@@ -124,9 +143,9 @@ Parent
             attribute: new value
                 ... `- Child Example` overrides `normal value` from `attribute` and replaces it with `new value`
             extra attribute: value
-                ... `- Child Example` overrides assigns a default for `extra attribute`
+                ... `- Child Example` assigns a default for `extra attribute`
             child example attribute
-                ... `- Child Example` adds a child exmaple attribute that isn't present in the `Child` concept
+                ... `- Child Example` adds a child example attribute that isn't present in the `Child` concept
             
 ```
 
@@ -141,84 +160,87 @@ Parent
 - Do NOT use explicit relationship keywords; indentation expresses all relationships
 - Do NOT write examples without the `- ` prefix. A line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an example
 
-## Aspects
+## Primitives
 
-The aspect taxonomy derives from Aristotle's *Categories* and modern interpretations. Adopting it brings discipline and rigour to your modelling. Aspects require no special `.aot` syntax; this section explains how to apply them.
+Primitives require no special `.aot` syntax; this section explains how to apply them. Key primitives that are extremely useful for thought are:
 
 ---
 
-## Motivation Aspect
+## Motivation Primitive
 
-Focus: **what and why things are measured**, and who is responsible for them.
+Focus: **what and why things are measured** by **who is responsible for them.**
 
-The Motivation Aspect answers two questions at once: what are we trying to achieve, and who owns it? It models stakeholders alongside their measurements, so that every number has a name behind it and every name has a number in front of it.
+The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models stakeholders alongside the measurements they use, so that every number has a name behind it.
+
+Motivation primitives are no different from responsibility primitives (which stops the goal vs. motivation conflation).
 
 Example
 
 ```aot
-last update time: 2026-03-31
-measurement interval: Quarterly
-Mike
-    ... looking after sales
-    - revenue growth
-        actual: 5%
-        target: 20%
-        measurement operation used: Formula
-        updating author: Mike
-        - this year revenue
-            actual: 105MIL
-            target: 120MILL
-            updated time: 2023-03-22
-            updating author: Brett
-            influence: Red
+- Motivation
+    last update time: 2026-03-31
+    measurement interval: Quarterly
+    Mike
+        ... looking after sales
+        - revenue growth
+            actual: 5%
+            target: 20%
             measurement operation used: Formula
-            - new clients onboarded
-                actual: 35
-                target: 20
-                measurement operation used: Sum
-                influence: Green
-                updating author: John
-            - customer basket size
-                actual: $ 5,235,345
-                target: $ 6,000,000
+            updating author: Mike
+            - this year revenue
+                actual: 105MIL
+                target: 120MILL
+                updated time: 2023-03-22
+                updating author: Brett
                 influence: Red
-                updating author: Jake
-            - existing customer revenue lost (churn)
-                actual: $ 21Mill
-                target: $ 0
-                influence: Red
-                updating author: Matt
-        - last year revenue
-            actual: $100MIL
+                measurement operation used: Formula
+                - new clients onboarded
+                    actual: 35
+                    target: 20
+                    measurement operation used: Sum
+                    influence: Green
+                    updating author: John
+                - customer basket size
+                    actual: $ 5,235,345
+                    target: $ 6,000,000
+                    influence: Red
+                    updating author: Jake
+                - existing customer revenue lost (churn)
+                    actual: $ 21Mill
+                    target: $ 0
+                    influence: Red
+                    updating author: Matt
+            - last year revenue
+                actual: $100MIL
 
-John
-    ... looking after development
-    - Functionality
-        actual: C
-        target: A
-        number of grades: 5
-        updated time: 2026-03-26
-        updating author: John
-        measurement operation used: Grading
-        - lines of code
-            actual: 265,235
-            target: 200,000
+    John
+        ... looking after development
+        - Functionality
+            actual: C
+            target: A
+            number of grades: 5
+            updated time: 2026-03-26
+            updating author: John
+            measurement operation used: Grading
+            - lines of code
+                actual: 265,235
+                target: 200,000
+                measurement operation used: Observation
+                superordinate influence: Negative
+            - business cases handled
+                actual: 23
+                target: 56
+                measurement operation used: Observation
+                influence on superordinate measure: Negative
+        - quality
+            actual: A
+            target: C
+            number of grades: 5
             measurement operation used: Observation
-            superordinate influence: Negative
-        - business cases handled
-            actual: 23
-            target: 56
-            measurement operation used: Observation
-            influence on superordinate measure: Negative
-    - quality
-        actual: A
-        target: C
-        number of grades: 5
-        measurement operation used: Observation
-        updating author: John
+            updating author: John
 ```
 
-The concepts used in the Motivation aspect:
+The concepts used in the Motivation Primitive:
 
 ```aot
 Measurement
@@ -463,7 +485,7 @@ Stakeholder
 
 ---
 
-## Timeline Aspect
+## Timeline Primitive
 
 Focus: **when and how things happen**.
 
@@ -520,7 +542,7 @@ Workload (Exclusive Window)
                     - delete (design away)
                     - clamp into single complex
                         - no shared medium
-                    - coordiante once, offline, by convention
+                    - coordinate once, offline, by convention
                         ... not at runtime
                     - pass messages and isolate (gaurd)
                         - separate service
@@ -588,14 +610,14 @@ Workload (Exclusive Window)
 
 ---
 
-## Function Aspect
+## Function Primitive
 
 Focus: **what the system does**, decomposed as a tree.
 
 ### Naming Rules
 
-- **Objective ("action")**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
-- **Types ("passion")**: conventionally nouns only, expressed as example ideas → `- Payment Type`
+- **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
+- **Types**: conventionally nouns only, expressed as example ideas → `- Payment Type`
 
 ### Forbidden in Names
 
@@ -607,9 +629,9 @@ Focus: **what the system does**, decomposed as a tree.
 ### Decomposition Rules for Objectives
 
 - 3 to 7 sub-objectives per parent objective
-- Ask **Why** does a sub-objectives exist? The answer should be its parent
-- Ask **How** is a parent objectives achieved? Exclusively through its children
-- All sub-objectives together fully achieve the parent objectives
+- Ask **Why** does a sub-objective exist? The answer should be its parent
+- Ask **How** is a parent objective achieved? Exclusively through its children
+- All sub-objectives together fully achieve the parent objective
 
 ### Pitch Level
 
@@ -621,11 +643,41 @@ Attributes may be attached to functions to describe them more precisely.
 
 ---
 
-## Domain Aspect
+## Network Primitive
 
-Focus: **what data and things exist** — concepts, attributes, business rules, and the events that trigger them.
+Focus: **where things reside** are concepts that act on, and **what data and things exist** are examples being acted upon.
 
-### Non-Tree Structures
+
+```aot
+Location
+    Region
+        - AMAE
+        country
+    Office
+        region: AMAE
+        address
+    Data Centre
+        region
+        tier
+...
+```
+
+Relevant when: data residency laws, latency, location-dependent processes, disaster recovery.
+
+```aot
+Repository Structure
+    Source Code
+        path: src/
+    Configuration
+        path: config/
+    Tests
+        path: tests/
+...
+```
+
+### Abstract Structures
+
+We will need to model entities in a network.
 
 **Graph:**
 ```aot
@@ -716,57 +768,13 @@ Z
 
 ---
 
-## Network Aspect
+## Operations
 
-Focus: **where things reside**, both physically and logically.
+Focus: the **integration layer** that connects all Primitives together work together in a process to transforms resources. 
 
-```aot
-Location
-    Region
-        country
-    Office
-        region
-        address
-    Data Centre
-        region
-        tier
-...
-```
+A workflow is not a diagram or a flowchart. It is a precise specification that references the primitives. Think of it as the executable surface of a model.
 
-Relevant when: data residency laws, latency, location-dependent processes, disaster recovery.
-
-```aot
-Repository Structure
-    Source Code
-        path: src/
-    Configuration
-        path: config/
-    Tests
-        path: tests/
-...
-```
-
----
-
-## Workflow Aspect
-
-Focus: the **integration layer** that connects all other aspects into executable specifications.
-
-A workflow is not a diagram or a flowchart. It is a precise specification of a function that references the domain, timing, stakeholders, and location that make it real. Think of it as the executable surface of a model.
-
-### Core Questions
-
-| Question | Aspect | Specify |
-|----------|--------|---------|
-| What must be done? | Function | The function being executed |
-| What data is needed? | Domain | Inputs, outputs, data stores |
-| Who must do it? | Motivation | Role, ownership |
-| When must it be done? | Timing | Schedule, triggers |
-| Where must it be done? | Network | Execution and data location |
-| In what format? | Object | Delivery mechanism, format |
-| How must it be done? | Process | Logic, algorithms |
-
-### Function Resources
+### Resources
 
 Every function must specify inputs and outputs:
 
