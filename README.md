@@ -19,7 +19,7 @@ Five observations drove its design:
 |-----------|-----------|------------------|-----------------------------|
 | Motivation | Stakeholder | Measurements | Who & why |
 | Timeline | Workload | Duration | When |
-| Function | Goal | Type | What |
+| Function | Activity | Type | What |
 | Network | Location | Entity | Where |
 | Workflow | Format | Resources | How |
 
@@ -99,7 +99,7 @@ Attributes are lowercase properties a concept **has**. They are not necessarily 
 
 ### 4. Aristotle's Variant / Invariant test
 
-| Said of (S) | Present in (P) | Category | Example |
+| Said of (S) | Present in (P) | Idea | Example |
 | :--- | :--- | :--- | :--- |
 | **False (~S)** | **False (~P)** | **Example** (Individual Substance) | A specific person (e.g., Socrates) |
 | **False (~S)** | **True (P)** | **Value** (Individual Accident) | The specific redness of an apple |
