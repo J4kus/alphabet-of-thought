@@ -45,9 +45,16 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 ### Ideas
 
- We can't think of a concept without having a concrete example, or of an attribute without having a value for it. The **Example** is what most fully *is* - it is *primary*. The **Concept** is only *secondary*: real, but said of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled; it is what true schema stands on.
+#### Schemas (Acting on)
+
+| Said of (S) | Present in (P) | Node Type | How to Recognise | Purpose | Extra Rules | Example |
+|-------------|----------------|-----------|------------------|---------|-------------|---------|
+| **True (S)** | **False (~P)**| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` |
+| **True (S)** | **True (P)**| **Attribute** (Universal Accident) | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
 
 #### Content (Being acted upon)
+
+ We can't think of a concept without having a concrete example, or of an attribute without having a value for it. *Content*, the acted-upon individuals are not storage waiting to be filled; it is what true schema stands on.
 
 | Said of (S) | Present in (P) | Node Type | How to Recognise | Purpose | Example |
 |-------------|----------------|-----------|------------------|---------|---------|
@@ -55,12 +62,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 | **False (~S)** | **True (P)** | **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or concept | `colour: red` |
 | **False (~S)** | **False (~P) or True (P)** | **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` |
 
-#### Schemas (Acting on)
 
-| Said of (S) | Present in (P) | Node Type | How to Recognise | Purpose | Extra Rules | Example |
-|-------------|----------------|-----------|------------------|---------|-------------|---------|
-| **True (S)** | **False (~P)**| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` |
-| **True (S)** | **True (P)**| **Attribute** (Universal Accident) | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
 
 
 
