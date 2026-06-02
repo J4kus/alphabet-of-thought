@@ -15,7 +15,6 @@ It is a text-based language for representing knowledge as a tree of indented tex
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 ### Aristotelian
 - You never think from nothing. Every new thought extends structures you already know. (Posterior Analytics)
-- The alphabet of thought primitives combines Aristotle's *Categories*, *causes*, *Prior Analytics*, and  Kipling's *Six Serving Men*,  to support disciplined, rigorous thought.
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -24,7 +23,7 @@ Built for people who do this for a living: knowledge workers, business analysts,
 ## Example
 
 ```aot
-Person (Natural Person)
+Human (Natural Person)
     full name
     age
     - Gottfried Wilhelm Leibniz
@@ -46,37 +45,36 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 ### Ideas
 
-**Priority of the individual.** Ideas *acting on* are the *schemas* of our thoughts, and the ideas *being acted upon* are the *content* that makes our schemas clear. We can't think of a concept without having a concrete example, or of an attribute without having a value for it.  Software practice treats the schema as primary and the rest as content. Aristotle holds, and Alpha agrees, that the reverse is true. The **Example** is what most fully *is* — it is *primary*. The **Concept** is only *secondary*: real, but said of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled; it is the ground every schema stands on.
+ We can't think of a concept without having a concrete example, or of an attribute without having a value for it. The **Example** is what most fully *is* - it is *primary*. The **Concept** is only *secondary*: real, but said of individuals and dependent on them. This is why Alpha speaks of *content*, not "data": the acted-upon individual is not storage waiting to be filled; it is what true schema stands on.
 
 #### Content (Being acted upon)
 
-| Node Type | How to Recognise | Purpose | Example |
-|-----------|------------------|---------|---------|
-| **Example** | **Must** start with `- ` (dash + space) | Lists concrete instances (objects) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Gottfried Wilhelm Leibniz` |
-| **Default Value** | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute | `age: 42` |
-| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` |
+| Said of (S) | Present in (P) | Node Type | How to Recognise | Purpose | Example |
+|-------------|----------------|-----------|------------------|---------|---------|
+| **False (~S)** | **False (~P)** | **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete individuals (instances) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Socrates` |
+| **False (~S)** | **True (P)** | **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or concept | `colour: red` |
+| **False (~S)** | **False (~P) or True (P)** | **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` |
 
 #### Schemas (Acting on)
 
-| Node Type | How to Recognise | Purpose | Extra Rules | Example |
-|-----------|------------------|---------|-------------|---------|
-| **Concept** | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Person` |
-| **Attribute** | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
-| **Alias** | Parenthesised text following a concept or example, or a lowercase term within an attribute that matches an existing concept name | Provides an alternative or derived name for an idea (a name taken from another, as *the brave* from *bravery*) | If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `(Natural Person)`, `(natural person)` |
+| Said of (S) | Present in (P) | Node Type | How to Recognise | Purpose | Extra Rules | Example |
+|-------------|----------------|-----------|------------------|---------|-------------|---------|
+| **True (S)** | **False (~P)**| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` |
+| **True (S)** | **True (P)**| **Attribute** (Universal Accident) | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
 
 
 
 ### Connections
 
-|Type| Connections | Expression | Example |
-|----|--------------|------------|---------|
-|Embedded| is-a | Indent Concept under a term | `Organisation` → indent → `Business` |
-|Embedded| has-a | Indent attribute under a term  | `Person` → indent → `full name` |
-|Embedded| value-is | Colon after a term | `full name: Gottfried Leibniz` |
-|Embedded| has-another-name | Parentheses after a term | `Person (Natural Person)` |
-|Embedded| has-example | Indent Dash prefix after a term | `Person` → indent → `- Gottfried Wilhelm Leibniz` |
-|Reference| attribute-is-a-concept | Attribute name (or last words) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept |
-|Reference| default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example |
+| Type | Connections | Expression | Example | Extra Rule |
+|-----------|------------------------|----------------------------------|-------------------------------------------|-----------------------------------------------|
+| Embedded | is-a | Indent Concept under a term | `Organisation` → indent → `Business` | *Said-of* is predication — the **is-a** connection |
+| Embedded | has-a | Indent attribute under a term | `Person` → indent → `full name` | *Present-in* is inherence — the **has-a** connection |
+| Embedded | value-is | Colon after a term | `full name: Gottfried Leibniz` | |
+| Embedded | has-another-name | Parentheses after a term. Provides an alternative or derived name for an idea (a name taken from another, as *the brave* from *bravery*) If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `Person (Natural Person)` | |
+| Embedded | has-example | Indent Dash prefix after a term | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| Reference | attribute-is-a-concept | Attribute name (or last words) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept | |
+| Reference | default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example | |
 
 ## How to Decide: Concept vs Example vs Attribute
 
@@ -88,22 +86,11 @@ If the children together **partition** the parent, such that every child is a su
 
 ### 2. Abstraction test (Concept vs Example)
 
-**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances of the parent you could point at or name. When in doubt: is it a category someone defined? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
+**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
 
 ### 3. Attributes describe, they don't classify
 
 Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: examples, concepts, values, or further attributes.
-
-### 4. Aristotle's Said-of / Present-in test
-
-This is Aristotle's fourfold division of being. *Said-of* is predication — the **is-a** connection; *present-in* is inherence — the **has-a** connection. The two axes cross to give the four kinds of idea in Alpha:
-
-| Said of (S) | Present in (P) | Idea | Example |
-| :--- | :--- | :--- | :--- |
-| **False (~S)** | **False (~P)** | **Example** (Individual Substance) | A specific person (e.g., Socrates) |
-| **False (~S)** | **True (P)** | **Value** (Individual Accident) | The specific redness of an apple |
-| **True (S)** | **False (~P)** | **Concept** (Universal Substance) | The species or genus (e.g., Human) |
-| **True (S)** | **True (P)** | **Attribute** (Universal Accident) | A general property (e.g., Knowledge) |
 
 ## Classical Style Rules
 
@@ -162,9 +149,9 @@ Parent
 
 ## Primitives
 
-Primitives require no special `.aot` syntax; this section explains how to apply them. Key primitives that are extremely useful for thought are:
+The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and  Kipling's *Six Serving Men*,  to support disciplined, rigorous thought.
 
-Alpha models things that *come to be* — processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic aetiology.
+Primitives require no special `.aot` syntax. Alpha models things that *come to be*. The processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic aetiology.
 
 #### The four causes plus one
 
@@ -380,8 +367,8 @@ Measurement
     updating author
 Beneficiary
     Person
-        cell: 0837108178
-        email: jvanrooyen@10x.co.za
+        cell: 0830000000
+        email: jakusvanrooyen@gmail.com
         id number: 9003262449080
         passport number: None
         first name: Alida
@@ -638,6 +625,51 @@ Workload (Exclusive Window)
 
 Focus: **what the system does**, decomposed as a tree.
 
+### Example
+
+```aot
+    Create Product
+        Primary Activities
+            Promote brand offerings (Marketing & Sales)
+                - Launch social media ad campaigns
+                - Negotiate vendor contracts with retail partners
+                - Publish promotional discounts for seasonal sales
+            Manage inbound materials (Inbound Logistics)
+                - Unload raw steel from delivery trucks
+                - Inspect organic ingredients for quality assurance
+                - Store digital components in temperature-controlled warehouses
+            Transform raw inputs (Operations)
+                - Assemble electronic circuits on the production line
+                - Bake artisan bread in commercial ovens
+                - Package finished apparel into retail-ready boxes
+            Distribute finished products (Outbound Logistics)
+                - Load delivery fleets for regional distribution
+                - Fulfill online orders via third-party couriers
+                - Dispatched bulk cargo to international shipping ports
+            Support final customers (Service)
+                - Repair broken hardware under warranty agreements
+                - Process product returns via customer service
+                - Troubleshoot software glitches over live chat
+        Support Activities
+            Govern company infrastructure (Firm Infrastructure)
+                - Audit financial ledgers
+                - Draft legal contracts
+                - Secure internal networks (Against cyber threats)
+            Develop human talent (Human Resource Management)
+                - Interview engineering candidates
+                - Conduct safety training
+                - Administer employee benefits
+                    - payroll systems
+                    - ...
+            Advance proprietary technology (Technological Development)
+                - Code automated features
+                - Test alternative materials
+                - Upgrade database servers
+            Source essential goods (Procurement)
+                - Source raw fabrics
+                - Purchase office equipment
+                - Approve vendor bids
+```
 #### Naming Rules
 
 - **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
@@ -676,12 +708,9 @@ Relevant when: data residency laws, latency, location-dependent processes, disas
 
 ```aot
 Repository
-    - src/
-        ... Source Code
-    - config/
-        ... Configuration 
-    - tests/
-        ... Tests
+    source code: src/
+    configuration: config/
+    tests: tests/
 ...
 ```
 
