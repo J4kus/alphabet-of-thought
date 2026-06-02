@@ -7,25 +7,15 @@ Alpha is the digital version of Gottfried Wilhelm Leibniz's proposed alphabet of
 
 It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part is never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
-## The Five Foundations
+## The Foundations
 
-### Newtonian
-- You never think from nothing. Every new thought extends structures you already know.
+
 ### Pragmatic
 - An *idea* becomes clear after the *connections* to other ideas are defined.
 - Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
-### The Aristotelian Foundation
-- The alphabet of thought ontology combines Aristotle's *Categories*, *causes*, *Prior Analytics*, and  Kipling's *Six Serving Men*,  to support disciplined, rigorous thought.
-
-Alpha models things that *come to be* — processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic aetiology.
-
-| Cause | Category | Acting on | Being acted upon | Serving man's interrogative |
-|-----------|-----------|------------------|------------------|-----------------------------|
-| **Final** — for the sake of which | Motivation | Owner | Measurements | Why |
-| **Material** — that out of which | Timeline | Workload | Duration | When |
-| **Formal** — the form, the essence | Function | Activity | Type | What |
-| **Efficient** — the agent and the means | Workflow | Principle | Agent | How |
-| **Validity** — the format in which it resides | Network | Location | Entity | Where |
+### Aristotelian
+- You never think from nothing. Every new thought extends structures you already know. (Posterior Analytics)
+- The alphabet of thought primitives combines Aristotle's *Categories*, *causes*, *Prior Analytics*, and  Kipling's *Six Serving Men*,  to support disciplined, rigorous thought.
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -174,22 +164,29 @@ Parent
 
 Primitives require no special `.aot` syntax; this section explains how to apply them. Key primitives that are extremely useful for thought are:
 
+Alpha models things that *come to be* — processes that transform resources. The categories (below) say what a thing *is*; the causes say why it exists and how it is produced. A modelling language for work needs both: the static anatomy and the dynamic aetiology.
+
+#### The four causes plus one
+
+Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3).
+
+| Cause | Primitive | Acting on | Being acted upon | Serving man's interrogative |
+|-----------|-----------|------------------|------------------|-----------------------------|
+| **Final** — for the sake of which | Motivation | Beneficiary | Measurement | Why |
+| **Material** — that out of which | Timeline | Workload | Duration | When |
+| **Formal** — the form, the essence | Function | Objective | Type | What |
+| **Efficient** — the agent and the means | Workflow | Agent | Resource | How |
+| **Paradigmatic** — the pattern conformed to | Network | Entity | Record | Where |
+
 ---
 
 ### Motivation Primitive
 
-Focus: **what and why things are measured** by **who is responsible for them.**
+Focus: **what and why things are measured** by **who is the beneficiary of them**
 
-The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models stakeholders alongside the measurements they use, so that every number has a name behind it.
+The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models beneficiary alongside the measurements they use, so that every number has a name behind it.
 
-Treat motivation and responsibility as one primitive: this prevents conflating the goal with who owns it.
-
-Alpha folds **ownership** (divorced from the agent / efficient cause) into **Motivation** (a stakeholder owning a measurement).
-
-
-#### Potentiality and actuality
-
-Every measurement carries both a `target`/`expected` value and an `actual` value. This is *dunamis* and *energeia* (*Metaphysics* IX): what a thing can be against what it is. A target without an actual is bare potential; an actual without a target has no standard. To measure is to weigh the one against the other, so Alpha requires both. The **Map** (`...`) is potentiality of another kind — a place marked as fillable but not yet actual.
+Every measurement carries both a `target` value and an `actual` value. A target without an actual is potential; an actual without a target has no standard. To measure is to weigh the one against the other, so Alpha requires both.
 
 Example
 
@@ -381,7 +378,7 @@ Measurement
     start time
     updated time
     updating author
-Stakeholder
+Beneficiary
     Person
         cell: 0837108178
         email: jvanrooyen@10x.co.za
@@ -538,8 +535,20 @@ Duration
     Maintain a model of system variety
     Name the dependency
     
-    
 Workload (Exclusive Window)
+    - Data Flow
+        function
+        result
+        dependent function
+        data store
+    - Control Flow (Situation-Decision-Action)
+        situation
+            ... environmental condition
+        decision
+            ... rule triggered by situation
+        action
+            ... function to execute
+        destination
     Concurrent (Single-Threading)
         Synchronous (Lock)
             - Lock
@@ -663,30 +672,16 @@ Attributes may be attached to functions to describe them more precisely.
 Focus: **where things reside** (the *acting-on* concepts) and **what data and entities exist** there (the *acted-upon* examples).
 
 
-```aot
-Location
-    Region
-        - AMAE
-        country
-    Office
-        region: AMAE
-        address
-    Data Centre
-        region
-        tier
-...
-```
-
 Relevant when: data residency laws, latency, location-dependent processes, disaster recovery.
 
 ```aot
-Repository Structure
-    Source Code
-        path: src/
-    Configuration
-        path: config/
-    Tests
-        path: tests/
+Repository
+    - src/
+        ... Source Code
+    - config/
+        ... Configuration 
+    - tests/
+        ... Tests
 ...
 ```
 
@@ -785,7 +780,7 @@ Z
 
 ### Workflow Primitive
 
-Focus: the **integration layer** that connects all Primitives so they work together in a process that transforms resources.
+Focus: the **integration layer** that connects Entities to Objects, so they work together in a process that transforms resources.
 
 A workflow is not a diagram or a flowchart. It is a precise specification that references the primitives. Think of it as the executable surface of a model.
 
@@ -807,40 +802,6 @@ Function Resource
         source object
         source
         Data Segment
-...
-```
-
-#### The 3 Flow Layers
-
-**1. Data Flow:**
-```aot
-Data Dependency
-    function
-    result
-    dependent function
-    data store
-...
-```
-
-**2. Synchronisation:**
-```aot
-Process Synchronisation
-    interprocess dependency
-    synchronisation reason
-    coordination mechanism
-...
-```
-
-**3. Control Flow (Situation-Decision-Action):**
-```aot
-Control Flow
-    Situation
-        ... environmental condition
-    Decision
-        ... rule triggered by situation
-    Action
-        ... function to execute
-        destination
 ...
 ```
 
