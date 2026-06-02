@@ -215,7 +215,7 @@ Function
      
     Iterate Over Extension
         Make Change
-        Disable And Uninstall Previous "alphabet of thought" Extension
+        Disable And Uninstall Previous `alphabet of thought` Extension
         Create `vsix` File
             command: C:\Users\27837\OneDrive\alphabet-of-thought-main> vsce package
         Go To Extensions
