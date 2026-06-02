@@ -47,20 +47,20 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 #### Schemas (Acting on)
 
-| Said of (S) | Present in (P) | Node Type | How to Recognise | Purpose | Extra Rules | Example |
-|-------------|----------------|-----------|------------------|---------|-------------|---------|
-| **True (S)** | **False (~P)**| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` |
-| **True (S)** | **True (P)**| **Attribute** (Universal Accident) | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` |
+| Node Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
+|-----------|------------------|---------|-------------|---------|-------------|----------------|
+| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
+| **Attribute** (Universal Accident) | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
 
 #### Content (Being acted upon)
 
  We can't think of a concept without having a concrete example, or of an attribute without having a value for it. *Content*, the acted-upon individuals are not storage waiting to be filled; it is what true schema stands on.
 
-| Said of (S) | Present in (P) | Node Type | How to Recognise | Purpose | Example |
-|-------------|----------------|-----------|------------------|---------|---------|
-| **False (~S)** | **False (~P)** | **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete individuals (instances) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Socrates` |
-| **False (~S)** | **True (P)** | **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or concept | `colour: red` |
-| **False (~S)** | **False (~P) or True (P)** | **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` |
+| Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
+|-----------|------------------|---------|---------|-------------|----------------|
+| **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete individuals (instances) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
+| **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or concept | `colour: red` | **False (~S)** | **True (P)** |
+| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` | **False (~S)** | **False (~P) or True (P)** |
 
 
 
@@ -68,15 +68,15 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 ### Connections
 
-| Type | Connections | Expression | Example | Extra Rule |
-|-----------|------------------------|----------------------------------|-------------------------------------------|-----------------------------------------------|
-| Embedded | is-a | Indent Concept under a term | `Organisation` → indent → `Business` | *Said-of* is predication — the **is-a** connection |
-| Embedded | has-a | Indent attribute under a term | `Person` → indent → `full name` | *Present-in* is inherence — the **has-a** connection |
-| Embedded | value-is | Colon after a term | `full name: Gottfried Leibniz` | |
-| Embedded | has-another-name | Parentheses after a term. Provides an alternative or derived name for an idea (a name taken from another, as *the brave* from *bravery*) If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required | `Person (Natural Person)` | |
-| Embedded | has-example | Indent Dash prefix after a term | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
-| Reference | attribute-is-a-concept | Attribute name (or last words) matches a Concept name | `age integer: 5` → `integer` → `Integer` concept | |
-| Reference | default-is-a-example | Value matches an example name exactly (case-sensitive) | `person: Gottfried Wilhelm Leibniz`, where the value references the example | |
+| Connections | Expression | Type | Example | Extra Rule |
+|------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
+| **is-a** | Indent Concept under a term | Embedded | `Organisation` → indent → `Business` | *Said-of* is predication — the **is-a** connection |
+| **has-a** | Indent attribute under a term | Embedded | `Person` → indent → `full name` | *Present-in* is inherence — the **has-a** connection |
+| **value-is** | Colon after a term | Embedded | `full name: Gottfried Leibniz` | |
+| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Embedded | `Person (Natural Person)` |If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required |
+| **has-example** | Indent Dash prefix after a term | Embedded | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| attribute-is-a-concept | Attribute name (or last words) matches a Concept name | Reference | `age integer: 5` → `integer` → `Integer` concept | |
+| **default-is-a-example** | Value matches an example name exactly (case-sensitive) | Reference | `person: Gottfried Wilhelm Leibniz`, where the value references the example | |
 
 ## How to Decide: Concept vs Example vs Attribute
 
