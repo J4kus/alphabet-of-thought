@@ -1,7 +1,3 @@
-
-
-
-
 ... the language defined by running it through its own five Primitives
 Primitive
     - Motivation
@@ -12,6 +8,170 @@ Primitive
             Knowledge Worker
             Business Analyst
             Enterprise Architect
+    - Network
+        ... where it lives and is recorded — paradigmatic cause, the pattern
+        HubSpot
+            - File
+                extension: aot
+                format: plain text
+                indent: 4 spaces, never tabs
+        Tokens
+            Idea
+                Schema (Acting On)
+                    - Concept (Universal Substance)
+                        ... defines a class or type of thing
+                        ... children that partition the parent into subtypes are Concepts
+                        ... defined grouping is a Concept; something you could touch or look up is an Example
+                        ... prefer examples, attributes and defaults over creating new concepts
+                        ... convert raw data into example-attribute-value relationships under a concept
+                        ... most general accurate term possible
+                        recognise: first letter is capitalised
+                        said of: True
+                        present in: False
+                        - Human
+                    - Attribute (Universal Accident)
+                        ... defines a property that a concept has
+                        ... lowercase properties a concept has, which may have their own children
+                        - Essence And Accident
+                            ... attributes on a Concept are essential and inherited; attributes an Example adds are accidental
+                        - Only Lowercase Characters
+                        - Same Slot For Different Frames Means The Slot Has A Dependent Frame
+                        - Assign Enough Concatenated Frame Properties To Be Unambigous
+                        - Order Per Type From Most Intrisic To Most Extrisic
+                        - No Transitive Frame Slot Dependence
+                        recognise: all lowercase
+                        said of: True
+                        present in: True
+                        - full name
+                        ... every attribute is itself a concept
+                Content (Being Acted Upon)
+                    ... the acted-upon individuals on which true schema stands
+                    - Example (Individual Substance)
+                        - Socrates
+                        ... lists concrete individuals of the parent concept or attribute
+                        ... a selection are Examples
+                        ... Most specific accrucate term possible
+                        ... Natural Occuring Frame
+                        ... Higher Level Is Better
+                        recognise: must start with dash and space
+                        said of: False
+                        present in: False
+                        is: Content
+                        predicate: Is A Example Of
+                        begin:
+                            - Dash
+                            - End of Line
+                            - ` inside a concept or attribute
+                        end: end of line
+                        allow special value override:
+                            - Elipsis
+                            - Boolean
+                    - Default Value (Individual Accident)
+                        ... sets the expected or default value for an attribute or concept
+                        ... Fits On One Line
+                        ... Atomic Unicode Data
+                        ... may be used twice
+                            - Default of A Slot
+                            - Part Of A Frame TO Specify Applicable Content
+                        start: : 
+                        end: End of line
+                        recognise: colon separated value
+                        said of: False
+                        present in: True
+                        - colour: red
+                        allow special value override
+                            - Boolean
+                            - Ellipses
+                        allow folding: Yes
+                        allow special value override: No
+                        predicate: Detailed By
+                        
+                    - Map
+                        ... marks intentionally omitted or incomplete information
+                        ... use a Map to mark intentionally incomplete sections
+                        recognise: starts with ellipsis followed by a description
+                        said of: False
+                        begin: ...
+                        end: End Of Line
+                        is special value override: Yes
+                        predicate: Explained By
+            Connection
+                Indented Hierarchy
+                    - is-a
+                        ... predication, indent a Concept under a term
+                    
+                        
+                            
+                    - has-a
+                        ... inheritance, indent an attribute under a term
+                    rules
+                        - Parent Child
+                            - May Have Many First Class Entities
+                            - Indent For Child Of Parent
+                            - Child Is A Parent
+                            - More Than One Child
+                            - No More Than Twelve Children
+                            - A Child's Child Is A Parent
+                            - A Child Has One Parent
+                            - Two Different Types If Different Parents
+                            - Inheritance
+                                - Inherit Slots From Full Linage Of Parents
+                                - Overload To Closest Inheritance
+                        - Sibling
+                            - All Siblings Have The Same Granualarity
+                            - Siblings May Have The Same Slot If Default Values Are Different
+                            - New Lines 
+                    Decompose further when detail adds meaningful value
+                        Place a thing by its nearest kind (genus)
+                        Add a qualifier that sets it apart (differentia)
+                Same Line Connection
+                    - value-is
+                        ... colon after a term
+                    - has-another-name
+                        ... parentheses after a term provide an alias
+                        begin: (
+                        end: )
+                        allow special value override: Ellispis
+                        - For Dependency Or A More General Context Name
+                        - Can Be Used For Both A Frame And A Slot
+                        - On The Same Line As Frame Or Slot
+                            - When Frame Has More Then One Of The Same Slots
+                            - May Link To Frame
+                Reference to a `not said of` Idea
+                    - attribute-is-a-concept
+                        ... attribute name or last words match a Concept name
+                        type: Reference
+                    - default-is-a-example
+                        ... value matches an example name exactly
+                        type: Reference
+                    indentation: exactly 4 spaces per level
+        Primitive
+            ... combines Aristotle's Categories, Causes, Prior Analytics and Kipling's Six Serving Men
+            - Motivation
+                ... final cause, for the sake of which
+                concepts: Beneficiary
+                examples: Measurement
+                interrogative: Why
+            - Timeline
+                ... material cause, that out of which
+                concepts: Workload
+                examples: Duration
+                interrogative: When
+            - Function
+                ... formal cause, the form and essence
+                concepts: Objective
+                examples: Type
+                interrogative: What
+            - Workflow
+                ... efficient cause, the agent and the means
+                concepts: Agent
+                examples: Resource
+                interrogative: How
+            - Network
+                ... paradigmatic cause, the pattern conformed to
+                concepts: Entity
+                examples: Record
+                interrogative: Where
     - Function
         ... what it is — formal cause, the form and essence
         Understand Foundation
@@ -60,216 +220,42 @@ Primitive
                 Drag `*.vsix` File Into `Visual Studio Code` Window
                 Click `Install` Button
                 Click `Reload` Button
-        
-        Create File
-            file extension: aot
-                ... never use tabs
-            - plain text, not prose
-            - a tree, not a diagram
-            - use full words, never abbreviate
-            - fix all misspellings
-        Translate Ideas
-            
-        Define Connection
-            
-            Inheritance
-                ... child concepts and examples inherit all parent essential attributes, never examples
-            Polymorphism
-                ... child concepts may add essential attributes; examples may add only accidental ones
-            One term, one definition
-        
-    ... To-Do
-    - Network
-        ... where it lives and is recorded — paradigmatic cause, the pattern
-        
-        File
-            Idea
-                Schema (Acting On)
-                    - Concept (Universal Substance)
-                        ... defines a class or type of thing
-                        ... children that partition the parent into subtypes are Concepts
-                        ... defined grouping is a Concept; something you could touch or look up is an Example
-                        ... prefer examples, attributes and defaults over creating new concepts
-                        ... convert raw data into example-attribute-value relationships under a concept
-                        ... most general accurate term possible
-                        
-                        recognise: first letter is capitalised
-                        said of: True
-                        present in: False
-                        - Human
-                    - Attribute (Universal Accident)
-                        ... defines a property that a concept has
-                        ... lowercase properties a concept has, which may have their own children
-                        - Essence And Accident
-                            ... attributes on a Concept are essential and inherited; attributes an Example adds are accidental
-                        - Only Lowercase Characters
-                        - Same Slot For Different Frames Means The Slot Has A Dependent Frame
-                        - Assign Enough Concatenated Frame Properties To Be Unambigous
-                        - Order Per Type From Most Intrisic To Most Extrisic
-                        - No Transitive Frame Slot Dependence
-                        recognise: all lowercase
-                        said of: True
-                        present in: True
-                        - full name
-                        ... every attribute is itself a concept
-                Content (Being Acted Upon)
-                    ... the acted-upon individuals on which true schema stands
-                    - Example (Individual Substance)
-                        - Socrates
-                        ... lists concrete individuals of the parent concept or attribute
-                        ... a selection are Examples
-                        ... Most specific accrucate term possible
-                        ... Natural Occuring Frame
-                        ... Higher Level Is Better
-                        recognise: must start with dash and space
-                        said of: False
-                        present in: False
-                        is: Content
-                        predicate: Is A Example Of
-                        begin:
-                            - Dash
-                            - End of Line
-                            - ` inside a concept or attribute
-                        end: end of line
-                        allow special value override:
-                            - Elipsis
-                            - Boolean
-                        
-                        
-                    - Default Value (Individual Accident)
-                        ... sets the expected or default value for an attribute or concept
-                        ... Fits On One Line
-                        ... Atomic Unicode Data
-                        ... may be used twice
-                            - Default of A Slot
-                            - Part Of A Frame TO Specify Applicable Content
-                        start: : 
-                        end: End of line
-                        recognise: colon separated value
-                        said of: False
-                        present in: True
-                        - colour: red
-                        allow special value override
-                            - Boolean
-                            - Ellipses
-                        allow folding: Yes
-                        allow special value override: No
-                        predicate: Detailed By
-                        
-                    - Map
-                        ... marks intentionally omitted or incomplete information
-                        ... use a Map to mark intentionally incomplete sections
-                        recognise: starts with ellipsis followed by a description
-                        said of: False
-                        begin: ...
-                        end: End Of Line
-                        is special value override: Yes
-                        predicate: Explained By
-            Connection
-                - Indented Hierarchy
-                    - is-a
-                        ... predication, indent a Concept under a term
-                    
-                        
-                            
-                    - has-a
-                        ... inheritance, indent an attribute under a term
-                    rules
-                        - Parent Child
-                            - May Have Many First Class Entities
-                            - Indent For Child Of Parent
-                            - Child Is A Parent
-                            - More Than One Child
-                            - No More Than Twelve Children
-                            - A Child's Child Is A Parent
-                            - A Child Has One Parent
-                            - Two Different Types If Different Parents
-                            - Inheritance
-                                - Inherit Slots From Full Linage Of Parents
-                                - Overload To Closest Inheritance
-                        - Sibling
-                            - All Siblings Have The Same Granualarity
-                            - Siblings May Have The Same Slot If Default Values Are Different
-                            - New Lines 
-                    Decompose further when detail adds meaningful value
-                        Place a thing by its nearest kind (genus)
-                        Add a qualifier that sets it apart (differentia)
-                    
-                - Same Line Connections
-                    - value-is
-                        ... colon after a term
-                    - has-another-name
-                        ... parentheses after a term provide an alias
-                        begin: (
-                        end: )
-                        allow special value override: Ellispis
-                        - For Dependency Or A More General Context Name
-                        - Can Be Used For Both A Frame And A Slot
-                        - On The Same Line As Frame Or Slot
-                            - When Frame Has More Then One Of The Same Slots
-                            - May Link To Frame
-                - Reference to a `not said of` idea
-                    - attribute-is-a-concept
-                        ... attribute name or last words match a Concept name
-                        type: Reference
-                    - default-is-a-example
-                        ... value matches an example name exactly
-                        type: Reference
-                    indentation: exactly 4 spaces per level
-            Primitive
-                ... combines Aristotle's Categories, Causes, Prior Analytics and Kipling's Six Serving Men
+        Publish File
+            Create File
+                file extension: aot
+                    ... never use tabs
+                - plain text, not prose
+                - a tree, not a diagram
+                - use full words, never abbreviate
+                - fix all misspellings
+            Setup Primitives
                 - Motivation
-                    ... final cause, for the sake of which
-                    acting on: Beneficiary
-                    being acted upon: Measurement
-                    interrogative: Why
-                - Timeline
-                    ... material cause, that out of which
-                    acting on: Workload
-                    being acted upon: Duration
-                    interrogative: When
-                - Function
-                    ... formal cause, the form and essence
-                    acting on: Objective
-                    being acted upon: Type
-                    interrogative: What
-                - Workflow
-                    ... efficient cause, the agent and the means
-                    acting on: Agent
-                    being acted upon: Resource
-                    interrogative: How
                 - Network
-                    ... paradigmatic cause, the pattern conformed to
-                    acting on: Entity
-                    being acted upon: Record
-                    interrogative: Where
-        Record
-            - the aot file extension
-            - plain text storage
-            - four spaces per indentation level, never tabs
-        
+                - Function
+                - Timeline
+                - Workflow
+            Code Tokens
+                - Ideas
+                - Connections
+                    Inheritance
+                        ... child concepts and examples inherit all parent essential attributes, never examples
+                    Polymorphism
+                        ... child concepts may add essential attributes; examples may add only accidental ones
+                    One term, one definition
+            Share File
+                
+    ... To-Do
+    
     - Timeline
         ... what it is built out of and when clarity arrives — material cause
         
-        
-        Workload
-            Term
-                Concept
-                    begin: Uppercase Letter
-                    end
-                        - (
-                        - End Of Line
-            
-                Attribute
-                    begin: Lowercase
-                    end:
-                        - (
-                        - :
-                        - End Of Line
-        Duration
-            - built incrementally, never from nothing
-            - one term defined at a time
-            - clarity arrives only after the connections are defined
+        Work Out What You Mean: Asynchronous
+            - Create File
+                interval: 
+                timeout: when file is published
+            - Iterate Over Extension
+                worker pool: 1
+
 
     - Workflow
         ... how it is produced — efficient cause, agent and means

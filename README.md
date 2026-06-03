@@ -526,18 +526,7 @@ Duration
     
 Workload (Exclusive Window)
     - Data Flow
-        function
-        result
-        dependent function
-        data store
     - Control Flow (Situation-Decision-Action)
-        situation
-            ... environmental condition
-        decision
-            ... rule triggered by situation
-        action
-            ... function to execute
-        destination
     Concurrent (Single-Threading)
         Synchronous (Lock)
             - Lock
