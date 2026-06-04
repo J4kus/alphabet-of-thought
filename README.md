@@ -9,12 +9,17 @@ It is a text-based language for representing knowledge as a tree of indented tex
 
 ## The Foundations
 
-
 ### Pragmatic
-- An *idea* becomes clear after the *connections* to other ideas are defined.
-- Knowledge holds its shape best as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
+- **Meaning is use**: an *idea* becomes clear only after its *connections* to other ideas are defined. A term with no connections has no content.
+- **Plain text holds its shape**: knowledge is best kept as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
+- **Shared context beats private notes**: a model earns its keep when someone else, including your future self, extends the same structure rather than rebuilding it in their head.
+- **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it, not when it merely sounds right.
 ### Aristotelian
-- You never think from nothing. Every new thought extends structures you already know. (Posterior Analytics)
+- You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
+- **Essence versus accident**: what a thing is by its kind, versus what merely happens to an individual. (*Metaphysics* Z)
+- The four node of Alpha's ontology are **Said-of** and **present-in** crossing  (*Categories* 2).
+- **Definition is by genus and differentia**: name the nearest kind, then the difference that sets a thing apart from its siblings. (*Topics*)
+- **The four causes answer every *why***: final, formal, material, efficient. The primitives of Alpha are built on them. (*Physics* II.3)
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -28,7 +33,7 @@ Human (Natural Person)
     age
     - Gottfried Wilhelm Leibniz
         full name: Gottfried Wilhelm Leibniz
-        known for: Alphabet of human thought
+        known for: Alphabet of Human Thought
         age: 70
 ```
 
