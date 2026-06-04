@@ -17,7 +17,7 @@ It is a text-based language for representing knowledge as a tree of indented tex
 ### Aristotelian
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
 - **Essence versus accident**: what a thing is by its kind, versus what merely happens to an individual. (*Metaphysics* Z)
-- The four node of Alpha's ontology are the crossing of **Said-of** and **present-in** (*Categories* 2).
+- The four node of Alpha's ontology are the crossing of **Said-of** and **Present-in** (*Categories* 2).
 - **Definition is by genus and differentia**: name the nearest kind, then the difference that sets a thing apart from its siblings. (*Topics*)
 - **The four causes answer every *why***: final, formal, material, efficient. The primitives of Alpha are built on them. (*Physics* II.3)
 
@@ -42,7 +42,7 @@ Human (Natural Person)
 - Extension: `.aot`
 - Indentation: exactly 4 spaces per level (Do NOT use tabs)
 - Every line is a node
-- The **file name is the root concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
+- The **file name is the root concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For Individual, `Person.aot` begins directly with `full name`, `age`, and so on.
 
 ## Ideas and connections
 
@@ -52,54 +52,48 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 #### Schemas (Acting on)
 
-| Node Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
+| Node Type | How to Recognise | Purpose | Extra Rules | Individual | Said of (S) | Present in (P) |
 |-----------|------------------|---------|-------------|---------|-------------|----------------|
 | **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of thing | A concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
 | **Attribute** (Universal Accident) | All lowercase | Defines a property that a concept has | Every attribute is itself a concept, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
 
 #### Content (Being acted upon)
 
- We can't think of a concept without having a concrete example, or of an attribute without having a value for it. *Content*, the acted-upon individuals are not storage waiting to be filled; it is what true schema stands on.
+ We can't think of a concept without having a concrete Individual, or of an attribute without having a value for it. *Content*, the acted-upon individuals are not storage waiting to be filled; it is what true schema stands on.
 
-| Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
+| Node Type | How to Recognise | Purpose | Individual | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
-| **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete individuals (instances) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
-| **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or concept | `colour: red` | **False (~S)** | **True (P)** |
-
-### Unknown
-
-| Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
-|-----------|------------------|---------|---------|-------------|----------------|
-| **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` | **False (~S)** | **False (~P) or True (P)** |
-
+| **Individual** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete individuals (instances) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an Individual. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
+| **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or concept | `colour: red` | **False (~S)** | **True (P)** | 
 
 ### Connections
 
-| Connections | Expression | Type | Example | Extra Rule |
+| Connections | Expression | Type | Individual | Extra Rule |
 |------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
 | **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
 | **has-a** | Indent attribute under a term | Indented | `Person` → indent → `full name` | |
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
 | **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` |If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required |
-| **has-example** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| **has-Individual** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information | 
 | **attribute-is-a-concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` concept | |
-| **default-is-a-example** | Value matches an example name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the example | |
+| **default-is-a-Individual** | Value matches an Individual name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Individual | |
 
-## How to Decide: Concept vs Example vs Attribute
+## How to Decide: Concept vs Individual vs Attribute
 
 Correct classification here is what separates a model that communicates from one that merely stores. For a more pragmatic approach, apply these tests in order:
 
-### 1. Exhaustion test (Concept vs Example)
+### 1. Exhaustion test (Concept vs Individual)
 
-If the children together **partition** the parent, such that every child is a subtype of the parent, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
+If the children together **partition** the parent, such that every child is a subtype of the parent, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Individuals**.
 
-### 2. Abstraction test (Concept vs Example)
+### 2. Abstraction test (Concept vs Individual)
 
-**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Example. Somewhere in between? → Example.
+**Concepts** are abstract groupings humans invent to organise thinking. **Individuals** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Individual. Individuals? → Individual.
 
 ### 3. Attributes describe, they don't classify
 
-Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: examples, concepts, values, or further attributes.
+Attributes are lowercase properties a concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: Individuals, concepts, values, or further attributes.
 
 ## Classical Style Rules
 
@@ -115,19 +109,19 @@ These rules keep a model readable and unambiguous. Violating them is how two peo
 - Remove redundant concepts
 - Add qualifiers to distinguish similar concepts (the *differentia*)
 - Only decompose further when detail adds meaningful value
-- Provide as many concept and attribute examples as possible
-- Examples placed higher in the tree are preferable
+- Provide as many concept and attribute Individuals as possible
+- Individuals placed higher in the tree are preferable
 
 ## Design Rules
 
 The following rules govern how Alpha handles inheritance, incomplete models, and the tension between structure and data.
 
-- **Essence and accident**: **Attributes** defined on a **Concept** are *essential* — part of what the thing is — so every child concept and example inherits them necessarily. **Attribute**s an **Example** introduces on its own are *accidental* — true of that individual but not of its kind. A schema therefore introduces essence; an Example may add only accidents, never a new essential attribute (changing the essence is the Concept's prerogative, not the individual's).
-- **Inheritance**: Child concepts and examples inherit all parent (essential) attributes (never examples)
-- **Polymorphism**: Child concepts may add further essential attributes; examples may add only accidental ones
+- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. It is part of what the thing is. So every child concept and Individual inherits them necessarily. **Attribute**s an **Individual** introduces on its own are *accidental*. True of that individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (changing the essence is the Concept's prerogative, not the individual's).
+- **Inheritance**: Child concepts and Individuals inherit all parent (essential) attributes (never Individuals)
+- **Polymorphism**: Child concepts may add further essential attributes; Individuals may add only accidental ones
 - **Incompleteness**: Use `... explanation` (Map) to mark intentionally incomplete sections. Normal and accepted.
-- **Content over structure**: Prefer examples + attributes + defaults over creating new concepts. Keep the concept tree lean.
-- **Assimilate facts**: Convert raw data into example-attribute-value relationships under a concept
+- **Content over structure**: Prefer Individuals + attributes + defaults over creating new concepts. Keep the concept tree lean.
+- **Assimilate facts**: Convert raw data into Individual-attribute-value relationships under a concept
 
 ```aot
 Parent
@@ -135,13 +129,13 @@ Parent
     Child
         ... inherits `attribute` and `normal value` from Parent
         extra attribute
-        - Child Example
+        - Child Individual
             attribute: new value
-                ... `- Child Example` overrides `normal value` from `attribute` and replaces it with `new value`
+                ... `- Child Individual` overrides `normal value` from `attribute` and replaces it with `new value`
             extra attribute: value
-                ... `- Child Example` assigns a default for `extra attribute`
-            child example attribute
-                ... `- Child Example` adds a child example attribute that isn't present in the `Child` concept
+                ... `- Child Individual` assigns a default for `extra attribute`
+            child Individual attribute
+                ... `- Child Individual` adds a child Individual attribute that isn't present in the `Child` concept
             
 ```
 
@@ -149,12 +143,12 @@ Parent
 
 - Do NOT use tabs; 4 spaces only
 - Do NOT abbreviate or use synonyms
-- Do NOT create sub-concepts when examples + attributes suffice
+- Do NOT create sub-concepts when Individuals + attributes suffice
 - Do NOT use plural concept names
 - Do NOT add structure without meaningful value
 - Do NOT leave misspellings uncorrected
 - Do NOT use explicit connection keywords; indentation, colons and parentheses express all connections
-- Do NOT write examples without the `- ` prefix. A line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an example
+- Do NOT write Individuals without the `- ` prefix. A line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an Individual
 
 ## Primitives
 
@@ -183,7 +177,7 @@ The Motivation Primitive answers two questions at once: what are we trying to ac
 
 Every measurement carries both a `target` value and an `actual` value. A target without an actual is potential; an actual without a target has no standard. To measure is to weigh the one against the other, so Alpha requires both.
 
-Example
+Individual
 
 ```aot
 - Motivation
@@ -301,7 +295,7 @@ Measurement
             multiplier measurement: 1
             offset scaling magnitude: 0
             ... takes base Unit and scaling factor to create new unit of same dimensionality
-            ... example: gram as 0.001 of kilogram
+            ... Individual: gram as 0.001 of kilogram
             exponent (power)
             ... raises a Unit to a given power
             ... signed to provide division via negative
@@ -320,7 +314,7 @@ Measurement
             is signed: true
             relative zero point
                 ... establishes quantity as relative measure
-                ... example: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
+                ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
             - Amount
                 - Cyclomatic Complexity
                 - Lines Of Code
@@ -622,7 +616,7 @@ Workload (Exclusive Window)
 
 Focus: **what the system does**, decomposed as a tree.
 
-### Example
+### Individual
 
 ```aot
     Create Product
@@ -670,7 +664,7 @@ Focus: **what the system does**, decomposed as a tree.
 #### Naming Rules
 
 - **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
-- **Types**: conventionally nouns only, expressed as example ideas → `- Payment Type`
+- **Types**: conventionally nouns only, expressed as Individual ideas → `- Payment Type`
 
 #### Forbidden in Names
 
@@ -698,7 +692,7 @@ Attributes may be attached to functions to describe them more precisely.
 
 ### Network Primitive
 
-Focus: **where things reside** (the *acting-on* concepts) and **what data and entities exist** there (the *acted-upon* examples).
+Focus: **where things reside** (the *acting-on* concepts) and **what data and entities exist** there (the *acted-upon* Individuals).
 
 
 Relevant when: data residency laws, latency, location-dependent processes, disaster recovery.
@@ -747,7 +741,7 @@ Event
 **Subordinate Association (sibling-to-sibling via junction):**
 ```aot
 Object
-    - Example Object
+    - Individual Object
     Child Object
     Child Linking Event
         from child object
@@ -770,7 +764,7 @@ Object
 - Use subset data to clarify scope
 - Use aliases to describe concepts
 - Use full, unabbreviated names; final names must be unique and implementable
-- Prefer fewer concepts with more examples over many concepts with few examples
+- Prefer fewer concepts with more Individuals over many concepts with few Individuals
 - Prioritise concepts by relevance
 - Create parent concepts to group related children
 - Look for likenesses and differences to form general structures
@@ -831,7 +825,7 @@ Function Resource
 ...
 ```
 
-#### Workflow Example
+#### Workflow Individual
 
 ```aot
 Acquire Stock
