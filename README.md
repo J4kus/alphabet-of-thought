@@ -41,7 +41,7 @@ Human (Natural Person)
 
 ## Ideas and connections
 
-Ideas and connections are determined entirely by capitalisation, punctuation, and indentation. The only keywords are the Category Examples.
+Ideas and connections are determined entirely by capitalisation, punctuation, and indentation. The only keywords are the primitives.
 
 ### Ideas
 
@@ -60,23 +60,25 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 |-----------|------------------|---------|---------|-------------|----------------|
 | **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete individuals (instances) of the parent concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an example. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
 | **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or concept | `colour: red` | **False (~S)** | **True (P)** |
+
+### Unknown
+
+| Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
+|-----------|------------------|---------|---------|-------------|----------------|
 | **Map** | Starts with `...` followed by a description | Marks intentionally omitted or incomplete information | `...Especially useful for describing terms or recording supplementary information` | **False (~S)** | **False (~P) or True (P)** |
-
-
-
 
 
 ### Connections
 
 | Connections | Expression | Type | Example | Extra Rule |
 |------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
-| **is-a** | Indent Concept under a term | Embedded | `Organisation` → indent → `Business` | *Said-of* is predication — the **is-a** connection |
-| **has-a** | Indent attribute under a term | Embedded | `Person` → indent → `full name` | *Present-in* is inherence — the **has-a** connection |
-| **value-is** | Colon after a term | Embedded | `full name: Gottfried Leibniz` | |
-| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Embedded | `Person (Natural Person)` |If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required |
-| **has-example** | Indent Dash prefix after a term | Embedded | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
-| attribute-is-a-concept | Attribute name (or last words) matches a Concept name | Reference | `age integer: 5` → `integer` → `Integer` concept | |
-| **default-is-a-example** | Value matches an example name exactly (case-sensitive) | Reference | `person: Gottfried Wilhelm Leibniz`, where the value references the example | |
+| **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
+| **has-a** | Indent attribute under a term | Indented | `Person` → indent → `full name` | |
+| **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
+| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` |If some or all of an attribute's trailing words match a concept, those words act as an alias, with no parentheses required |
+| **has-example** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| **attribute-is-a-concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` concept | |
+| **default-is-a-example** | Value matches an example name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the example | |
 
 ## How to Decide: Concept vs Example vs Attribute
 
@@ -159,13 +161,12 @@ Primitives require no special `.aot` syntax. Alpha models things that *come to b
 
 Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3).
 
-| Cause | Primitive | Acting on | Being acted upon | Serving man's interrogative |
-|-----------|-----------|------------------|------------------|-----------------------------|
-| **Final** — for the sake of which | Motivation | Beneficiary | Measurement | Why |
-| **Material** — that out of which | Timeline | Workload | Duration | When |
-| **Formal** — the form, the essence | Function | Objective | Type | What |
-| **Efficient** — the agent and the means | Workflow | Agent | Resource | How |
-| **Paradigmatic** — the pattern conformed to | Network | Entity | Record | Where |
+| Cause | Primitive | Acting on | Being acted upon |
+|-----------|-----------|------------------|------------------|
+| **Final** | for the sake of which | Motivation | Beneficiary (Who) | Measurement (Why) |
+| **Formal** | the form, the essence | Network | Entity (Where) | Record (What) |
+| **Material** | that out of which | Function | Objective (How) | Type (Which)  |
+| **Efficient** | the agent and the means | Timeline | Workload (Whence) | Duration (When) | 
 
 ---
 
