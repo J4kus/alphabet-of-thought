@@ -16,10 +16,10 @@ It is a text-based language for representing knowledge as a tree of indented tex
 - **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it, not when it merely sounds right.
 ### Aristotelian
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
-- **Essence versus accident**: what a idea is by its kind, versus what merely happens to an Individual. (*Metaphysics* Z)
+- **Essence versus accident**: what a Concept and Attribute is by its kind, versus what merely happens to an Individuals and Attribute Values. (*Metaphysics* Z)
 - The four node of Alpha's ontology are the crossing of **Said-of** and **Present-in** (*Categories* 2).
 - **Definition is by genus and differentia**: name the nearest kind, then the difference that sets a idea apart from its siblings. (*Topics*)
-- **The four causes answer every *why***: final, formal, material, efficient. The primitives of Alpha are built on them. (*Physics* II.3)
+- **The four causes answer every *why***: final (motiviation), formal (network), material (functional), efficient (timeline). The primitives of Alpha are built on them. (*Physics* II.3)
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -247,6 +247,7 @@ The Concepts used in the Motivation Primitive:
 
 ```aot
 Measurement
+    ... of Quality and Quantity
     superordinate measurement: None
     name
     expected value
