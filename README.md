@@ -17,7 +17,7 @@ It is a text-based language for representing knowledge as a tree of indented tex
 ### Aristotelian
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
 - **Essence versus accident**: what a thing is by its kind, versus what merely happens to an individual. (*Metaphysics* Z)
-- The four node of Alpha's ontology are **Said-of** and **present-in** crossing  (*Categories* 2).
+- The four node of Alpha's ontology are the crossing of **Said-of** and **present-in** (*Categories* 2).
 - **Definition is by genus and differentia**: name the nearest kind, then the difference that sets a thing apart from its siblings. (*Topics*)
 - **The four causes answer every *why***: final, formal, material, efficient. The primitives of Alpha are built on them. (*Physics* II.3)
 
