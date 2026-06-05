@@ -1,7 +1,7 @@
 # Alpha (.aot)
 
 Alpha is the digital version of Gottfried Wilhelm Leibniz's proposed alphabet of human thought.
-- every Concept reducible to primitive elements,
+- every idea  reducible to primitive element,
 - every complex idea expressible as a combination of those elements,
 - every argument verifiable like arithmetic.
 
@@ -16,10 +16,11 @@ It is a text-based language for representing knowledge as a tree of indented tex
 - **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it, not when it merely sounds right.
 ### Aristotelian
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
-- **Essence versus accident**: what a Concept and Attribute is by its kind, versus what merely happens to an Individuals and Attribute Values. (*Metaphysics* Z)
+- **Essence versus accident**: Concepts, Concept Attributes and Individual Attributes inherited from concepts are essentail, everything else in Alpha is accidental. Alpha take this further and claim that Universals acts on Individuals and Individuals are being acted apon by Universals (*Metaphysics* Z)
 - The four node of Alpha's ontology are the crossing of **Said-of** and **Present-in** (*Categories* 2).
 - **Definition is by genus and differentia**: name the nearest kind, then the difference that sets a idea apart from its siblings. (*Topics*)
 - **The four causes answer every *why***: final (motiviation), formal (network), material (functional), efficient (timeline). The primitives of Alpha are built on them. (*Physics* II.3)
+- The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and  Kipling's *Six Serving Men* (plus 2).
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -52,7 +53,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 #### Schemas (Acting on)
 
-| Node Type | How to Recognise | Purpose | Extra Rules | Individual | Said of (S) | Present in (P) |
+| Node Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|-------------|---------|-------------|----------------|
 | **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of idea | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
 | **Attribute** (Universal Accident) | All lowercase | Defines a property that a Concept has | Every attribute is itself a Concept, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
@@ -61,7 +62,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
  We can't think of a Concept without having a concrete Individual, or of an attribute without having a value for it. *Content*, the acted-upon Individuals are not storage waiting to be filled; it is what true schema stands on.
 
-| Node Type | How to Recognise | Purpose | Individual | Said of (S) | Present in (P) |
+| Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
 | **Individual** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Individuals (instances) of the parent Concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an Individual. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
 | **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or Concept | `colour: red` | **False (~S)** | **True (P)** | 
@@ -152,20 +153,64 @@ Parent
 
 ## Primitives
 
-The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and  Kipling's *Six Serving Men* (plus 2),  to support disciplined, rigorous thought.
-
 Primitives require no special `.aot` syntax, but it will make you smarter at any process that transform. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced. A modelling language for work needs both: the static and the dynamic.
 
 #### The four causes
 
-Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3).
+Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as individuals (not said of, not present in).
 
-| Cause | Description | Primitive | Acting on | Being acted upon |
+Each of these Primitives have a said of and not said of part to guide for the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives, Timelines and cannot be individuals or defualt values, while only individuals can be defualt values are measurements, records, classes and dependencies.
+
+| Cause | Description | Primitive | Said of | Not Said Of |
 |-----------|---------|--|------------------|------------------|
 | **Final** | for the sake of which | Motivation | Beneficiary (Who) | Measurement (Why) |
-| **Formal** | the form, the essence | Network | Entity (Where) | Record (What) |
-| **Material** | that out of which | Function | Objective (How) | Class (Which)  |
+| **Material** | that out of which| Network | Entity (Where) | Record (What) |
+| **Formal** | the form, the essence | Function | Objective (How) | Class (Which)  |
 | **Efficient** | the agent and the means | Timeline | Dependency (Whence) | Duration (When) | 
+
+### For example
+```
+- Motiviation
+    Me
+        - Most useful programming language to capture thought
+        - Easy to use description of how to use alpha
+- Network
+    Device
+        - My Computer
+    Repo
+        - Local
+        - HubSpot
+        - VSCode Marketplace
+    Computer Protocol
+        - Filesystem
+        - File
+- Function
+    Write Thinking Programming Language
+        Understand World
+            Identify Common Thought Patterns
+                - Philosophy
+                - Work
+                - Knowledge-base
+            Find Efficient Way To Capture In Computer
+                - Programming languages
+                - AI
+                - Databases
+        Describe Thoughts
+            - Ideas
+            - Connections
+        Make Change To Programming Lanauge
+        ...
+- Timeline
+    Understanding to VSCode Marketplace
+        start: new idea to implement in programming language
+        end: extension published to marketplace
+        interval: every time i have an extra moment
+        timeout: when i feel i am done
+    ...
+        
+
+
+--
 
 ---
 
@@ -246,7 +291,64 @@ Example
 The Concepts used in the Motivation Primitive:
 
 ```aot
-Measurement
+Beneficiary (Who)
+    Person
+        cell: 0830000000
+        email: jakusvanrooyen@gmail.com
+        id number: 9003262449080
+        passport number: None
+        first name: Alida
+        surname: Zondo
+        title
+        date of birth
+        gender
+        home language
+        nationality (country)
+        residential country
+        is living
+        is sa citizen
+        occupation status
+            - Employed
+                - Contributor
+                - Manager
+                - Executive
+                - Non Executive
+                - Independent
+            - Self Employed
+            - Unemployed
+            - Retired
+        residential status
+            - Renting
+            - Home Owner
+        education standard classification
+            - Childhood
+            - Primary
+            - Lower Secondary
+            - Upper Secondary
+            - Postsecondary Non Tertiary
+            - Short Cycle Tertiary
+            - Bachelors
+            - Masters
+            - Doctors
+        marital status
+        minor child count
+    Organisation
+        Business
+        Government
+        N G O
+        Foundation
+        operating status type
+        trading name
+        no terminology name
+        is business unit
+        is user classified
+        incorporated country
+        nickname
+        impact (power and interest normally listed from most to least)
+        is participant
+        tax number
+        tax office
+Measurement (Why)
     ... of Quality and Quantity
     superordinate measurement: None
     name
@@ -368,332 +470,9 @@ Measurement
     start time
     updated time
     updating author
-Beneficiary
-    Person
-        cell: 0830000000
-        email: jakusvanrooyen@gmail.com
-        id number: 9003262449080
-        passport number: None
-        first name: Alida
-        surname: Zondo
-        title
-        date of birth
-        gender
-        home language
-        nationality (country)
-        residential country
-        is living
-        is sa citizen
-        occupation status
-            - Employed
-                - Contributor
-                - Manager
-                - Executive
-                - Non Executive
-                - Independent
-            - Self Employed
-            - Unemployed
-            - Retired
-        residential status
-            - Renting
-            - Home Owner
-        education standard classification
-            - Childhood
-            - Primary
-            - Lower Secondary
-            - Upper Secondary
-            - Postsecondary Non Tertiary
-            - Short Cycle Tertiary
-            - Bachelors
-            - Masters
-            - Doctors
-        marital status
-        minor child count
-    Organisation
-        Business
-        Government
-        N G O
-        Foundation
-        operating status type
-        trading name
-        no terminology name
-        is business unit
-        is user classified
-        incorporated country
-        nickname
-        impact (power and interest normally listed from most to least)
-        is participant
-        tax number
-        tax office
-    Employed By
-        organisation
-        person
-        metadata
-        job title
-        payroll number
-        everest system number
-        risk salary
-        basic salary
-        employee contribution
-        employer contribution
-        time
-        location
-    Geographic Region
-        Continent
-        Country
-            short name
-            common monetary area
-            dialling code
-        Province
-        Suburb
-        Street And Number
-    Address
-        stakeholder
-        usage purpose
-            - Personal
-            - Professional
-            - Private
-            - Flexible
-            - Throw Away
-        Telco
-            telephone number
-            is mobile
-            is fax
-            country
-        Email
-            is personally owned
-            email address
-            recipient name
-        Physical Address
-            code
-            country
-            line one (street)
-            line two (street)
-            line three (street)
-            line four (street)
-            line five (street)
-            line six (street)
-            is postable
-        Web Address
-            ip address
-            url
-        Box
-            suburb
-            postal box
-            box qualifier
-            box description
-            postal code
-```
-
----
-
-### Timeline Primitive
-
-Focus: **when and how things happen**.
-
-```aot
-Duration
-    - Milestone
-        interval count: 0
-        Time: 15:00
-            precision: no seconds
-            date: today
-                Date
-                precision: no time component
-                Date and Time
-                    precision: no seconds
-                Precise Date and Time
-                    precision: microseconds
-    - Period
-        interval count: 1
-    - Cycle
-        interval count: 2 or more
-        ... most expensive
-    start condition
-    interval: 5 seconds
-    timeout
-    polling duration
-    precision: up to minutes
-    displacement from Greenwich meridian hours: +0
-    status
-        - Time Set
-        - Cleared
-        - Triggered
-        - Failed Trigger
-        - Finalised
-    ...
-    Maintain a model of system variety
-    Name the dependency
-    
-Dependency (Exclusive Window)
-    - Data Flow
-    - Control Flow (Situation-Decision-Action)
-    Concurrent (Single-Threading)
-        Synchronous (Lock)
-            - Lock
-                ... only one thread may hold it at a time
-            - Reentrant Lock
-                ... the holding thread may acquire it repeatedly
-            - Event
-                ... one thread sets a flag, others wait on it
-            - Condition
-                ... a thread waits until another notifies it
-            - Barrier
-                ... releases all parties together once the count arrives
-            fixes
-                - shared state
-                    - delete (design away)
-                    - clamp into single complex
-                        - no shared medium
-                    - coordinate once, offline, by convention
-                        ... not at runtime
-                    - pass messages and isolate (guard)
-                        - separate service
-                        - hide information
-                    - reduce costs
-                        - free riding
-                        - unreliable channels sacrifice consistency or availability
-                - externalise
-                    - precompute
-                    - parallelise
-                    - asynchronise
-                    - defer
-                - add cheaper resources
-                    ... the bill arrives later
-                    - diversified copies
-                        - multiversion concurrency
-                        - readers never block writers
-                        - (no lock at all)
-                        - validate on commit only
-                    - buffer ("Slack")
-                        - me
-                        - another party
-                    - fastest gun redundancy
-                        - fire at several replicas and take first answer
-                        - multiple nodes with same data
-                    - speculate and reconcile on rare miss
-                        - optimistic concurrency
-                - decorrelate the need (activity based costing)
-                - satisficing (good enough optimisation of requirements)
-                    - net and clear, collapse the obligation graph
-                - outsource dependency to whoever can handle it better
-                - substitute collateral
-        Asynchronous
-            wrapped synchronous
-            waiting for: external
-            suspension event
-            awaiting event
-            wrapped coroutine
-        maximum worker pool: 1
-    Parallel (Multithreading)
-        maximum worker pool: many
-        is worker pool count known: no
-        processing rule
-            - Queue
-                has lock: yes
-            - Dedicated
-                has lock: no
-            - Semaphore
-                permit count
-                ... allows a fixed number of threads through at once
-        is memory shared in pool of workers
-            - Thread
-            - Process
-        risk
-            - Race Condition
-                ... unsynchronised access to shared memory corrupts state
-            - Deadlock
-                ... two threads each wait on a lock the other holds
-    result
-    is done
-    exception
-
 
 ```
-
 ---
-
-### Function Primitive
-
-Focus: **how the system does does it**, decomposed as a tree.
-
-### Individual
-
-```aot
-    Do Value Chain Activity
-        Primary
-            Promote brand offerings (Marketing & Sales)
-                - Launch social media ad campaigns
-                - Negotiate vendor contracts with retail partners
-                - Publish promotional discounts for seasonal sales
-            Manage inbound materials (Inbound Logistics)
-                - Unload raw steel from delivery trucks
-                - Inspect organic ingredients for quality assurance
-                - Store digital components in temperature-controlled warehouses
-            Transform raw inputs (Operations)
-                - Assemble electronic circuits on the production line
-                - Bake artisan bread in commercial ovens
-                - Package finished apparel into retail-ready boxes
-            Distribute finished products (Outbound Logistics)
-                - Load delivery fleets for regional distribution
-                - Fulfill online orders via third-party couriers
-                - Dispatched bulk cargo to international shipping ports
-            Support final customers (Service)
-                - Repair broken hardware under warranty agreements
-                - Process product returns via customer service
-                - Troubleshoot software glitches over live chat
-        Support
-            Govern company infrastructure (Firm Infrastructure)
-                - Audit financial ledgers
-                - Draft legal contracts
-                - Secure internal networks (Against cyber threats)
-            Develop human talent (Human Resource Management)
-                - Interview engineering candidates
-                - Conduct safety training
-                - Administer employee benefits
-                    - payroll systems
-                    - ...
-            Advance proprietary technology (Technological Development)
-                - Code automated features
-                - Test alternative materials
-                - Upgrade database servers
-            Source essential goods (Procurement)
-                - Source raw fabrics
-                - Purchase office equipment
-                - Approve vendor bids
-```
-#### Naming Rules
-
-- **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
-- **Types**: conventionally nouns only, expressed as Individual ideas → `- Payment Type`
-
-#### Forbidden in Functions
-
-- "And" (always split the function into two siblings)
-- Vague terms for services ("manage", "ensure")
-- Performance related terms ("good", "acceptable")
-- Information management ("information", "data", "content", "info")
-- Political words ("Business", "IT", "Management", "Support", or "Execution")
-- Flow words ("then", "next")
-
-#### Decomposition Rules for Objectives
-
-- 3 to 7 sub-objectives per parent objective
-- Ask **Why** does a sub-objective exist? The answer should be the parent objective
-- Ask **How** is a parent objective achieved? Exclusively through every and all of it's children
-- Ask **Which** of an objective to get to a class.
-
-#### Pitch Level
-
-- Start two levels of granularity above the detail you need, then prune until every leaf is directly executable.
-- Remove anything that does not serve the model.
-
-#### Include attributes
-
-Attributes may be attached to functions to describe their arguments and results.
-
----
-
 ### Network Primitive
 
 Focus: **where things reside** (the *acting-on* Concepts) and **what data and entities exist** there (the *acted-upon* Individuals).
@@ -803,5 +582,210 @@ Z
 1. Start with natural business entities
 2. Build up from facts OR normalise existing data structures
 3. Derive relations, establish attributes
+---
+
+### Function Primitive
+
+Focus: **how the system does does it**, decomposed as a tree.
+
+### Example
+
+```aot
+    Do Value Chain Activity
+        Primary
+            Promote brand offerings (Marketing & Sales)
+                - Launch social media ad campaigns
+                - Negotiate vendor contracts with retail partners
+                - Publish promotional discounts for seasonal sales
+            Manage inbound materials (Inbound Logistics)
+                - Unload raw steel from delivery trucks
+                - Inspect organic ingredients for quality assurance
+                - Store digital components in temperature-controlled warehouses
+            Transform raw inputs (Operations)
+                - Assemble electronic circuits on the production line
+                - Bake artisan bread in commercial ovens
+                - Package finished apparel into retail-ready boxes
+            Distribute finished products (Outbound Logistics)
+                - Load delivery fleets for regional distribution
+                - Fulfill online orders via third-party couriers
+                - Dispatched bulk cargo to international shipping ports
+            Support final customers (Service)
+                - Repair broken hardware under warranty agreements
+                - Process product returns via customer service
+                - Troubleshoot software glitches over live chat
+        Support
+            Govern company infrastructure (Firm Infrastructure)
+                - Audit financial ledgers
+                - Draft legal contracts
+                - Secure internal networks (Against cyber threats)
+            Develop human talent (Human Resource Management)
+                - Interview engineering candidates
+                - Conduct safety training
+                - Administer employee benefits
+                    - payroll systems
+                    - ...
+            Advance proprietary technology (Technological Development)
+                - Code automated features
+                - Test alternative materials
+                - Upgrade database servers
+            Source essential goods (Procurement)
+                - Source raw fabrics
+                - Purchase office equipment
+                - Approve vendor bids
+```
+#### Naming Rules
+
+- **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
+- **Types**: conventionally nouns only, expressed as Individual ideas → `- Payment Type`
+
+#### Forbidden in Functions
+
+- "And" (always split the function into two siblings)
+- Vague terms for services ("manage", "ensure")
+- Performance related terms ("good", "acceptable")
+- Information management ("information", "data", "content", "info")
+- Political words ("Business", "IT", "Management", "Support", or "Execution")
+- Flow words ("then", "next")
+
+#### Decomposition Rules for Objectives
+
+- 3 to 7 sub-objectives per parent objective
+- Ask **Why** does a sub-objective exist? The answer should be the parent objective
+- Ask **How** is a parent objective achieved? Exclusively through every and all of it's children
+- Ask **Which** of an objective to get to a class.
+
+#### Pitch Level
+
+- Start two levels of granularity above the detail you need, then prune until every leaf is directly executable.
+- Remove anything that does not serve the model.
+
+#### Include attributes
+
+Attributes may be attached to functions to describe their arguments and results.
 
 ---
+
+### Timeline Primitive
+
+Focus: **when and how things happen**.
+
+```aot
+Duration
+    - Milestone
+        interval count: 0
+        Time: 15:00
+            precision: no seconds
+            date: today
+                Date
+                precision: no time component
+                Date and Time
+                    precision: no seconds
+                Precise Date and Time
+                    precision: microseconds
+    - Period
+        interval count: 1
+    - Cycle
+        interval count: 2 or more
+        ... most expensive
+    start condition
+    interval: 5 seconds
+    timeout
+    polling duration
+    precision: up to minutes
+    displacement from Greenwich meridian hours: +0
+    status
+        - Time Set
+        - Cleared
+        - Triggered
+        - Failed Trigger
+        - Finalised
+    ...
+    Maintain a model of system variety
+    Name the dependency
+    
+Dependency (Workload Dependency)
+    - Process Flow
+    - Data Flow
+    - Control Flow (Situation-Decision-Action)
+    Concurrent (Single-Threading)
+        Synchronous (Lock)
+            - Lock
+                ... only one thread may hold it at a time
+            - Reentrant Lock
+                ... the holding thread may acquire it repeatedly
+            - Event
+                ... one thread sets a flag, others wait on it
+            - Condition
+                ... a thread waits until another notifies it
+            - Barrier
+                ... releases all parties together once the count arrives
+            fixes
+                - shared state
+                    - delete (design away)
+                    - clamp into single complex
+                        - no shared medium
+                    - coordinate once, offline, by convention
+                        ... not at runtime
+                    - pass messages and isolate (guard)
+                        - separate service
+                        - hide information
+                    - reduce costs
+                        - free riding
+                        - unreliable channels sacrifice consistency or availability
+                - externalise
+                    - precompute
+                    - parallelise
+                    - asynchronise
+                    - defer
+                - add cheaper resources
+                    ... the bill arrives later
+                    - diversified copies
+                        - multiversion concurrency
+                        - readers never block writers
+                        - (no lock at all)
+                        - validate on commit only
+                    - buffer ("Slack")
+                        - me
+                        - another party
+                    - fastest gun redundancy
+                        - fire at several replicas and take first answer
+                        - multiple nodes with same data
+                    - speculate and reconcile on rare miss
+                        - optimistic concurrency
+                - decorrelate the need (activity based costing)
+                - satisficing (good enough optimisation of requirements)
+                    - net and clear, collapse the obligation graph
+                - outsource dependency to whoever can handle it better
+                - substitute collateral
+        Asynchronous
+            wrapped synchronous
+            waiting for: external
+            suspension event
+            awaiting event
+            wrapped coroutine
+        maximum worker pool: 1
+    Parallel (Multithreading)
+        maximum worker pool: many
+        is worker pool count known: no
+        processing rule
+            - Queue
+                has lock: yes
+            - Dedicated
+                has lock: no
+            - Semaphore
+                permit count
+                ... allows a fixed number of threads through at once
+        is memory shared in pool of workers
+            - Thread
+            - Process
+        risk
+            - Race Condition
+                ... unsynchronised access to shared memory corrupts state
+            - Deadlock
+                ... two threads each wait on a lock the other holds
+    result
+    is done
+    exception
+
+
+```
