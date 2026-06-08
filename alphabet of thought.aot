@@ -246,7 +246,7 @@ Primitive
                 
     ... To-Do
     
-    - Timeline
+    - Workflow
         ... what it is built out of and when clarity arrives — material cause
         
         Work Out What You Mean: Asynchronous
@@ -255,6 +255,4 @@ Primitive
                 timeout: when file is published
             - Iterate Over Extension
                 worker pool: 1
-
-
 

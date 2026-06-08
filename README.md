@@ -19,7 +19,7 @@ It is a text-based language for representing knowledge as a tree of indented tex
 - **Essence versus accident**: Concepts, Concept Attributes and Individual Attributes inherited from concepts are essentail, everything else in Alpha is accidental. Alpha take this further and claim that Universals acts on Individuals and Individuals are being acted apon by Universals (*Metaphysics* Z)
 - The four node of Alpha's ontology are the crossing of **Said-of** and **Present-in** (*Categories* 2).
 - **Definition is by genus and differentia**: name the nearest kind, then the difference that sets a idea apart from its siblings. (*Topics*)
-- **The four causes answer every *why***: final (motiviation), formal (network), material (functional), efficient (timeline). The primitives of Alpha are built on them. (*Physics* II.3)
+- **The four causes answer every *why***: final (motiviation), formal (network), material (functional), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
 - The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and  Kipling's *Six Serving Men* (plus 2).
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
@@ -166,7 +166,7 @@ Each of these Primitives have a said of and not said of part to guide for the us
 | **Final** | for the sake of which | Motivation | Beneficiary (Who) | Measurement (Why) |
 | **Material** | that out of which| Network | Entity (Where) | Record (What) |
 | **Formal** | the form, the essence | Function | Objective (How) | Class (Which)  |
-| **Efficient** | the agent and the means | Workflow | Instrument (Focus) | Dependency (When) | 
+| **Efficient** | the agent and the means | Workflow | Instrument (With What) | Dependency (When) | 
 
 ---
 
