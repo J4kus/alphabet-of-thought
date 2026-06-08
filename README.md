@@ -166,51 +166,7 @@ Each of these Primitives have a said of and not said of part to guide for the us
 | **Final** | for the sake of which | Motivation | Beneficiary (Who) | Measurement (Why) |
 | **Material** | that out of which| Network | Entity (Where) | Record (What) |
 | **Formal** | the form, the essence | Function | Objective (How) | Class (Which)  |
-| **Efficient** | the agent and the means | Timeline | Dependency (Whence) | Duration (When) | 
-
-### For example
-```
-- Motiviation
-    Me
-        - Most useful programming language to capture thought
-        - Easy to use description of how to use alpha
-- Network
-    Device
-        - My Computer
-    Repo
-        - Local
-        - HubSpot
-        - VSCode Marketplace
-    Computer Protocol
-        - Filesystem
-        - File
-- Function
-    Write Thinking Programming Language
-        Understand World
-            Identify Common Thought Patterns
-                - Philosophy
-                - Work
-                - Knowledge-base
-            Find Efficient Way To Capture In Computer
-                - Programming languages
-                - AI
-                - Databases
-        Describe Thoughts
-            - Ideas
-            - Connections
-        Make Change To Programming Lanauge
-        ...
-- Timeline
-    Understanding to VSCode Marketplace
-        start: new idea to implement in programming language
-        end: extension published to marketplace
-        interval: every time i have an extra moment
-        timeout: when i feel i am done
-    ...
-        
-
-
---
+| **Efficient** | the agent and the means | Workflow | Instrument (Focus) | Dependency (When) | 
 
 ---
 
@@ -667,58 +623,52 @@ Attributes may be attached to functions to describe their arguments and results.
 
 ### Timeline Primitive
 
-Focus: **when and how things happen**.
+Focus: **What instrument are used when**.
 
-```aot
-Duration
-    - Milestone
-        interval count: 0
-        Time: 15:00
-            precision: no seconds
-            date: today
-                Date
-                precision: no time component
-                Date and Time
-                    precision: no seconds
-                Precise Date and Time
-                    precision: microseconds
-    - Period
-        interval count: 1
-    - Cycle
-        interval count: 2 or more
-        ... most expensive
-    start condition
-    interval: 5 seconds
-    timeout
-    polling duration
-    precision: up to minutes
-    displacement from Greenwich meridian hours: +0
-    status
-        - Time Set
-        - Cleared
-        - Triggered
-        - Failed Trigger
-        - Finalised
-    ...
-    Maintain a model of system variety
-    Name the dependency
+```
+Instrument
+    is bottleneck: yes
+    is tangable: no
+    useful life: infinite
+    write-off method: not applicable
     
-Dependency (Workload Dependency)
-    - Process Flow
-    - Data Flow
-    - Control Flow (Situation-Decision-Action)
+    
+Dependency (Time)
     Concurrent (Single-Threading)
-        Synchronous (Lock)
-            - Lock
-                ... only one thread may hold it at a time
-            - Reentrant Lock
-                ... the holding thread may acquire it repeatedly
-            - Event
-                ... one thread sets a flag, others wait on it
-            - Condition
-                ... a thread waits until another notifies it
-            - Barrier
-                ... releases all parties together once the count arrives
+        Lock
+            Milestone
+                interval count: 0
+                Time: 15:00
+                    precision: no seconds
+                    date: today
+                        Date
+                        precision: no time component
+                        Date and Time
+                            precision: no seconds
+                        Precise Date and Time
+                            precision: microseconds
+            Duration
+                interval count: 1
+            Cycle
+                interval count: 2 or more
+                ... most expensive
+            mechanism
+                - Synchronisation
+                    ... only one thread may hold it at a time
+                - Reentrant Lock
+                    ... the holding thread may acquire it repeatedly
+                - Event
+                    ... one thread sets a flag, others wait on it
+                - Condition
+                    ... a thread waits until another notifies it
+                - Barrier
+                    ... releases all parties together once the count arrives
+            start condition
+            interval: 5 seconds
+            timeout
+            polling duration
+            precision: up to minutes
+            displacement from greenwich meridian hours: +0
             fixes
                 - shared state
                     - delete (design away)
@@ -759,7 +709,7 @@ Dependency (Workload Dependency)
                 - substitute collateral
         Asynchronous
             wrapped synchronous
-            waiting for: external
+            waiting for: external instrument
             suspension event
             awaiting event
             wrapped coroutine
@@ -786,6 +736,4 @@ Dependency (Workload Dependency)
     result
     is done
     exception
-
-
 ```
