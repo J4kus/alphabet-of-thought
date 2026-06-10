@@ -1,43 +1,178 @@
 # Alpha (.aot)
 
-Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text — a human-first interface to a key-value store that makes one strict design choice: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
+Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text — a human-first interface to a key-value store that makes one strict design choice: single inheritance. Every idea has exactly one connection, to exactly one other idea, and the chain terminates at the file name. From general to specific. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
 The restriction is deliberate. Like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
-Alpha is aimed at knowledge workers, business analysts, and enterprise architects.
+Alpha is aimed at knowledge workers, analysts, and architects.
 
 ## The Foundations
 
 ### Aristotelian
 
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
-- Alpha's ontology is four node types. They are the crossing of **Said-of** and **Present-in** (*Categories* 2).
-- **Essence versus accident**: Concepts and Concept Attributes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z). For example, to avoid confusion, the `capable of laughter` Concept Attribute is not a purely human attribute and should not be defined as part of the `Human` Concept, but you can extend Concepts in Alpha.
+- Alpha's ontology is four node types. They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
+- **Essence versus accident**: Concepts and Concept Attributes nodes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z)
 - **The four causes complete every explanation**: final (motivation), material (network), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
 - The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
 
 ### Gottfried Wilhelm Leibniz's proposed alphabet of human thought
 
 - A universal vocabulary. Every idea reducible to primitive elements and every complex idea expressible as a combination of those elements
-- A way forward for AI: To allow argument to be verifiable like arithmetic
+- A new way forward for AI. To allow argument to be verifiable like arithmetic
 
 ### Pragmatic
 
 - **Plain text holds its shape**: prose hides structure; diagrams don't scale.
-- **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it.
-
-
+- **Truth shows in consequences**: a definition is good when it lets two actors work on with the meaning and verify it.
 
 ## Example
 
 ```aot
-Human (Natural Person)
-    full name
-    age
-    - Gottfried Wilhelm Leibniz
-        full name: Gottfried Wilhelm Leibniz
-        known for: Alphabet of Human Thought
-        age: 70
+... the file name **`Thought.aot`** is the single root where the Motivation, Network, Function and Workflow come to one
+... sources: resource rationality (Lieder & Griffiths), dual process 2.0 (De Neys), metacognition (Fleming), predictive processing (Clark, Friston), argumentative theory (Mercier & Sperber)
+
+- Motivation
+    last update time: 2026-06-10
+    measurement interval: per decision
+    Thinker
+        Subject 
+            - expected utility of chosen action
+                ... resource rationality: thinking maximises expected utility of the outcome minus the cost of computing it
+                actual: result of an affordable heuristic
+                target: best action any feasible mind could pick
+                measurement operation used: Formula
+                - computation cost
+                    actual: seconds of scarce working memory
+                    target: no more than the stakes justify
+                    measurement operation used: Observation
+                    influence: Red
+                    - capacity
+
+                - cognitive quality
+                    - externalised cognition
+                        actual: lazy when produced
+                        target: claims that survive another mind's scrutiny
+                        measurement operation used: Grading
+                        influence: Green
+                    - confidence
+                        actual: better decision next time
+                        target: evaluate externalised cognition
+                        measurement operation used: Grading
+                        influence: Green
+                        - calibration
+                            actual: overconfident
+                            target: stated confidence equals achieved accuracy
+                            measurement operation used: Ratio
+                            influence: Amber
+                        - sensitivity
+                            actual: partial
+                            target: confidence separates correct answers from wrong ones
+                            measurement operation used: Grading
+                            influence: Amber
+        Audience
+            - envirnomental argument quality
+                ... argumentative theory: reasoning evolved to produce justifications other people can evaluate
+                actual: demanding when evaluated
+                target: claims that help calibrate own thinking
+                measurement operation used: Ranking
+                influence: Green
+        
+- Network
+    ... matter is never placeless: every representation resides inside some boundary
+    Mind
+        Global Workspace
+            specialist process
+                - Vision
+                - Language
+                - Memory Retrieval
+            storage capacity: 1 shared broadcast item between specialist processes
+            information rate: 39 bits a minute 
+            storage capacity: 2 seconds of inner speech
+            - broadcast item
+                ... the single representation shared to all specialist processes at a time
+            storage capacity
+            global workspace
+                ... the scarce material the whole system is rational about
+        Chunk
+            Working Memory
+                long term: schema
+                observation
+                storage capacity
+                    - 4 active chunks
+                    
+                    ... a continuum
+                is on-off switch: no
+            Long Term Memory
+                storage capacity:  no vocabulary limit
+                grammar capacity: unbound
+                - schema
+                    ... you never think from nothing; a new thought extends stored structure
+                - generative model
+                    ... predictive processing: stored expectation against which the senses are compared
+            
+        Environment (Extended Mind)
+            ... cognitive offloading: records pushed over the skull boundary to cheaper storage
+            - written note
+            - dialogue partner
+            - artificial intelligence model
+
+- Function
+    ... ask Why of any objective upward: the answer is the file name
+    ... ask How of the file name downward: all six objectives together are its form
+    Predict Incoming Evidence
+        - retrieve relevant schema
+        - generate prior expectation
+    Detect Prediction Error
+        - compare expectation to observation
+        - weight error by precision
+        - flag conflicting intuitions
+    Update Standing Belief
+        - revise schema toward evidence
+        - discard refuted hypothesis
+    Choose Action Under Uncertainty
+        - gather disambiguating evidence
+        - commit to a single action
+    Offload Chosen Conclusion Justification
+        - produce supporting reason
+        - test reason against objection
+    Monitor Own Confidence
+        - rate confidence in answer
+        - summon deliberation on low confidence
+
+- Workflow
+    Thought
+        Intuition
+            thread: Parrellel
+            - race
+                processing rule: Dedicated
+                has lock: no
+                is bottleneck: no
+                useful life: milliseconds
+                - sensory processing
+                    ... the most basic, fast, and automatic intuitions are perception itself; they are the first to arise and the last to fade
+                - learned associations
+                    ... the next fastest are those we have encountered most often; they are the strongest and most likely to win the race
+        Deliberation
+            thread: Syncronous 
+            is bottleneck: yes
+            useful life: seconds per acquisition
+            - deliberation waits for conflict
+                mechanism: Condition
+                ... a thread waits until another notifies it; detected conflict between intuitions is the notification
+            - deliberation holds working memory
+                mechanism: Synchronisation
+                ... only one thread may hold it at a time; thought is serial because the workspace broadcast is
+            - bias wins the race
+                risk: Race Condition
+                ... the strongest intuition answers before deliberation acquires the lock
+            - thought repeats per prediction error
+                interval count: 2 or more
+                ... a Cycle: each updated belief becomes the next prediction
+    maximum worker pool: many intuitions, one deliberation
+    result: a justified, calibrated belief
+    is done: never
+    exception: None
 ```
 
 ## File Format
@@ -126,7 +261,7 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 Parent
     essential parent attribute: normal value
     Child
-        ... inherits `attribute` and `normal value` from Parent
+        ... inherits `essential parent attribute:` and `normal value` from Parent
         essential child attribute not in parent
         - Child Individual
             essential parent attribute: new value
@@ -134,7 +269,7 @@ Parent
             essential child attribute not in parent: value
                 ... `- Child Individual` assigns a default
             child individual attribute
-                ... `- Child Individual` adds a child Individual attribute that isn't present in the `Child` Concept
+                ... `- Child Individual` adds a `child individual attribute` that isn't present in the `Child` Concept
         ... Generally in Alpha there is more than one individual per concept
     ... Generally in Alpha there is more than one child per parent
 ```
@@ -226,12 +361,12 @@ Example
                 actual: 265,235
                 target: 200,000
                 measurement operation used: Observation
-                superordinate influence: Red
+                influence: Red
             - business cases handled
                 actual: 23
                 target: 56
                 measurement operation used: Observation
-                superordinate influence: Red
+                influence: Red
         - quality
             actual: A
             target: C
@@ -245,10 +380,6 @@ The Concepts used in the Motivation Primitive:
 ```aot
 Beneficiary (Who)
     Person
-        cell: 0830000000
-        email: jakusvanrooyen@gmail.com
-        id number: 9003262449080
-        passport number: None
         first name: Alida
         surname: Zondo
         title
@@ -256,50 +387,19 @@ Beneficiary (Who)
         gender
         home language
         nationality (country)
-        residential country
-        is living
-        is sa citizen
-        occupation status
-            - Employed
-                - Contributor
-                - Manager
-                - Executive
-                - Non Executive
-                - Independent
-            - Self Employed
-            - Unemployed
-            - Retired
-        residential status
-            - Renting
-            - Home Owner
-        education standard classification
-            - Childhood
-            - Primary
-            - Lower Secondary
-            - Upper Secondary
-            - Postsecondary Non Tertiary
-            - Short Cycle Tertiary
-            - Bachelors
-            - Masters
-            - Doctors
-        marital status
-        minor child count
+        is living: yes
     Organisation
         Business
         Government
         N G O
         Foundation
-        operating status type
         trading name
         no terminology name
         is business unit
         is user classified
         incorporated country
         nickname
-        impact (power and interest normally listed from most to least)
-        is participant
         tax number
-        tax office
 Measurement (Why)
     ... of Quality and Quantity
     superordinate measurement: None
@@ -613,7 +713,7 @@ Attributes may be attached to functions to describe their arguments and results.
 
 ---
 
-### Timeline Primitive
+### Workflow Primitive
 
 Focus: **what items are used when**.
 
@@ -622,48 +722,24 @@ Item (In Use Item)
     - Asset
     - Function
     - Object
+    - Role
     is bottleneck: yes
     is tangible: no
     useful life: infinite
     write-off method: not applicable
-    
-    
-Dependency (Time)
-    Concurrent (Single-Threading)
-        Lock
-            Milestone
-                interval count: 0
-                Time: 15:00
-                    precision: no seconds
-                    date: today
-                        Date
-                        precision: no time component
-                        Date and Time
-                            precision: no seconds
-                        Precise Date and Time
-                            precision: microseconds
-            Duration
-                interval count: 1
-            Cycle
-                interval count: 2 or more
-                ... most expensive
-            mechanism
-                - Synchronisation
-                    ... only one thread may hold it at a time
-                - Reentrant Lock
-                    ... the holding thread may acquire it repeatedly
-                - Event
-                    ... one thread sets a flag, others wait on it
-                - Condition
-                    ... a thread waits until another notifies it
-                - Barrier
-                    ... releases all parties together once the count arrives
-            start condition
-            interval: 5 seconds
-            timeout
-            polling duration
-            precision: up to minutes
-            displacement from greenwich meridian hours: +0
+    maximum worker pool: 1
+    thread
+        - Concurrent (Single-Threading)
+            - Synchronise
+                ... only one thread may hold it at a time
+            - Reentrant Lock
+                ... the holding thread may acquire it repeatedly
+            - Event
+                ... one thread sets a flag, others wait on it
+            - Condition
+                ... a thread waits until another notifies it
+            - Barrier
+                ... releases all parties together once the count arrives
             fixes
                 - shared state
                     - delete (design away)
@@ -702,33 +778,63 @@ Dependency (Time)
                     - net and clear, collapse the obligation graph
                 - outsource dependency to whoever can handle it better
                 - substitute collateral
-        Asynchronous
-            wrapped synchronous
+        - Asynchronous
+            wrapped concurrent
             waiting for: external instrument
             suspension event
             awaiting event
             wrapped coroutine
-        maximum worker pool: 1
-    Parallel (Multithreading)
-        maximum worker pool: many
-        is worker pool count known: no
-        processing rule
-            - Queue
-                has lock: yes
-            - Dedicated
-                has lock: no
-            - Semaphore
-                permit count
-                ... allows a fixed number of threads through at once
-        is memory shared in pool of workers
-            - Thread
-            - Process
-        risk
-            - Race Condition
-                ... unsynchronised access to shared memory corrupts state
-            - Deadlock
-                ... two threads each wait on a lock the other holds
+        - Parallel (Multithreading)
+            maximum worker pool: many
+            is worker pool count known: no
+            processing rule
+                - Queue
+                    has lock: yes
+                - Dedicated
+                    has lock: no
+                - Semaphore
+                    permit count
+                    ... allows a fixed number of threads through at once
+            is memory shared in pool of workers
+                - Thread
+                - Process
+            risk
+                - Race Condition
+                    ... unsynchronised access to shared memory corrupts state
+                - Deadlock
+                    ... two threads each wait on a lock the other holds
+    
+    
+Time
+    item
+    Milestone
+        interval count: 0
+        Time: 15:00
+            precision: no seconds
+            date: today
+                Date
+                precision: no time component
+                Date and Time
+                    precision: no seconds
+                Precise Date and Time
+                    precision: microseconds
+    Duration
+        interval count: 1
+    Cycle
+        interval count: 2 or more
+        ... most expensive
+    
     result
     is done
     exception
+    
+    start condition
+    interval: 5 seconds
+    timeout
+    polling duration
+    precision: up to minutes
+    displacement from greenwich meridian hours: +0
+    
+        
+    
 ```
