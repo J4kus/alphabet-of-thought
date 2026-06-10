@@ -6,5 +6,6 @@ vsc-extension-quickstart.md
 __pycache__/**
 out/**
 lp.py
+install.py
 parser.out
 *.aot
