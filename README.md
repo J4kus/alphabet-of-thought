@@ -9,7 +9,7 @@ It is a text-based engineering language for representing knowledge as a tree of 
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
 - Alpha's ontology is four node types. They are the crossing of **Said-of** and **Present-in** (*Categories* 2).
 - **Essence versus accident**: Concepts and Concept Attributes are essentially the form of your ideas. Everything else in Alpha is accidental (*Metaphysics* Z). For example, to avoid confusion, `capable of laughter` Concept Attribute is not a purely human attribute and should not be defined as part of the `Human` Concept, but you can extend Concepts in Alpha.
-- **The four causes answer every *why***: final (motivation), formal (network), material (functional), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
+- **The four causes complete every explanation**: final (motivation), material (network), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
 - The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
 
 ### Gottfried Wilhelm Leibniz's proposed alphabet of human thought
@@ -161,12 +161,16 @@ Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics
 
 Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives and Workflows, and these cannot be individuals or default values, while measurements, records, classes and dependencies can only be individuals or default values.
 
-| Cause | Description | Primitive | Said of | Not Said Of |
-|-----------|---------|--|------------------|------------------|
-| **Final** | for the sake of which | Motivation | Beneficiary (Who) | Measurement (Why) |
-| **Material** | that out of which| Network | Entity (Where) | Record (What) |
-| **Formal** | the form, the essence | Function | Objective (How) | Class (Which)  |
-| **Efficient** | the agent and the means | Workflow | Item (Subject) | Dependency (When) | 
+| Cause | Description | Native question | Primitive | Said of | Not Said Of |
+|-----------|---------|------------------|--|------------------|------------------|
+| **Final** | for the sake of which | Why, and for Whom | Motivation | Beneficiary (Whom) | Measurement (How Much) |
+| **Material** | that out of which | made of What | Network | Entity (Where — the boundary that fixes where the Record resides in reality) | Record (What) |
+| **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How — a parent's form is all its child objectives taken together) | Class (Which) |
+| **Efficient** | the agent and the means | by Whom, in what order | Workflow | Item (Subject) | Dependency (When) |
+
+The questions in the Function tree run in directions. Ask *How* downward: a parent objective is achieved exclusively through every and all of its children together — no single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent, and the root objective's why leaves the Function primitive altogether and lands in Motivation — the final cause. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
+
+*Where* and *When* are not causes in their own right; they are the questions a cause's concepts answer. Matter is never placeless — everything that exists is somewhere, and place is the innermost boundary of what contains it (*Physics* IV). So the Entity is the Where: it bounds where a Record resides in reality, which is why the Network primitive carries data residency, latency and disaster recovery. Likewise the Dependency is the When: it bounds when the efficient process may run. Kipling's six serving men label the columns, the four causes label the rows.
 
 ---
 
