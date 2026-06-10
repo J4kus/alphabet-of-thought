@@ -114,6 +114,13 @@ function verify(root, nodes, errors) {
     }
   }
 
+  // A Concept names one kind; 'and' joins two
+  for (const node of nodes) {
+    if (node.kind === CONCEPT && /\band\b/i.test(node.name)) {
+      errors.push({ line: node.line, message: `Concept '${node.name}' contains 'and': 2 kinds under 1 prime, expected 1 — split it into two Concepts` });
+    }
+  }
+
   // Univocity: one Concept name, one prime
   const seen = new Map();
   for (const node of nodes) {
