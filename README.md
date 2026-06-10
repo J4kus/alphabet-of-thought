@@ -1,33 +1,83 @@
 # Alpha (.aot)
 
-Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of nodes. Every idea, no matter how elemental or complex, has exactly one connection, to exactly one other idea, and the chain runs from general to specific until it terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
+Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a default value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`) and print the characteristic number of any idea (`--number`).
+
+Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
+
+Ideas and single inheritance connections are determined entirely by capitalisation, punctuation, and indentation. The only keywords are the primitives.
+
+## The four idea types ontology
+
+They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
+
+### Schemas (Acting on)
+
+*Schemas* are the universal ideas: Concepts and Attributes. They define the form of the model, deciding what kinds of ideas exist and which properties each kind carries. They act on content in the sense that every Individual and Default Value beneath them takes its meaning from them: a line like `- Socrates` only says something because the `Human` Concept and its attributes say what a human is.
+
+| Idea Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
+|-----------|------------------|---------|-------------|---------|-------------|----------------|
+| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of idea | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
+| **Attribute** (Universal Accident) | All lowercase | Defines a property that a Concept has | Every attribute is itself a Concept, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
+
+### Content (Being acted upon)
+
+Filling a schema with content helps to understand the schema. *Content*, the acted-upon Individuals, is the evidence a true schema stands on.
+
+| Idea Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
+|-----------|------------------|---------|---------|-------------|----------------|
+| **Individual** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Individuals (instances) of the parent Concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an Individual. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
+| **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or Concept | `colour: red` | **False (~S)** | **True (P)** | 
+
+
+
+#### How to Decide: Concept vs Individual vs Attribute
+
+A model only communicates when its ideas are classified correctly. Apply these tests in order:
+
+##### 1. Exhaustion test (Concept vs Individual)
+
+If the children together **partition** the parent, they are **Concepts** (subtypes): every child is a subtype of the parent, no two overlap, and nothing of the parent is left over. If the children are merely a selection of items drawn from the world, they are **Individuals**.
+
+##### 2. Abstraction test (Concept vs Individual)
+
+**Concepts** are abstract groupings humans invent to organise thinking. **Individuals** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Individual.
+
+##### 3. Attributes describe, they don't classify
+
+Attributes are lowercase properties a Concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: Individuals, Concepts, values, or further attributes.
+
+#### Classical Style Rules
+
+These rules keep a model readable and unambiguous, so that two readers of the same file build the same mental model.
+
+- One Concept with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
+- Use full words; never abbreviate or use synonyms
+- Fix all misspellings
+- Always singular form: `Person` not `People`
+
+- Provide as many Concept and attribute Individuals as possible
+- Remove redundant Concepts
+
+- Only decompose further when detail adds meaningful value
+- Individuals placed higher in the tree are preferable
+
+## The Single Inheritance Connections
+
+Every idea, no matter how elemental or complex, has exactly one connection, to exactly one other idea, and the chain runs from general to specific until it terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
 The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
 
-Alpha is aimed at knowledge workers, analysts, and architects.
-
-Alpha ships with tooling so the rules below are checked by a program, not by discipline. The VS Code extension (`alphabet-of-thought-*.vsix`) gives `.aot` files syntax colouring, and an arithmetic linter (after Leibniz) that verifies the tree as you type: every node receives a prime, ancestry is encoded as a product, and violations — tabs, broken indentation, depth jumps, a Concept defined twice, identical siblings — appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks: an attribute whose trailing words match a Concept, or a default value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`, which also answers is-a questions by divisibility (`--ask`), finds the genus of two ideas by gcd (`--genus`), and prints any idea's characteristic number (`--number`).
-
-## The Foundations
-
-### Aristotelian
-
-- You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
-- Alpha's ontology is four node types. They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
-- **Essence versus accident**: Concepts and Concept Attributes nodes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z)
-- **The four causes complete every explanation**: final (motivation), material (network), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
-- The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
-
-### Gottfried Wilhelm Leibniz's proposed alphabet of human thought
-
-- A universal vocabulary. Every idea reducible to primitive elements and every complex idea expressible as a combination of those elements
-- A new way forward for AI. To allow argument to be verifiable like arithmetic
-
-### Pragmatic
-
-- **Plain text holds its shape**: prose hides structure and diagrams don't scale.
-- **Truth shows in consequences**: a definition is good when it lets two actors work on with the meaning and verify it.
+| Connections | Expression | Type | Individual | Extra Rule |
+|------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
+| **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
+| **has-a** | Indent attribute under a term | Indented | `Person` → indent → `full name` | |
+| **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
+| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
+| **has-Individual** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information; normal and accepted | 
+| **attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
+| **default-is-a-Individual** | Value matches an Individual name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Individual | |
 
 ## Example
 
@@ -76,7 +126,7 @@ Alpha ships with tooling so the rules below are checked by a program, not by dis
                     measurement operation used: Grading
                     influence: Amber
         Audience
-            - envirnomental argument quality
+            - environmental argument quality
                 ... argumentative theory: reasoning evolved to produce justifications other people can evaluate
                 actual: demanding when evaluated
                 target: claims that help calibrate own thinking
@@ -147,7 +197,7 @@ Alpha ships with tooling so the rules below are checked by a program, not by dis
 - Workflow
     Thought
         Intuition
-            thread: Parrellel
+            thread: Parallel
             - race
                 processing rule: Dedicated
                 has lock: no
@@ -158,7 +208,7 @@ Alpha ships with tooling so the rules below are checked by a program, not by dis
                 - learned associations
                     ... the next fastest are those we have encountered most often; they are the strongest and most likely to win the race
         Deliberation
-            thread: Syncronous 
+            thread: Synchronous
             is bottleneck: yes
             useful life: seconds per acquisition
             - deliberation waits for conflict
@@ -186,80 +236,31 @@ Alpha ships with tooling so the rules below are checked by a program, not by dis
 - Every line is a node
 - The **file name is the root Concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
 
-## Ideas and connections
-
-Ideas and connections are determined entirely by capitalisation, punctuation, and indentation. The only keywords are the primitives.
-
-### Ideas
-
-#### Schemas (Acting on)
-
-*Schemas* are the universal ideas: Concepts and Attributes. They define the form of the model, deciding what kinds of ideas exist and which properties each kind carries. They act on content in the sense that every Individual and Default Value beneath them takes its meaning from them: a line like `- Socrates` only says something because the `Human` Concept and its attributes say what a human is.
-
-| Node Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
-|-----------|------------------|---------|-------------|---------|-------------|----------------|
-| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of idea | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
-| **Attribute** (Universal Accident) | All lowercase | Defines a property that a Concept has | Every attribute is itself a Concept, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
-
-#### Content (Being acted upon)
-
-Filling a schema with content helps to understand the schema. *Content*, the acted-upon Individuals, is the evidence a true schema stands on.
-
-| Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
-|-----------|------------------|---------|---------|-------------|----------------|
-| **Individual** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Individuals (instances) of the parent Concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an Individual. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
-| **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or Concept | `colour: red` | **False (~S)** | **True (P)** | 
-
-### Connections
-
-| Connections | Expression | Type | Individual | Extra Rule |
-|------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
-| **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
-| **has-a** | Indent attribute under a term | Indented | `Person` → indent → `full name` | |
-| **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
-| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
-| **has-Individual** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
-| **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information; normal and accepted | 
-| **attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
-| **default-is-a-Individual** | Value matches an Individual name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Individual | |
-
-## How to Decide: Concept vs Individual vs Attribute
-
-A model only communicates when its ideas are classified correctly. Apply these tests in order:
-
-### 1. Exhaustion test (Concept vs Individual)
-
-If the children together **partition** the parent, they are **Concepts** (subtypes): every child is a subtype of the parent, no two overlap, and nothing of the parent is left over. If the children are merely a selection of items drawn from the world, they are **Individuals**.
-
-### 2. Abstraction test (Concept vs Individual)
-
-**Concepts** are abstract groupings humans invent to organise thinking. **Individuals** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Individual.
-
-### 3. Attributes describe, they don't classify
-
-Attributes are lowercase properties a Concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: Individuals, Concepts, values, or further attributes.
-
-## Classical Style Rules
-
-These rules keep a model readable and unambiguous, so that two readers of the same file build the same mental model.
-
-- You place an idea by naming its nearest kind, the most general accurate term (the *genus*, its parent), together with the qualifier that sets it apart from its siblings (the *differentia*).
-- One Concept with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
-- Use full words; never abbreviate or use synonyms
-- Fix all misspellings
-- Always singular form: `Person` not `People`
-- Remove redundant Concepts
-- Only decompose further when detail adds meaningful value
-- Provide as many Concept and attribute Individuals as possible
-- Individuals placed higher in the tree are preferable
-
 ## Design Rules
 
 The following rules govern how Alpha handles inheritance, incomplete models, and the tension between structure and data.
 
-- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Individual inherits them necessarily (attributes are inherited, never Individuals). **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (adding further essential attributes is the child Concept's prerogative, not the Individual's).
-- **Content over structure**: Prefer Individuals + attributes + defaults over creating new Concepts. Keep the Concept tree lean.
+### Aristotelian
+
+- You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
+- You place an idea by naming its nearest kind, the most general accurate term (the *genus*, its parent), together with the qualifier that sets it apart from its siblings (the *differentia*).
+- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Individual inherits them necessarily (attributes are inherited, never Individuals). **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (adding further essential attributes is the child Concept's prerogative, not the Individual's). **Essence versus accident**: Concepts and Concept Attributes nodes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z)
 - **Assimilate facts**: Convert raw data into Individual-attribute-value relationships under a Concept
+- **The four causes complete every explanation**: final (motivation), material (network), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
+- The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
+
+### Gottfried Wilhelm Leibniz's proposed alphabet of human thought
+
+- A universal vocabulary. Every idea reducible to primitive elements and every complex idea expressible as a combination of those elements
+- A new way forward for AI. To allow argument to be verifiable like arithmetic
+
+### Pragmatic
+
+- **Plain text holds its shape**: prose hides structure and diagrams don't scale.
+- **Truth shows in consequences**: a definition is good when it lets two actors work on with the meaning and verify it.
+- **Content over structure**: Prefer Individuals + attributes + defaults over creating new Concepts. Keep the Concept tree lean.
+
+
 
 ```aot
 Parent
