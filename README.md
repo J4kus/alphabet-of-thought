@@ -1,26 +1,27 @@
 # Alpha (.aot)
 
-Alpha is the digital version of Gottfried Wilhelm Leibniz's proposed alphabet of human thought.
-- every idea  reducible to primitive element,
-- every complex idea expressible as a combination of those elements,
-- every argument verifiable like arithmetic.
-
-It is a text-based language for representing knowledge as a tree of indented text. Most tools try to organise information. Alpha doesn't. Organising assumes the thinking is already done and you just need somewhere to put it. But the hard part is never storage: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
+It is a text-based engineering language for representing knowledge as a tree of indented text to describe the structure of ideas through their connections. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assumes the thinking is already done and you just need somewhere to put it. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
 
 ## The Foundations
 
+### Aristotelian
+
+- You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
+- Alpha's ontology is four node types. They are the crossing of **Said-of** and **Present-in** (*Categories* 2).
+- **Essence versus accident**: Concepts and Concept Attributes are essentially the form of your ideas. Everything else in Alpha is accidental (*Metaphysics* Z). For example, to avoid confusion, `capable of laughter` Concept Attribute is not a purely human attribute and should not be defined as part of the `Human` Concept, but you can extend Concepts in Alpha.
+- **The four causes answer every *why***: final (motivation), formal (network), material (functional), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
+- The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
+
+### Gottfried Wilhelm Leibniz's proposed alphabet of human thought
+
+- A universal vocabulary. Every idea reducible to primitive elements and every complex idea expressible as a combination of those elements
+- A way forward for AI: To allow argument to be verifiable like arithmetic
+
 ### Pragmatic
-- **Meaning is use**: an *idea* becomes clear only after its *connections* to other ideas are defined. A idea with no connections has no content.
+
 - **Plain text holds its shape**: knowledge is best kept as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 - **Shared context beats private notes**: a model earns its keep when someone else, including your future self, extends the same structure rather than rebuilding it in their head.
 - **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it, not when it merely sounds right.
-### Aristotelian
-- You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
-- **Essence versus accident**: Concepts, Concept Attributes and Individual Attributes inherited from concepts are essentail, everything else in Alpha is accidental. Alpha take this further and claim that Universals acts on Individuals and Individuals are being acted apon by Universals (*Metaphysics* Z)
-- The four node of Alpha's ontology are the crossing of **Said-of** and **Present-in** (*Categories* 2).
-- **Definition is by genus and differentia**: name the nearest kind, then the difference that sets a idea apart from its siblings. (*Topics*)
-- **The four causes answer every *why***: final (motiviation), formal (network), material (functional), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
-- The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and  Kipling's *Six Serving Men* (plus 2).
 
 Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
 
@@ -60,7 +61,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 #### Content (Being acted upon)
 
- We can't think of a Concept without having a concrete Individual, or of an attribute without having a value for it. *Content*, the acted-upon Individuals are not storage waiting to be filled; it is what true schema stands on.
+ Filling schema with content helps to understand the schema. *Content*, the acted-upon Individuals are not storage waiting to be filled; it is what true schema stands on.
 
 | Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
@@ -86,11 +87,11 @@ Correct classification here is what separates a model that communicates from one
 
 ### 1. Exhaustion test (Concept vs Individual)
 
-If the children together **partition** the parent, such that every child is a subtype of the parent, they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Individuals**.
+If the children together **partition** the parent — every child is a subtype of the parent, no two overlap, and nothing of the parent is left over — they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Individuals**.
 
 ### 2. Abstraction test (Concept vs Individual)
 
-**Concepts** are abstract groupings humans invent to organise thinking. **Individuals** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Individual. Individuals? → Individual.
+**Concepts** are abstract groupings humans invent to organise thinking. **Individuals** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Individual.
 
 ### 3. Attributes describe, they don't classify
 
@@ -100,11 +101,10 @@ Attributes are lowercase properties a Concept **has**. They are not necessarily 
 
 These rules keep a model readable and unambiguous. Violating them is how two people end up with two different mental models of the same file.
 
-- You place a idea by naming its nearest kind (the *genus*, its parent) together with the qualifier that sets it apart from its siblings (the *differentia*).
+- You place an idea by naming its nearest kind (the *genus*, its parent) together with the qualifier that sets it apart from its siblings (the *differentia*).
 - One term with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
 - Use full words, never abbreviate
 - Fix all misspellings
-- One name per idea; never give a single idea two names (forbid **homonymy** — one name, two meanings; require **synonymy** — one name applied with one and the same definition)
 - Always singular form: `Person` not `People`
 - Use the most general accurate term (the *genus*)
 - Remove redundant Concepts
@@ -153,20 +153,20 @@ Parent
 
 ## Primitives
 
-Primitives require no special `.aot` syntax, but it will make you smarter at any process that transform. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced. A modelling language for work needs both: the static and the dynamic.
+Primitives require no special `.aot` syntax, but they will make you smarter at any process that transforms. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced. A modelling language for work needs both: the static and the dynamic.
 
 #### The four causes
 
 Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as individuals (not said of, not present in).
 
-Each of these Primitives have a said of and not said of part to guide for the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives, Timelines and cannot be individuals or defualt values, while only individuals can be defualt values are measurements, records, classes and dependencies.
+Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives and Workflows, and these cannot be individuals or default values, while measurements, records, classes and dependencies can only be individuals or default values.
 
 | Cause | Description | Primitive | Said of | Not Said Of |
 |-----------|---------|--|------------------|------------------|
 | **Final** | for the sake of which | Motivation | Beneficiary (Who) | Measurement (Why) |
 | **Material** | that out of which| Network | Entity (Where) | Record (What) |
 | **Formal** | the form, the essence | Function | Objective (How) | Class (Which)  |
-| **Efficient** | the agent and the means | Workflow | Instrument (With What) | Dependency (When) | 
+| **Efficient** | the agent and the means | Workflow | Item (Subject) | Dependency (When) | 
 
 ---
 
@@ -542,7 +542,7 @@ Z
 
 ### Function Primitive
 
-Focus: **how the system does does it**, decomposed as a tree.
+Focus: **how the system does it**, decomposed as a tree.
 
 ### Example
 
@@ -607,7 +607,7 @@ Focus: **how the system does does it**, decomposed as a tree.
 
 - 3 to 7 sub-objectives per parent objective
 - Ask **Why** does a sub-objective exist? The answer should be the parent objective
-- Ask **How** is a parent objective achieved? Exclusively through every and all of it's children
+- Ask **How** is a parent objective achieved? Exclusively through every and all of its children
 - Ask **Which** of an objective to get to a class.
 
 #### Pitch Level
@@ -623,12 +623,15 @@ Attributes may be attached to functions to describe their arguments and results.
 
 ### Timeline Primitive
 
-Focus: **What instrument are used when**.
+Focus: **what items are used when**.
 
 ```
-Instrument
+Item (In Use Item)
+    - Asset
+    - Function
+    - Object
     is bottleneck: yes
-    is tangable: no
+    is tangible: no
     useful life: infinite
     write-off method: not applicable
     
