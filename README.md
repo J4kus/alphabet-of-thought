@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-It is a text-based engineering language for representing knowledge as a tree of indented text to ideas through connections. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assumes the all conculsions is already reached and you just need somewhere to put it. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to conclude the same thing. That is what Alpha is for.
+It is a text-based engineering language for representing knowledge as a tree of indented text to ideas through connections. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assume all conclusions are already reached and you just need somewhere to put them. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to conclude the same thing. That is what Alpha is for.
 
 ## The Foundations
 
@@ -8,7 +8,7 @@ It is a text-based engineering language for representing knowledge as a tree of 
 
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
 - Alpha's ontology is four node types. They are the crossing of **Said-of** and **Present-in** (*Categories* 2).
-- **Essence versus accident**: Concepts and Concept Attributes are essentially the form of your ideas. Everything else in Alpha is accidental (*Metaphysics* Z). For example, to avoid confusion, `capable of laughter` Concept Attribute is not a purely human attribute and should not be defined as part of the `Human` Concept, but you can extend Concepts in Alpha.
+- **Essence versus accident**: Concepts and Concept Attributes are essentially the form of your ideas. Everything else in Alpha is accidental (*Metaphysics* Z). For example, to avoid confusion, the `capable of laughter` Concept Attribute is not a purely human attribute and should not be defined as part of the `Human` Concept, but you can extend Concepts in Alpha.
 - **The four causes complete every explanation**: final (motivation), material (network), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
 - The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
 
@@ -46,7 +46,7 @@ Human (Natural Person)
 - Extension: `.aot`
 - Indentation: exactly 4 spaces per level (Do NOT use tabs)
 - Every line is a node
-- The **file name is the root Concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For Individual, `Person.aot` begins directly with `full name`, `age`, and so on.
+- The **file name is the root Concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
 
 ## Ideas and connections
 
@@ -63,7 +63,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 #### Content (Being acted upon)
 
- Filling schema with content helps to understand the schema. *Content*, the acted-upon Individuals are not storage waiting to be filled; it is what true schema stands on.
+Filling a schema with content helps to understand the schema. *Content*, the acted-upon Individuals, is not storage waiting to be filled; it is what a true schema stands on.
 
 | Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
@@ -77,7 +77,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 | **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
 | **has-a** | Indent attribute under a term | Indented | `Person` → indent → `full name` | |
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
-| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` |If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
+| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
 | **has-Individual** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
 | **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information | 
 | **attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
@@ -119,7 +119,7 @@ These rules keep a model readable and unambiguous. Violating them is how two peo
 
 The following rules govern how Alpha handles inheritance, incomplete models, and the tension between structure and data.
 
-- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. It is part of what the idea is. So every child Concept and Individual inherits them necessarily. **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (changing the essence is the Concept's prerogative, not the Individual's).
+- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Individual inherits them necessarily. **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (changing the essence is the Concept's prerogative, not the Individual's).
 - **Inheritance**: Child Concepts and Individuals inherit all parent (essential) attributes (never Individuals)
 - **Polymorphism**: Child Concepts may add further essential attributes; Individuals may add only accidental ones
 - **Incompleteness**: Use `... explanation` (Map) to mark intentionally incomplete sections. Normal and accepted.
@@ -128,18 +128,19 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 
 ```aot
 Parent
-    attribute: normal value
+    essential parent attribute: normal value
     Child
         ... inherits `attribute` and `normal value` from Parent
-        extra attribute
+        essential child attribute not in parent
         - Child Individual
-            attribute: new value
+            essential parent attribute: new value
                 ... `- Child Individual` overrides `normal value` from `attribute` and replaces it with `new value`
-            extra attribute: value
-                ... `- Child Individual` assigns a default for `extra attribute`
-            child Individual attribute
+            essential child attribute not in parent: value
+                ... `- Child Individual` assigns a default
+            child individual attribute
                 ... `- Child Individual` adds a child Individual attribute that isn't present in the `Child` Concept
-            
+        ... Generally in Alpha there is more than one individual per concept
+    ... Generally in Alpha there is more than one child per parent
 ```
 
 ## What NOT to Do
@@ -157,7 +158,7 @@ Parent
 
 Primitives require no special `.aot` syntax, but they will make you smarter at any process that transforms. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced. A modelling language for work needs both: the static and the dynamic.
 
-The primitives do not link to one another. One primitive cannot be reached by annother prmiitvate  — it is a tree of its own. This is the general rule, not a special case: no cause terminates in another. Each primitive is a complete tree, and a complete explanation holds all four in balance — each cause answered with respect to the others, none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
+The primitives do not link to one another. One primitive cannot be reached by another primitive — it is a tree of its own. This is the general rule, not a special case: no cause terminates in another. Each primitive is a complete tree, and a complete explanation holds all four in balance — each cause answered with respect to the others, none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
 
 #### The four causes
 
@@ -172,7 +173,7 @@ Each of these Primitives has a said-of and a not-said-of part to guide the user 
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How — a parent's form is all its child objectives taken together) | Class (Which) |
 | **Efficient** | the agent and the means | by Whom, in what order | Workflow | Item (Subject) | Dependency (When) |
 
-The questions in the Function tree run in directions. Ask *How* downward: a parent objective is achieved exclusively through every and all of its children together — no single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How — the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
+The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through every and all of its children together — no single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How — the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
 
 The Function tree relates to it differently: it *is the form of the motivation*, the arrangement that realises it, built from the material the Network provides and carried out in the order the Workflow makes most efficient. 
 
@@ -184,7 +185,7 @@ The Function tree relates to it differently: it *is the form of the motivation*,
 
 Focus: **what and why things are measured** by **who is the beneficiary of them**
 
-The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models beneficiary alongside the measurements they use, so that every number has a name behind it.
+The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models the beneficiary alongside the measurements they use, so that every number has a name behind it.
 
 Every measurement carries both a `target` value and an `actual` value. A target without an actual is potential; an actual without a target has no standard. To measure is to weigh the one against the other, so Alpha requires both.
 
@@ -574,7 +575,7 @@ Focus: **how the system does it**, decomposed as a tree.
             Distribute finished products (Outbound Logistics)
                 - Load delivery fleets for regional distribution
                 - Fulfill online orders via third-party couriers
-                - Dispatched bulk cargo to international shipping ports
+                - Dispatch bulk cargo to international shipping ports
             Support final customers (Service)
                 - Repair broken hardware under warranty agreements
                 - Process product returns via customer service
