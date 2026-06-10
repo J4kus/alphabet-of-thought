@@ -85,7 +85,7 @@ function parse(text, rootName) {
       trimmed = "- " + trimmed.slice(1);
     }
     const { kind, name, value } = classify(trimmed);
-    if (kind === DEFAULT && !value.replace(/[: ]/g, "")) {
+    if (kind === DEFAULT && !value) {
       errors.push({ line, message: `'${name}:' has 0 characters after ':', expected a value — supply one or drop the colon` });
     }
     const parent = stack[Math.min(depth, stack.length - 1)];
@@ -215,8 +215,17 @@ function verify(root, nodes, errors) {
   // A lone child of the same kind divides nothing: a Concept with exactly
   // one sub-Concept, or an Individual with exactly one sub-Individual, is
   // that child. Children of other kinds describe the parent and don't count.
+  // A Map child marks the node intentionally incomplete, so a lone child
+  // under it is accepted: the missing siblings are declared, not forgotten.
   for (const node of nodes) {
     const kids = node.children.filter((c) => c.kind !== MAP);
+    const incomplete = node.children.some((c) => c.kind === MAP);
+    if (incomplete) {
+      if (kids.length > 12) {
+        warnings.push({ line: node.line, message: `'${node.name}' has ${kids.length} children, expected no more than twelve` });
+      }
+      continue;
+    }
     if (node.kind === CONCEPT && kids.filter((c) => c.kind === CONCEPT).length === 1) {
       warnings.push({ line: node.line, message: `'${node.name}' has 1 sub-Concept, expected 0 or more than one — a kind with one subtype is the subtype` });
     }

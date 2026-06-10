@@ -1,6 +1,12 @@
 # Alpha (.aot)
 
-Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, where each idea connects to exactly one more general idea. The structure forces you to commit to what an idea is, so someone else, including your future self, reaches the same conclusion you did instead of rebuilding it in their head.
+Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, where each new idea connects to exactly one general idea. The structure forces you to commit to what an idea is, so someone else, including your future self, reaches the same conclusion you did instead of rebuilding it in their head.
+
+Alpha is a human-first interface to a key-value store, which is the parent-child tree of ideas. It makes the strict design choice: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
+
+The restriction is deliberate. Like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
+
+Alpha is aimed at knowledge workers, business analysts, and enterprise architects.
 
 ## The Foundations
 
@@ -23,11 +29,7 @@ Alpha is a text-based engineering language for working out what you mean. You bu
 - **Shared context beats private notes**: a model earns its keep when someone else, including your future self, extends the same structure rather than rebuilding it in their head.
 - **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it.
 
-Alpha is a human-first interface to a key-value store, which is the parent-child tree of ideas. It makes the strict design choice: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
-The restriction is deliberate. Like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
-
-Alpha is aimed at knowledge workers, business analysts, and enterprise architects.
 
 ## Example
 

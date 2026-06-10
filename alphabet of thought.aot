@@ -60,12 +60,12 @@ Primitive
                         present in: False
                         is: Content
                         predicate: Is A Example Of
-                        begin:
+                        begin
                             - Dash
                             - End of Line
                             - ` inside a concept or attribute
                         end: end of line
-                        allow special value override:
+                        allow special value override
                             - Elipsis
                             - Boolean
                     - Default Value (Individual Accident)
@@ -161,14 +161,15 @@ Primitive
                 - Knowledge holds its shape best as a tree of plain text, not prose or diagrams
             - Aristotelian
                 - You never think from nothing; every new thought extends structures you already know
+                ...
         Iterate Over Extension
             Create New Laugange
-                Install Dependencies
+                Install Dependency
                 Create Yo Code Extenstion
                     Go To Terminal
                     Change Path To Where You Want To Save The File
                     Type `yo code` Into Terminal
-                    Follow Prompts
+                    Follow Prompt
                         what type of extension do you want to create: New Language Support
                         url or file to import, or none for new: ENTER
                         extension name: alphabet of thought

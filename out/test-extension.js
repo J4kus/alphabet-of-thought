@@ -46,4 +46,4 @@ for (const d of diags.slice(0, 3)) {
   console.log(`  [${d.severity === 0 ? "error" : "warning"}] line ${d.range.a[0] + 1}: ${d.message}`);
 }
 const errors = diags.filter((d) => d.severity === 0).length;
-console.log(errors === 2 && diags.length === 10 ? "PASS (2 errors + 8 warnings)" : "UNEXPECTED COUNT");
+console.log(errors === 1 && diags.length === 4 ? "PASS (1 error + 3 warnings)" : "UNEXPECTED COUNT");
