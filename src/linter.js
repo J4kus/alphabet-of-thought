@@ -172,16 +172,16 @@ function verify(root, nodes, errors) {
   }
 
   // Child counts: more than one child, no more than twelve.
-  // A lone child of the same kind divides nothing: a Concept with one
-  // sub-Concept, or an Individual with one sub-Individual, is that child.
-  // A lone child of a different kind describes its parent, which is fine.
+  // A lone child of the same kind divides nothing: a Concept with exactly
+  // one sub-Concept, or an Individual with exactly one sub-Individual, is
+  // that child. Children of other kinds describe the parent and don't count.
   for (const node of nodes) {
     const kids = node.children.filter((c) => c.kind !== MAP);
-    if (kids.length === 1 && kids[0].kind === node.kind && node.kind === CONCEPT) {
-      warnings.push({ line: node.line, message: `'${node.name}' has 1 child, expected more than one — a kind with one subtype is the subtype` });
+    if (node.kind === CONCEPT && kids.filter((c) => c.kind === CONCEPT).length === 1) {
+      warnings.push({ line: node.line, message: `'${node.name}' has 1 sub-Concept, expected 0 or more than one — a kind with one subtype is the subtype` });
     }
-    if (kids.length === 1 && kids[0].kind === node.kind && node.kind === INDIVIDUAL) {
-      warnings.push({ line: node.line, message: `'${node.name}' has 1 child, expected more than one — an individual with one sub-individual is the sub-individual` });
+    if (node.kind === INDIVIDUAL && kids.filter((c) => c.kind === INDIVIDUAL).length === 1) {
+      warnings.push({ line: node.line, message: `'${node.name}' has 1 sub-Individual, expected 0 or more than one — an individual with one sub-individual is the sub-individual` });
     }
     if (kids.length > 12) {
       warnings.push({ line: node.line, message: `'${node.name}' has ${kids.length} children, expected no more than twelve` });
