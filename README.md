@@ -1,10 +1,8 @@
 # Alpha (.aot)
 
-Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, where each new idea connects to exactly one general idea. The structure forces you to commit to what an idea is, so someone else, including your future self, reaches the same conclusion you did instead of rebuilding it in their head.
+Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text — a human-first interface to a key-value store that makes one strict design choice: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
-Alpha is a human-first interface to a key-value store, which is the parent-child tree of ideas. It makes the strict design choice: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
-
-The restriction is deliberate. Like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
+The restriction is deliberate. Like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
 Alpha is aimed at knowledge workers, business analysts, and enterprise architects.
 
@@ -25,8 +23,7 @@ Alpha is aimed at knowledge workers, business analysts, and enterprise architect
 
 ### Pragmatic
 
-- **Plain text holds its shape**: knowledge is best kept as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
-- **Shared context beats private notes**: a model earns its keep when someone else, including your future self, extends the same structure rather than rebuilding it in their head.
+- **Plain text holds its shape**: prose hides structure; diagrams don't scale.
 - **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it.
 
 
@@ -83,7 +80,7 @@ Filling a schema with content helps to understand the schema. *Content*, the act
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
 | **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
 | **has-Individual** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
-| **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information | 
+| **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information; normal and accepted | 
 | **attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
 | **default-is-a-Individual** | Value matches an Individual name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Individual | |
 
@@ -107,14 +104,12 @@ Attributes are lowercase properties a Concept **has**. They are not necessarily 
 
 These rules keep a model readable and unambiguous. Without them, two readers of the same file build two different mental models.
 
-- You place an idea by naming its nearest kind (the *genus*, its parent) together with the qualifier that sets it apart from its siblings (the *differentia*).
+- You place an idea by naming its nearest kind, the most general accurate term (the *genus*, its parent), together with the qualifier that sets it apart from its siblings (the *differentia*).
 - One term with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
-- Use full words, never abbreviate
+- Use full words; never abbreviate or use synonyms
 - Fix all misspellings
 - Always singular form: `Person` not `People`
-- Use the most general accurate term (the *genus*)
 - Remove redundant Concepts
-- Add qualifiers to distinguish similar Concepts (the *differentia*)
 - Only decompose further when detail adds meaningful value
 - Provide as many Concept and attribute Individuals as possible
 - Individuals placed higher in the tree are preferable
@@ -123,10 +118,7 @@ These rules keep a model readable and unambiguous. Without them, two readers of 
 
 The following rules govern how Alpha handles inheritance, incomplete models, and the tension between structure and data.
 
-- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Individual inherits them necessarily. **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (changing the essence is the Concept's prerogative, not the Individual's).
-- **Inheritance**: Child Concepts and Individuals inherit all parent (essential) attributes (never Individuals)
-- **Polymorphism**: Child Concepts may add further essential attributes; Individuals may add only accidental ones
-- **Incompleteness**: Use `... explanation` (Map) to mark intentionally incomplete sections. Normal and accepted.
+- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Individual inherits them necessarily (attributes are inherited, never Individuals). **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (adding further essential attributes is the child Concept's prerogative, not the Individual's).
 - **Content over structure**: Prefer Individuals + attributes + defaults over creating new Concepts. Keep the Concept tree lean.
 - **Assimilate facts**: Convert raw data into Individual-attribute-value relationships under a Concept
 
@@ -147,22 +139,11 @@ Parent
     ... Generally in Alpha there is more than one child per parent
 ```
 
-## What NOT to Do
-
-- Do NOT use tabs; 4 spaces only
-- Do NOT abbreviate or use synonyms
-- Do NOT create sub-Concepts when Individuals + attributes suffice
-- Do NOT use plural Concept names
-- Do NOT add structure without meaningful value
-- Do NOT leave misspellings uncorrected
-- Do NOT use explicit connection keywords; indentation, colons and parentheses express all connections
-- Do NOT write Individuals without the `- ` prefix. A line like `deliver outcomes` is an attribute; write `- deliver outcomes` to make it an Individual
-
 ## Primitives
 
 Primitives require no special `.aot` syntax. They give you a checklist of questions any transforming process must answer. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced.
 
-The primitives do not link to one another. One primitive cannot be reached by another; each is a tree of its own. This is the general rule, not a special case: no cause terminates in another. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
+The primitives do not link to one another; each is a tree of its own, and no cause terminates in another — this is the general rule, not a special case. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
 
 #### The four causes
 
@@ -514,15 +495,13 @@ Object
 - Non-nullable attributes listed first; attribute order otherwise meaningless
 - A relational attribute referencing another Concept uses that Concept's name (lowercase)
 - No many-to-many relations on attributes; use Event Associations
-- Every Concept name must be unique
 
 #### Cleanup Checklist
 
 - Identify functional dependencies between attributes
 - Use subset data to clarify scope
 - Use aliases to describe Concepts
-- Use full, unabbreviated names; final names must be unique and implementable
-- Prefer fewer Concepts with more Individuals over many Concepts with few Individuals
+- Final names must be implementable
 - Prioritise Concepts by relevance
 - Create parent Concepts to group related children
 - Look for likenesses and differences to form general structures
@@ -621,9 +600,7 @@ Focus: **how the system does it**, decomposed as a tree.
 #### Decomposition Rules for Objectives
 
 - 3 to 7 sub-objectives per parent objective
-- Ask **Why** does a sub-objective exist? The answer should be the parent objective
-- Ask **How** is a parent objective achieved? Exclusively through every and all of its children
-- Ask **Which** of an objective to get to a class.
+- Test each split with the **Why**, **How**, and **Which** questions described under [Primitives](#primitives)
 
 #### Pitch Level
 
