@@ -56,6 +56,8 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 #### Schemas (Acting on)
 
+*Schemas* are the universal ideas: Concepts and Attributes. They define the form of the model, deciding what kinds of ideas exist and which properties each kind carries. They act on content in the sense that every Individual and Default Value beneath them takes its meaning from them: a line like `- Socrates` only says something because the `Human` Concept and its attributes say what a human is.
+
 | Node Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|-------------|---------|-------------|----------------|
 | **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of idea | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
