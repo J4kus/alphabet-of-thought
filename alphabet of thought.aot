@@ -193,6 +193,7 @@ Primitive
                     Update Local Extension
                         Run `code --install-extension .\alphabet-of-thought-1.1.2.vsix --force` Command
                         Reload VS Code (Ctrl+Shift+P → "Developer: Reload Window") for the new version to take effect
+                        ...
                     Update Remote Extension
                 Make Changes To Marketplace
                     Go To `https://marketplace.visualstudio.com/manage/publishers/Jakus` Link
@@ -210,13 +211,13 @@ Primitive
                 - a tree, not a diagram
                 - use full words, never abbreviate
                 - fix all misspellings
-            Setup Primitives
+            Setup Primitive
                 - Motivation
                 - Network
                 - Function
                 - Timeline
                 - Workflow
-            Code Tokens
+            Code Token
                 - Ideas
                 - Connections
                     Inheritance
@@ -233,7 +234,7 @@ Primitive
         
         Work Out What You Mean: Asynchronous
             - Create File
-                interval: 
+                interval
                 timeout: when file is published
             - Iterate Over Extension
                 worker pool: 1
