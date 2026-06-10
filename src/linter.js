@@ -167,10 +167,11 @@ function verify(root, nodes, errors) {
     }
   }
 
-  // Child counts: more than one child, no more than twelve
+  // Child counts: more than one child, no more than twelve.
+  // A lone attribute is fine — it describes the kind, it does not divide it.
   for (const node of nodes) {
     const kids = node.children.filter((c) => c.kind !== MAP);
-    if (kids.length === 1) {
+    if (kids.length === 1 && kids[0].kind !== ATTRIBUTE) {
       warnings.push({ line: node.line, message: `'${node.name}' has 1 child, expected more than one — a kind with one subtype is the subtype` });
     }
     if (kids.length > 12) {
