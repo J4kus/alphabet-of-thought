@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-It is a text-based engineering language for representing knowledge as a tree of indented text to describe the structure of ideas through their connections. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assumes the thinking is already done and you just need somewhere to put it. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to mean the same thing. That is what Alpha is for.
+It is a text-based engineering language for representing knowledge as a tree of indented text to ideas through connections. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assumes the all conculsions is already reached and you just need somewhere to put it. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to conclude the same thing. That is what Alpha is for.
 
 ## The Foundations
 
@@ -23,7 +23,9 @@ It is a text-based engineering language for representing knowledge as a tree of 
 - **Shared context beats private notes**: a model earns its keep when someone else, including your future self, extends the same structure rather than rebuilding it in their head.
 - **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it, not when it merely sounds right.
 
-Alpha is a human-first interface. It compiles to an idea-connection key-value store, not binary. Each idea has one connection. Once this shared context is written down, complicated ideas become easy to state and easy to pass on, because everyone extends the same structure rather than rebuilding it in their heads. Once that structure is precise, AI can do the synthesis and abstraction with you instead of guessing at it.
+Alpha is a human-first interface to a key-value store, which is the parent-child tree of ideas. It makes the design choice experienced programmers will recognise as the strict one: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. No multiple inheritance, no tangled graph, no idea that means something different depending on which path you took to reach it.
+
+This sounds restrictive, and it is. That's the point. The constraint works the way a type system works: it forces you to decide what an idea *is* before you can write it down. One parent per idea makes that commitment explicit, and an explicit commitment is one other people can share. Everyone who opens the file extends the same tree instead of rebuilding a private version in their head. And once the structure is that precise, AI can do the synthesis and abstraction with you, instead of guessing at what you meant.
 
 Built for people who do this for a living: knowledge workers, business analysts, and enterprise architects.
 
