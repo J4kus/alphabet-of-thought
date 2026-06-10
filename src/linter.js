@@ -107,10 +107,14 @@ function verify(root, nodes, errors) {
   const warnings = [];
   const all = [root, ...nodes];
 
-  // Maps mark omitted information; they explain a node, they have no children
+  // Maps mark omitted information; they explain a node, so under a Map
+  // only further Maps may appear, never real content
   for (const node of nodes) {
-    if (node.kind === MAP && node.children.length) {
-      errors.push({ line: node.line, message: `Map '... ${node.name}' has ${node.children.length} children, expected 0 (a Map is a leaf)` });
+    if (node.kind === MAP) {
+      const content = node.children.filter((c) => c.kind !== MAP);
+      if (content.length) {
+        errors.push({ line: node.line, message: `Map '... ${node.name}' has ${content.length} non-Map children, expected 0 (a Map may only contain Maps)` });
+      }
     }
   }
 
@@ -168,12 +172,16 @@ function verify(root, nodes, errors) {
   }
 
   // Child counts: more than one child, no more than twelve.
-  // Only a lone Concept divides the kind; a lone attribute, default value,
-  // or individual describes it, which is fine.
+  // A lone child of the same kind divides nothing: a Concept with one
+  // sub-Concept, or an Individual with one sub-Individual, is that child.
+  // A lone child of a different kind describes its parent, which is fine.
   for (const node of nodes) {
     const kids = node.children.filter((c) => c.kind !== MAP);
-    if (kids.length === 1 && kids[0].kind === CONCEPT) {
+    if (kids.length === 1 && kids[0].kind === node.kind && node.kind === CONCEPT) {
       warnings.push({ line: node.line, message: `'${node.name}' has 1 child, expected more than one — a kind with one subtype is the subtype` });
+    }
+    if (kids.length === 1 && kids[0].kind === node.kind && node.kind === INDIVIDUAL) {
+      warnings.push({ line: node.line, message: `'${node.name}' has 1 child, expected more than one — an individual with one sub-individual is the sub-individual` });
     }
     if (kids.length > 12) {
       warnings.push({ line: node.line, message: `'${node.name}' has ${kids.length} children, expected no more than twelve` });

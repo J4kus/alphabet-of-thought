@@ -72,8 +72,8 @@ Primitive
                         ... Fits On One Line
                         ... Atomic Unicode Data
                         ... may be used twice
-                            - Default of A Slot
-                            - Part Of A Frame TO Specify Applicable Content
+                            ... Default of A Slot
+                            ... Part Of A Frame TO Specify Applicable Content
                         start: : 
                         end: End of line
                         recognise: colon separated value
