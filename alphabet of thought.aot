@@ -29,7 +29,7 @@ Primitive
                         recognise: first letter is capitalised
                         said of: True
                         present in: False
-                        - Human
+                        example: Human
                     - Attribute (Universal Accident)
                         ... defines a property that a concept has
                         ... lowercase properties a concept has, which may have their own children
@@ -43,17 +43,18 @@ Primitive
                         recognise: all lowercase
                         said of: True
                         present in: True
-                        - full name
+                        example: full name
                         ... every attribute is itself a concept
                 Content (Being Acted Upon)
                     ... the acted-upon individuals on which true schema stands
                     - Example (Individual Substance)
-                        - Socrates
+                        
                         ... lists concrete individuals of the parent concept or attribute
                         ... a selection are Examples
                         ... Most specific accrucate term possible
                         ... Natural Occuring Frame
                         ... Higher Level Is Better
+                    
                         recognise: must start with dash and space
                         said of: False
                         present in: False
@@ -79,7 +80,7 @@ Primitive
                         recognise: colon separated value
                         said of: False
                         present in: True
-                        - colour: red
+                        example: colour: red
                         allow special value override
                             - Boolean
                             - Ellipses
@@ -98,6 +99,9 @@ Primitive
                         predicate: Explained By
             Connection
                 Indented Hierarchy
+                    ... Decompose further when detail adds meaningful value
+                    Place a thing by its nearest kind (genus)
+                    Add a qualifier that sets it apart (differentia)
                     - is-a
                         ... predication, indent a Concept under a term
                     
@@ -122,9 +126,7 @@ Primitive
                             - All Siblings Have The Same Granualarity
                             - Siblings May Have The Same Slot If Default Values Are Different
                             - New Lines 
-                    Decompose further when detail adds meaningful value
-                        Place a thing by its nearest kind (genus)
-                        Add a qualifier that sets it apart (differentia)
+                    
                 Same Line Connection
                     - value-is
                         ... colon after a term

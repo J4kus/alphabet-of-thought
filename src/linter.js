@@ -79,7 +79,15 @@ function parse(text, rootName) {
       errors.push({ line, message: `depth jump ${prevDepth} -> ${depth}: ${depth} - ${prevDepth} > 1, no parent at depth ${depth - 1}` });
       depth = prevDepth + 1;
     }
-    const { kind, name, value } = classify(content.trim());
+    let trimmed = content.trim();
+    if (trimmed[0] === "-" && !trimmed.startsWith("- ")) {
+      errors.push({ line, message: `'${trimmed}' has 0 spaces after '-', expected 1 — an Individual must begin with '- ' (dash + space)` });
+      trimmed = "- " + trimmed.slice(1);
+    }
+    const { kind, name, value } = classify(trimmed);
+    if (kind === DEFAULT && !value.replace(/[: ]/g, "")) {
+      errors.push({ line, message: `'${name}:' has 0 characters after ':', expected a value — supply one or drop the colon` });
+    }
     const parent = stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, parent, children: [] };
     parent.children.push(node);
@@ -106,6 +114,13 @@ function number(root, nodes) {
 function verify(root, nodes, errors) {
   const warnings = [];
   const all = [root, ...nodes];
+
+  // The file name is the root Concept; do not repeat it as a top-level line
+  for (const child of root.children) {
+    if (child.name === root.name) {
+      errors.push({ line: child.line, message: `'${child.name}' repeats the file name: 2 primes for the root, expected 1 — the file name is the root Concept, begin with its children` });
+    }
+  }
 
   // Maps mark omitted information; they explain a node, so under a Map
   // only further Maps may appear, never real content
@@ -168,6 +183,31 @@ function verify(root, nodes, errors) {
       if (gcd(kids[i - 1].chi, kids[i].chi) !== node.chi) {
         errors.push({ line: kids[i].line, message: `gcd(chi('${kids[i - 1].name}'), chi('${kids[i].name}')) != chi('${node.name}') — siblings do not share exactly one parent` });
       }
+    }
+  }
+
+  // Always singular form: 'Person' not 'People'. A suffix heuristic, so a
+  // warning: it catches 'Persons' and 'Categories', not irregulars.
+  const looksPlural = (name) => {
+    const last = name.split(/\s+/).pop().toLowerCase();
+    return last.length >= 4 && last.endsWith("s") && !/(ss|us|is|os)$/.test(last);
+  };
+  for (const node of nodes) {
+    if (node.kind === CONCEPT && looksPlural(node.name)) {
+      warnings.push({ line: node.line, message: `Concept '${node.name}' appears plural: a Concept names 1 kind — use the singular form` });
+    }
+  }
+
+  // Every measurement carries both a target and an actual value
+  for (const node of all) {
+    const defs = node.children.filter((c) => c.kind === DEFAULT);
+    const actual = defs.find((c) => c.name === "actual");
+    const target = defs.find((c) => c.name === "target");
+    if (actual && !target) {
+      warnings.push({ line: actual.line, message: `'${node.name}' has 'actual' without 'target': 1 of 2 measurement values — an actual without a target has no standard` });
+    }
+    if (target && !actual) {
+      warnings.push({ line: target.line, message: `'${node.name}' has 'target' without 'actual': 1 of 2 measurement values — a target without an actual is potential` });
     }
   }
 

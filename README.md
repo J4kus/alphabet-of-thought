@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-It is a text-based engineering language for representing knowledge as a tree of indented text to connect ideas. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assume all conclusions are already reached and you just need somewhere to put them. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to conclude the same thing. That is what Alpha is for.
+Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, where each idea connects to exactly one more general idea. The structure forces you to commit to what an idea is, so someone else, including your future self, reaches the same conclusion you did instead of rebuilding it in their head.
 
 ## The Foundations
 
@@ -21,13 +21,13 @@ It is a text-based engineering language for representing knowledge as a tree of 
 
 - **Plain text holds its shape**: knowledge is best kept as a *tree* of plain text, not prose or diagrams. Prose hides structure; diagrams don't scale.
 - **Shared context beats private notes**: a model earns its keep when someone else, including your future self, extends the same structure rather than rebuilding it in their head.
-- **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it, not when it merely sounds right.
+- **Truth shows in consequences**: a definition is good when it lets two people act on the same meaning and verify it.
 
-Alpha is a human-first interface to a key-value store, which is the parent-child tree of ideas. It makes the design choice experienced programmers will recognise as the strict one: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. No multiple inheritance, no tangled graph, no idea that means something different depending on which path you took to reach it.
+Alpha is a human-first interface to a key-value store, which is the parent-child tree of ideas. It makes the strict design choice: single inheritance. Every idea has exactly one connection, to exactly one more general idea, and the chain terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
-This sounds restrictive, and it is. That's the point. The constraint works the way a type system works: it forces you to decide what an idea *is* before you can write it down. One parent per idea makes that commitment explicit, and an explicit commitment is one other people can share. Everyone who opens the file extends the same tree instead of rebuilding a private version in their head. And once the structure is that precise, AI can do the synthesis and abstraction with you, instead of guessing at what you meant.
+The restriction is deliberate. Like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
-Built for people who do this for a living: knowledge workers, business analysts, and enterprise architects.
+Alpha is aimed at knowledge workers, business analysts, and enterprise architects.
 
 ## Example
 
@@ -63,7 +63,7 @@ Ideas and connections are determined entirely by capitalisation, punctuation, an
 
 #### Content (Being acted upon)
 
-Filling a schema with content helps to understand the schema. *Content*, the acted-upon Individuals, is not storage waiting to be filled; it is what a true schema stands on.
+Filling a schema with content helps to understand the schema. *Content*, the acted-upon Individuals, is the evidence a true schema stands on.
 
 | Node Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
@@ -85,11 +85,11 @@ Filling a schema with content helps to understand the schema. *Content*, the act
 
 ## How to Decide: Concept vs Individual vs Attribute
 
-Correct classification here is what separates a model that communicates from one that merely stores. For a more pragmatic approach, apply these tests in order:
+Correct classification is what makes a model communicate. Apply these tests in order:
 
 ### 1. Exhaustion test (Concept vs Individual)
 
-If the children together **partition** the parent — every child is a subtype of the parent, no two overlap, and nothing of the parent is left over — they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Individuals**.
+If the children together **partition** the parent, they are **Concepts** (subtypes): every child is a subtype of the parent, no two overlap, and nothing of the parent is left over. If the children are merely a selection of items drawn from the world, they are **Individuals**.
 
 ### 2. Abstraction test (Concept vs Individual)
 
@@ -101,7 +101,7 @@ Attributes are lowercase properties a Concept **has**. They are not necessarily 
 
 ## Classical Style Rules
 
-These rules keep a model readable and unambiguous. Violating them is how two people end up with two different mental models of the same file.
+These rules keep a model readable and unambiguous. Without them, two readers of the same file build two different mental models.
 
 - You place an idea by naming its nearest kind (the *genus*, its parent) together with the qualifier that sets it apart from its siblings (the *differentia*).
 - One term with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
@@ -156,9 +156,9 @@ Parent
 
 ## Primitives
 
-Primitives require no special `.aot` syntax, but they will make you smarter at any process that transforms. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced. A modelling language for work needs both: the static and the dynamic.
+Primitives require no special `.aot` syntax. They give you a checklist of questions any transforming process must answer. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced.
 
-The primitives do not link to one another. One primitive cannot be reached by another primitive — it is a tree of its own. This is the general rule, not a special case: no cause terminates in another. Each primitive is a complete tree, and a complete explanation holds all four in balance — each cause answered with respect to the others, none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
+The primitives do not link to one another. One primitive cannot be reached by another; each is a tree of its own. This is the general rule, not a special case: no cause terminates in another. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
 
 #### The four causes
 
@@ -169,15 +169,15 @@ Each of these Primitives has a said-of and a not-said-of part to guide the user 
 | Cause | Description | Native question | Primitive | Said of | Not Said Of |
 |-----------|---------|------------------|--|------------------|------------------|
 | **Final** | for the sake of which | Why, and for Whom | Motivation | Beneficiary (Whom) | Measurement (How Much) |
-| **Material** | that out of which | made of What | Network | Entity (Where — the boundary that fixes where the Record resides in reality) | Record (What) |
-| **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How — a parent's form is all its child objectives taken together) | Class (Which) |
+| **Material** | that out of which | made of What | Network | Entity (Where: the boundary that fixes where the Record resides in reality) | Record (What) |
+| **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How: a parent's form is all its child objectives taken together) | Class (Which) |
 | **Efficient** | the agent and the means | by Whom, in what order | Workflow | Item (Subject) | Dependency (When) |
 
-The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through every and all of its children together — no single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How — the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
+The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through all of its children together. No single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How, the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
 
 The Function tree relates to it differently: it *is the form of the motivation*, the arrangement that realises it, built from the material the Network provides and carried out in the order the Workflow makes most efficient. 
 
-*Where* and *When* are not causes in their own right; they are the questions a cause's concepts answer. Matter is never placeless — everything that exists is somewhere, and place is the innermost boundary of what contains it (*Physics* IV). So the Entity is the Where: it bounds where a Record resides in reality, which is why the Network primitive carries data residency, latency and disaster recovery. Likewise the Dependency is the When: it bounds when the efficient process may run. Kipling's six serving men label the columns, the four causes label the rows.
+*Where* and *When* are not causes in their own right; they are the questions a cause's concepts answer. Matter is never placeless: everything that exists is somewhere, and place is the innermost boundary of what contains it (*Physics* IV). So the Entity is the Where: it bounds where a Record resides in reality, which is why the Network primitive carries data residency, latency and disaster recovery. Likewise the Dependency is the When: it bounds when the efficient process may run. Kipling's six serving men label the columns, the four causes label the rows.
 
 ---
 
@@ -185,9 +185,9 @@ The Function tree relates to it differently: it *is the form of the motivation*,
 
 Focus: **what and why things are measured** by **who is the beneficiary of them**
 
-The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models the beneficiary alongside the measurements they use, so that every number has a name behind it.
+The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models the beneficiary alongside the measurements they use, so every measurement records who owns it.
 
-Every measurement carries both a `target` value and an `actual` value. A target without an actual is potential; an actual without a target has no standard. To measure is to weigh the one against the other, so Alpha requires both.
+Every measurement carries both a `target` value and an `actual` value. Alpha requires both because a measurement only means something when you can compare the actual against the target.
 
 Example
 
@@ -510,7 +510,7 @@ Object
 - Non-nullable attributes listed first; attribute order otherwise meaningless
 - A relational attribute referencing another Concept uses that Concept's name (lowercase)
 - No many-to-many relations on attributes; use Event Associations
-- Every Concept and attribute name must be unique
+- Every Concept name must be unique
 
 #### Cleanup Checklist
 
