@@ -48,7 +48,6 @@ Alpha is aimed at knowledge workers, analysts, and architects.
                     measurement operation used: Observation
                     influence: Red
                     - capacity
-
                 - cognitive quality
                     - externalised cognition
                         actual: lazy when produced
@@ -96,21 +95,19 @@ Alpha is aimed at knowledge workers, analysts, and architects.
                 ... the scarce material the whole system is rational about
         Chunk
             Working Memory
-                long term: schema
+                long term memory: schema
                 observation
                 storage capacity
                     - 4 active chunks
-                    
                     ... a continuum
                 is on-off switch: no
             Long Term Memory
-                storage capacity:  no vocabulary limit
-                grammar capacity: unbound
                 - schema
                     ... you never think from nothing; a new thought extends stored structure
                 - generative model
                     ... predictive processing: stored expectation against which the senses are compared
-            
+                storage capacity:  no vocabulary limit
+                grammar capacity: unbound
         Environment (Extended Mind)
             ... cognitive offloading: records pushed over the skull boundary to cheaper storage
             - written note
@@ -121,24 +118,25 @@ Alpha is aimed at knowledge workers, analysts, and architects.
     ... ask Why of any objective upward: the answer is the file name
     ... ask How of the file name downward: all six objectives together are its form
     Predict Incoming Evidence
-        - retrieve relevant schema
-        - generate prior expectation
+        Retrieve relevant schema
+        Generate prior expectation
+        Make observation
     Detect Prediction Error
-        - compare expectation to observation
-        - weight error by precision
-        - flag conflicting intuitions
+        Compare expectation to observation
+        Weight error (Precision)
+        Flag conflicting intuitions
     Update Standing Belief
-        - revise schema toward evidence
-        - discard refuted hypothesis
+        Revise schema toward evidence
+        Discard refuted hypothesis
     Choose Action Under Uncertainty
-        - gather disambiguating evidence
-        - commit to a single action
+        Gather disambiguating evidence
+        Commit to a single action
     Offload Chosen Conclusion Justification
-        - produce supporting reason
-        - test reason against objection
+        Produce supporting reason
+        Test reason against objection
     Monitor Own Confidence
-        - rate confidence in answer
-        - summon deliberation on low confidence
+        Rate confidence in answer
+        Summon low confidence deliberation 
 
 - Workflow
     Thought
@@ -378,7 +376,7 @@ Example
 The Concepts used in the Motivation Primitive:
 
 ```aot
-Beneficiary (Who)
+Beneficiary
     Person
         first name: Alida
         surname: Zondo
@@ -400,8 +398,9 @@ Beneficiary (Who)
         incorporated country
         nickname
         tax number
-Measurement (Why)
+Measurement
     ... of Quality and Quantity
+    beneficiary
     superordinate measurement: None
     name
     expected value
