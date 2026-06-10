@@ -157,6 +157,8 @@ Parent
 
 Primitives require no special `.aot` syntax, but they will make you smarter at any process that transforms. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced. A modelling language for work needs both: the static and the dynamic.
 
+The primitives do not link to one another. One primitive cannot be reached by annother prmiitvate  — it is a tree of its own. This is the general rule, not a special case: no cause terminates in another. Each primitive is a complete tree, and a complete explanation holds all four in balance — each cause answered with respect to the others, none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
+
 #### The four causes
 
 Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as individuals (not said of, not present in).
@@ -170,7 +172,9 @@ Each of these Primitives has a said-of and a not-said-of part to guide the user 
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How — a parent's form is all its child objectives taken together) | Class (Which) |
 | **Efficient** | the agent and the means | by Whom, in what order | Workflow | Item (Subject) | Dependency (When) |
 
-The questions in the Function tree run in directions. Ask *How* downward: a parent objective is achieved exclusively through every and all of its children together — no single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent, and the root objective's why leaves the Function primitive altogether and lands in Motivation — the final cause. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
+The questions in the Function tree run in directions. Ask *How* downward: a parent objective is achieved exclusively through every and all of its children together — no single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How — the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
+
+The Function tree relates to it differently: it *is the form of the motivation*, the arrangement that realises it, built from the material the Network provides and carried out in the order the Workflow makes most efficient. 
 
 *Where* and *When* are not causes in their own right; they are the questions a cause's concepts answer. Matter is never placeless — everything that exists is somewhere, and place is the innermost boundary of what contains it (*Physics* IV). So the Entity is the Where: it bounds where a Record resides in reality, which is why the Network primitive carries data residency, latency and disaster recovery. Likewise the Dependency is the When: it bounds when the efficient process may run. Kipling's six serving men label the columns, the four causes label the rows.
 
