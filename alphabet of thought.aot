@@ -15,6 +15,7 @@ Primitive
                 extension: aot
                 format: plain text
                 indent: 4 spaces, never tabs
+            ...
         Token
             Idea
                 Schema (Acting On)
@@ -145,33 +146,7 @@ Primitive
                         ... value matches an example name exactly
                         type: Reference
                     indentation: exactly 4 spaces per level
-        Primitive
-            ... combines Aristotle's Categories, Causes, Prior Analytics and Kipling's Six Serving Men
-            - Motivation
-                ... final cause, for the sake of which
-                concepts: Beneficiary
-                examples: Measurement
-                interrogative: Why
-            - Timeline
-                ... material cause, that out of which
-                concepts: Workload
-                examples: Duration
-                interrogative: When
-            - Function
-                ... formal cause, the form and essence
-                concepts: Objective
-                examples: Type
-                interrogative: What
-            - Workflow
-                ... efficient cause, the agent and the means
-                concepts: Agent
-                examples: Resource
-                interrogative: How
-            - Network
-                ... paradigmatic cause, the pattern conformed to
-                concepts: Entity
-                examples: Record
-                interrogative: Where
+        primitives
     - Function
         ... what it is — formal cause, the form and essence
         Understand Foundation
