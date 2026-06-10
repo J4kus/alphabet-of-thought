@@ -48,27 +48,30 @@ Alpha is aimed at knowledge workers, analysts, and architects.
                     measurement operation used: Observation
                     influence: Red
                     - capacity
-                - cognitive quality
+                - resolution
+                    - verdict
+                        actual: average
+                        target: exceptional
+                        measurement operation used: Ranking
                     - externalised cognition
-                        actual: lazy when produced
+                        actual: claims lazily produced
                         target: claims that survive another mind's scrutiny
                         measurement operation used: Grading
-                        influence: Green
-                    - confidence
-                        actual: better decision next time
-                        target: evaluate externalised cognition
-                        measurement operation used: Grading
-                        influence: Green
-                        - calibration
-                            actual: overconfident
-                            target: stated confidence equals achieved accuracy
-                            measurement operation used: Ratio
-                            influence: Amber
-                        - sensitivity
-                            actual: partial
-                            target: confidence separates correct answers from wrong ones
-                            measurement operation used: Grading
-                            influence: Amber
+            - confidence
+                actual: better decision next time
+                target: evaluate externalised cognition
+                measurement operation used: Grading
+                influence: Green
+                - calibration
+                    actual: overconfident
+                    target: stated confidence equals achieved accuracy
+                    measurement operation used: Ratio
+                    influence: Amber
+                - sensitivity
+                    actual: partial
+                    target: confidence separates correct answers from wrong ones
+                    measurement operation used: Grading
+                    influence: Amber
         Audience
             - envirnomental argument quality
                 ... argumentative theory: reasoning evolved to produce justifications other people can evaluate
