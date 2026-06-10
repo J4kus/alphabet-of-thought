@@ -249,4 +249,7 @@ function lint(text, rootName) {
   return { root, nodes, errors: errors.sort(byLine), warnings: warnings.sort(byLine) };
 }
 
-module.exports = { lint, parse, number, verify, gcd, INDENT };
+module.exports = {
+  lint, parse, number, verify, gcd, INDENT,
+  KIND: { INDIVIDUAL, DEFAULT, CONCEPT, ATTRIBUTE, MAP },
+};

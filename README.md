@@ -1,11 +1,13 @@
 # Alpha (.aot)
 
-Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes one strict design choice: single inheritance. Every idea, no matter how elemental or complex, has exactly one connection, to exactly one other idea, and the chain runs from general to specific until it terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
+Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of nodes. Every idea, no matter how elemental or complex, has exactly one connection, to exactly one other idea, and the chain runs from general to specific until it terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
 The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
 
 Alpha is aimed at knowledge workers, analysts, and architects.
+
+Alpha ships with tooling so the rules below are checked by a program, not by discipline. The VS Code extension (`alphabet-of-thought-*.vsix`) gives `.aot` files syntax colouring, and an arithmetic linter (after Leibniz) that verifies the tree as you type: every node receives a prime, ancestry is encoded as a product, and violations — tabs, broken indentation, depth jumps, a Concept defined twice, identical siblings — appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks: an attribute whose trailing words match a Concept, or a default value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`, which also answers is-a questions by divisibility (`--ask`), finds the genus of two ideas by gcd (`--genus`), and prints any idea's characteristic number (`--number`).
 
 ## The Foundations
 

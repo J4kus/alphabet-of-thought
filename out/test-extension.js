@@ -1,19 +1,36 @@
-// Smoke test: activate the extension against a mocked vscode API and an
-// in-memory .aot document, then print the diagnostics it publishes.
+// Smoke test: activate the extension against a mocked vscode API and
+// in-memory .aot documents, then print the diagnostics it publishes and
+// check the crosslink decorations and go-to-definition.
 const fs = require("fs");
 const Module = require("module");
 
 const published = new Map();
+let definitionProvider = null;
 const vscode = {
   DiagnosticSeverity: { Error: 0, Warning: 1 },
   Diagnostic: class { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
-  Range: class { constructor(...a) { this.a = a; } },
+  Range: class {
+    constructor(...a) { this.a = a; }
+    contains(p) {
+      const [startLine, startCol, endLine, endCol] = this.a;
+      return p.line >= startLine && p.line <= endLine && p.character >= startCol && p.character <= endCol;
+    }
+  },
+  Position: class { constructor(line, character) { Object.assign(this, { line, character }); } },
+  Location: class { constructor(uri, range) { Object.assign(this, { uri, range }); } },
+  ThemeColor: class { constructor(id) { this.id = id; } },
   languages: {
     createDiagnosticCollection: () => ({
       set: (uri, diags) => published.set(uri.toString(), diags),
       delete: (uri) => published.delete(uri.toString()),
       dispose: () => {},
     }),
+    registerDefinitionProvider: (selector, provider) => { definitionProvider = provider; return { dispose() {} }; },
+  },
+  window: {
+    visibleTextEditors: [],
+    createTextEditorDecorationType: (style) => ({ style, dispose() {} }),
+    onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
   },
   workspace: {
     textDocuments: [],
@@ -28,16 +45,20 @@ Module._load = (request, ...rest) => (request === "vscode" ? vscode : load(reque
 const ext = require("../src/extension.js");
 ext.activate({ subscriptions: [] });
 
-const text = fs.readFileSync("alphabet of thought.aot", "utf-8");
-const lines = text.split(/\r?\n/);
-const doc = {
-  languageId: "aot",
-  fileName: "c:\\repo\\alphabet of thought.aot",
-  uri: { toString: () => "file:///repo/alphabet%20of%20thought.aot" },
-  lineCount: lines.length,
-  getText: () => text,
-  lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length) }),
-};
+function makeDoc(fileName, text) {
+  const lines = text.split(/\r?\n/);
+  return {
+    languageId: "aot",
+    fileName,
+    uri: { toString: () => "file:///" + fileName.replace(/\\/g, "/").replace(/ /g, "%20") },
+    lineCount: lines.length,
+    getText: () => text,
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length) }),
+  };
+}
+
+// 1) diagnostics over the reference file, as before
+const doc = makeDoc("c:\\repo\\alphabet of thought.aot", fs.readFileSync("alphabet of thought.aot", "utf-8"));
 vscode.workspace._open(doc);
 
 const diags = published.get(doc.uri.toString());
@@ -45,5 +66,34 @@ console.log(`published ${diags.length} diagnostics`);
 for (const d of diags.slice(0, 3)) {
   console.log(`  [${d.severity === 0 ? "error" : "warning"}] line ${d.range.a[0] + 1}: ${d.message}`);
 }
-const errors = diags.filter((d) => d.severity === 0).length;
-console.log(errors === 1 && diags.length === 4 ? "PASS (1 error + 3 warnings)" : "UNEXPECTED COUNT");
+console.log(diags.length === 0 ? "PASS (the reference file verifies clean)" : "UNEXPECTED COUNT");
+
+// 2) crosslinks: an attribute-is-a-Concept and a default-is-a-Individual
+const sample = [
+  "Person",
+  "    full name",
+  "    - Socrates",
+  "Census",
+  "    person: Socrates",
+].join("\n");
+const doc2 = makeDoc("c:\\repo\\Sample.aot", sample);
+const decorated = new Map(); // decoration type -> ranges
+const editor = { document: doc2, setDecorations: (type, ranges) => decorated.set(type, ranges) };
+vscode.window.visibleTextEditors = [editor];
+vscode.workspace._open(doc2);
+
+const sets = [...decorated.values()];
+const conceptLinks = sets.find((s) => s.some((d) => /Concept 'Person'/.test(d.hoverMessage))) || [];
+const individualLinks = sets.find((s) => s.some((d) => /Individual 'Socrates'/.test(d.hoverMessage))) || [];
+console.log(`decorated ${conceptLinks.length} Concept link(s), ${individualLinks.length} Individual link(s)`);
+for (const d of [...conceptLinks, ...individualLinks]) {
+  console.log(`  line ${d.range.a[0] + 1} cols ${d.range.a[1]}-${d.range.a[3]}: ${d.hoverMessage}`);
+}
+
+// Ctrl+click on 'person' (line 5, col 5) should land on 'Person' (line 1)
+const definition = definitionProvider.provideDefinition(doc2, new vscode.Position(4, 5));
+const landed = definition && definition.range.a[0] === 0;
+console.log(landed ? "definition of 'person' -> line 1 'Person'" : "DEFINITION FAILED");
+
+const crosslinksPass = conceptLinks.length === 1 && individualLinks.length === 1 && landed;
+console.log(crosslinksPass ? "PASS (crosslinks)" : "UNEXPECTED CROSSLINKS");
