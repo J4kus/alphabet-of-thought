@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-It is a text-based engineering language for representing knowledge as a tree of indented text to ideas through connections. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assume all conclusions are already reached and you just need somewhere to put them. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to conclude the same thing. That is what Alpha is for.
+It is a text-based engineering language for representing knowledge as a tree of indented text to connect ideas. Most tools try to store information or describe meaning. Alpha doesn't. Storing and describing assume all conclusions are already reached and you just need somewhere to put them. But the hard part is never that: it is working out what you mean, and getting someone else, including your future self, to conclude the same thing. That is what Alpha is for.
 
 ## The Foundations
 
@@ -8,7 +8,7 @@ It is a text-based engineering language for representing knowledge as a tree of 
 
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
 - Alpha's ontology is four node types. They are the crossing of **Said-of** and **Present-in** (*Categories* 2).
-- **Essence versus accident**: Concepts and Concept Attributes are essentially the form of your ideas. Everything else in Alpha is accidental (*Metaphysics* Z). For example, to avoid confusion, the `capable of laughter` Concept Attribute is not a purely human attribute and should not be defined as part of the `Human` Concept, but you can extend Concepts in Alpha.
+- **Essence versus accident**: Concepts and Concept Attributes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z). For example, to avoid confusion, the `capable of laughter` Concept Attribute is not a purely human attribute and should not be defined as part of the `Human` Concept, but you can extend Concepts in Alpha.
 - **The four causes complete every explanation**: final (motivation), material (network), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
 - The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
 
