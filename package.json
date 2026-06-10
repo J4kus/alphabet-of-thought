@@ -11,15 +11,17 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.0.8",
+  "version": "1.1.0",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
     "vscode": "^1.84.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters"
   ],
+  "main": "./src/extension.js",
   "contributes": {
     "languages": [
       {
