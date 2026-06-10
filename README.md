@@ -1,8 +1,9 @@
 # Alpha (.aot)
 
-Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text — a human-first interface to a key-value store that makes one strict design choice: single inheritance. Every idea has exactly one connection, to exactly one other idea, and the chain terminates at the file name. From general to specific. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
+Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes one strict design choice: single inheritance. Every idea, no matter how elemental or complex, has exactly one connection, to exactly one other idea, and the chain runs from general to specific until it terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
-The restriction is deliberate. Like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
+The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
+
 
 Alpha is aimed at knowledge workers, analysts, and architects.
 
@@ -23,7 +24,7 @@ Alpha is aimed at knowledge workers, analysts, and architects.
 
 ### Pragmatic
 
-- **Plain text holds its shape**: prose hides structure; diagrams don't scale.
+- **Plain text holds its shape**: prose hides structure and diagrams don't scale.
 - **Truth shows in consequences**: a definition is good when it lets two actors work on with the meaning and verify it.
 
 ## Example
@@ -222,7 +223,7 @@ Filling a schema with content helps to understand the schema. *Content*, the act
 
 ## How to Decide: Concept vs Individual vs Attribute
 
-Correct classification is what makes a model communicate. Apply these tests in order:
+A model only communicates when its ideas are classified correctly. Apply these tests in order:
 
 ### 1. Exhaustion test (Concept vs Individual)
 
@@ -238,10 +239,10 @@ Attributes are lowercase properties a Concept **has**. They are not necessarily 
 
 ## Classical Style Rules
 
-These rules keep a model readable and unambiguous. Without them, two readers of the same file build two different mental models.
+These rules keep a model readable and unambiguous, so that two readers of the same file build the same mental model.
 
 - You place an idea by naming its nearest kind, the most general accurate term (the *genus*, its parent), together with the qualifier that sets it apart from its siblings (the *differentia*).
-- One term with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
+- One Concept with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
 - Use full words; never abbreviate or use synonyms
 - Fix all misspellings
 - Always singular form: `Person` not `People`
@@ -279,7 +280,7 @@ Parent
 
 Primitives require no special `.aot` syntax. They give you a checklist of questions any transforming process must answer. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced.
 
-The primitives do not link to one another; each is a tree of its own, and no cause terminates in another — this is the general rule, not a special case. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
+The primitives do not link to one another; each is a tree of its own, and no cause terminates in another. This is the general rule, not a special case. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
 
 #### The four causes
 
@@ -306,7 +307,7 @@ The Function tree relates to it differently: it *is the form of the motivation*,
 
 Focus: **what and why things are measured** by **who is the beneficiary of them**
 
-The Motivation Primitive answers two questions at once: what are we trying to achieve, and who owns it? It models the beneficiary alongside the measurements they use, so every measurement records who owns it.
+The Motivation Primitive describes what you are trying to achieve and who owns it. It models the beneficiary alongside the measurements they use, so every measurement records its owner.
 
 Every measurement carries both a `target` value and an `actual` value. Alpha requires both because a measurement only means something when you can compare the actual against the target.
 
