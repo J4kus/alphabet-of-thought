@@ -87,7 +87,6 @@ Primitive
                         allow folding: Yes
                         allow special value override: No
                         predicate: Detailed By
-                        
                     - Map
                         ... marks intentionally omitted or incomplete information
                         ... use a Map to mark intentionally incomplete sections
