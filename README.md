@@ -1,10 +1,37 @@
 # Alpha (.aot)
 
-Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a default value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`) and print the characteristic number of any idea (`--number`).
+Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Default Value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`) and print the characteristic number of any idea (`--number`).
 
-Alpha is a text-based engineering language for working out what you mean. You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
+Alpha is a text-based engineering language for working out what you mean in a way a machine can check.  You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
 
-Ideas and single inheritance connections are determined entirely by capitalisation, punctuation, and indentation. The only keywords are the primitives.
+## The basic workflow
+
+1. Pick a subject and name a file after it. The file name is the root concept — Thought.aot, Sales.aot, Payments.aot. Everything inside is a child of that one idea.
+2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Individual (a real instance), and name: value is a Default Value. Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
+3. Let the tooling correct you as you type. The VS Code extension squiggles tabs, depth jumps, a Concept defined twice, identical siblings, an "and" in a Concept name — each one is a place where your model is ambiguous. Ctrl+click on a crosslink jumps to where a term is defined.
+4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier.
+
+## What you'd use it for
+
+The four primitives are templates for the four kinds of model knowledge work keeps producing anyway, usually scattered across slides and spreadsheets:
+
+- Motivation — goals and KPIs with an owner, an actual, a target, and a red/amber/green influence rolling up a tree. This is an OKR tree or a metrics dashboard as text: the README's sales example (Mike owns revenue growth, which decomposes into new clients, basket size, churn) is exactly what a quarterly business review tries to communicate.
+- Network — data modelling: which entities exist, where records reside, what depends on what. It even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database.
+- Function — capability decomposition: what the system achieves, as a tree of verb-phrase objectives where each parent is achieved exactly by all its children together. The value-chain example is an org's capability map; the naming rules ("no and, no manage, no flow words") force each node to be one testable claim.
+- Workflow — who does what in what order, including concurrency: locks, queues, race conditions, what's the bottleneck. The Thought.aot example models intuition vs. deliberation this way.
+
+## Why bother with the strictness
+
+The constraints are the product. Because every idea has exactly one parent, writing a line forces a decision — is this a kind, a property, or an instance, and of what? Those are exactly the decisions prose lets you dodge. The payoffs:
+
+Two readers build the same mental model. No multiple inheritance means an idea never changes meaning depending on the path you took to it. A .aot file is a shared definition a team can extend instead of each person keeping a private version.
+
+Disagreements become locatable. When a colleague disputes the model, the dispute is about a specific line — a wrong parent, a missing differentia — not about a vibe in a paragraph.
+Arguments become checkable. This is the Leibniz point in the README: once "Socrates is a Human" is the divisibility of two integers, an is-a claim isn't an opinion, it's a computation the linter either confirms or refutes. V = 0 at the bottom of the CLI output means the file contains no structural contradictions.
+
+AI can work on it reliably. Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then run verify.js to check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
+
+A realistic first use: take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — pick the matching primitive as a skeleton, write it as a .aot tree, and keep fixing squiggles until V = 0. The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point.
 
 ## The four idea types ontology
 
@@ -17,7 +44,7 @@ They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
 | Idea Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|-------------|---------|-------------|----------------|
 | **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of idea | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
-| **Attribute** (Universal Accident) | All lowercase | Defines a property that a Concept has | Every attribute is itself a Concept, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
+| **Attribute** (Universal Accident) | All lowercase | Defines a property that a Concept has | Every attribute is itself a Concept that can be expanded on somewhere else, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
 
 ### Content (Being acted upon)
 
@@ -54,16 +81,14 @@ These rules keep a model readable and unambiguous, so that two readers of the sa
 - Use full words; never abbreviate or use synonyms
 - Fix all misspellings
 - Always singular form: `Person` not `People`
-
-- Provide as many Concept and attribute Individuals as possible
-- Remove redundant Concepts
-
-- Only decompose further when detail adds meaningful value
 - Individuals placed higher in the tree are preferable
+- Provide as many Attribute Defaults and Individuals as possible
+- Remove redundant Concepts
+- Only decompose further when detail adds meaningful value
 
 ## The Single Inheritance Connections
 
-Every idea, no matter how elemental or complex, has exactly one connection, to exactly one other idea, and the chain runs from general to specific until it terminates at the file name. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
+Every idea, no matter how elemental or complex, has exactly one connection, to exactly one other idea, and the chain runs from general (the file name) to specific until it terminates. There is no multiple inheritance, so an idea never means something different depending on which path you took to reach it.
 
 The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
