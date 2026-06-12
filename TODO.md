@@ -9,9 +9,42 @@
 - [ ] Curry–Howard / type theory — make the Function tree executable: a specification is a type, an implementation a proof. Attach argument/result attributes to each objective so a parent objective is a product type of its children; verify children's outputs compose into the parent's claimed result; generate test skeletons / interface stubs from a `.aot` Function tree. Needs a minimal type vocabulary (`data type` subtree under Measurement) and a rule that sibling objectives declare what they consume and produce
 - [ ] Embeddings — the fuzzy assistant around the exact core (tooling only, nothing in the language): catch synonym violations (flag `client` and `customer` appearing as different Concepts), suggest placement when writing a new Individual (propose nearest existing parent), and power the AI-extends-the-model workflow where the LLM drafts by similarity and the prime linter referees exactly
 - [ ] Epistemics via reserved attributes — make `confidence`, `status` (proposed / contested / accepted / deprecated), and `source` reserved attributes the tooling understands: `--ask` returns qualified answers ("yes, at confidence 0.6, contested"), confidence propagates down inheritance by multiplication, and `--list contested` becomes a meeting-agenda generator
+[ ] Make Armstrong's Axioms (Dependency Inference) part of the linter and not only a discussion
+#### Armstrong's Axioms (Dependency Inference)
+
+| Rule | In Alpha Terms |
+|------|----------------|
+| Reflexivity | A Concept determines any subset of its own attributes |
+| Augmentation | Adding an attribute to a Concept referencing another Concept preserves a dependency |
+| Transitivity | If Concept Z depends on Concept Y and Concept Y depends on Concept X, then Concept Z depends on Concept X |
+| Union | Multiple dependencies from same source combine into one |
+| Decomposition | A composite dependency breaks into Individual parts |
+| Pseudotransitivity | A transitive chain extends by adding context to bridge a gap |
+
+```aot
+X
+Y
+    X
+Z
+    Y
+    ... Z is transitively dependent on X (through Y)
+```
+[ ] Explain in the readme how to write in Alpha
+- Model data as sets of facts
+- Each Concept = one record type with a fixed number of attributes
+- Non-nullable attributes listed first; attribute order otherwise meaningless
+- A relational attribute referencing another Concept uses that Concept's name (lowercase)
+- No many-to-many relations on attributes; use Event Associations
+- Identify functional dependencies between attributes
+- Use subset data to clarify scope
+- Use aliases to describe Concepts
+- Final names must be implementable
+- Prioritise Concepts by relevance
+- Create parent Concepts to group related children
+- Look for likenesses and differences to form general structures
+- Remove attributes that do not serve the model
 
 ## Language / spec
-- [ ] Add the `Allow` attribute (it is unclear)
 - [ ] All attributes have a has-a relationshio with more attributes for metadata and complex composite concepts directly in the attribute
 - [ ] Allow negation inside the language
 - [ ] Do not use maps for extra info; use aliases instead

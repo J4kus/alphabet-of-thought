@@ -1,4 +1,10 @@
-Motivation
+Is Said Of
+    - yes
+    - no
+
+- Network
+    
+    ... Motivation
     Beneficiary
         is said of: no
         Person
@@ -23,14 +29,12 @@ Motivation
             nickname
             tax number
     Measurement
-        Multiplier Measurement
         is said of: Yes
         superordinate measurement: None
         name
         expected value
         actual value
         measurement operation used
-            multiplier measurement
             - Observation
                 characteristic (trait)
                 class
@@ -63,22 +67,23 @@ Motivation
                 grade interval maximum
                 number of grades
                 ... maps a dimensional measure to symbolic grades via intervals
-            - Ranking
-                minimum ranking
-                maximum ranking
-                is minimum ranking open: false
-                is maximum ranking open: false
-                ... maps a dimensional measure to discrete rank values via intervals
-            - Rescaling
+            - Rescaled Measurement
                 - Fahrenheit to Celsius
                 ... declares two measures produce semantically equivalent results, with a mapping operation that defines the conversion between them. Useful when different tools or teams define the same metric differently and you need to declare they're interchangeable.
                 multiplier measurement: 1
                 offset scaling magnitude: 0
                 ... takes base Unit and scaling factor to create new unit of same dimensionality
                 ... Individual: gram as 0.001 of kilogram
-                exponent (power)
+                exponent (power): 1
                 ... raises a Unit to a given power
                 ... signed to provide division via negative
+            - Ranking
+                minimum ranking
+                maximum ranking
+                is minimum ranking open: false
+                is maximum ranking open: false
+                ... maps a dimensional measure to discrete rank values via intervals
+            
             - Refinement
                 ... indicates one measure is a more detailed version of another. The measures share the same trait but at different granularity
                 ... Think "revenue by region" refining "total revenue".
@@ -160,28 +165,61 @@ Motivation
         start time
         updated time
         updating author
-Network
-    Graph
-        is directional: no
+    ... Graph (5th Formal Form Data Structure)
+        ... allow additional attributes here
     Node
-        graph
-    Edge
-        from node 
-        to node
-        
-    Tree
-        ... two ways to define a tree
-        Multi Level Tree
-            parent multi level tree
-                ... root Object has no object value
-        Single Level Tree
-            ... attributes parent and child share
-            Single Level Tree Parent
+        ...
+        - Independent Node
+            ... no dependencies to other nodes
+        - Dependent Node
+            node: Independent Node
+            ... has a dependecy to another node
+        Tree (Reoccuring Tree)
+            ... attributes all tree nodes have
+            Parent
+                ... attributes only parent tree nodes have
+            Child
+                tree
+                ... attributes only child tree nodes have
+        Star (Flat Tree)
+            Root
                 ... attributes only parent has
-            Single Level Tree Child
-                single level tree parent
+            Peripheral
+                root
                 ... attributes only children have
-    
+            Remote ()
+                first peripheral
+                second peripheral
+            Remote Control
+                first peripheral
+                second peripheral
+                node (control)
+    Edge
+        Directional Edge
+            from node 
+            to node
+        Non Directional Edge (Many To Many Dependency)
+            first node
+            second node
+            
+                  
+            
+               
+
+        metadata
+            time
+                start time
+                end time
+                created time
+                updated time
+            is active
+            author
+                created author
+                updated author
+    Record
+    ... Function
+    Objective
+    Type
 
     
         

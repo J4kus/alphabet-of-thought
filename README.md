@@ -16,7 +16,7 @@ Alpha is a text-based engineering language for working out what you mean in a wa
 The four primitives are templates for the four kinds of model knowledge work keeps producing anyway, usually scattered across slides and spreadsheets:
 
 - Motivation — goals and KPIs with an owner, an actual, a target, and a red/amber/green influence rolling up a tree. This is an OKR tree or a metrics dashboard as text: the README's sales example (Mike owns revenue growth, which decomposes into new clients, basket size, churn) is exactly what a quarterly business review tries to communicate.
-- Network — data modelling: which entities exist, where records reside, what depends on what. It even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database.
+- Graph — data modelling: which entities exist, where records reside, what depends on what. It even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database.
 - Function — capability decomposition: what the system achieves, as a tree of verb-phrase objectives where each parent is achieved exactly by all its children together. The value-chain example is an org's capability map; the naming rules ("no and, no manage, no flow words") force each node to be one testable claim.
 - Workflow — who does what in what order, including concurrency: locks, queues, race conditions, what's the bottleneck. The Thought.aot example models intuition vs. deliberation this way.
 
@@ -31,7 +31,7 @@ Arguments become checkable. This is the Leibniz point in the README: once "Socra
 
 AI can work on it reliably. Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then run verify.js to check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
 
-A realistic first use: take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — pick the matching primitive as a skeleton, write it as a .aot tree, and keep fixing squiggles until V = 0. The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point.
+A realistic first use: take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — pick the matching primitive as a skeleton, write it as a .aot tree (1. Start with natural Concepts, 2. Build up from facts OR normalise an existing data structures and then Derive relations, establish attributes), and keep fixing squiggles until V = 0. The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point. 
 
 ## The four idea types ontology
 
@@ -127,7 +127,7 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 - You place an idea by naming its nearest kind, the most general accurate term (the *genus*, its parent), together with the qualifier that sets it apart from its siblings (the *differentia*).
 - **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Individual inherits them necessarily (attributes are inherited, never Individuals). **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (adding further essential attributes is the child Concept's prerogative, not the Individual's). **Essence versus accident**: Concepts and Concept Attributes nodes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z)
 - **Assimilate facts**: Convert raw data into Individual-attribute-value relationships under a Concept
-- **The four causes complete every explanation**: final (motivation), material (network), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
+- **The four causes complete every explanation**: final (motivation), material (graph), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
 - The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
 
 ### Gottfried Wilhelm Leibniz's proposed alphabet of human thought
@@ -175,15 +175,15 @@ Each of these Primitives has a said-of and a not-said-of part to guide the user 
 | Cause | Description | Native question | Primitive | Said of | Not Said Of |
 |-----------|---------|------------------|--|------------------|------------------|
 | **Final** | for the sake of which | Why, and for Whom | Motivation | Beneficiary (Whom) | Measurement (How Much) |
-| **Material** | that out of which | made of What | Network | Entity (Where: the boundary that fixes where the Record resides in reality) | Record (What) |
+| **Material** | that out of which | made of What | Graph | Entity (Where: the boundary that fixes where the Record resides in reality) | Record (What) |
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How: a parent's form is all its child objectives taken together) | Class (Which) |
 | **Efficient** | the agent and the means | by Whom, in what order | Workflow | Item (Subject) | Dependency (When) |
 
 The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through all of its children together. No single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How, the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
 
-The Function tree relates to it differently: it *is the form of the motivation*, the arrangement that realises it, built from the material the Network provides and carried out in the order the Workflow makes most efficient. 
+The Function tree relates to it differently: it *is the form of the motivation*, the arrangement that realises it, built from the material the Graph provides and carried out in the order the Workflow makes most efficient. 
 
-*Where* and *When* are not causes in their own right; they are the questions a cause's concepts answer. Matter is never placeless: everything that exists is somewhere, and place is the innermost boundary of what contains it (*Physics* IV). So the Entity is the Where: it bounds where a Record resides in reality, which is why the Network primitive carries data residency, latency and disaster recovery. Likewise the Dependency is the When: it bounds when the efficient process may run. Kipling's six serving men label the columns, the four causes label the rows.
+*Where* and *When* are not causes in their own right; they are the questions a cause's concepts answer. Matter is never placeless: everything that exists is somewhere, and place is the innermost boundary of what contains it (*Physics* IV). So the Entity is the Where: it bounds where a Record resides in reality, which is why the Graph primitive carries data residency, latency and disaster recovery. Likewise the Dependency is the When: it bounds when the efficient process may run. Kipling's six serving men label the columns, the four causes label the rows.
 
 ---
 
@@ -412,7 +412,7 @@ Measurement
 
 ```
 ---
-### Network Primitive
+### Graph Primitive
 
 Focus: **where things reside** (the *acting-on* Concepts) and **what data and entities exist** there (the *acted-upon* Individuals).
 
@@ -433,92 +433,6 @@ Repository
 
 #### 5th Formal Form Structures
 
-We will need to model entities in a network.
-
-**Graph:**
-```aot
-Graph
-    Node
-    Edge
-        node from
-        node to
-...
-```
-
-**Recursive Tree:**
-```aot
-Tree
-    tree
-        ... root Object has no object value
-```
-
-**Event Association (many-to-many):**
-```aot
-Entity
-    - One
-    - Two
-Event
-    - Event Association
-        from entity: One
-        to entity: Two
-...
-```
-
-**Subordinate Association (sibling-to-sibling via junction):**
-```aot
-Object
-    - Individual Object
-    Child Object
-    Child Linking Event
-        from child object
-        to child object
-...
-```
-
-#### Core Rules
-
-- Model data as sets of facts
-- Each Concept = one record type with a fixed number of attributes
-- Non-nullable attributes listed first; attribute order otherwise meaningless
-- A relational attribute referencing another Concept uses that Concept's name (lowercase)
-- No many-to-many relations on attributes; use Event Associations
-
-#### Cleanup Checklist
-
-- Identify functional dependencies between attributes
-- Use subset data to clarify scope
-- Use aliases to describe Concepts
-- Final names must be implementable
-- Prioritise Concepts by relevance
-- Create parent Concepts to group related children
-- Look for likenesses and differences to form general structures
-- Remove attributes that do not serve the model
-
-#### Armstrong's Axioms (Dependency Inference)
-
-| Rule | In Alpha Terms |
-|------|----------------|
-| Reflexivity | A Concept determines any subset of its own attributes |
-| Augmentation | Adding an attribute to a Concept referencing another Concept preserves a dependency |
-| Transitivity | If Concept Z depends on Concept Y and Concept Y depends on Concept X, then Concept Z depends on Concept X |
-| Union | Multiple dependencies from same source combine into one |
-| Decomposition | A composite dependency breaks into Individual parts |
-| Pseudotransitivity | A transitive chain extends by adding context to bridge a gap |
-
-```aot
-X
-Y
-    X
-Z
-    Y
-    ... Z is transitively dependent on X (through Y)
-```
-
-#### Modelling Approach
-
-1. Start with natural business entities
-2. Build up from facts OR normalise existing data structures
-3. Derive relations, establish attributes
 ---
 
 ### Function Primitive
