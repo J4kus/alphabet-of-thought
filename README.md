@@ -1,13 +1,13 @@
 # Alpha (.aot)
 
-Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Default Value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`) and print the characteristic number of any idea (`--number`).
+Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`) and print the characteristic number of any idea (`--number`).
 
 Alpha is a text-based engineering language for working out what you mean in a way a machine can check.  You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
 
 ## The basic workflow
 
 1. Pick a subject and name a file after it. The file name is the root concept — Thought.aot, Sales.aot, Payments.aot. Everything inside is a child of that one idea.
-2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Individual (a real instance), and name: value is a Default Value. Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
+2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Individual (a real instance), and name: value is a Attribute Value. Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
 3. Let the tooling correct you as you type. The VS Code extension squiggles tabs, depth jumps, a Concept defined twice, identical siblings, an "and" in a Concept name — each one is a place where your model is ambiguous. Ctrl+click on a crosslink jumps to where a term is defined.
 4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier.
 
@@ -39,7 +39,7 @@ They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
 
 ### Schemas (Acting on)
 
-*Schemas* are the universal ideas: Concepts and Attributes. They define the form of the model, deciding what kinds of ideas exist and which properties each kind carries. They act on content in the sense that every Individual and Default Value beneath them takes its meaning from them: a line like `- Socrates` only says something because the `Human` Concept and its attributes say what a human is.
+*Schemas* are the universal ideas: Concepts and Attributes. They define the form of the model, deciding what kinds of ideas exist and which properties each kind carries. They act on content in the sense that every Individual and Attribute Value beneath them takes its meaning from them: a line like `- Socrates` only says something because the `Human` Concept and its attributes say what a human is.
 
 | Idea Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|-------------|---------|-------------|----------------|
@@ -52,8 +52,8 @@ Filling a schema with content helps to understand the schema. *Content*, the act
 
 | Idea Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
-| **Individual** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Individuals (instances) of the parent Concept or attribute, rather than a single default value. The `- ` prefix is what makes a line an Individual. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
-| **Default Value** (Individual Accident) | `attribute: value` (colon-separated) or `Concept: value` | Sets the expected/default value for an attribute or Concept | `colour: red` | **False (~S)** | **True (P)** | 
+| **Individual** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Individuals (instances) of the parent Concept or attribute, rather than a single Attribute Value. The `- ` prefix is what makes a line an Individual. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
+| **Attribute Value** (Individual Accident) | `attribute: value` (colon-separated) | Sets the expected/Attribute Value for an attribute | `colour: red` | **False (~S)** | **True (P)** | 
 
 
 
@@ -314,7 +314,7 @@ The primitives do not link to one another; each is a tree of its own, and no cau
 
 Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as individuals (not said of, not present in).
 
-Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives and Workflows, and these cannot be individuals or default values, while measurements, records, classes and dependencies can only be individuals or default values.
+Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives and Workflows, and these cannot be individuals or Attribute Values, while measurements, records, classes and dependencies can only be individuals or Attribute Values.
 
 | Cause | Description | Native question | Primitive | Said of | Not Said Of |
 |-----------|---------|------------------|--|------------------|------------------|
