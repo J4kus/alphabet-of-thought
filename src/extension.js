@@ -1,13 +1,17 @@
 // VS Code entry point for .aot documents: publishes the arithmetic
-// linter's findings as diagnostics (squiggles + Problems panel), paints
-// the inline crosslinks as links, and serves go-to-definition for them.
+// linter's findings as diagnostics (squiggles + Problems panel), the
+// FCA audit's suggestions as information diagnostics, paints the
+// inline crosslinks as links, and serves go-to-definition for them.
 
 const vscode = require("vscode");
 const path = require("path");
-const { lint } = require("./linter");
+const { lint, KIND } = require("./linter");
 const { resolve } = require("./crosslinks");
+const { suggest } = require("./fca");
 
 const DEBOUNCE_MS = 300;
+// past this many Individuals the lattice is no longer keystroke-cheap
+const MAX_FCA_OBJECTS = 200;
 
 // uri string -> crosslinks from the last analysis of that document
 const linksByDoc = new Map();
@@ -17,7 +21,13 @@ function analyse(doc) {
   const { root, nodes, errors, warnings } = lint(doc.getText(), rootName);
   const links = resolve(doc.getText(), root, nodes);
   linksByDoc.set(doc.uri.toString(), links);
-  return { errors, warnings, links };
+  // a lattice over a broken tree means nothing, so suggest only on V = 0
+  let suggestions = [];
+  const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
+  if (!errors.length && objects >= 2 && objects <= MAX_FCA_OBJECTS) {
+    suggestions = suggest(root, nodes).findings;
+  }
+  return { errors, warnings, suggestions, links };
 }
 
 function linkRange(link) {
@@ -43,7 +53,7 @@ function decorate(editor, decorationTypes) {
 
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
-  const { errors, warnings } = analyse(doc);
+  const { errors, warnings, suggestions } = analyse(doc);
   const toDiagnostic = (severity) => ({ line, message }) => {
     // lines are 1-based; range covers the line's content
     const at = Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
@@ -55,6 +65,7 @@ function refresh(diagnostics, decorationTypes, doc) {
   diagnostics.set(doc.uri, [
     ...errors.map(toDiagnostic(vscode.DiagnosticSeverity.Error)),
     ...warnings.map(toDiagnostic(vscode.DiagnosticSeverity.Warning)),
+    ...suggestions.map(toDiagnostic(vscode.DiagnosticSeverity.Information)),
   ]);
   for (const editor of vscode.window.visibleTextEditors) {
     if (editor.document === doc) decorate(editor, decorationTypes);

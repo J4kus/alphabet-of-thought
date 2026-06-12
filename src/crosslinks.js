@@ -21,11 +21,10 @@ function wordStarts(name) {
   return starts;
 }
 
-// Resolve all crosslinks in a parsed document. Returns
-// { connection, line, startCol, endCol, text, target } with 1-based
-// lines and 0-based columns; target is the defining node.
-function resolve(text, root, nodes) {
-  const lines = text.split(/\r?\n/);
+// The defining node for every linkable name: Concepts by lowercased
+// name (attribute-is-a-Concept is case-insensitive), Individuals by
+// exact name (default-is-a-Individual is case-sensitive).
+function index(root, nodes) {
   const concepts = new Map(); // lowercased name -> defining node
   const individuals = new Map(); // exact name -> defining node
   concepts.set(root.name.toLowerCase(), root);
@@ -35,6 +34,15 @@ function resolve(text, root, nodes) {
     if (node.kind === KIND.INDIVIDUAL && !individuals.has(node.name))
       individuals.set(node.name, node);
   }
+  return { concepts, individuals };
+}
+
+// Resolve all crosslinks in a parsed document. Returns
+// { connection, line, startCol, endCol, text, target } with 1-based
+// lines and 0-based columns; target is the defining node.
+function resolve(text, root, nodes) {
+  const lines = text.split(/\r?\n/);
+  const { concepts, individuals } = index(root, nodes);
 
   const links = [];
   for (const node of nodes) {
@@ -80,4 +88,4 @@ function resolve(text, root, nodes) {
   return links;
 }
 
-module.exports = { resolve };
+module.exports = { resolve, index, wordStarts };

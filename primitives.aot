@@ -1,0 +1,186 @@
+Motivation
+    Beneficiary
+        Person
+            first name: Alida
+            surname: Zondo
+            title
+            date of birth
+            gender
+            home language
+            nationality (country)
+            is living: yes
+        Organisation
+            Business
+            Government
+            N G O
+            Foundation
+            trading name
+            no terminology name
+            is business unit
+            is user classified
+            incorporated country
+            nickname
+            tax number
+    Data Type
+        relative zero point
+        
+        - Numeric
+            ... any single dimensional numeric value
+            offset scaling magnitude
+                - 0
+                    is integer: Yes
+                - ... anything other than 0
+                    is integer: No
+            numeric base: 10
+            is signed: true
+            relative zero point
+                ... establishes quantity as relative measure
+                ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
+            - Amount
+                - Cyclomatic Complexity
+                - Lines Of Code
+            - Current
+                - Amps
+                - ...
+            - Length
+                - Meter
+                - ...
+            - Light
+                - Candela
+                - ...
+            - Mass
+                - Kilogram
+                - ...
+            - Temperature Unit
+                - Kelvin
+                - ...
+            - Time
+                - Second
+                - ...
+            - ...
+        - Text
+            ... characters
+        - Audio
+        - Video
+        - Image
+        - Ignore
+            ... skip these bits
+        offset scaling magnitude
+        numeric base
+        numeric base: 10
+        is signed: true
+        multiplier measurement
+        minimum number of elements: 1
+        maximum number of elements (length): 1
+            - 1
+                ... quantity
+            - container
+                ... more than one
+                - 2
+                - ...
+            - stream
+                ... unknown quantity
+                end of stream
+                    ... signifier for simple value streams
+                    ... for complex streams like video or audio, use reference to external specification
+        validation rule
+            - Valid Value Enumeration
+            - ...
+        minimum bit count: 0
+        maximum bit count: infinite
+        is constant value: No
+    Measurement
+        ... of Quality and Quantity
+        beneficiary
+        superordinate measurement: None
+        name
+        expected value
+        actual value
+        measurement operation used
+            - Observation
+                characteristic (trait)
+                class
+                stereotype
+            - Formula
+                - Arithmetic
+                    ... combines two dimensional measures
+                    - Addition
+                        ... Sum
+                    - Subtraction
+                    - Multiplication
+                        ... Product
+                    - Division
+                        - Ratio
+                            ... a binary measure specifically for ratios
+                        - ...
+                    - ...
+                - Statistical
+                    - Maximum
+                    - Minimum
+                    - Average
+                        - Mean
+                        - Mode
+                        - Median
+                    - Standard Deviation
+                    - Sample Size
+                    - ...
+            - Grading
+                grade interval minimum
+                grade interval maximum
+                number of grades
+                ... maps a dimensional measure to symbolic grades via intervals
+            - Ranking
+                minimum ranking
+                maximum ranking
+                is minimum ranking open: false
+                is maximum ranking open: false
+                ... maps a dimensional measure to discrete rank values via intervals
+            - Rescaling
+                - Fahrenheit to Celsius
+                ... declares two measures produce semantically equivalent results, with a mapping operation that defines the conversion between them. Useful when different tools or teams define the same metric differently and you need to declare they're interchangeable.
+                multiplier measurement: 1
+                offset scaling magnitude: 0
+                ... takes base Unit and scaling factor to create new unit of same dimensionality
+                ... Individual: gram as 0.001 of kilogram
+                exponent (power)
+                ... raises a Unit to a given power
+                ... signed to provide division via negative
+            - Refinement
+                ... indicates one measure is a more detailed version of another. The measures share the same trait but at different granularity
+                ... Think "revenue by region" refining "total revenue".
+        data type
+        superordinate measurement influence
+            - Red
+            - Amber
+            - Green
+            - None
+        instrument
+        author
+        start time
+        updated time
+        updating author
+Network
+    Graph
+        is directional: no
+    Node
+        graph
+    Edge
+        from node 
+        to node
+        
+    Tree
+        ... two ways to define a tree
+        Multi Level Tree
+            parent multi level tree
+                ... root Object has no object value
+        Single Level Tree
+            ... attributes parent and child share
+            Single Level Tree Parent
+                ... attributes only parent has
+            Single Level Tree Child
+                single level tree parent
+                ... attributes only children have
+    
+
+    
+        

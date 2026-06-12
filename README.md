@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`) and print the characteristic number of any idea (`--number`).
+Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`), print the characteristic number of any idea (`--number`), and audit the tree by Formal Concept Analysis (`--suggest`): it treats the Individuals and their attributes as a formal context, computes the concept lattice, and reports groupings the data supports that no Concept names, Individuals filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Individuals. The crosslinks deepen the analysis: a value that names an Individual elsewhere in the file carries that Individual's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
 
 Alpha is a text-based engineering language for working out what you mean in a way a machine can check.  You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
 
@@ -9,7 +9,7 @@ Alpha is a text-based engineering language for working out what you mean in a wa
 1. Pick a subject and name a file after it. The file name is the root concept — Thought.aot, Sales.aot, Payments.aot. Everything inside is a child of that one idea.
 2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Individual (a real instance), and name: value is a Attribute Value. Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
 3. Let the tooling correct you as you type. The VS Code extension squiggles tabs, depth jumps, a Concept defined twice, identical siblings, an "and" in a Concept name — each one is a place where your model is ambiguous. Ctrl+click on a crosslink jumps to where a term is defined.
-4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier.
+4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier; --suggest audits your Concepts against the concept lattice the Individuals' attributes actually support.
 
 ## What you'd use it for
 
@@ -107,151 +107,7 @@ The restriction is deliberate: like a type system, one parent per idea forces yo
 ## Example
 
 ```aot
-... the file name **`Thought.aot`** is the single root where the Motivation, Network, Function and Workflow come to one
-... sources: resource rationality (Lieder & Griffiths), dual process 2.0 (De Neys), metacognition (Fleming), predictive processing (Clark, Friston), argumentative theory (Mercier & Sperber)
-
-- Motivation
-    last update time: 2026-06-10
-    measurement interval: per decision
-    Thinker
-        Subject 
-            - expected utility of chosen action
-                ... resource rationality: thinking maximises expected utility of the outcome minus the cost of computing it
-                actual: result of an affordable heuristic
-                target: best action any feasible mind could pick
-                measurement operation used: Formula
-                - computation cost
-                    actual: seconds of scarce working memory
-                    target: no more than the stakes justify
-                    measurement operation used: Observation
-                    influence: Red
-                    - capacity
-                - resolution
-                    - verdict
-                        actual: average
-                        target: exceptional
-                        measurement operation used: Ranking
-                    - externalised cognition
-                        actual: claims lazily produced
-                        target: claims that survive another mind's scrutiny
-                        measurement operation used: Grading
-            - confidence
-                actual: better decision next time
-                target: evaluate externalised cognition
-                measurement operation used: Grading
-                influence: Green
-                - calibration
-                    actual: overconfident
-                    target: stated confidence equals achieved accuracy
-                    measurement operation used: Ratio
-                    influence: Amber
-                - sensitivity
-                    actual: partial
-                    target: confidence separates correct answers from wrong ones
-                    measurement operation used: Grading
-                    influence: Amber
-        Audience
-            - environmental argument quality
-                ... argumentative theory: reasoning evolved to produce justifications other people can evaluate
-                actual: demanding when evaluated
-                target: claims that help calibrate own thinking
-                measurement operation used: Ranking
-                influence: Green
-        
-- Network
-    ... matter is never placeless: every representation resides inside some boundary
-    Mind
-        Global Workspace
-            specialist process
-                - Vision
-                - Language
-                - Memory Retrieval
-            storage capacity: 1 shared broadcast item between specialist processes
-            information rate: 39 bits a minute 
-            storage capacity: 2 seconds of inner speech
-            - broadcast item
-                ... the single representation shared to all specialist processes at a time
-            storage capacity
-            global workspace
-                ... the scarce material the whole system is rational about
-        Chunk
-            Working Memory
-                long term memory: schema
-                observation
-                storage capacity
-                    - 4 active chunks
-                    ... a continuum
-                is on-off switch: no
-            Long Term Memory
-                - schema
-                    ... you never think from nothing; a new thought extends stored structure
-                - generative model
-                    ... predictive processing: stored expectation against which the senses are compared
-                storage capacity:  no vocabulary limit
-                grammar capacity: unbound
-        Environment (Extended Mind)
-            ... cognitive offloading: records pushed over the skull boundary to cheaper storage
-            - written note
-            - dialogue partner
-            - artificial intelligence model
-
-- Function
-    ... ask Why of any objective upward: the answer is the file name
-    ... ask How of the file name downward: all six objectives together are its form
-    Predict Incoming Evidence
-        Retrieve relevant schema
-        Generate prior expectation
-        Make observation
-    Detect Prediction Error
-        Compare expectation to observation
-        Weight error (Precision)
-        Flag conflicting intuitions
-    Update Standing Belief
-        Revise schema toward evidence
-        Discard refuted hypothesis
-    Choose Action Under Uncertainty
-        Gather disambiguating evidence
-        Commit to a single action
-    Offload Chosen Conclusion Justification
-        Produce supporting reason
-        Test reason against objection
-    Monitor Own Confidence
-        Rate confidence in answer
-        Summon low confidence deliberation 
-
-- Workflow
-    Thought
-        Intuition
-            thread: Parallel
-            - race
-                processing rule: Dedicated
-                has lock: no
-                is bottleneck: no
-                useful life: milliseconds
-                - sensory processing
-                    ... the most basic, fast, and automatic intuitions are perception itself; they are the first to arise and the last to fade
-                - learned associations
-                    ... the next fastest are those we have encountered most often; they are the strongest and most likely to win the race
-        Deliberation
-            thread: Synchronous
-            is bottleneck: yes
-            useful life: seconds per acquisition
-            - deliberation waits for conflict
-                mechanism: Condition
-                ... a thread waits until another notifies it; detected conflict between intuitions is the notification
-            - deliberation holds working memory
-                mechanism: Synchronisation
-                ... only one thread may hold it at a time; thought is serial because the workspace broadcast is
-            - bias wins the race
-                risk: Race Condition
-                ... the strongest intuition answers before deliberation acquires the lock
-            - thought repeats per prediction error
-                interval count: 2 or more
-                ... a Cycle: each updated belief becomes the next prediction
-    maximum worker pool: many intuitions, one deliberation
-    result: a justified, calibrated belief
-    is done: never
-    exception: None
+tbd
 ```
 
 ## File Format

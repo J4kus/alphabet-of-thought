@@ -6,10 +6,12 @@
 //     node verify.js file.aot --ask "Socrates" "Human"   (is-a by divisibility)
 //     node verify.js file.aot --genus "X" "Y"            (genus by gcd)
 //     node verify.js file.aot --number "X"               (characteristic number)
+//     node verify.js file.aot --suggest                  (FCA: audit the tree against the concept lattice)
 
 const fs = require("fs");
 const path = require("path");
 const { lint, gcd } = require("./src/linter");
+const { suggest } = require("./src/fca");
 
 function find(root, nodes, name) {
   const match = [root, ...nodes].find((n) => n.name === name);
@@ -29,7 +31,7 @@ function pathOf(node) {
 function main() {
   const args = process.argv.slice(2);
   if (!args.length) {
-    console.error("usage: node verify.js <file.aot> [--ask X Y | --genus X Y | --number X]");
+    console.error("usage: node verify.js <file.aot> [--ask X Y | --genus X Y | --number X | --suggest]");
     process.exit(2);
   }
   const file = args[0];
@@ -61,6 +63,26 @@ function main() {
     for (let n = x; n; n = n.parent) chain.unshift(n);
     console.log(`chi(${x.name}) = ${chain.map((n) => n.prime).join(" * ")} = ${x.chi}`);
     console.log(`   (${pathOf(x)})`);
+    return;
+  }
+  if (args.includes("--suggest")) {
+    if (errors.length) {
+      for (const { line, message } of errors) console.log(`${file}:${line}: error: ${message}`);
+      console.log(`\nV = ${errors.length}: a lattice over a broken tree means nothing — fix the file first`);
+      process.exit(1);
+    }
+    const report = suggest(root, nodes);
+    if (report.tooFew) {
+      console.log(`nothing to suggest: ${report.objects} Individual${report.objects === 1 ? "" : "s"}, expected at least 2`);
+      return;
+    }
+    console.log(`formal context: ${report.objects} objects x ${report.columns} attributes, ${report.concepts} formal concepts`);
+    console.log("");
+    if (report.confirmed.length) {
+      console.log(`confirmed: ${report.confirmed.length} Concept${report.confirmed.length === 1 ? " is" : "s are"} exactly the grouping${report.confirmed.length === 1 ? "" : "s"} the Individuals' attributes support: ${report.confirmed.join(", ")}`);
+    }
+    for (const { line, message } of report.findings) console.log(`${file}:${line}: ${message}`);
+    console.log(`\nsuggestions S = ${report.findings.length}`);
     return;
   }
 

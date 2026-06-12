@@ -7,7 +7,7 @@ const Module = require("module");
 const published = new Map();
 let definitionProvider = null;
 const vscode = {
-  DiagnosticSeverity: { Error: 0, Warning: 1 },
+  DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
   Diagnostic: class { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
   Range: class {
     constructor(...a) { this.a = a; }
@@ -62,11 +62,16 @@ const doc = makeDoc("c:\\repo\\alphabet of thought.aot", fs.readFileSync("alphab
 vscode.workspace._open(doc);
 
 const diags = published.get(doc.uri.toString());
-console.log(`published ${diags.length} diagnostics`);
+const severityName = ["error", "warning", "suggestion"];
+const violations = diags.filter((d) => d.severity < 2);
+const suggestions = diags.filter((d) => d.severity === 2);
+console.log(`published ${violations.length} violations and ${suggestions.length} FCA suggestions`);
 for (const d of diags.slice(0, 3)) {
-  console.log(`  [${d.severity === 0 ? "error" : "warning"}] line ${d.range.a[0] + 1}: ${d.message}`);
+  console.log(`  [${severityName[d.severity]}] line ${d.range.a[0] + 1}: ${d.message}`);
 }
-console.log(diags.length === 0 ? "PASS (the reference file verifies clean)" : "UNEXPECTED COUNT");
+console.log(violations.length === 0 && suggestions.length > 0
+  ? "PASS (the reference file verifies clean, with suggestions)"
+  : "UNEXPECTED COUNT");
 
 // 2) crosslinks: an attribute-is-a-Concept and a default-is-a-Individual
 const sample = [
