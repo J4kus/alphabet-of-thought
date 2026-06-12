@@ -211,7 +211,10 @@ function verify(root, nodes, errors) {
     }
   }
 
-  // Child counts: more than one child, no more than twelve.
+  // Child counts: more than one child of the same kind, and no more
+  // than eight sub-Concepts. Sub-Concepts partition the parent, and a
+  // division into more than eight kinds is not graspable at a glance;
+  // Individuals (examples) and attributes may come in any quantity.
   // A lone child of the same kind divides nothing: a Concept with exactly
   // one sub-Concept, or an Individual with exactly one sub-Individual, is
   // that child. Children of other kinds describe the parent and don't count.
@@ -219,21 +222,16 @@ function verify(root, nodes, errors) {
   // under it is accepted: the missing siblings are declared, not forgotten.
   for (const node of nodes) {
     const kids = node.children.filter((c) => c.kind !== MAP);
-    const incomplete = node.children.some((c) => c.kind === MAP);
-    if (incomplete) {
-      if (kids.length > 12) {
-        warnings.push({ line: node.line, message: `'${node.name}' has ${kids.length} children, expected no more than twelve` });
-      }
-      continue;
+    const subConcepts = kids.filter((c) => c.kind === CONCEPT).length;
+    if (subConcepts > 8) {
+      warnings.push({ line: node.line, message: `'${node.name}' has ${subConcepts} sub-Concepts, expected no more than eight — group some under an intermediate kind (Individuals and attributes may be any quantity)` });
     }
-    if (node.kind === CONCEPT && kids.filter((c) => c.kind === CONCEPT).length === 1) {
+    if (node.children.some((c) => c.kind === MAP)) continue;
+    if (node.kind === CONCEPT && subConcepts === 1) {
       warnings.push({ line: node.line, message: `'${node.name}' has 1 sub-Concept, expected 0 or more than one — a kind with one subtype is the subtype` });
     }
     if (node.kind === INDIVIDUAL && kids.filter((c) => c.kind === INDIVIDUAL).length === 1) {
       warnings.push({ line: node.line, message: `'${node.name}' has 1 sub-Individual, expected 0 or more than one — an individual with one sub-individual is the sub-individual` });
-    }
-    if (kids.length > 12) {
-      warnings.push({ line: node.line, message: `'${node.name}' has ${kids.length} children, expected no more than twelve` });
     }
   }
   return warnings;

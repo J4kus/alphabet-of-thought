@@ -1,5 +1,6 @@
 Motivation
     Beneficiary
+        is said of: no
         Person
             first name: Alida
             surname: Zondo
@@ -21,82 +22,15 @@ Motivation
             incorporated country
             nickname
             tax number
-    Data Type
-        relative zero point
-        
-        - Numeric
-            ... any single dimensional numeric value
-            offset scaling magnitude
-                - 0
-                    is integer: Yes
-                - ... anything other than 0
-                    is integer: No
-            numeric base: 10
-            is signed: true
-            relative zero point
-                ... establishes quantity as relative measure
-                ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
-            - Amount
-                - Cyclomatic Complexity
-                - Lines Of Code
-            - Current
-                - Amps
-                - ...
-            - Length
-                - Meter
-                - ...
-            - Light
-                - Candela
-                - ...
-            - Mass
-                - Kilogram
-                - ...
-            - Temperature Unit
-                - Kelvin
-                - ...
-            - Time
-                - Second
-                - ...
-            - ...
-        - Text
-            ... characters
-        - Audio
-        - Video
-        - Image
-        - Ignore
-            ... skip these bits
-        offset scaling magnitude
-        numeric base
-        numeric base: 10
-        is signed: true
-        multiplier measurement
-        minimum number of elements: 1
-        maximum number of elements (length): 1
-            - 1
-                ... quantity
-            - container
-                ... more than one
-                - 2
-                - ...
-            - stream
-                ... unknown quantity
-                end of stream
-                    ... signifier for simple value streams
-                    ... for complex streams like video or audio, use reference to external specification
-        validation rule
-            - Valid Value Enumeration
-            - ...
-        minimum bit count: 0
-        maximum bit count: infinite
-        is constant value: No
     Measurement
-        ... of Quality and Quantity
-        beneficiary
+        Multiplier Measurement
+        is said of: Yes
         superordinate measurement: None
         name
         expected value
         actual value
         measurement operation used
+            multiplier measurement
             - Observation
                 characteristic (trait)
                 class
@@ -149,6 +83,73 @@ Motivation
                 ... indicates one measure is a more detailed version of another. The measures share the same trait but at different granularity
                 ... Think "revenue by region" refining "total revenue".
         data type
+            Numeric
+                - Amount
+                    - Cyclomatic Complexity
+                    - Lines Of Code
+                - Current
+                    - Amps
+                    - ...
+                - Length
+                    - Meter
+                    - ...
+                - Light
+                    - Candela
+                    - ...
+                - Mass
+                    - Kilogram
+                    - ...
+                - Temperature Unit
+                    - Kelvin
+                    - ...
+                - Time
+                    - Second
+                    - ...
+                - ...
+                is integer: No
+                ... any single dimensional numeric value
+                offset scaling magnitude
+                    - 0
+                        is integer: Yes
+                    - ... anything other than 0
+                        is integer: No
+                numeric base: 10
+                is signed: true
+                relative zero point
+                    ... establishes quantity as relative measure
+                    ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
+                
+            - Text
+                ... characters
+            - Audio
+            - Video
+            - Image
+            - Ignore
+                ... skip these bits
+            offset scaling magnitude
+            numeric base
+            numeric base: 10
+            is signed: true
+            multiplier measurement
+            minimum number of elements: 1
+            maximum number of elements (length): 1
+                - 1
+                    ... quantity
+                - container
+                    ... more than one
+                    - 2
+                    - ...
+                - stream
+                    ... unknown quantity
+                    end of stream
+                        ... signifier for simple value streams
+                        ... for complex streams like video or audio, use reference to external specification
+            validation rule
+                - Valid Value Enumeration
+                - ...
+            minimum bit count: 0
+            maximum bit count: infinite
+            is constant value: No
         superordinate measurement influence
             - Red
             - Amber

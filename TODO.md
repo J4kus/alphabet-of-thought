@@ -21,7 +21,7 @@
 ## Linter / diagnostics
 - [ ] Exclude words ending in "us" from plural detection
 - [ ] Make example/value matching not capitalisation-specific
-- [ ] Enforce 3–7 categories per parent — if more, prompt to break it up further
+- [x] Enforce a sub-Concept cap per parent (landed as: at most eight sub-Concepts; Individuals and attributes unlimited — replaces the old twelve-children-of-any-kind warning)
 - [ ] Detect same words used in a Concept that are not part of the same tree
 - [ ] Reword the "Concept defined twice" diagnostic (say something more useful instead)
 - [ ] Show how far an idea is on the dependency tree (depth indicator)

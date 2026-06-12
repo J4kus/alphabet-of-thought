@@ -4,6 +4,10 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.1.22] - 2026-06-12
+
+- Child-count rule corrected: at most eight sub-Concepts per parent (a division into more kinds is not graspable at a glance); Individuals and attributes may come in any quantity — the old "no more than twelve children" warning counted everything
+
 ## [1.1.21] - 2026-06-12
 
 - `proposed` findings over a bare attribute now offer the promotion remedy explicitly: declare the attribute under the nearest Concept itself, making it essential, when every one of its Individuals should carry it
