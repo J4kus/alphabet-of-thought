@@ -40,7 +40,7 @@ function decorate(editor, decorationTypes) {
   const concepts = [];
   const individuals = [];
   for (const link of links) {
-    const isConcept = link.connection === "attribute-is-a-Concept";
+    const isConcept = link.connection !== "default-is-a-Individual";
     const where = link.target.line ? `line ${link.target.line}` : "the file name";
     (isConcept ? concepts : individuals).push({
       range: linkRange(link),
