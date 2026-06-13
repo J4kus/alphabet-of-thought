@@ -177,7 +177,7 @@ Each of these Primitives has a said-of and a not-said-of part to guide the user 
 | **Final** | for the sake of which | Why, and for Whom | Motivation | Beneficiary (Whom) | Measurement (How Much) |
 | **Material** | that out of which | made of What | Graph | Entity (Where: the boundary that fixes where the Record resides in reality) | Record (What) |
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How: a parent's form is all its child objectives taken together) | Class (Which) |
-| **Efficient** | the agent and the means | by Whom, in what order | Workflow | Item (Subject) | Dependency (When) |
+| **Efficient** | the agent and the means | by Whom, in what order | Workflow | Operation (Item in use) | Dependency (When) |
 
 The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through all of its children together. No single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How, the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
 
@@ -431,8 +431,6 @@ Repository
 ...
 ```
 
-#### 5th Formal Form Structures
-
 ---
 
 ### Function Primitive
@@ -518,124 +516,6 @@ Attributes may be attached to functions to describe their arguments and results.
 
 Focus: **what items are used when**.
 
-```
-Item (In Use Item)
-    - Asset
-    - Function
-    - Object
-    - Role
-    is bottleneck: yes
-    is tangible: no
-    useful life: infinite
-    write-off method: not applicable
-    maximum worker pool: 1
-    thread
-        - Concurrent (Single-Threading)
-            - Synchronise
-                ... only one thread may hold it at a time
-            - Reentrant Lock
-                ... the holding thread may acquire it repeatedly
-            - Event
-                ... one thread sets a flag, others wait on it
-            - Condition
-                ... a thread waits until another notifies it
-            - Barrier
-                ... releases all parties together once the count arrives
-            fixes
-                - shared state
-                    - delete (design away)
-                    - clamp into single complex
-                        - no shared medium
-                    - coordinate once, offline, by convention
-                        ... not at runtime
-                    - pass messages and isolate (guard)
-                        - separate service
-                        - hide information
-                    - reduce costs
-                        - free riding
-                        - unreliable channels sacrifice consistency or availability
-                - externalise
-                    - precompute
-                    - parallelise
-                    - asynchronise
-                    - defer
-                - add cheaper resources
-                    ... the bill arrives later
-                    - diversified copies
-                        - multiversion concurrency
-                        - readers never block writers
-                        - (no lock at all)
-                        - validate on commit only
-                    - buffer ("Slack")
-                        - me
-                        - another party
-                    - fastest gun redundancy
-                        - fire at several replicas and take first answer
-                        - multiple nodes with same data
-                    - speculate and reconcile on rare miss
-                        - optimistic concurrency
-                - decorrelate the need (activity based costing)
-                - satisficing (good enough optimisation of requirements)
-                    - net and clear, collapse the obligation graph
-                - outsource dependency to whoever can handle it better
-                - substitute collateral
-        - Asynchronous
-            wrapped concurrent
-            waiting for: external instrument
-            suspension event
-            awaiting event
-            wrapped coroutine
-        - Parallel (Multithreading)
-            maximum worker pool: many
-            is worker pool count known: no
-            processing rule
-                - Queue
-                    has lock: yes
-                - Dedicated
-                    has lock: no
-                - Semaphore
-                    permit count
-                    ... allows a fixed number of threads through at once
-            is memory shared in pool of workers
-                - Thread
-                - Process
-            risk
-                - Race Condition
-                    ... unsynchronised access to shared memory corrupts state
-                - Deadlock
-                    ... two threads each wait on a lock the other holds
-    
-    
-Time
-    item
-    Milestone
-        interval count: 0
-        Time: 15:00
-            precision: no seconds
-            date: today
-                Date
-                precision: no time component
-                Date and Time
-                    precision: no seconds
-                Precise Date and Time
-                    precision: microseconds
-    Duration
-        interval count: 1
-    Cycle
-        interval count: 2 or more
-        ... most expensive
-    
-    result
-    is done
-    exception
-    
-    start condition
-    interval: 5 seconds
-    timeout
-    polling duration
-    precision: up to minutes
-    displacement from greenwich meridian hours: +0
-    
-        
+
     
 ```

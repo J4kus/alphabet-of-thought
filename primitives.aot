@@ -1,212 +1,12 @@
-Is Said Of
-    - yes
-    - no
+- Motivation
+    Author
+        - think clearly about subject means thinking about whys
 
-- Network
-    
-    ... Motivation
-    Beneficiary
-        is said of: no
-        Person
-            first name: Alida
-            surname: Zondo
-            title
-            date of birth
-            gender
-            home language
-            nationality (country)
-            is living: yes
-        Organisation
-            Business
-            Government
-            N G O
-            Foundation
-            trading name
-            no terminology name
-            is business unit
-            is user classified
-            incorporated country
-            nickname
-            tax number
-    Measurement
-        is said of: Yes
-        superordinate measurement: None
-        name
-        expected value
-        actual value
-        measurement operation used
-            - Observation
-                characteristic (trait)
-                class
-                stereotype
-            - Formula
-                - Arithmetic
-                    ... combines two dimensional measures
-                    - Addition
-                        ... Sum
-                    - Subtraction
-                    - Multiplication
-                        ... Product
-                    - Division
-                        - Ratio
-                            ... a binary measure specifically for ratios
-                        - ...
-                    - ...
-                - Statistical
-                    - Maximum
-                    - Minimum
-                    - Average
-                        - Mean
-                        - Mode
-                        - Median
-                    - Standard Deviation
-                    - Sample Size
-                    - ...
-            - Grading
-                grade interval minimum
-                grade interval maximum
-                number of grades
-                ... maps a dimensional measure to symbolic grades via intervals
-            - Rescaled Measurement
-                - Fahrenheit to Celsius
-                ... declares two measures produce semantically equivalent results, with a mapping operation that defines the conversion between them. Useful when different tools or teams define the same metric differently and you need to declare they're interchangeable.
-                multiplier measurement: 1
-                offset scaling magnitude: 0
-                ... takes base Unit and scaling factor to create new unit of same dimensionality
-                ... Individual: gram as 0.001 of kilogram
-                exponent (power): 1
-                ... raises a Unit to a given power
-                ... signed to provide division via negative
-            - Ranking
-                minimum ranking
-                maximum ranking
-                is minimum ranking open: false
-                is maximum ranking open: false
-                ... maps a dimensional measure to discrete rank values via intervals
-            
-            - Refinement
-                ... indicates one measure is a more detailed version of another. The measures share the same trait but at different granularity
-                ... Think "revenue by region" refining "total revenue".
-        data type
-            Numeric
-                - Amount
-                    - Cyclomatic Complexity
-                    - Lines Of Code
-                - Current
-                    - Amps
-                    - ...
-                - Length
-                    - Meter
-                    - ...
-                - Light
-                    - Candela
-                    - ...
-                - Mass
-                    - Kilogram
-                    - ...
-                - Temperature Unit
-                    - Kelvin
-                    - ...
-                - Time
-                    - Second
-                    - ...
-                - ...
-                is integer: No
-                ... any single dimensional numeric value
-                offset scaling magnitude
-                    - 0
-                        is integer: Yes
-                    - ... anything other than 0
-                        is integer: No
-                numeric base: 10
-                is signed: true
-                relative zero point
-                    ... establishes quantity as relative measure
-                    ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
-                
-            - Text
-                ... characters
-            - Audio
-            - Video
-            - Image
-            - Ignore
-                ... skip these bits
-            offset scaling magnitude
-            numeric base
-            numeric base: 10
-            is signed: true
-            multiplier measurement
-            minimum number of elements: 1
-            maximum number of elements (length): 1
-                - 1
-                    ... quantity
-                - container
-                    ... more than one
-                    - 2
-                    - ...
-                - stream
-                    ... unknown quantity
-                    end of stream
-                        ... signifier for simple value streams
-                        ... for complex streams like video or audio, use reference to external specification
-            validation rule
-                - Valid Value Enumeration
-                - ...
-            minimum bit count: 0
-            maximum bit count: infinite
-            is constant value: No
-        superordinate measurement influence
-            - Red
-            - Amber
-            - Green
-            - None
-        instrument
-        author
-        start time
-        updated time
-        updating author
-    ... Graph (5th Formal Form Data Structure)
-        ... allow additional attributes here
-    Node
-        ...
-        - Independent Node
-            ... no dependencies to other nodes
-        - Dependent Node
-            node: Independent Node
-            ... has a dependecy to another node
-        Tree (Reoccuring Tree)
-            ... attributes all tree nodes have
-            Parent
-                ... attributes only parent tree nodes have
-            Child
-                tree
-                ... attributes only child tree nodes have
-        Star (Flat Tree)
-            Root
-                ... attributes only parent has
-            Peripheral
-                root
-                ... attributes only children have
-            Remote ()
-                first peripheral
-                second peripheral
-            Remote Control
-                first peripheral
-                second peripheral
-                node (control)
-    Edge
-        Directional Edge
-            from node 
-            to node
-        Non Directional Edge (Many To Many Dependency)
-            first node
-            second node
-            
-                  
-            
-               
 
-        metadata
+
+- Graph
+    Is Said Of
+        Not Said Of
             time
                 start time
                 end time
@@ -216,10 +16,345 @@ Is Said Of
             author
                 created author
                 updated author
-    Record
-    ... Function
-    Objective
-    Type
+        Said Of
+        confidence
+    Graph
+        Node
+            ...
+            Dependency
+                Independent Node
+                    ... no dependencies to other nodes
+                    
+                Dependent Node
+                    independent node
+                ... has a dependecy to another node
+            Tree (Reoccuring Tree)
+                ... attributes all tree nodes have
+                Parent
+                    ... attributes only parent tree nodes have
+                Child
+                    tree
+                    ... attributes only child tree nodes have
+            Star (Flat Tree)
+                Root
+                    ... attributes only parent has
+                Peripheral
+                    root
+                    ... attributes only children have
+                Remote
+                    first peripheral
+                    second peripheral
+                Remote Control
+                    first peripheral
+                    second peripheral
+                    node (control)
+        Edge
+            Directional Edge
+                from node 
+                to node
+            Non Directional Edge (Many To Many Dependency)
+                first node
+                second node
+    Motiviation
+        Beneficiary
+            said of
+            Person
+                first name: Alida
+                surname: Zondo
+                title
+                date of birth
+                gender
+                home language
+                nationality (country)
+                is living: yes
+            Organisation
+                Business
+                Government
+                N G O
+                Foundation
+                trading name
+                no terminology name
+                is business unit
+                is user classified
+                incorporated country
+                nickname
+                tax number
+        Measurement
+            not said of
+            superordinate measurement: None
+            name
+            expected value
+            actual value
+            measurement operation used
+                - Observation
+                    characteristic (trait)
+                    class
+                    stereotype
+                - Formula
+                    - Arithmetic
+                        ... combines two dimensional measures
+                        - Addition
+                            ... Sum
+                        - Subtraction
+                        - Multiplication
+                            ... Product
+                        - Division
+                            - Ratio
+                                ... a binary measure specifically for ratios
+                            - ...
+                        - ...
+                    - Statistical
+                        - Maximum
+                        - Minimum
+                        - Average
+                            - Mean
+                            - Mode
+                            - Median
+                        - Standard Deviation
+                        - Sample Size
+                        - ...
+                - Grading
+                    grade interval minimum
+                    grade interval maximum
+                    number of grades
+                    ... maps a dimensional measure to symbolic grades via intervals
+                - Rescaled Measurement
+                    - Fahrenheit to Celsius
+                    ... declares two measures produce semantically equivalent results, with a mapping operation that defines the conversion between them. Useful when different tools or teams define the same metric differently and you need to declare they're interchangeable.
+                    multiplier measurement: 1
+                    offset scaling magnitude: 0
+                    ... takes base Unit and scaling factor to create new unit of same dimensionality
+                    ... Individual: gram as 0.001 of kilogram
+                    exponent (power): 1
+                    ... raises a Unit to a given power
+                    ... signed to provide division via negative
+                - Ranking
+                    minimum ranking
+                    maximum ranking
+                    is minimum ranking open: false
+                    is maximum ranking open: false
+                    ... maps a dimensional measure to discrete rank values via intervals
+                
+                - Refinement
+                    ... indicates one measure is a more detailed version of another. The measures share the same trait but at different granularity
+                    ... Think "revenue by region" refining "total revenue".
+            data type
+                Numeric
+                    - Amount
+                        - Cyclomatic Complexity
+                        - Lines Of Code
+                    - Current
+                        - Amps
+                        - ...
+                    - Length
+                        - Meter
+                        - ...
+                    - Light
+                        - Candela
+                        - ...
+                    - Mass
+                        - Kilogram
+                        - ...
+                    - Temperature Unit
+                        - Kelvin
+                        - ...
+                    - Time
+                        - Second
+                        - ...
+                    - ...
+                    is integer: No
+                    ... any single dimensional numeric value
+                    offset scaling magnitude
+                        - 0
+                            is integer: Yes
+                        - ... anything other than 0
+                            is integer: No
+                    numeric base: 10
+                    is signed: true
+                    relative zero point
+                        ... establishes quantity as relative measure
+                        ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
+                    
+                - Text
+                    ... characters
+                - Audio
+                - Video
+                - Image
+                - Ignore
+                    ... skip these bits
+                offset scaling magnitude
+                numeric base
+                numeric base: 10
+                is signed: true
+                multiplier measurement
+                minimum number of elements: 1
+                maximum number of elements (length): 1
+                    - 1
+                        ... quantity
+                    - container
+                        ... more than one
+                        - 2
+                        - ...
+                    - stream
+                        ... unknown quantity
+                        end of stream
+                            ... signifier for simple value streams
+                            ... for complex streams like video or audio, use reference to external specification
+                validation rule
+                    - Valid Value Enumeration
+                    - ...
+                minimum bit count: 0
+                maximum bit count: infinite
+                is constant value: No
+            superordinate measurement influence
+                - Red
+                - Amber
+                - Green
+                - None
+            instrument
+            author
+            start time
+            updated time
+            updating author
+    Function
+        Objective
+            said of
+        Type
+            not said of
+    Workflow
+        Operation (In Use Item)
+            - Asset
+            - Function
+            - Object
+            - Role
+            - Value
+            is bottleneck: yes
+            is tangible: no
+            useful life: infinite
+            write-off method: not applicable
+            maximum worker pool: 1
+            thread
+                Concurrent (Single-Threading)
+                    - Synchronise
+                        ... only one thread may hold it at a time
+                    - Reentrant Lock
+                        ... the holding thread may acquire it repeatedly
+                    - Event
+                        ... one thread sets a flag, others wait on it
+                    - Condition
+                        ... a thread waits until another notifies it
+                    - Barrier
+                        ... releases all parties together once the count arrives
+                    fixes
+                        - shared state
+                            - delete (design away)
+                            - clamp into single complex (no shared medium)
+                            - coordinate once, offline, by convention
+                                ... not at runtime
+                            - pass messages and isolate (guard)
+                                - separate service
+                                - hide information
+                            - reduce costs
+                                - free riding
+                                - unreliable channels sacrifice consistency or availability
+                        - externalise
+                            - precompute
+                            - parallelise
+                            - asynchronise
+                            - defer
+                        - add cheaper resources
+                            ... the bill arrives later
+                            - diversified copies
+                                - multiversion concurrency
+                                - readers never block writers
+                                - (no lock at all)
+                                - validate on commit only
+                            - buffer ("Slack")
+                                - me
+                                - another party
+                            - fastest gun redundancy
+                                - fire at several replicas and take first answer
+                                - multiple nodes with same data
+                            - optimistic concurrency (speculate then reconcile on rare miss)
+                                
+                        - decorrelate the need (activity based costing)
+                        - satisficing (good enough optimisation of requirements)
+                            - net and clear
+                            - collapse the obligation graph
+                        - outsource dependency to whoever can handle it better
+                        - substitute collateral
+                Asynchronous
+                    wrapped concurrent
+                    waiting for: external instrument
+                    suspension event
+                    awaiting event
+                    wrapped coroutine
+                Parallel (Multithreading)
+                    maximum worker pool: many
+                    is worker pool count known: no
+                    processing rule
+                        - Queue
+                            has lock: yes
+                        - Dedicated
+                            has lock: no
+                        - Semaphore
+                            permit count
+                            ... allows a fixed number of threads through at once
+                    is memory shared in pool of workers
+                        - Thread
+                        - Process
+                    risk
+                        - Race Condition
+                            ... unsynchronised access to shared memory corrupts state
+                        - Deadlock
+                            ... two threads each wait on a lock the other holds
+            
+            
+        Time
+            item
+            Milestone
+                interval count: 0
+                Time: 15:00
+                    precision: no seconds
+                    date: today
+                        Date
+                        precision: no time component
+                        Datetime
+                            precision: no seconds
+                        Precise Datetime
+                            precision: microseconds
+            Duration
+                interval count: 1
+            Cycle
+                interval count: 2 or more
+                ... most expensive
+            
+            result
+            is done
+            exception
+            start condition
+            interval: 5 seconds
+            timeout
+            polling duration
+            precision: up to minutes
+            displacement from greenwich meridian hours: +0
+            
 
+- Function
+    Improve Understand
+        - Individual
+            Define Subject
+            Understand Unconcious Incompentence About Subject
+            Decide To Understand It Better
+            Indeitfy It is Best To Use THe Four Cause To Get A Complete Picture
+            Indentify Highest Usefulness Category To Start
+            Load Concepts Of Primitive In Brain
+            Start Fill Concepts While Programmiing
+            Fully UNderstand Subject
+        - QA
+            Sample Understand To See If It Can Be Done Better
+            ...
+        - ...
+    ...
+- Operation
     
-        
