@@ -12,13 +12,15 @@ Primitive
         Definition
             network: where it lives and is recorded — paradigmatic cause, the pattern
         GitHub
-            - File
-                extension: aot
-                github: test
-                format: plain text
-                indent: 4 spaces, never tabs
+            url: www:github.com
+        File
+            extension: aot
+            github: test
+            format: plain text
+            indent: 4 spaces, never tabs
             ...
         Token
+            ...
             Idea
                 recognise
                 said of
