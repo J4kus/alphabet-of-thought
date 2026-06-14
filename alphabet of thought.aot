@@ -2,22 +2,26 @@
 Primitive
     - Motivation
         ... why it exists — final cause, for the sake of which
-        User
-            - Work out what you mean 
+        Knowledge Worker (User)
+            - Work out what you mean
             - Others come to mean the same thing you mean
-            Knowledge Worker
             Business Analyst
             Enterprise Architect
-    - Network
-        ... where it lives and is recorded — paradigmatic cause, the pattern
+            ...
+    - Network (where it lives and is recorded — paradigmatic cause, the pattern)
         GitHub
             - File
                 extension: aot
+                github: test
                 format: plain text
                 indent: 4 spaces, never tabs
             ...
         Token
             Idea
+                recognise
+                said of
+                present in
+                example
                 Schema (Acting On)
                     - Concept (Universal Substance)
                         ... defines a class or type of thing
@@ -97,6 +101,7 @@ Primitive
                         is special value override: Yes
                         predicate: Explained By
             Connection
+                
                 Indented Hierarchy
                     ... Decompose further when detail adds meaningful value
                     Place a thing by its nearest kind (genus)
@@ -147,7 +152,7 @@ Primitive
                         ... value matches an example name exactly
                         type: Reference
                     indentation: exactly 4 spaces per level
-        primitives
+       
     - Function
         ... what it is — formal cause, the form and essence
         Understand Foundation

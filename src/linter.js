@@ -248,6 +248,42 @@ function verify(root, nodes, report) {
       report.warn(node.line, `'${node.name}' has 1 sub-Individual, expected 0 or more than one — an individual with one sub-individual is the sub-individual`);
     }
   }
+
+  // Differentia: sub-Concepts that divide one genus must each be told apart
+  // by an asserted slot, not by the prime their position happened to assign.
+  // Children inherit the genus's slots silently, so a sub-Concept's own
+  // attributes and default values are its differentia. Two sibling
+  // sub-Concepts with the same slot signature differ in the data by position
+  // alone — the arithmetic differentia chi/genus is never empty, so the
+  // numbers can't catch this; the slots must. A lone sub-Concept divides
+  // nothing and is left to the child-count check; a sub-Concept whose slots
+  // differ from its siblings is already set apart. A Map under the genus
+  // declares the division intentionally incomplete, so it excuses the group.
+  const slotSignature = (c) =>
+    c.children
+      .filter((k) => k.kind === ATTRIBUTE || k.kind === DEFAULT)
+      .map((k) => (k.kind === DEFAULT ? `${k.name}:${k.value}` : k.name))
+      .sort()
+      .join(" ");
+  for (const node of all) {
+    if (node.children.some((c) => c.kind === MAP)) continue;
+    const subConcepts = realChildren(node).filter((c) => c.kind === CONCEPT);
+    if (subConcepts.length < 2) continue;
+    const groups = new Map();
+    for (const c of subConcepts) {
+      const key = slotSignature(c);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c);
+    }
+    for (const group of groups.values()) {
+      if (group.length > 1) {
+        const where = group.map((c) => c.line).join(", ");
+        for (const c of group.slice(1)) {
+          report.warn(c.line, `'${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}): sub-Concepts told apart by position only — give each a distinguishing attribute or default, or a '...' Map under '${node.name}' if the differentiae are still to come`);
+        }
+      }
+    }
+  }
 }
 
 // Full lint pass over a document's text. Returns the numbered tree along
