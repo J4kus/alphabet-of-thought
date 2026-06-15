@@ -27,6 +27,7 @@ Primitive
                 present in
                 example
                 Schema (Acting On)
+                    said of: True
                     - Concept (Universal Substance)
                         ... defines a class or type of thing
                         ... children that partition the parent into subtypes are Concepts
@@ -35,7 +36,6 @@ Primitive
                         ... convert raw data into example-attribute-value relationships under a concept
                         ... most general accurate term possible
                         recognise: first letter is capitalised
-                        said of: True
                         present in: False
                         example: Human
                     - Attribute (Universal Accident)
@@ -45,8 +45,8 @@ Primitive
                             ... attributes on a Concept are essential and inherited; attributes an Example adds are accidental
                         - Only Lowercase Characters
                         - Same Slot For Different Frames Means The Slot Has A Dependent Frame
-                        - Assign Enough Concatenated Frame Properties To Be Unambigous
-                        - Order Per Type From Most Intrisic To Most Extrisic
+                        - Assign Enough Concatenated Frame Properties To Be Unambiguous
+                        - Order Per Type From Most Intrinsic To Most Extrinsic
                         - No Transitive Frame Slot Dependence
                         recognise: all lowercase
                         said of: True
@@ -54,13 +54,14 @@ Primitive
                         example: full name
                         ... every attribute is itself a concept
                 Content (Being Acted Upon)
+                    said of: False
                     ... the acted-upon individuals on which true schema stands
                     - Example (Individual Substance)
                         
                         ... lists concrete individuals of the parent concept or attribute
                         ... a selection are Examples
-                        ... Most specific accrucate term possible
-                        ... Natural Occuring Frame
+                        ... Most specific accurate term possible
+                        ... Natural Occurring Frame
                         ... Higher Level Is Better
                     
                         recognise: must start with dash and space
@@ -74,7 +75,7 @@ Primitive
                             - ` inside a concept or attribute
                         end: end of line
                         allow special value override
-                            - Elipsis
+                            - Ellipsis
                             - Boolean
                     - Default Value (Individual Accident)
                         ... sets the expected or default value for an attribute or concept
@@ -82,7 +83,7 @@ Primitive
                         ... Atomic Unicode Data
                         ... may be used twice
                             ... Default of A Slot
-                            ... Part Of A Frame TO Specify Applicable Content
+                            ... Part Of A Frame To Specify Applicable Content
                         start: : 
                         end: End of line
                         recognise: colon separated value
@@ -128,10 +129,10 @@ Primitive
                             - A Child Has One Parent
                             - Two Different Types If Different Parents
                             - Inheritance
-                                - Inherit Slots From Full Linage Of Parents
+                                - Inherit Slots From Full Lineage Of Parents
                                 - Overload To Closest Inheritance
                         - Sibling
-                            - All Siblings Have The Same Granualarity
+                            - All Siblings Have The Same Granularity
                             - Siblings May Have The Same Slot If Default Values Are Different
                             - New Lines 
                     
@@ -142,11 +143,11 @@ Primitive
                         ... parentheses after a term provide an alias
                         begin: (
                         end: )
-                        allow special value override: Ellispis
+                        allow special value override: Ellipsis
                         - For Dependency Or A More General Context Name
                         - Can Be Used For Both A Frame And A Slot
                         - On The Same Line As Frame Or Slot
-                            - When Frame Has More Then One Of The Same Slots
+                            - When Frame Has More Than One Of The Same Slots
                             - May Link To Frame
                 Reference to a `not said of` Idea
                     - attribute-is-a-concept
@@ -165,15 +166,18 @@ Primitive
                 - every complex idea expressible as a combination of those elements
                 - every argument is verifiable like arithmetic
             - Pragmatic
-                - n idea becomes clear after the connections to other ideas are defined
+                - An idea becomes clear after the connections to other ideas are defined
                 - Knowledge holds its shape best as a tree of plain text, not prose or diagrams
             - Aristotelian
                 - You never think from nothing; every new thought extends structures you already know
                 ...
         Iterate Over Extension
-            Create New Laugange
+            ... steps in sequence, not subtypes
+            Create New Language
+                ... steps in sequence, not subtypes
                 Install Dependency
-                Create Yo Code Extenstion
+                Create Yo Code Extension
+                    ... steps in sequence, not subtypes
                     Go To Terminal
                     Change Path To Where You Want To Save The File
                     Type `yo code` Into Terminal
@@ -184,15 +188,18 @@ Primitive
                         extension identifier: aot
                         extension description: alphabet of thought
                         language id: aot
-                        langaguge name: alphabet of thought
+                        language name: alphabet of thought
                         file extension: .aot
                         scope name: source.aot
                         initialise git repository: Yes 
                 Create `TextMate` Grammar
-                    Update "oat.tmLanguage.json" file
+                    ... steps in sequence, not subtypes
+                    Update "aot.tmLanguage.json" file
                     Update "language-configuration.json" file
             Make Change
+                ... steps in sequence, not subtypes
                 Run `python install.py` Command
+                    ... steps in sequence, not subtypes
                     Update Package Version
                         Update Version Number 
                             file: package.json
@@ -204,6 +211,7 @@ Primitive
                         ...
                     Update Remote Extension
                 Make Changes To Marketplace
+                    ... steps in sequence, not subtypes
                     Go To `https://marketplace.visualstudio.com/manage/publishers/Jakus` Link
                     Click `...` `More Actions` Button
                     Click `Update` DropDown
@@ -212,6 +220,7 @@ Primitive
                     Click `Reload` Button
                 Upload Changes To GitHub
         Publish File
+            ... phases in sequence, not subtypes
             Create File
                 file extension: aot
                     ... never use tabs
@@ -220,14 +229,17 @@ Primitive
                 - use full words, never abbreviate
                 - fix all misspellings
             Setup Primitive
+                scaffold: Primitive
                 - Motivation
                 - Network
                 - Function
                 - Timeline
                 - Workflow
             Code Token
+                encode: Token
                 - Ideas
                 - Connections
+                    ... told apart by description, not by data slots
                     Inheritance
                         ... child concepts and examples inherit all parent essential attributes, never examples
                     Polymorphism

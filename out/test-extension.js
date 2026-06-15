@@ -7,7 +7,7 @@ const Module = require("module");
 const published = new Map();
 let definitionProvider = null;
 const vscode = {
-  DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
+  DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Diagnostic: class { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
   Range: class {
     constructor(...a) { this.a = a; }
@@ -62,9 +62,9 @@ const doc = makeDoc("c:\\repo\\alphabet of thought.aot", fs.readFileSync("alphab
 vscode.workspace._open(doc);
 
 const diags = published.get(doc.uri.toString());
-const severityName = ["error", "warning", "suggestion"];
+const severityName = ["error", "warning", "info", "suggestion"];
 const violations = diags.filter((d) => d.severity < 2);
-const suggestions = diags.filter((d) => d.severity === 2);
+const suggestions = diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Hint);
 console.log(`published ${violations.length} violations and ${suggestions.length} FCA suggestions`);
 for (const d of diags.slice(0, 3)) {
   console.log(`  [${severityName[d.severity]}] line ${d.range.a[0] + 1}: ${d.message}`);
