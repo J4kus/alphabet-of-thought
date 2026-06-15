@@ -6,8 +6,15 @@ Primitive
             - Work out what you mean
             - Others come to mean the same thing you mean
             Business Analyst
+                models: processes
             Enterprise Architect
-            ...
+                models: systems
+            Domain Expert
+                models: concepts
+            Data Architect
+                models: data
+            Product Manager
+                models: outcomes
     - Network
         Definition
             network: where it lives and is recorded — paradigmatic cause, the pattern
@@ -18,9 +25,10 @@ Primitive
             github: test
             format: plain text
             indent: 4 spaces, never tabs
-            ...
+            encoding: utf-8
+            newline: unix
         Token
-            ...
+            ... what it is made of — an Idea joined to other Ideas by a Connection
             Idea
                 recognise
                 said of
@@ -169,7 +177,7 @@ Primitive
                 - Knowledge holds its shape best as a tree of plain text, not prose or diagrams
             - Aristotelian
                 - You never think from nothing; every new thought extends structures you already know
-                ...
+                - Place each thing by its genus, then add the differentia that sets it apart
         Iterate Over Extension
             ... steps in sequence, not subtypes
             Create New Language
@@ -205,9 +213,10 @@ Primitive
                             attribute: "version"
                         Run `npx @vscode/vsce package` Command
                     Update Local Extension
+                        ... steps in sequence, not subtypes
                         Run `code --install-extension .\alphabet-of-thought-1.1.2.vsix --force` Command
                         Reload VS Code (Ctrl+Shift+P → "Developer: Reload Window") for the new version to take effect
-                        ...
+                        Verify The New Version Loaded (Extensions panel shows the new version number)
                     Update Remote Extension
                 Make Changes To Marketplace
                     ... steps in sequence, not subtypes
@@ -215,8 +224,8 @@ Primitive
                     Click `...` `More Actions` Button
                     Click `Update` DropDown
                     Drag `*.vsix` File Into `Visual Studio Code` Window
-                    Click `Install` Button
-                    Click `Reload` Button
+                    Click Button: Install
+                    Click Button: Reload
                 Upload Changes To GitHub
         Publish File
             ... phases in sequence, not subtypes
