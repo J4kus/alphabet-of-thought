@@ -3,7 +3,7 @@
 //   attribute-is-a-Concept   an attribute's (or default's) trailing words
 //                            match a Concept name, case-insensitively:
 //                            `age integer: 5` links to the `Integer` Concept
-//   default-is-a-Individual  a default value matches an Individual name
+//   default-is-a-Example  a default value matches an Example name
 //                            exactly, case-sensitively:
 //                            `person: Socrates` links to `- Socrates`
 //   concept-contains-Concept a Concept's name contains a run of words that
@@ -37,8 +37,8 @@ function words(name) {
 }
 
 // The defining node for every linkable name: Concepts by lowercased
-// name (attribute-is-a-Concept is case-insensitive), Individuals by
-// exact name (default-is-a-Individual is case-sensitive).
+// name (attribute-is-a-Concept is case-insensitive), Examples by
+// exact name (default-is-a-Example is case-sensitive).
 function index(root, nodes) {
   const concepts = new Map(); // lowercased name -> defining node
   const individuals = new Map(); // exact name -> defining node
@@ -50,6 +50,21 @@ function index(root, nodes) {
       individuals.set(node.name, node);
   }
   return { concepts, individuals };
+}
+
+// Whether an Example genuinely instantiates an attribute: true when one of
+// its ancestors is that attribute. A `default-is-a-Example` value only
+// carries meaningful ancestry when the Example it names lives under the
+// attribute it is given to — `operation: Ratio` with Ratio filed under the
+// `operation` attribute instantiates `operation`, so `operation: Formula`
+// and `operation: Arithmetic` follow; a value naming an unrelated Example
+// does not. Names are matched case-insensitively, as attribute-is-a-Concept.
+function instantiates(node, attrName) {
+  const want = attrName.toLowerCase();
+  for (let a = node.parent; a; a = a.parent) {
+    if (a.name.toLowerCase() === want) return true;
+  }
+  return false;
 }
 
 // Resolve all crosslinks in a parsed document. Returns
@@ -118,7 +133,7 @@ function resolve(text, root, nodes) {
         const after = raw.slice(colon + 1);
         const valueStart = colon + 1 + (after.length - after.trimStart().length);
         links.push({
-          connection: "default-is-a-Individual",
+          connection: "default-is-a-Example",
           line: node.line,
           startCol: valueStart,
           endCol: valueStart + node.value.length,
@@ -131,4 +146,4 @@ function resolve(text, root, nodes) {
   return links;
 }
 
-module.exports = { resolve, index, wordStarts };
+module.exports = { resolve, index, wordStarts, instantiates };

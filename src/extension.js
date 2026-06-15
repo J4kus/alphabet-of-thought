@@ -10,7 +10,7 @@ const { resolve } = require("./crosslinks");
 const { suggest } = require("./fca");
 
 const DEBOUNCE_MS = 300;
-// past this many Individuals the lattice is no longer keystroke-cheap
+// past this many Examples the lattice is no longer keystroke-cheap
 const MAX_FCA_OBJECTS = 200;
 
 // uri string -> crosslinks from the last analysis of that document
@@ -40,11 +40,11 @@ function decorate(editor, decorationTypes) {
   const concepts = [];
   const individuals = [];
   for (const link of links) {
-    const isConcept = link.connection !== "default-is-a-Individual";
+    const isConcept = link.connection !== "default-is-a-Example";
     const where = link.target.line ? `line ${link.target.line}` : "the file name";
     (isConcept ? concepts : individuals).push({
       range: linkRange(link),
-      hoverMessage: `${link.connection}: ${isConcept ? "Concept" : "Individual"} '${link.target.name}' (${where})`,
+      hoverMessage: `${link.connection}: ${isConcept ? "Concept" : "Example"} '${link.target.name}' (${where})`,
     });
   }
   editor.setDecorations(decorationTypes.concept, concepts);
@@ -92,14 +92,20 @@ const definitionProvider = {
 
 function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection("aot");
+  // A crosslink is a *state* (navigable) layered on a token that already has
+  // its own *type* colour from the grammar. So we add only an underline and
+  // leave the colour alone: the link inherits the token's colour (no
+  // ThemeColor override), which means it can never collide with another
+  // token's hue the way textLink.foreground did with examples. The two link
+  // kinds are told apart by underline style, not by colour:
+  //   solid  -> the target is a Concept
+  //   dotted -> the target is an Example
   const decorationTypes = {
     concept: vscode.window.createTextEditorDecorationType({
-      color: new vscode.ThemeColor("textLink.foreground"),
       textDecoration: "underline",
     }),
     individual: vscode.window.createTextEditorDecorationType({
-      color: new vscode.ThemeColor("textLink.activeForeground"),
-      textDecoration: "underline",
+      textDecoration: "underline dotted",
     }),
   };
   context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual);

@@ -20,7 +20,6 @@
         confidence
     Graph
         Node
-            ...
             Dependency
                 Independent Node
                     ... no dependencies to other nodes
@@ -49,12 +48,14 @@
                     second peripheral
                     node (control)
         Edge
+
             Directional Edge
                 from node 
                 to node
             Non Directional Edge (Many To Many Dependency)
                 first node
                 second node
+            
     Motiviation
         Beneficiary
             said of
@@ -124,7 +125,7 @@
                     multiplier measurement: 1
                     offset scaling magnitude: 0
                     ... takes base Unit and scaling factor to create new unit of same dimensionality
-                    ... Individual: gram as 0.001 of kilogram
+                    ... Example: gram as 0.001 of kilogram
                     exponent (power): 1
                     ... raises a Unit to a given power
                     ... signed to provide division via negative

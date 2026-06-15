@@ -68,7 +68,7 @@ const misfiled = [
   );
 }
 
-// 3) override: an Individual re-declaring an inherited default keeps
+// 3) override: an Example re-declaring an inherited default keeps
 // only its own value column; the inherited one is shadowed
 const overrides = [
   "Pen",
@@ -90,8 +90,8 @@ const overrides = [
   check("Standard Pen inherits 'colour: blue'", intents.get(standard).has("colour: blue"));
 }
 
-// 4) default-is-a-Individual: a value naming an Individual elsewhere
-// contributes that Individual's ancestry as columns, so growth (Ratio,
+// 4) default-is-a-Example: a value naming an Example elsewhere
+// contributes that Example's ancestry as columns, so growth (Ratio,
 // filed under Formula > Arithmetic) groups with size (Formula directly)
 const schema = [
   "Measurement",
@@ -114,7 +114,7 @@ const schema = [
   const { objects, intents } = buildContext(root, nodes);
   const growth = objects.find((g) => g.name === "growth");
   check(
-    "growth's 'operation: Ratio' expands to 'operation: Formula' via the Individual's ancestry",
+    "growth's 'operation: Ratio' expands to 'operation: Formula' via the Example's ancestry",
     intents.get(growth).has("operation: formula") && intents.get(growth).has("operation: arithmetic"),
   );
   const report = suggest(root, nodes);
@@ -139,7 +139,7 @@ const typed = [
   check("typed fixture parses clean", errors.length === 0);
   const { objects, intents } = buildContext(root, nodes);
   check(
-    "both Individuals carry the 'integer' Concept column from their typed attributes",
+    "both Examples carry the 'integer' Concept column from their typed attributes",
     objects.every((g) => intents.get(g).has("integer")),
   );
 }

@@ -4,42 +4,51 @@
     "fileTypes": ["json"],
 	"patterns": [
 		{
-            "name": "constant.character.concept",
+            "comment": "Concept: a type / class, the structural backbone",
+            "name": "entity.name.type.concept.aot",
             "match": "[A-Z][^(:\"'`]*(?=[(:\"'`]|$)"
         },
         {
-            "name": "variable.parameter.attribute.aot",
+            "comment": "attribute: a property / slot",
+            "name": "variable.other.property.aot",
             "match": "\\b[a-z]\\w*\\b"
         },
         {
-            "name": "string.quoted.double.value.aot",
+            "comment": "value: the data after a colon",
+            "name": "string.unquoted.value.aot",
             "match": ":.*$"
         },
         {
-            "name": "keyword.control.example.aot",
+            "comment": "example: a named instance / individual",
+            "name": "constant.language.individual.aot",
             "match": "-.*$"
         },
         {
-            "name": "constant.numeric.alias.aot", 
+            "comment": "alias: a parenthetical secondary name (recedes)",
+            "name": "entity.other.attribute-name.alias.aot",
             "match": "\\([^)]*\\)"
         },
         {
-            "name": "support.type.literal.aot",
+            "comment": "literal: verbatim / raw text in backticks",
+            "name": "markup.inline.raw.literal.aot",
             "match": "`[^`]*`"
         },
         {
+            "comment": "map / note: explanatory prose (recedes)",
             "name": "comment.line.map.aot",
             "match": "\\.{3}.*$"
         },
         {
+            "comment": "deprecated: invalid / struck-through",
             "name": "invalid.deprecated.aot",
             "match": "~.*"
         },
         {
-            "name": "support.type.table.aot", 
+            "comment": "table: tabular layout (neutral)",
+            "name": "markup.raw.table.aot",
             "match": "\\|.*$"
         }
-        
+
 	],
 	"scopeName": "source.aot"
 }

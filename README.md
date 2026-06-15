@@ -1,15 +1,15 @@
 # Alpha (.aot)
 
-Alpha is aimed at knowledge workers, analysts, and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Individual, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`), print the characteristic number of any idea (`--number`), and audit the tree by Formal Concept Analysis (`--suggest`): it treats the Individuals and their attributes as a formal context, computes the concept lattice, and reports groupings the data supports that no Concept names, Individuals filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Individuals. The crosslinks deepen the analysis: a value that names an Individual elsewhere in the file carries that Individual's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
+Alpha is aimed at knowledge workers like analysts and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Example, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`), print the characteristic number of any idea (`--number`), and audit the tree by Formal Concept Analysis (`--suggest`): it treats the Examples and their attributes as a formal context, computes the concept lattice, and reports groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
 
 Alpha is a text-based engineering language for working out what you mean in a way a machine can check.  You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
 
 ## The basic workflow
 
 1. Pick a subject and name a file after it. The file name is the root concept — Thought.aot, Sales.aot, Payments.aot. Everything inside is a child of that one idea.
-2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Individual (a real instance), and name: value is a Attribute Value. Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
+2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Example (a real instance), and name: value is a Attribute Value. Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
 3. Let the tooling correct you as you type. The VS Code extension squiggles tabs, depth jumps, a Concept defined twice, identical siblings, an "and" in a Concept name — each one is a place where your model is ambiguous. Ctrl+click on a crosslink jumps to where a term is defined.
-4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier; --suggest audits your Concepts against the concept lattice the Individuals' attributes actually support.
+4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier; --suggest audits your Concepts against the concept lattice the Examples' attributes actually support.
 
 ## What you'd use it for
 
@@ -39,7 +39,7 @@ They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
 
 ### Schemas (Acting on)
 
-*Schemas* are the universal ideas: Concepts and Attributes. They define the form of the model, deciding what kinds of ideas exist and which properties each kind carries. They act on content in the sense that every Individual and Attribute Value beneath them takes its meaning from them: a line like `- Socrates` only says something because the `Human` Concept and its attributes say what a human is.
+*Schemas* are the universal ideas: Concepts and Attributes. They define the form of the model, deciding what kinds of ideas exist and which properties each kind carries. They act on content in the sense that every Example and Attribute Value beneath them takes its meaning from them: a line like `- Socrates` only says something because the `Human` Concept and its attributes say what a human is.
 
 | Idea Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|-------------|---------|-------------|----------------|
@@ -48,30 +48,30 @@ They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
 
 ### Content (Being acted upon)
 
-Filling a schema with content helps to understand the schema. *Content*, the acted-upon Individuals, is the evidence a true schema stands on.
+Filling a schema with content helps to understand the schema. *Content*, the acted-upon Examples, is the evidence a true schema stands on.
 
 | Idea Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
-| **Individual** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Individuals (instances) of the parent Concept or attribute, rather than a single Attribute Value. The `- ` prefix is what makes a line an Individual. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
+| **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Examples (instances) of the parent Concept or attribute, rather than a single Attribute Value. The `- ` prefix is what makes a line an Example. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
 | **Attribute Value** (Individual Accident) | `attribute: value` (colon-separated) | Sets the expected/Attribute Value for an attribute | `colour: red` | **False (~S)** | **True (P)** | 
 
 
 
-#### How to Decide: Concept vs Individual vs Attribute
+#### How to Decide: Concept vs Example vs Attribute
 
 A model only communicates when its ideas are classified correctly. Apply these tests in order:
 
-##### 1. Exhaustion test (Concept vs Individual)
+##### 1. Exhaustion test (Concept vs Example)
 
-If the children together **partition** the parent, they are **Concepts** (subtypes): every child is a subtype of the parent, no two overlap, and nothing of the parent is left over. If the children are merely a selection of items drawn from the world, they are **Individuals**.
+If the children together **partition** the parent, they are **Concepts** (subtypes): every child is a subtype of the parent, no two overlap, and nothing of the parent is left over. If the children are merely a selection of items drawn from the world, they are **Examples**.
 
-##### 2. Abstraction test (Concept vs Individual)
+##### 2. Abstraction test (Concept vs Example)
 
-**Concepts** are abstract groupings humans invent to organise thinking. **Individuals** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Individual.
+**Concepts** are abstract groupings humans invent to organise thinking. **Examples** are concrete, real-world instances of the parent you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Example.
 
 ##### 3. Attributes describe, they don't classify
 
-Attributes are lowercase properties a Concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: Individuals, Concepts, values, or further attributes.
+Attributes are lowercase properties a Concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: Examples, Concepts, values, or further attributes.
 
 #### Classical Style Rules
 
@@ -81,8 +81,8 @@ These rules keep a model readable and unambiguous, so that two readers of the sa
 - Use full words; never abbreviate or use synonyms
 - Fix all misspellings
 - Always singular form: `Person` not `People`
-- Individuals placed higher in the tree are preferable
-- Provide as many Attribute Defaults and Individuals as possible
+- Examples placed higher in the tree are preferable
+- Provide as many Attribute Defaults and Examples as possible
 - Remove redundant Concepts
 - Only decompose further when detail adds meaningful value
 
@@ -93,16 +93,72 @@ Every idea, no matter how elemental or complex, has exactly one connection, to e
 The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
 
-| Connections | Expression | Type | Individual | Extra Rule |
+| Connections | Expression | Type | Example | Extra Rule |
 |------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
 | **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
 | **has-a** | Indent attribute under a term | Indented | `Person` → indent → `full name` | |
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
 | **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
-| **has-Individual** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| **has-Example** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
 | **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information; normal and accepted | 
 | **attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
-| **default-is-a-Individual** | Value matches an Individual name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Individual | |
+| **default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Example | |
+
+## Rules the tooling checks
+
+Everything below is enforced mechanically by the same linter, whether you run `node verify.js <file.aot>` or edit in VS Code. The extension maps the three layers to three severities: **errors** squiggle red, **warnings** squiggle yellow, and **hints** carry no squiggle. Only errors count toward the violation total `V`; the file verifies when `V = 0`.
+
+### Errors — red squiggle, counted in `V` (the file does not verify)
+
+| # | Rule | What triggers it |
+|---|------|------------------|
+| 1 | **No tabs** | A tab character anywhere in a line. Indent with spaces only. |
+| 2 | **Indent is a multiple of 4** | Leading spaces not divisible by 4 (`spaces mod 4 ≠ 0`). |
+| 3 | **No depth jumps** | A line indented more than one level deeper than the line above it — there is no parent at the skipped depth. |
+| 4 | **Well-formed Example** | A line starting with `-` but not `- ` (exactly one space after the dash). |
+| 5 | **No empty default** | `name:` with nothing after the colon. Supply a value or drop the colon. |
+| 6 | **Do not repeat the file name** | A top-level line whose name equals the file name. The file name is already the root Concept. |
+| 7 | **A Map holds only Maps** | A `...` Map node with any non-Map child. A Map marks omitted information; it does not contain content. |
+| 8 | **No "and" in a Concept** | A Concept name containing the word `and` — that is two kinds under one prime. Split it. |
+| 9 | **Univocity** | The same Concept name defined more than once. One name, one prime; a recurrence needs a distinguishing qualifier prefix. |
+| 10 | **No identical siblings** | Two children of one parent with the same kind, name, **and** value. Siblings may share a slot only if their default values differ. |
+| 11 | **Single inheritance** | `gcd(chi(siblingA), chi(siblingB)) ≠ chi(parent)` — the two siblings do not share exactly one parent. |
+
+### Warnings — yellow squiggle, in the Problems panel, but do **not** affect `V`
+
+| # | Rule | What triggers it |
+|---|------|------------------|
+| 1 | **Singular Concepts** | A Concept name that looks plural (suffix heuristic: catches `Persons`, `Categories`, not irregulars). Use the singular form. |
+| 2 | **Measurement needs a target** | A node with an `actual:` default but no `target:`. |
+| 3 | **Measurement needs an actual** | A node with a `target:` default but no `actual:`. |
+| 4 | **At most eight sub-Concepts** | More than eight sub-Concepts under one node. Group some under an intermediate kind. (Examples and attributes may be any quantity.) |
+| 5 | **No lone sub-Concept** | A Concept with exactly one sub-Concept — a kind with one subtype *is* that subtype. Have zero, or more than one. |
+| 6 | **No lone sub-Example** | An Example with exactly one sub-Example, by the same reasoning. |
+| 7 | **Differentia** | Two or more sibling sub-Concepts with an identical attribute/default *slot signature* — they are told apart by position only. Give each a distinguishing attribute or default. |
+
+A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten.
+
+### Hints — no squiggle, advisory (the `--suggest` Formal Concept Analysis audit)
+
+Hints come from auditing your hand-written Concept tree against the concept lattice your Examples' attributes actually support. They appear only when the file already verifies (`V = 0`) and it has **between 2 and 200 Examples** (below 2 there is nothing to analyse; above 200 the lattice is no longer cheap on every keystroke).
+
+| # | Hint | What it means |
+|---|------|---------------|
+| 1 | **proposed** | Two or more Examples all carry attributes that no Concept names. Name a Concept for the grouping (or, for a bare attribute, promote it onto the parent so every Example inherits it) — or ignore it as coincidence. If the shared attributes are only inherited, the essence belongs one level up, not in a new Concept. |
+| 2 | **differentia** | A Concept adds no attribute beyond its nearest Concept ancestor, so by the data its Examples are grouped by position only. Give it an attribute its siblings lack. |
+| 3 | **drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. |
+| 4 | **exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
+| 5 | **exhaustion (gaps)** | A parent's Examples that no sub-Concept matches by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
+
+### Crosslinks — underlined, Ctrl+click jumps to the definition
+
+The extension underlines three inline connections and resolves them for go-to-definition; hovering shows the target. They also deepen the `--suggest` analysis by carrying a referenced node's ancestry into the formal context.
+
+| Connection | What links | Example |
+|------------|-----------|---------|
+| **attribute-is-a-Concept** | An attribute or default whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | `age integer: 5` → `integer` → `Integer` |
+| **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | `Independent Node` → `Node` → `Node` |
+| **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | `person: Socrates` → `- Socrates` |
 
 ## Example
 
@@ -125,8 +181,8 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 
 - You never think from nothing. Every new thought extends structures you already know. (*Posterior Analytics* I.1)
 - You place an idea by naming its nearest kind, the most general accurate term (the *genus*, its parent), together with the qualifier that sets it apart from its siblings (the *differentia*).
-- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Individual inherits them necessarily (attributes are inherited, never Individuals). **Attribute**s an **Individual** introduces on its own are *accidental*. True of that Individual but not of its kind. A schema therefore introduces essence; an Individual may add only accidents, never a new essential attribute (adding further essential attributes is the child Concept's prerogative, not the Individual's). **Essence versus accident**: Concepts and Concept Attributes nodes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z)
-- **Assimilate facts**: Convert raw data into Individual-attribute-value relationships under a Concept
+- **Essence and accident**: **Attributes** defined on a **Concept** are *essential*. They are part of what the idea is. So every child Concept and Example inherits them necessarily (attributes are inherited, never Examples). **Attribute**s an **Example** introduces on its own are *accidental*. True of that Example but not of its kind. A schema therefore introduces essence; an Example may add only accidents, never a new essential attribute (adding further essential attributes is the child Concept's prerogative, not the Example's). **Essence versus accident**: Concepts and Concept Attributes nodes are essentially the form of your ideas. Everything else in Alpha is accidental ideas (*Metaphysics* Z)
+- **Assimilate facts**: Convert raw data into Example-attribute-value relationships under a Concept
 - **The four causes complete every explanation**: final (motivation), material (graph), formal (function), efficient (workflow). The primitives of Alpha are built on them. (*Physics* II.3)
 - The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*.
 
@@ -139,7 +195,7 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 
 - **Plain text holds its shape**: prose hides structure and diagrams don't scale.
 - **Truth shows in consequences**: a definition is good when it lets two actors work on with the meaning and verify it.
-- **Content over structure**: Prefer Individuals + attributes + defaults over creating new Concepts. Keep the Concept tree lean.
+- **Content over structure**: Prefer Examples + attributes + defaults over creating new Concepts. Keep the Concept tree lean.
 
 
 
@@ -149,14 +205,14 @@ Parent
     Child
         ... inherits `essential parent attribute:` and `normal value` from Parent
         essential child attribute not in parent
-        - Child Individual
+        - Child Example
             essential parent attribute: new value
-                ... `- Child Individual` overrides `normal value` from `attribute` and replaces it with `new value`
+                ... `- Child Example` overrides `normal value` from `attribute` and replaces it with `new value`
             essential child attribute not in parent: value
-                ... `- Child Individual` assigns a default
-            child individual attribute
-                ... `- Child Individual` adds a `child individual attribute` that isn't present in the `Child` Concept
-        ... Generally in Alpha there is more than one individual per concept
+                ... `- Child Example` assigns a default
+            child example attribute
+                ... `- Child Example` adds a `child example attribute` that isn't present in the `Child` Concept
+        ... Generally in Alpha there is more than one example per concept
     ... Generally in Alpha there is more than one child per parent
 ```
 
@@ -168,9 +224,9 @@ The primitives do not link to one another; each is a tree of its own, and no cau
 
 #### The four causes
 
-Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as individuals (not said of, not present in).
+Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as examples (not said of, not present in).
 
-Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives and Workflows, and these cannot be individuals or Attribute Values, while measurements, records, classes and dependencies can only be individuals or Attribute Values.
+Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives and Workflows, and these cannot be examples or Attribute Values, while measurements, records, classes and dependencies can only be examples or Attribute Values.
 
 | Cause | Description | Native question | Primitive | Said of | Not Said Of |
 |-----------|---------|------------------|--|------------------|------------------|
@@ -337,7 +393,7 @@ Measurement
             multiplier measurement: 1
             offset scaling magnitude: 0
             ... takes base Unit and scaling factor to create new unit of same dimensionality
-            ... Individual: gram as 0.001 of kilogram
+            ... Example: gram as 0.001 of kilogram
             exponent (power)
             ... raises a Unit to a given power
             ... signed to provide division via negative
@@ -356,7 +412,7 @@ Measurement
             is signed: true
             relative zero point
                 ... establishes quantity as relative measure
-                ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
+                ... Example: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
             - Amount
                 - Cyclomatic Complexity
                 - Lines Of Code
@@ -414,7 +470,7 @@ Measurement
 ---
 ### Graph Primitive
 
-Focus: **where things reside** (the *acting-on* Concepts) and **what data and entities exist** there (the *acted-upon* Individuals).
+Focus: **where things reside** (the *acting-on* Concepts) and **what data and entities exist** there (the *acted-upon* Examples).
 
 
 Relevant when: data residency laws, latency, location-dependent processes, disaster recovery.
@@ -485,7 +541,7 @@ Focus: **how the system does it**, decomposed as a tree.
 #### Naming Rules
 
 - **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
-- **Types**: conventionally nouns only, expressed as Individual ideas → `- Payment Type`
+- **Types**: conventionally nouns only, expressed as Example ideas → `- Payment Type`
 
 #### Forbidden in Functions
 

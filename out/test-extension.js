@@ -73,7 +73,7 @@ console.log(violations.length === 0 && suggestions.length > 0
   ? "PASS (the reference file verifies clean, with suggestions)"
   : "UNEXPECTED COUNT");
 
-// 2) crosslinks: an attribute-is-a-Concept and a default-is-a-Individual
+// 2) crosslinks: an attribute-is-a-Concept and a default-is-a-Example
 const sample = [
   "Person",
   "    full name",
@@ -89,8 +89,8 @@ vscode.workspace._open(doc2);
 
 const sets = [...decorated.values()];
 const conceptLinks = sets.find((s) => s.some((d) => /Concept 'Person'/.test(d.hoverMessage))) || [];
-const individualLinks = sets.find((s) => s.some((d) => /Individual 'Socrates'/.test(d.hoverMessage))) || [];
-console.log(`decorated ${conceptLinks.length} Concept link(s), ${individualLinks.length} Individual link(s)`);
+const individualLinks = sets.find((s) => s.some((d) => /Example 'Socrates'/.test(d.hoverMessage))) || [];
+console.log(`decorated ${conceptLinks.length} Concept link(s), ${individualLinks.length} Example link(s)`);
 for (const d of [...conceptLinks, ...individualLinks]) {
   console.log(`  line ${d.range.a[0] + 1} cols ${d.range.a[1]}-${d.range.a[3]}: ${d.hoverMessage}`);
 }

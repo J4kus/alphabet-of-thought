@@ -7,6 +7,7 @@ Primitive
             - Others come to mean the same thing you mean
             Business Analyst
             Enterprise Architect
+            ...
     - Network
         Definition
             network: where it lives and is recorded — paradigmatic cause, the pattern
@@ -53,10 +54,10 @@ Primitive
                         ... every attribute is itself a concept
                 Content (Being Acted Upon)
                     said of: False
-                    ... the acted-upon individuals on which true schema stands
+                    ... the acted-upon examples on which true schema stands
                     - Example (Individual Substance)
                         
-                        ... lists concrete individuals of the parent concept or attribute
+                        ... lists concrete examples of the parent concept or attribute
                         ... a selection are Examples
                         ... Most specific accurate term possible
                         ... Natural Occurring Frame

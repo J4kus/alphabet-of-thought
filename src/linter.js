@@ -16,7 +16,7 @@ const INDENT = 4;
 
 // Node types as Said-of / Present-in bits: t = 2*S + P
 const INDIVIDUAL = 0, DEFAULT = 1, CONCEPT = 2, ATTRIBUTE = 3, MAP = 4;
-const TYPE_NAME = ["Individual", "Default Value", "Concept", "attribute", "Map"];
+const TYPE_NAME = ["Example", "Default Value", "Concept", "attribute", "Map"];
 
 // One home for every finding. parse and verify both report through this,
 // so no check has to know whether it produces an error or a warning until
@@ -97,7 +97,7 @@ function parse(text, rootName, report) {
     }
     let trimmed = content.trim();
     if (trimmed[0] === "-" && !trimmed.startsWith("- ")) {
-      report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Individual must begin with '- ' (dash + space)`);
+      report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example must begin with '- ' (dash + space)`);
       trimmed = "- " + trimmed.slice(1);
     }
     const { kind, name, value } = classify(trimmed);
@@ -228,9 +228,9 @@ function verify(root, nodes, report) {
   // Child counts: more than one child of the same kind, and no more
   // than eight sub-Concepts. Sub-Concepts partition the parent, and a
   // division into more than eight kinds is not graspable at a glance;
-  // Individuals (examples) and attributes may come in any quantity.
+  // Examples and attributes may come in any quantity.
   // A lone child of the same kind divides nothing: a Concept with exactly
-  // one sub-Concept, or an Individual with exactly one sub-Individual, is
+  // one sub-Concept, or an Example with exactly one sub-Example, is
   // that child. Children of other kinds describe the parent and don't count.
   // A Map child marks the node intentionally incomplete, so a lone child
   // under it is accepted: the missing siblings are declared, not forgotten.
@@ -238,14 +238,14 @@ function verify(root, nodes, report) {
     const kids = realChildren(node);
     const subConcepts = kids.filter((c) => c.kind === CONCEPT).length;
     if (subConcepts > 8) {
-      report.warn(node.line, `'${node.name}' has ${subConcepts} sub-Concepts, expected no more than eight — group some under an intermediate kind (Individuals and attributes may be any quantity)`);
+      report.warn(node.line, `'${node.name}' has ${subConcepts} sub-Concepts, expected no more than eight — group some under an intermediate kind (Examples and attributes may be any quantity)`);
     }
     if (node.children.some((c) => c.kind === MAP)) continue;
     if (node.kind === CONCEPT && subConcepts === 1) {
       report.warn(node.line, `'${node.name}' has 1 sub-Concept, expected 0 or more than one — a kind with one subtype is the subtype`);
     }
     if (node.kind === INDIVIDUAL && kids.filter((c) => c.kind === INDIVIDUAL).length === 1) {
-      report.warn(node.line, `'${node.name}' has 1 sub-Individual, expected 0 or more than one — an individual with one sub-individual is the sub-individual`);
+      report.warn(node.line, `'${node.name}' has 1 sub-Example, expected 0 or more than one — an example with one sub-example is the sub-example`);
     }
   }
 
@@ -264,7 +264,7 @@ function verify(root, nodes, report) {
       .filter((k) => k.kind === ATTRIBUTE || k.kind === DEFAULT)
       .map((k) => (k.kind === DEFAULT ? `${k.name}:${k.value}` : k.name))
       .sort()
-      .join(" ");
+      .join("\0");
   for (const node of all) {
     if (node.children.some((c) => c.kind === MAP)) continue;
     const subConcepts = realChildren(node).filter((c) => c.kind === CONCEPT);

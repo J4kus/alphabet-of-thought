@@ -73,13 +73,13 @@ function main() {
     }
     const report = suggest(root, nodes);
     if (report.tooFew) {
-      console.log(`nothing to suggest: ${report.objects} Individual${report.objects === 1 ? "" : "s"}, expected at least 2`);
+      console.log(`nothing to suggest: ${report.objects} Example${report.objects === 1 ? "" : "s"}, expected at least 2`);
       return;
     }
     console.log(`formal context: ${report.objects} objects x ${report.columns} attributes, ${report.concepts} formal concepts`);
     console.log("");
     if (report.confirmed.length) {
-      console.log(`confirmed: ${report.confirmed.length} Concept${report.confirmed.length === 1 ? " is" : "s are"} exactly the grouping${report.confirmed.length === 1 ? "" : "s"} the Individuals' attributes support: ${report.confirmed.join(", ")}`);
+      console.log(`confirmed: ${report.confirmed.length} Concept${report.confirmed.length === 1 ? " is" : "s are"} exactly the grouping${report.confirmed.length === 1 ? "" : "s"} the Examples' attributes support: ${report.confirmed.join(", ")}`);
     }
     for (const { line, message } of report.findings) console.log(`${file}:${line}: ${message}`);
     console.log(`\nsuggestions S = ${report.findings.length}`);
