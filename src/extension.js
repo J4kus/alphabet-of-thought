@@ -1,7 +1,7 @@
 // VS Code entry point for .aot documents: publishes the arithmetic
-// linter's errors as diagnostics (squiggles + Problems panel), its
-// warnings and the FCA audit's suggestions as hints (no squiggle), paints the
-// inline crosslinks as links, and serves go-to-definition for them.
+// linter's errors and warnings as diagnostics (squiggles + Problems panel),
+// the FCA audit's suggestions as hints (no squiggle), paints the inline
+// crosslinks as links, and serves go-to-definition for them.
 
 const vscode = require("vscode");
 const path = require("path");
@@ -63,12 +63,12 @@ function refresh(diagnostics, decorationTypes, doc) {
     return diagnostic;
   };
   diagnostics.set(doc.uri, [
-    // only errors (V != 0) squiggle and reach the Problems panel — they
-    // are the verdict. Warnings and FCA suggestions are advisory, so they
-    // map to Hints: no squiggle, surfaced on hover / lightbulb, kept out
-    // of the Problems panel.
+    // the linter's verdict is a problem: errors (V != 0) squiggle red and
+    // warnings squiggle yellow, both reaching the Problems panel. Only the
+    // FCA audit's suggestions are advisory, so they alone map to Hints: no
+    // squiggle, surfaced on hover / lightbulb, kept out of the Problems panel.
     ...errors.map(toDiagnostic(vscode.DiagnosticSeverity.Error)),
-    ...warnings.map(toDiagnostic(vscode.DiagnosticSeverity.Hint)),
+    ...warnings.map(toDiagnostic(vscode.DiagnosticSeverity.Warning)),
     ...suggestions.map(toDiagnostic(vscode.DiagnosticSeverity.Hint)),
   ]);
   for (const editor of vscode.window.visibleTextEditors) {

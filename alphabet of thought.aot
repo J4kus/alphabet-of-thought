@@ -7,7 +7,6 @@ Primitive
             - Others come to mean the same thing you mean
             Business Analyst
             Enterprise Architect
-            ...
     - Network
         Definition
             network: where it lives and is recorded — paradigmatic cause, the pattern
@@ -42,7 +41,6 @@ Primitive
                         ... defines a property that a concept has
                         ... lowercase properties a concept has, which may have their own children
                         - Essence And Accident
-                            ... attributes on a Concept are essential and inherited; attributes an Example adds are accidental
                         - Only Lowercase Characters
                         - Same Slot For Different Frames Means The Slot Has A Dependent Frame
                         - Assign Enough Concatenated Frame Properties To Be Unambiguous
