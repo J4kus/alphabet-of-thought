@@ -7,15 +7,15 @@ Alpha is a text-based engineering language for working out what you mean in a wa
 ## The basic workflow
 
 1. Pick a subject and name a file after it. The file name is the root concept — Thought.aot, Sales.aot, Payments.aot. Everything inside is a child of that one idea.
-2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Example (a real instance), and name: value is a Attribute Value. Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
+2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Example (a real instance), and name: value gives the term before the colon one inline value — an Attribute Value under a lowercase attribute, or, under a capitalised Concept, the Concept's single inline Example (`Run Command: code --install …` is the Concept `Run Command` described by the one Example `code --install …`). Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
 3. Let the tooling correct you as you type. The VS Code extension squiggles tabs, depth jumps, a Concept defined twice, identical siblings, an "and" in a Concept name — each one is a place where your model is ambiguous. Ctrl+click on a crosslink jumps to where a term is defined.
 4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier; --suggest audits your Concepts against the concept lattice the Examples' attributes actually support.
 
 ## What you'd use it for
 
-The four primitives are templates for the four kinds of model knowledge work keeps producing anyway, usually scattered across slides and spreadsheets:
+You can purely use it for your own thoughts, without describing the "why" of your thoughts, but Alpha has four primitives for the the four kinds of model knowledge work keeps producing anyway, usually scattered across slides and spreadsheets:
 
-- Motivation — goals and KPIs with an owner, an actual, a target, and a red/amber/green influence rolling up a tree. This is an OKR tree or a metrics dashboard as text: the README's sales example (Mike owns revenue growth, which decomposes into new clients, basket size, churn) is exactly what a quarterly business review tries to communicate.
+- Motivation — goals and KPIs with an beneficiary, an actual, a target, and a red/amber/green influence rolling up a tree. This is an OKR tree or a metrics dashboard as text: the README's sales example (Mike owns revenue growth, which decomposes into new clients, basket size, churn) is exactly what a quarterly business review tries to communicate.
 - Graph — data modelling: which entities exist, where records reside, what depends on what. It even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database.
 - Function — capability decomposition: what the system achieves, as a tree of verb-phrase objectives where each parent is achieved exactly by all its children together. The value-chain example is an org's capability map; the naming rules ("no and, no manage, no flow words") force each node to be one testable claim.
 - Workflow — who does what in what order, including concurrency: locks, queues, race conditions, what's the bottleneck. The Thought.aot example models intuition vs. deliberation this way.
@@ -24,7 +24,7 @@ The four primitives are templates for the four kinds of model knowledge work kee
 
 The constraints are the product. Because every idea has exactly one parent, writing a line forces a decision — is this a kind, a property, or an instance, and of what? Those are exactly the decisions prose lets you dodge. The payoffs:
 
-Two readers build the same mental model. No multiple inheritance means an idea never changes meaning depending on the path you took to it. A .aot file is a shared definition a team can extend instead of each person keeping a private version.
+Two readers build the same mental model. No multiple inheritance means an idea never changes meaning depending on the path you took to it. A .aot file is a shared definition a team can extend instead of each human keeping a private version.
 
 Disagreements become locatable. When a colleague disputes the model, the dispute is about a specific line — a wrong parent, a missing differentia — not about a vibe in a paragraph.
 Arguments become checkable. This is the Leibniz point in the README: once "Socrates is a Human" is the divisibility of two integers, an is-a claim isn't an opinion, it's a computation the linter either confirms or refutes. V = 0 at the bottom of the CLI output means the file contains no structural contradictions.
@@ -53,7 +53,8 @@ Filling a schema with content helps to understand the schema. *Content*, the act
 | Idea Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
 | **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Examples (instances) of the parent Concept or attribute, rather than a single Attribute Value. The `- ` prefix is what makes a line an Example. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
-| **Attribute Value** (Individual Accident) | `attribute: value` (colon-separated) | Sets the expected/Attribute Value for an attribute | `colour: red` | **False (~S)** | **True (P)** | 
+| **Attribute Value** (Individual Accident) | `attribute: value` — a **lowercase** term before the colon | Sets the expected/Attribute Value for an attribute | `colour: red` | **False (~S)** | **True (P)** | 
+| **Inline Example** (Individual Substance) | `Concept: value` — a **capitalised** term before the colon | Gives the Concept one Example on the same line — shorthand for a single `- value` child, so it reads as an Example everywhere (counts, crosslinks, FCA) | `Run Command: code --install …` | **False (~S)** | **False (~P)** | 
 
 
 
@@ -80,7 +81,7 @@ These rules keep a model readable and unambiguous, so that two readers of the sa
 - One Concept with two definitions is ambiguity Alpha forbids. When a Concept name must recur, a distinguishing qualifier prefix restores univocity.
 - Use full words; never abbreviate or use synonyms
 - Fix all misspellings
-- Always singular form: `Person` not `People`
+- Always singular form: `Human` not `Humans`
 - Examples placed higher in the tree are preferable
 - Provide as many Attribute Defaults and Examples as possible
 - Remove redundant Concepts
@@ -92,17 +93,19 @@ Every idea, no matter how elemental or complex, has exactly one connection, to e
 
 The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
 
+The single inheritance chain should not be confused with composition, which Alpha allows: an `Employee` can be composed of a `human`, a `contract`, a `role` attribute, all of which sit in its single-inheritance hierarchy, independently inherited as *Attribute* of the `Employee` *Concept*. Composition is how you assemble a complex idea from parts that each have their own definition, while inheritance is how you say what kind of thing the idea is. The two are independent: an idea has exactly one parent it descends from, but each idea can be further described elsewhere (even off-file).
+
 
 | Connections | Expression | Type | Example | Extra Rule |
 |------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
 | **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
-| **has-a** | Indent attribute under a term | Indented | `Person` → indent → `full name` | |
+| **has-a** | Indent attribute under a term | Indented | `Human` → indent → `full name` | |
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
-| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
-| **has-Example** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
+| **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Human (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
+| **has-Example** | Indent Dash prefix after a term | Indented | `Human` → indent → `- Gottfried Wilhelm Leibniz` | |
 | **Maps-to** | Indent `...` followed by a note under a token | Indented | `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never a plain description of the line above it**. To explain or rename a term, use a `(parentheses)` alias instead. | 
 | **Attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
-| **Default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Example | |
+| **Default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `human: Gottfried Wilhelm Leibniz`, where the value references the Example | |
 
 ## Rules the tooling checks
 
@@ -128,7 +131,7 @@ Everything below is enforced mechanically by the same linter, whether you run `n
 
 | # | Rule | What triggers it |
 |---|------|------------------|
-| 1 | **Singular Concepts** | A Concept name that looks plural (suffix heuristic: catches `Persons`, `Categories`, not irregulars). Use the singular form. |
+| 1 | **Singular Concepts** | A Concept name that looks plural (suffix heuristic: catches `Humans`, `Categories`, not irregulars). Use the singular form. |
 | 2 | **Measurement needs a target** | A node with an `actual:` default but no `target:`. |
 | 3 | **Measurement needs an actual** | A node with a `target:` default but no `actual:`. |
 | 4 | **At most eight sub-Concepts** | More than eight sub-Concepts under one node. Group some under an intermediate kind. (Examples and attributes may be any quantity.) |
@@ -158,7 +161,7 @@ The extension underlines three inline connections and resolves them for go-to-de
 |------------|-----------|---------|
 | **attribute-is-a-Concept** | An attribute or default whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | `age integer: 5` → `integer` → `Integer` |
 | **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | `Independent Node` → `Node` → `Node` |
-| **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | `person: Socrates` → `- Socrates` |
+| **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | `human: Socrates` → `- Socrates` |
 
 ## Example
 
@@ -171,7 +174,7 @@ tbd
 - Extension: `.aot`
 - Indentation: exactly 4 spaces per level (Do NOT use tabs)
 - Every line is a node
-- The **file name is the root Concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Person.aot` begins directly with `full name`, `age`, and so on.
+- The **file name is the root Concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Human.aot` begins directly with `full name`, `age`, and so on.
 
 ## Design Rules
 
@@ -317,7 +320,7 @@ The Concepts used in the Motivation Primitive:
 
 ```aot
 Beneficiary
-    Person
+    Human (Natural Person)
         first name: Alida
         surname: Zondo
         title

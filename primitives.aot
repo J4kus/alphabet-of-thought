@@ -19,287 +19,292 @@
                 updated author
         Said Of
         confidence
-    Graph
-        Node
-            Dependency
-                Independent Node
-
-                Dependent Node
-                    independent node
-            Tree (Reoccuring Tree)
-                Parent
-                Child
-                    tree
-            Star (Flat Tree)
-                Root
-                Peripheral
-                    root
-                Remote
-                    first peripheral
-                    second peripheral
-                Remote Control
-                    first peripheral
-                    second peripheral
-                    node (control)
-            ...
-        Edge
-
-            Directional Edge
-                from node
-                to node
-            Non Directional Edge (Many To Many Dependency)
-                first node
-                second node
+    Primitive
         ...
-    Motiviation
-        Beneficiary
-            said of
-            Person
-                first name: Alida
-                surname: Zondo
-                title
-                date of birth
-                gender
-                home language
-                nationality (country)
-                is living: yes
-            Organisation
-                Business
-                Government
-                N G O
-                Foundation
-                trading name
-                no terminology name
-                is business unit
-                is user classified
-                incorporated country
-                nickname
-                tax number
-        Measurement
-            not said of
-            superordinate measurement: None
-            name
-            expected value
-            actual value
-            measurement operation used
-                - Observation
-                    characteristic (trait)
-                    class
-                    stereotype
-                - Formula
-                    - Arithmetic
-                        - Addition (Sum)
-                        - Subtraction
-                        - Multiplication (Product)
-                        - Division
-                            - Ratio
+        Graph
+            Node
+                Dependency
+                    Independent Node
+
+                    Dependent Node
+                        independent node
+                Tree (Reoccuring Tree)
+                    Parent
+                    Child
+                        tree
+                Star (Flat Tree)
+                    Root
+                    Peripheral
+                        root
+                    Remote
+                        first peripheral
+                        second peripheral
+                    Remote Control
+                        first peripheral
+                        second peripheral
+                        node (control)
+                ...
+            Edge
+
+                Directional Edge
+                    from node
+                    to node
+                Non Directional Edge (Many To Many Dependency)
+                    first node
+                    second node
+            ...
+        Motiviation
+            Beneficiary
+                said of
+                Human (Natural Person)
+                    - Jakus
+                    first name: Alida
+                    surname: Zondo
+                    title
+                    date of birth
+                    gender
+                    home language
+                    nationality (country)
+                    is living: yes
+                Organisation
+                    ...
+                    Business
+                    Government
+                    N G O
+                    Foundation
+                    trading name
+                    no terminology name
+                    is business unit
+                    is user classified
+                    incorporated country
+                    nickname
+                    tax number
+            Measurement
+                not said of
+                superordinate measurement: None
+                name
+                expected value
+                actual value
+                measurement operation used
+                    - Observation
+                        characteristic (trait)
+                        class
+                        stereotype
+                    - Formula
+                        - Arithmetic
+                            - Addition (Sum)
+                            - Subtraction
+                            - Multiplication (Product)
+                            - Division
+                                - Ratio
+                                - ...
+                            - ...
+                        - Statistical
+                            - Maximum
+                            - Minimum
+                            - Average
+                                - Mean
+                                - Mode
+                                - Median
+                            - Standard Deviation
+                            - Sample Size
+                            - ...
+                    - Grading
+                        grade interval minimum
+                        grade interval maximum
+                        number of grades
+                    - Rescaled Measurement
+                        - Fahrenheit to Celsius
+                        - ...
+                        multiplier measurement: 1
+                        offset scaling magnitude: 0
+                        exponent (power): 1
+                    - Ranking
+                        minimum ranking
+                        maximum ranking
+                        is minimum ranking open: false
+                        is maximum ranking open: false
+
+                    - Refinement
+                data type
+                    Numeric
+                        - Amount
+                            - Cyclomatic Complexity
+                            - Lines Of Code
+                        - Current
+                            - Amps
+                            - ...
+                        - Length
+                            - Meter
+                            - ...
+                        - Light
+                            - Candela
+                            - ...
+                        - Mass
+                            - Kilogram
+                            - ...
+                        - Temperature Unit
+                            - Kelvin
+                            - ...
+                        - Time
+                            - Second
                             - ...
                         - ...
-                    - Statistical
-                        - Maximum
-                        - Minimum
-                        - Average
-                            - Mean
-                            - Mode
-                            - Median
-                        - Standard Deviation
-                        - Sample Size
-                        - ...
-                - Grading
-                    grade interval minimum
-                    grade interval maximum
-                    number of grades
-                - Rescaled Measurement
-                    - Fahrenheit to Celsius
-                    multiplier measurement: 1
-                    offset scaling magnitude: 0
-                    exponent (power): 1
-                - Ranking
-                    minimum ranking
-                    maximum ranking
-                    is minimum ranking open: false
-                    is maximum ranking open: false
+                        is integer: No
+                        offset scaling magnitude
+                            - 0
+                                is integer: Yes
+                            - ... anything other than 0
+                                is integer: No
+                        numeric base: 10
+                        is signed: true
+                        relative zero point
 
-                - Refinement
-            data type
-                Numeric
-                    - Amount
-                        - Cyclomatic Complexity
-                        - Lines Of Code
-                    - Current
-                        - Amps
-                        - ...
-                    - Length
-                        - Meter
-                        - ...
-                    - Light
-                        - Candela
-                        - ...
-                    - Mass
-                        - Kilogram
-                        - ...
-                    - Temperature Unit
-                        - Kelvin
-                        - ...
-                    - Time
-                        - Second
-                        - ...
-                    - ...
-                    is integer: No
+                    - Text (characters)
+                    - Audio
+                    - Video
+                    - Image
+                    - Ignore
                     offset scaling magnitude
-                        - 0
-                            is integer: Yes
-                        - ... anything other than 0
-                            is integer: No
+                    numeric base
                     numeric base: 10
                     is signed: true
-                    relative zero point
-
-                - Text (characters)
-                - Audio
-                - Video
-                - Image
-                - Ignore
-                offset scaling magnitude
-                numeric base
-                numeric base: 10
-                is signed: true
-                multiplier measurement
-                minimum number of elements: 1
-                maximum number of elements (length): 1
-                    - 1
-                    - container
-                        - 2
+                    multiplier measurement
+                    minimum number of elements: 1
+                    maximum number of elements (length): 1
+                        - 1
+                        - container
+                            - 2
+                            - ...
+                        - stream
+                            end of stream
+                    validation rule
+                        - Valid Value Enumeration
                         - ...
-                    - stream
-                        end of stream
-                validation rule
-                    - Valid Value Enumeration
-                    - ...
-                minimum bit count: 0
-                maximum bit count: infinite
-                is constant value: No
-            superordinate measurement influence
-                - Red
-                - Amber
-                - Green
-                - None
-            instrument
-            author
-            start time
-            updated time
-            updating author
-    Function
-        Objective
-            said of
-        Type
-            not said of
-    Workflow
-        Operation (In Use Item)
-            - Asset
-            - Function
-            - Object
-            - Role
-            - Value
-            is bottleneck: yes
-            is tangible: no
-            useful life: infinite
-            write-off method: not applicable
-            maximum worker pool: 1
-            thread
-                Concurrent (Single-Threading)
-                    - Synchronise
-                    - Reentrant Lock
-                    - Event
-                    - Condition
-                    - Barrier
-                    fixes
-                        - shared state
-                            - delete (design away)
-                            - clamp into single complex (no shared medium)
-                            - coordinate once, offline, by convention
-                            - pass messages and isolate (guard)
-                                - separate service
-                                - hide information
-                            - reduce costs
-                                - free riding
-                                - unreliable channels sacrifice consistency or availability
-                        - externalise
-                            - precompute
-                            - parallelise
-                            - asynchronise
-                            - defer
-                        - add cheaper resources
-                            - diversified copies
-                                - multiversion concurrency
-                                - readers never block writers
-                                - (no lock at all)
-                                - validate on commit only
-                            - buffer ("Slack")
-                                - me
-                                - another party
-                            - fastest gun redundancy
-                                - fire at several replicas and take first answer
-                                - multiple nodes with same data
-                            - optimistic concurrency (speculate then reconcile on rare miss)
+                    minimum bit count: 0
+                    maximum bit count: infinite
+                    is constant value: No
+                superordinate measurement influence
+                    - Red
+                    - Amber
+                    - Green
+                    - None
+                instrument
+                author
+                start time
+                updated time
+                updating author
+        Function
+            Objective
+                said of
+            Type
+                not said of
+        Workflow
+            Operation (In Use Item)
+                - Asset
+                - Function
+                - Object
+                - Role
+                - Value
+                is bottleneck: yes
+                is tangible: no
+                useful life: infinite
+                write-off method: not applicable
+                maximum worker pool: 1
+                thread
+                    Concurrent (Single-Threading)
+                        - Synchronise
+                        - Reentrant Lock
+                        - Event
+                        - Condition
+                        - Barrier
+                        fixes
+                            - shared state
+                                - delete (design away)
+                                - clamp into single complex (no shared medium)
+                                - coordinate once, offline, by convention
+                                - pass messages and isolate (guard)
+                                    - separate service
+                                    - hide information
+                                - reduce costs
+                                    - free riding
+                                    - unreliable channels sacrifice consistency or availability
+                            - externalise
+                                - precompute
+                                - parallelise
+                                - asynchronise
+                                - defer
+                            - add cheaper resources
+                                - diversified copies
+                                    - multiversion concurrency
+                                    - readers never block writers
+                                    - (no lock at all)
+                                    - validate on commit only
+                                - buffer ("Slack")
+                                    - me
+                                    - another party
+                                - fastest gun redundancy
+                                    - fire at several replicas and take first answer
+                                    - multiple nodes with same data
+                                - optimistic concurrency (speculate then reconcile on rare miss)
 
-                        - decorrelate the need (activity based costing)
-                        - satisficing (good enough optimisation of requirements)
-                            - net and clear
-                            - collapse the obligation graph
-                        - outsource dependency to whoever can handle it better
-                        - substitute collateral
-                Asynchronous
-                    wrapped concurrent
-                    waiting for: external instrument
-                    suspension event
-                    awaiting event
-                    wrapped coroutine
-                Parallel (Multithreading)
-                    maximum worker pool: many
-                    is worker pool count known: no
-                    processing rule
-                        - Queue
-                            has lock: yes
-                        - Dedicated
-                            has lock: no
-                        - Semaphore
-                            permit count
-                    is memory shared in pool of workers
-                        - Thread
-                        - Process
-                    risk
-                        - Race Condition
-                        - Deadlock
+                            - decorrelate the need (activity based costing)
+                            - satisficing (good enough optimisation of requirements)
+                                - net and clear
+                                - collapse the obligation graph
+                            - outsource dependency to whoever can handle it better
+                            - substitute collateral
+                    Asynchronous
+                        wrapped concurrent
+                        waiting for: external instrument
+                        suspension event
+                        awaiting event
+                        wrapped coroutine
+                    Parallel (Multithreading)
+                        maximum worker pool: many
+                        is worker pool count known: no
+                        processing rule
+                            - Queue
+                                has lock: yes
+                            - Dedicated
+                                has lock: no
+                            - Semaphore
+                                permit count
+                        is memory shared in pool of workers
+                            - Thread
+                            - Process
+                        risk
+                            - Race Condition
+                            - Deadlock
 
 
-        Time
-            item
-            Milestone
-                interval count: 0
-                Time: 15:00
-                    precision: no seconds
-                    date: today
-                        Date
-                        precision: no time component
-                        Datetime
-                            precision: no seconds
-                        Precise Datetime
-                            precision: microseconds
-            Duration
-                interval count: 1
-            Cycle
-                interval count: 2 or more
+            Time
+                item
+                Milestone
+                    interval count: 0
+                    Time Only: 15:00
+                        precision: no seconds
+                        date: today
+                    Date
+                    precision: no time component
+                    Datetime
+                        precision: no seconds
+                    Precise Datetime
+                        precision: microseconds
+                Duration
+                    interval count: 1
+                Cycle
+                    interval count: 2 or more
 
-            result
-            is done
-            exception
-            start condition
-            interval: 5 seconds
-            timeout
-            polling duration
-            precision: up to minutes
-            displacement from greenwich meridian hours: +0
+                result
+                is done
+                exception
+                start condition
+                interval: 5 seconds
+                timeout
+                polling duration
+                precision: up to minutes
+                displacement from greenwich meridian hours: +0
 
 
 - Function

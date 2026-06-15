@@ -50,6 +50,15 @@ function gcd(a, b) {
 }
 
 // Return { kind, name, value } for one stripped line of content.
+//
+// A colon gives the term on its left a single inline value. What that value
+// is depends on the term: a lowercase term is an attribute, so its value is
+// an Attribute Value (a Default); a capitalised term is a Concept, so its
+// value is the Concept's one inline Example — `Run Command: code ...` is the
+// Concept 'Run Command' described by the single Example 'code ...', all on
+// one line. parse materialises that Example as a child so it is an Example
+// everywhere the tree is read. value is null when there is no colon, and ""
+// when the colon has nothing after it (an empty value, caught in parse).
 function classify(text) {
   if (text.startsWith("...")) return { kind: MAP, name: text.slice(3).trim(), value: null };
   if (text.startsWith("- ")) return { kind: INDIVIDUAL, name: text.slice(2).trim(), value: null };
@@ -63,9 +72,10 @@ function classify(text) {
   if (text.endsWith(")") && text.includes("(")) {
     text = text.slice(0, text.lastIndexOf("(")).trim();
   }
-  if (value !== null) return { kind: DEFAULT, name: text, value };
-  if (text && text[0] >= "a" && text[0] <= "z") return { kind: ATTRIBUTE, name: text, value: null };
-  return { kind: CONCEPT, name: text, value: null };
+  if (text && text[0] >= "a" && text[0] <= "z") {
+    return value !== null ? { kind: DEFAULT, name: text, value } : { kind: ATTRIBUTE, name: text, value: null };
+  }
+  return { kind: CONCEPT, name: text, value };
 }
 
 // Parse text into a tree rooted at the file name (without extension),
@@ -101,13 +111,26 @@ function parse(text, rootName, report) {
       trimmed = "- " + trimmed.slice(1);
     }
     const { kind, name, value } = classify(trimmed);
-    if (kind === DEFAULT && !value) {
+    if (value === "") {
       report.error(line, `'${name}:' has 0 characters after ':', expected a value — supply one or drop the colon`);
     }
     const parent = stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, parent, children: [] };
     parent.children.push(node);
     nodes.push(node);
+    // A capitalised line with a colon is a Concept with one inline Example.
+    // Materialise that Example as a real child, sharing the Concept's line,
+    // so counts, crosslinks and the FCA context all see it as an Example —
+    // the only difference from a '- ' line being that it rode in on the
+    // Concept's own line.
+    if (kind === CONCEPT && value) {
+      const example = {
+        line, depth: depth + 1, kind: INDIVIDUAL, name: value,
+        value: null, parent: node, children: [],
+      };
+      node.children.push(example);
+      nodes.push(example);
+    }
     stack.length = depth + 1;
     stack.push(node);
     prevDepth = depth;
@@ -259,12 +282,16 @@ function verify(root, nodes, report) {
   // nothing and is left to the child-count check; a sub-Concept whose slots
   // differ from its siblings is already set apart. A Map under the genus
   // declares the division intentionally incomplete, so it excuses the group.
-  const slotSignature = (c) =>
-    c.children
+  // A sub-Concept's inline Example is asserted data too, so it counts as a
+  // differentia just as a default value does: `Reload: Ctrl+...` and
+  // `Run: code ...` are told apart by their inline Examples, not position.
+  const slotSignature = (c) => {
+    const slots = c.children
       .filter((k) => k.kind === ATTRIBUTE || k.kind === DEFAULT)
-      .map((k) => (k.kind === DEFAULT ? `${k.name}:${k.value}` : k.name))
-      .sort()
-      .join("\0");
+      .map((k) => (k.kind === DEFAULT ? `${k.name}:${k.value}` : k.name));
+    if (c.value) slots.push(`:${c.value}`);
+    return slots.sort().join("\0");
+  };
   for (const node of all) {
     if (node.children.some((c) => c.kind === MAP)) continue;
     const subConcepts = realChildren(node).filter((c) => c.kind === CONCEPT);

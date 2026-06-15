@@ -32,6 +32,8 @@ Primitive
                 indent: 4 spaces, never tabs
                 encoding: utf-8
                 newline: unix
+            - vsix
+            - json
         Token
             Idea
                 recognise
@@ -92,7 +94,6 @@ Primitive
                         is special value override: Yes
                         predicate: Explained By
             Connection
-
                 Indented Hierarchy
                     ...
                     Place a thing by its nearest kind (genus)
@@ -170,8 +171,8 @@ Primitive
                         scope name: source.aot
                         initialise git repository: Yes
                 Create `TextMate` Grammar
-                    Update file: aot.tmLanguage.json
-                    Update file: language-configuration.json
+                    update file: aot.tmLanguage.json
+                    update file: language-configuration.json
             Make Change
                 Run `python install.py` Command
                     ...
@@ -190,8 +191,8 @@ Primitive
                     Click `...` `More Actions` Button
                     Click DropDown: Update
                     Drag `*.vsix` File Into `Visual Studio Code` Window
-                    Click Button: Install
-                    Click Button: Reload
+                    click button: Install
+                    click button: Reload
                 Upload Changes To GitHub
         Publish File
             Create File
