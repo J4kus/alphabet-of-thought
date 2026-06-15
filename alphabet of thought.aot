@@ -1,7 +1,5 @@
-... the language defined by running it through its own five Primitives
 Primitive
     - Motivation
-        ... why it exists — final cause, for the sake of which
         Knowledge Worker (User)
             - Work out what you mean
             - Others come to mean the same thing you mean
@@ -21,14 +19,20 @@ Primitive
         GitHub
             url: www:github.com
         File
-            extension: aot
-            github: test
-            format: plain text
-            indent: 4 spaces, never tabs
-            encoding: utf-8
-            newline: unix
+            extension
+            github
+            format
+            indent
+            encoding
+            newline
+            - Alphabet of Thought
+                extension: aot
+                github url: test
+                format: plain text
+                indent: 4 spaces, never tabs
+                encoding: utf-8
+                newline: unix
         Token
-            ... what it is made of — an Idea joined to other Ideas by a Connection
             Idea
                 recognise
                 said of
@@ -37,18 +41,10 @@ Primitive
                 Schema (Acting On)
                     said of: True
                     - Concept (Universal Substance)
-                        ... defines a class or type of thing
-                        ... children that partition the parent into subtypes are Concepts
-                        ... defined grouping is a Concept; something you could touch or look up is an Example
-                        ... prefer examples, attributes and defaults over creating new concepts
-                        ... convert raw data into example-attribute-value relationships under a concept
-                        ... most general accurate term possible
                         recognise: first letter is capitalised
                         present in: False
                         example: Human
                     - Attribute (Universal Accident)
-                        ... defines a property that a concept has
-                        ... lowercase properties a concept has, which may have their own children
                         - Essence And Accident
                         - Only Lowercase Characters
                         - Same Slot For Different Frames Means The Slot Has A Dependent Frame
@@ -59,23 +55,14 @@ Primitive
                         said of: True
                         present in: True
                         example: full name
-                        ... every attribute is itself a concept
                 Content (Being Acted Upon)
                     said of: False
-                    ... the acted-upon examples on which true schema stands
                     - Example (Individual Substance)
-                        
-                        ... lists concrete examples of the parent concept or attribute
-                        ... a selection are Examples
-                        ... Most specific accurate term possible
-                        ... Natural Occurring Frame
-                        ... Higher Level Is Better
-                    
                         recognise: must start with dash and space
                         said of: False
                         present in: False
                         is: Content
-                        predicate: Is A Example Of
+                        predicate: Is An Example Of
                         begin
                             - Dash
                             - End of Line
@@ -85,13 +72,7 @@ Primitive
                             - Ellipsis
                             - Boolean
                     - Default Value (Individual Accident)
-                        ... sets the expected or default value for an attribute or concept
-                        ... Fits On One Line
-                        ... Atomic Unicode Data
-                        ... may be used twice
-                            ... Default of A Slot
-                            ... Part Of A Frame To Specify Applicable Content
-                        start: : 
+                        start: :
                         end: End of line
                         recognise: colon separated value
                         said of: False
@@ -104,27 +85,20 @@ Primitive
                         allow special value override: No
                         predicate: Detailed By
                     - Map
-                        ... marks intentionally omitted or incomplete information
-                        ... use a Map to mark intentionally incomplete sections
-                        recognise: starts with ellipsis followed by a description
+                        recognise: starts with ellipsis
                         said of: False
                         begin: ...
                         end: End Of Line
                         is special value override: Yes
                         predicate: Explained By
             Connection
-                
+
                 Indented Hierarchy
-                    ... Decompose further when detail adds meaningful value
+                    ...
                     Place a thing by its nearest kind (genus)
                     Add a qualifier that sets it apart (differentia)
                     - is-a
-                        ... predication, indent a Concept under a term
-                    
-                        
-                            
                     - has-a
-                        ... inheritance, indent an attribute under a term
                     rules
                         - Parent Child
                             - May Have Many First Class Entities
@@ -141,13 +115,11 @@ Primitive
                         - Sibling
                             - All Siblings Have The Same Granularity
                             - Siblings May Have The Same Slot If Default Values Are Different
-                            - New Lines 
-                    
+                            - New Lines
+
                 Same Line Connection
                     - value-is
-                        ... colon after a term
                     - has-another-name
-                        ... parentheses after a term provide an alias
                         begin: (
                         end: )
                         allow special value override: Ellipsis
@@ -158,15 +130,13 @@ Primitive
                             - May Link To Frame
                 Reference to a `not said of` Idea
                     - attribute-is-a-concept
-                        ... attribute name or last words match a Concept name
                         type: Reference
                     - default-is-a-example
-                        ... value matches an example name exactly
                         type: Reference
                     indentation: exactly 4 spaces per level
-       
+
     - Function
-        ... what it is — formal cause, the form and essence
+        ...
         Understand Foundation
             - Alphabet of Human Thought
                 - every concept is reduced to primitive elements
@@ -179,12 +149,12 @@ Primitive
                 - You never think from nothing; every new thought extends structures you already know
                 - Place each thing by its genus, then add the differentia that sets it apart
         Iterate Over Extension
-            ... steps in sequence, not subtypes
+            ...
             Create New Language
-                ... steps in sequence, not subtypes
+                ...
                 Install Dependency
                 Create Yo Code Extension
-                    ... steps in sequence, not subtypes
+                    ...
                     Go To Terminal
                     Change Path To Where You Want To Save The File
                     Type `yo code` Into Terminal
@@ -198,40 +168,34 @@ Primitive
                         language name: alphabet of thought
                         file extension: .aot
                         scope name: source.aot
-                        initialise git repository: Yes 
+                        initialise git repository: Yes
                 Create `TextMate` Grammar
-                    ... steps in sequence, not subtypes
-                    Update "aot.tmLanguage.json" file
-                    Update "language-configuration.json" file
+                    Update file: aot.tmLanguage.json
+                    Update file: language-configuration.json
             Make Change
-                ... steps in sequence, not subtypes
                 Run `python install.py` Command
-                    ... steps in sequence, not subtypes
+                    ...
                     Update Package Version
-                        Update Version Number 
+                        Update Version Number
                             file: package.json
                             attribute: "version"
                         Run `npx @vscode/vsce package` Command
                     Update Local Extension
-                        ... steps in sequence, not subtypes
-                        Run `code --install-extension .\alphabet-of-thought-1.1.2.vsix --force` Command
-                        Reload VS Code (Ctrl+Shift+P → "Developer: Reload Window") for the new version to take effect
+                        Run Command: code --install-extension .\alphabet-of-thought-1.1.2.vsix --force
+                        Reload VS Code For the new version to take effect: Ctrl+Shift+P → "Developer: Reload Window"
                         Verify The New Version Loaded (Extensions panel shows the new version number)
                     Update Remote Extension
                 Make Changes To Marketplace
-                    ... steps in sequence, not subtypes
-                    Go To `https://marketplace.visualstudio.com/manage/publishers/Jakus` Link
+                    Go To Link: https://marketplace.visualstudio.com/manage/publishers/Jakus
                     Click `...` `More Actions` Button
-                    Click `Update` DropDown
+                    Click DropDown: Update
                     Drag `*.vsix` File Into `Visual Studio Code` Window
                     Click Button: Install
                     Click Button: Reload
                 Upload Changes To GitHub
         Publish File
-            ... phases in sequence, not subtypes
             Create File
                 file extension: aot
-                    ... never use tabs
                 - plain text, not prose
                 - a tree, not a diagram
                 - use full words, never abbreviate
@@ -241,29 +205,23 @@ Primitive
                 - Motivation
                 - Network
                 - Function
-                - Timeline
                 - Workflow
             Code Token
                 encode: Token
                 - Ideas
                 - Connections
-                    ... told apart by description, not by data slots
                     Inheritance
-                        ... child concepts and examples inherit all parent essential attributes, never examples
                     Polymorphism
-                        ... child concepts may add essential attributes; examples may add only accidental ones
                     One term, one definition
             Share File
-                
+
     ... To-Do
-    
+
     - Workflow
-        ... what it is built out of and when clarity arrives — material cause
-        
+
         Work Out What You Mean: Asynchronous
             - Create File
                 interval
                 timeout: when file is published
             - Iterate Over Extension
                 worker pool: 1
-

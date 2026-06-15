@@ -5,6 +5,7 @@
 
 
 - Graph
+    ...
     Is Said Of
         Not Said Of
             time
@@ -22,24 +23,17 @@
         Node
             Dependency
                 Independent Node
-                    ... no dependencies to other nodes
-                    
+
                 Dependent Node
                     independent node
-                ... has a dependecy to another node
             Tree (Reoccuring Tree)
-                ... attributes all tree nodes have
                 Parent
-                    ... attributes only parent tree nodes have
                 Child
                     tree
-                    ... attributes only child tree nodes have
             Star (Flat Tree)
                 Root
-                    ... attributes only parent has
                 Peripheral
                     root
-                    ... attributes only children have
                 Remote
                     first peripheral
                     second peripheral
@@ -47,15 +41,16 @@
                     first peripheral
                     second peripheral
                     node (control)
+            ...
         Edge
 
             Directional Edge
-                from node 
+                from node
                 to node
             Non Directional Edge (Many To Many Dependency)
                 first node
                 second node
-            
+        ...
     Motiviation
         Beneficiary
             said of
@@ -93,15 +88,11 @@
                     stereotype
                 - Formula
                     - Arithmetic
-                        ... combines two dimensional measures
-                        - Addition
-                            ... Sum
+                        - Addition (Sum)
                         - Subtraction
-                        - Multiplication
-                            ... Product
+                        - Multiplication (Product)
                         - Division
                             - Ratio
-                                ... a binary measure specifically for ratios
                             - ...
                         - ...
                     - Statistical
@@ -118,27 +109,18 @@
                     grade interval minimum
                     grade interval maximum
                     number of grades
-                    ... maps a dimensional measure to symbolic grades via intervals
                 - Rescaled Measurement
                     - Fahrenheit to Celsius
-                    ... declares two measures produce semantically equivalent results, with a mapping operation that defines the conversion between them. Useful when different tools or teams define the same metric differently and you need to declare they're interchangeable.
                     multiplier measurement: 1
                     offset scaling magnitude: 0
-                    ... takes base Unit and scaling factor to create new unit of same dimensionality
-                    ... Example: gram as 0.001 of kilogram
                     exponent (power): 1
-                    ... raises a Unit to a given power
-                    ... signed to provide division via negative
                 - Ranking
                     minimum ranking
                     maximum ranking
                     is minimum ranking open: false
                     is maximum ranking open: false
-                    ... maps a dimensional measure to discrete rank values via intervals
-                
+
                 - Refinement
-                    ... indicates one measure is a more detailed version of another. The measures share the same trait but at different granularity
-                    ... Think "revenue by region" refining "total revenue".
             data type
                 Numeric
                     - Amount
@@ -164,7 +146,6 @@
                         - ...
                     - ...
                     is integer: No
-                    ... any single dimensional numeric value
                     offset scaling magnitude
                         - 0
                             is integer: Yes
@@ -173,16 +154,12 @@
                     numeric base: 10
                     is signed: true
                     relative zero point
-                        ... establishes quantity as relative measure
-                        ... Individual: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
-                    
-                - Text
-                    ... characters
+
+                - Text (characters)
                 - Audio
                 - Video
                 - Image
                 - Ignore
-                    ... skip these bits
                 offset scaling magnitude
                 numeric base
                 numeric base: 10
@@ -191,16 +168,11 @@
                 minimum number of elements: 1
                 maximum number of elements (length): 1
                     - 1
-                        ... quantity
                     - container
-                        ... more than one
                         - 2
                         - ...
                     - stream
-                        ... unknown quantity
                         end of stream
-                            ... signifier for simple value streams
-                            ... for complex streams like video or audio, use reference to external specification
                 validation rule
                     - Valid Value Enumeration
                     - ...
@@ -237,21 +209,15 @@
             thread
                 Concurrent (Single-Threading)
                     - Synchronise
-                        ... only one thread may hold it at a time
                     - Reentrant Lock
-                        ... the holding thread may acquire it repeatedly
                     - Event
-                        ... one thread sets a flag, others wait on it
                     - Condition
-                        ... a thread waits until another notifies it
                     - Barrier
-                        ... releases all parties together once the count arrives
                     fixes
                         - shared state
                             - delete (design away)
                             - clamp into single complex (no shared medium)
                             - coordinate once, offline, by convention
-                                ... not at runtime
                             - pass messages and isolate (guard)
                                 - separate service
                                 - hide information
@@ -264,7 +230,6 @@
                             - asynchronise
                             - defer
                         - add cheaper resources
-                            ... the bill arrives later
                             - diversified copies
                                 - multiversion concurrency
                                 - readers never block writers
@@ -277,7 +242,7 @@
                                 - fire at several replicas and take first answer
                                 - multiple nodes with same data
                             - optimistic concurrency (speculate then reconcile on rare miss)
-                                
+
                         - decorrelate the need (activity based costing)
                         - satisficing (good enough optimisation of requirements)
                             - net and clear
@@ -300,17 +265,14 @@
                             has lock: no
                         - Semaphore
                             permit count
-                            ... allows a fixed number of threads through at once
                     is memory shared in pool of workers
                         - Thread
                         - Process
                     risk
                         - Race Condition
-                            ... unsynchronised access to shared memory corrupts state
                         - Deadlock
-                            ... two threads each wait on a lock the other holds
-            
-            
+
+
         Time
             item
             Milestone
@@ -328,8 +290,7 @@
                 interval count: 1
             Cycle
                 interval count: 2 or more
-                ... most expensive
-            
+
             result
             is done
             exception
@@ -339,7 +300,7 @@
             polling duration
             precision: up to minutes
             displacement from greenwich meridian hours: +0
-            
+
 
 - Function
     Improve Understand
@@ -360,4 +321,3 @@
         - ...
     ...
 - Operation
-    

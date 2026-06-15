@@ -100,9 +100,9 @@ The restriction is deliberate: like a type system, one parent per idea forces yo
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
 | **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Person (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
 | **has-Example** | Indent Dash prefix after a term | Indented | `Person` → indent → `- Gottfried Wilhelm Leibniz` | |
-| **maps-to** | Indent `...` followed by a description under a token | Indented | `... Especially useful for describing terms or recording supplementary information` | Marks intentionally omitted or incomplete information; normal and accepted | 
-| **attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
-| **default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Example | |
+| **Maps-to** | Indent `...` followed by a note under a token | Indented | `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never a plain description of the line above it**. To explain or rename a term, use a `(parentheses)` alias instead. | 
+| **Attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
+| **Default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `person: Gottfried Wilhelm Leibniz`, where the value references the Example | |
 
 ## Rules the tooling checks
 
@@ -118,7 +118,7 @@ Everything below is enforced mechanically by the same linter, whether you run `n
 | 4 | **Well-formed Example** | A line starting with `-` but not `- ` (exactly one space after the dash). |
 | 5 | **No empty default** | `name:` with nothing after the colon. Supply a value or drop the colon. |
 | 6 | **Do not repeat the file name** | A top-level line whose name equals the file name. The file name is already the root Concept. |
-| 7 | **A Map holds only Maps** | A `...` Map node with any non-Map child. A Map marks omitted information; it does not contain content. |
+| 7 | **A Map holds only Maps** | A `...` Map node with any non-Map child. A Map marks omitted, todo, or low-confidence information; it never describes its parent and does not contain content. |
 | 8 | **No "and" in a Concept** | A Concept name containing the word `and` — that is two kinds under one prime. Split it. |
 | 9 | **Univocity** | The same Concept name defined more than once. One name, one prime; a recurrence needs a distinguishing qualifier prefix. |
 | 10 | **No identical siblings** | Two children of one parent with the same kind, name, **and** value. Siblings may share a slot only if their default values differ. |
@@ -136,7 +136,7 @@ Everything below is enforced mechanically by the same linter, whether you run `n
 | 6 | **No lone sub-Example** | An Example with exactly one sub-Example, by the same reasoning. |
 | 7 | **Differentia** | Two or more sibling sub-Concepts with an identical attribute/default *slot signature* — they are told apart by position only. Give each a distinguishing attribute or default. |
 
-A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten.
+A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten. A Map says *what is still missing, a todo, or uncertain* — it is never a description of the line above it (use a `(parentheses)` alias to name or explain a term).
 
 ### Hints — no squiggle, advisory (the `--suggest` Formal Concept Analysis audit)
 
@@ -203,18 +203,16 @@ The following rules govern how Alpha handles inheritance, incomplete models, and
 Parent
     essential parent attribute: normal value
     Child
-        ... inherits `essential parent attribute:` and `normal value` from Parent
         essential child attribute not in parent
         - Child Example
             essential parent attribute: new value
-                ... `- Child Example` overrides `normal value` from `attribute` and replaces it with `new value`
             essential child attribute not in parent: value
-                ... `- Child Example` assigns a default
             child example attribute
-                ... `- Child Example` adds a `child example attribute` that isn't present in the `Child` Concept
-        ... Generally in Alpha there is more than one example per concept
-    ... Generally in Alpha there is more than one child per parent
+        ... generally there is more than one example per Concept
+    ... generally there is more than one child per parent
 ```
+
+`Child` inherits `essential parent attribute: normal value` from `Parent`. The `- Child Example` overrides that inherited value with `new value`, assigns a default to `essential child attribute not in parent`, and adds `child example attribute` — an accidental attribute not present in the `Child` Concept. (The two `...` lines mark the example as deliberately incomplete, which is the only thing a Map does.)
 
 ## Primitives
 
@@ -257,8 +255,7 @@ Example
 - Motivation
     last update time: 2026-03-31
     measurement interval: Quarterly
-    Mike
-        ... looking after sales
+    Mike (Sales)
         - revenue growth
             actual: 5%
             target: 20%
@@ -290,8 +287,7 @@ Example
             - last year revenue
                 actual: $100M
 
-    John
-        ... looking after development
+    John (Development)
         - Functionality
             actual: C
             target: A
@@ -343,7 +339,6 @@ Beneficiary
         nickname
         tax number
 Measurement
-    ... of Quality and Quantity
     beneficiary
     superordinate measurement: None
     name
@@ -356,15 +351,11 @@ Measurement
             stereotype
         - Formula
             - Arithmetic
-                ... combines two dimensional measures
-                - Addition
-                    ... Sum
+                - Addition (Sum)
                 - Subtraction
-                - Multiplication
-                    ... Product
+                - Multiplication (Product)
                 - Division
                     - Ratio
-                        ... a binary measure specifically for ratios
                 - ...
             - Statistical
                 - Maximum
@@ -380,29 +371,19 @@ Measurement
             grade interval minimum
             grade interval maximum
             number of grades
-            ... maps a dimensional measure to symbolic grades via intervals
         - Ranking
             minimum ranking
             maximum ranking
             is minimum ranking open: false
             is maximum ranking open: false
-            ... maps a dimensional measure to discrete rank values via intervals
         - Rescaling
             - Fahrenheit to Celsius
-            ... declares two measures produce semantically equivalent results, with a mapping operation that defines the conversion between them. Useful when different tools or teams define the same metric differently and you need to declare they're interchangeable.
             multiplier measurement: 1
             offset scaling magnitude: 0
-            ... takes base Unit and scaling factor to create new unit of same dimensionality
-            ... Example: gram as 0.001 of kilogram
             exponent (power)
-            ... raises a Unit to a given power
-            ... signed to provide division via negative
         - Refinement
-            ... indicates one measure is a more detailed version of another. The measures share the same trait but at different granularity
-            ... Think "revenue by region" refining "total revenue".
     data type
         - Numeric
-            ... any single dimensional numeric value
             offset scaling magnitude
                 - 0
                     is integer: Yes
@@ -411,8 +392,6 @@ Measurement
             numeric base: 10
             is signed: true
             relative zero point
-                ... establishes quantity as relative measure
-                ... Example: thermostat reporting 25 degree Celsius zero point to use bit space for plus or minus 10 degree Celsius
             - Amount
                 - Cyclomatic Complexity
                 - Lines Of Code
@@ -429,26 +408,19 @@ Measurement
             - Time
                 - Second
             - ...
-        - Text
-            ... characters
+        - Text (Characters)
         - Audio
         - Video
         - Image
         - Ignore
-            ... skip these bits
         minimum number of elements: 1
         maximum number of elements (length): 1
             - 1
-                ... quantity
             - container
-                ... more than one
                 - 2
                 - ...
-            - stream
-                ... unknown quantity
+            - stream (unknown quanity)
                 end of stream
-                    ... signifier for simple value streams
-                    ... for complex streams like video or audio, use reference to external specification
         validation rule
             - Valid Value Enumeration
             - ...

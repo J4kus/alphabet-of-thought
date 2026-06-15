@@ -45,6 +45,9 @@ Z
 - Remove attributes that do not serve the model
 
 ## Language / spec
+- [ ] Tell about the ~ in the readmin
+- [ ] Remove the tables from the language (rather use links)
+- [ ] 
 - [ ] All attributes have a has-a relationshio with more attributes for metadata and complex composite concepts directly in the attribute
 - [ ] Allow negation inside the language
 - [ ] Do not use maps for extra info; use aliases instead
@@ -52,7 +55,7 @@ Z
 - [ ] See if the CLI/linter can do extra arithmetic (beyond `--ask`, `--genus`, `--number`)
 
 ## Linter / diagnostics
-- [ ] Exclude words ending in "us" from plural detection
+- [X] Exclude words ending in "us" from plural detection
 - [ ] Make example/value matching not capitalisation-specific 
 - [ ] `default-is-a-Individual` now requires the Individual to instantiate the attribute being valued: some ancestor of the Individual must carry the attribute's name (or a trailing run of its words, the alias rule). `exponent: 1` no longer links to an unrelated `- 1` filed under another attribute; the same guard applies to the FCA value-ancestry expansion
 - [x] Enforce a sub-Concept cap per parent (landed as: at most eight sub-Concepts; Individuals and attributes unlimited — replaces the old twelve-children-of-any-kind warning)
