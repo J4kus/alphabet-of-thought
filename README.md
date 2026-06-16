@@ -53,10 +53,12 @@ Filling a schema with content helps to understand the schema. *Content*, the act
 | Idea Type | How to Recognise | Purpose | Example | Said of (S) | Present in (P) |
 |-----------|------------------|---------|---------|-------------|----------------|
 | **Example** (Individual Substance) | **Must** start with `- ` (dash + space) | Lists concrete Examples (instances) of the parent Concept or attribute, rather than a single Attribute Value. The `- ` prefix is what makes a line an Example. Without it, a lowercase line is always an attribute | `- Socrates` | **False (~S)** | **False (~P)** |
-| **Attribute Value** (Individual Accident) | `attribute: value` — a **lowercase** term before the colon | Sets the expected/Attribute Value for an attribute | `colour: red` | **False (~S)** | **True (P)** | 
-| **Inline Example** (Individual Substance) | `Concept: value` — a **capitalised** term before the colon | Gives the Concept one Example on the same line — shorthand for a single `- value` child, so it reads as an Example everywhere (counts, crosslinks, FCA) | `Run Command: code --install …` | **False (~S)** | **False (~P)** | 
+| **Attribute Value** (Individual Accident) | The `value` after the colon in `attribute: value`; the term before the colon is **lowercase** | The concrete value an attribute takes. An `attribute: value` line is **two** ideas — the attribute (`colour`) and the value (`red`) that descends from it — written on one line, not one combined thing | `colour: red` (the value `red`, under the attribute `colour`) | **False (~S)** | **True (P)** | 
+| **Inline Example** (Individual Substance) | `Concept: value` — a **capitalised** term before the colon | The capitalised term stays a **regular Concept**; the colon just defines its single Example inline, instead of listing many as separate `- value` children. It reads as an Example everywhere (counts, crosslinks, FCA) | `Run Command: code --install …` | **False (~S)** | **False (~P)** | 
 
+An `attribute: value` line is shorthand for **two** ideas, not one. `colour: red` says the attribute `colour` — a universal accident the Concept *has* — takes the individual value `red`. The inheritance runs **Concept/Example → attribute → value**: the value descends from its attribute, and the attribute from the idea that carries it. The value never descends from the Example directly, and `colour` is not part of the value's name — the attribute and its value merely share a line.
 
+A `Concept: value` line is the same shorthand on the Substance side. The capitalised term stays an ordinary **Concept**; `value` is one Example of it — exactly what a `- value` child would be — written inline because there is only the one, rather than many. The inheritance runs **Concept → Example**, just as with a dashed child.
 
 #### How to Decide: Concept vs Example vs Attribute
 
@@ -139,7 +141,7 @@ Everything below is enforced mechanically by the same linter, whether you run `n
 | 4 | **At most eight sub-Concepts** | More than eight sub-Concepts under one node. Group some under an intermediate kind. (Examples and attributes may be any quantity.) |
 | 5 | **No lone sub-Concept** | A Concept with exactly one sub-Concept — a kind with one subtype *is* that subtype. Have zero, or more than one. |
 | 6 | **No lone sub-Example** | An Example with exactly one sub-Example, by the same reasoning. |
-| 7 | **Differentia** | Two or more sibling sub-Concepts with an identical attribute/default *slot signature* — they are told apart by position only. Give each a distinguishing attribute or default. |
+| 7 | **Differentia** | Two or more sibling sub-Concepts with an identical attribute/default *slot signature* — they are told apart by position only. Give each a distinguishing attribute or default. A sub-Concept that asserts no slot at all is excused: with no attributes its `...` is implied, so its differentia is still to come. |
 
 A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten. A Map says *what is still missing, a todo, or uncertain* — it is never a description of the line above it (use a `(parentheses)` alias to name or explain a term).
 

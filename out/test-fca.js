@@ -1,6 +1,6 @@
 // Smoke test for the FCA mode (src/fca.js): build small in-memory .aot
-// fixtures, run suggest(), and check the proposed / drift / exhaustion
-// findings and the override semantics of the formal context.
+// fixtures, run suggest(), and check the drift / exhaustion findings
+// and the override semantics of the formal context.
 const fs = require("fs");
 const { lint } = require("../src/linter");
 const { suggest, buildContext } = require("../src/fca");
@@ -11,7 +11,7 @@ function check(name, ok) {
   if (!ok) failures++;
 }
 
-// 1) proposed: Whale and Bat share an attribute no Concept names
+// 1) confirmed: Fish and Bird are exactly formal concepts in the lattice
 const zoo = [
   "Fish",
   "    lives in water",
@@ -28,15 +28,6 @@ const zoo = [
   const { root, nodes, errors } = lint(zoo, "Animal");
   check("zoo fixture parses clean", errors.length === 0);
   const report = suggest(root, nodes);
-  const proposed = report.findings.filter((f) => /^proposed:/.test(f.message));
-  check(
-    "proposed grouping { - Whale, - Bat } by 'bears live young'",
-    proposed.some((f) => f.message.includes("- Whale") && f.message.includes("- Bat") && f.message.includes("bears live young")),
-  );
-  check(
-    "a bare shared attribute also offers promotion to the nearest Concept",
-    proposed.some((f) => f.message.includes("declare { bears live young } under")),
-  );
   check("Fish and Bird confirmed by the lattice", report.confirmed.includes("Fish") && report.confirmed.includes("Bird"));
 }
 
@@ -117,11 +108,6 @@ const schema = [
     "growth's 'operation: Ratio' expands to 'operation: Formula' via the Example's ancestry",
     intents.get(growth).has("operation: formula") && intents.get(growth).has("operation: arithmetic"),
   );
-  const report = suggest(root, nodes);
-  check(
-    "proposed grouping { - growth, - size } by the shared Formula ancestry",
-    report.findings.some((f) => /^proposed:/.test(f.message) && f.message.includes("- growth") && f.message.includes("- size") && !f.message.includes("- count")),
-  );
 }
 
 // 5) attribute-is-a-Concept: an attribute whose trailing words name a
@@ -144,34 +130,7 @@ const typed = [
   );
 }
 
-// 6) differentia: a Concept adding nothing beyond its ancestor is
-// flagged — unless a Map child declares it intentionally incomplete
-const undivided = [
-  "Fish",
-  "    lives in water",
-  "    Pond Fish",
-  "        - Trout",
-  "        - Carp",
-  "    Sea Fish",
-  "        ...",
-  "        - Salmon",
-  "        - Cod",
-].join("\n");
-{
-  const { root, nodes, errors } = lint(undivided, "Zoo");
-  check("undivided fixture parses clean", errors.length === 0);
-  const report = suggest(root, nodes);
-  check(
-    "differentia: 'Pond Fish' flagged for adding nothing beyond 'Fish'",
-    report.findings.some((f) => /^differentia: 'Pond Fish'/.test(f.message)),
-  );
-  check(
-    "'Sea Fish' not flagged: its Map child declares it incomplete",
-    !report.findings.some((f) => f.message.includes("'Sea Fish'")),
-  );
-}
-
-// 7) the reference file runs without throwing and reports a context
+// 6) the reference file runs without throwing and reports a context
 {
   const text = fs.readFileSync("alphabet of thought.aot", "utf-8");
   const { root, nodes } = lint(text, "alphabet of thought");

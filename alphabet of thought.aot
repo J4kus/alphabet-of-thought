@@ -31,7 +31,6 @@ Primitive
             indent
             encoding
             newline
-            
         Token
             Idea
                 recognise

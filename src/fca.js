@@ -9,7 +9,6 @@
 // lattice:
 //
 //     confirmed   a Concept's Examples are exactly a formal concept
-//     proposed    a formal concept no hand-written Concept names
 //     drift       an Example shares a Concept's full intent but is
 //                 filed elsewhere
 //     exhaustion  sub-Concepts must cover the parent's Examples by
@@ -140,23 +139,12 @@ function computeConcepts(objects, intents) {
 // are { line, message } sorted by line; or { tooFew: true } when there
 // are fewer than two Examples to analyse.
 function suggest(root, nodes) {
-  const { objects, intents, directs, display } = buildContext(root, nodes);
+  const { objects, intents, display } = buildContext(root, nodes);
   if (objects.length < 2) {
     return { objects: objects.length, columns: display.size, concepts: 0, confirmed: [], findings: [], tooFew: true };
   }
   const lattice = computeConcepts(objects, intents);
   const extKey = (extent) => extent.map((g) => g.line).join(",");
-  const show = (keys) => {
-    const named = keys.map((k) => display.get(k));
-    return named.length > 5 ? `${named.slice(0, 5).join(", ")}, …` : named.join(", ");
-  };
-  const members = (extent) => {
-    const names = extent.map((g) => `- ${g.name}`);
-    const shown = names.length > 6
-      ? `${names.slice(0, 6).join(", ")} … and ${names.length - 6} more`
-      : names.join(", ");
-    return `{ ${shown} }`;
-  };
 
   // Each hand-written Concept's extent (Examples beneath it, by
   // divisibility) and intent (what those Examples all share)
@@ -181,46 +169,13 @@ function suggest(root, nodes) {
 
   const findings = [];
 
-  // proposed: formal concepts no hand-written Concept names
-  const allKey = extKey(objects);
-  for (const fc of lattice) {
-    const k = extKey(fc.extent);
-    if (fc.extent.length < 2 || k === allKey || namedExtents.has(k) || !fc.intent.size) continue;
-    let nearest = null;
-    for (const [c, info] of infos) {
-      if (fc.extent.every((g) => info.extent.includes(g))) {
-        if (!nearest || info.extent.length < infos.get(nearest).extent.length) nearest = c;
-      }
-    }
-    const distinguishing = nearest
-      ? [...fc.intent].filter((a) => !infos.get(nearest).intent.has(a))
-      : [...fc.intent];
-    if (!distinguishing.length) continue;
-    const line = Math.min(...fc.extent.map((g) => g.line));
-    // when no member declares the shared columns itself, the grouping
-    // is an echo of the parents' declarations: the shared essence
-    // belongs one level up, not to a new Concept over the Examples
-    const inheritedOnly = fc.extent.every((g) => distinguishing.every((k) => !directs.get(g).has(k)));
-    const what = `proposed: ${fc.extent.length} Examples all carry { ${show(distinguishing)} } but no Concept groups them: ${members(fc.extent)}`;
-    // a bare attribute (no value) can also be promoted: declared on the
-    // Concept it becomes essential, and every Example inherits it
-    const bare = distinguishing.filter((k) => !k.includes(": "));
-    const promote = nearest && bare.length
-      ? `; or, if every Example of '${nearest.name}' should carry ${bare.length === 1 ? "it" : "them"}, declare { ${show(bare)} } under '${nearest.name}' itself, making it essential`
-      : "";
-    const act = inheritedOnly
-      ? `they only inherit this from their parents, so the shared essence belongs to the parents — name or promote it at that level, not here`
-      : `if this is a real kind, name a Concept for it${nearest ? ` under '${nearest.name}'` : ""}${promote}; if it is coincidence, ignore it`;
-    findings.push({ line, message: `${what} — ${act}` });
-  }
-
   // a Map child marks a node intentionally incomplete, as in the
   // linter: what is missing is declared, not forgotten, so don't flag it
   const incomplete = (n) => n.children.some((c) => c.kind === MAP);
 
-  // differentia: a Concept whose Examples share nothing beyond what
-  // its ancestor's already share is, by data, a grouping by position
-  // only — drift toward it would be vacuous, so say that once instead
+  // vacuous: a Concept whose Examples share nothing beyond what its
+  // ancestor's already share adds no attribute of its own, so drift
+  // toward it would be meaningless — the drift check below skips it
   const ancestorOf = (c) => {
     for (let a = c.parent; a; a = a.parent) {
       if (a.kind === CONCEPT && infos.has(a)) return a;
@@ -231,14 +186,7 @@ function suggest(root, nodes) {
   for (const [c, info] of infos) {
     if (c === root) continue;
     const anc = ancestorOf(c);
-    if (anc && setKey(info.intent) === setKey(infos.get(anc).intent)) {
-      vacuous.add(c);
-      if (incomplete(c)) continue;
-      findings.push({
-        line: c.line,
-        message: `differentia: '${c.name}' adds no attribute beyond '${anc.name}' — by data its Examples are grouped by position only; give '${c.name}' an attribute its siblings lack, or accept that the data cannot check this split`,
-      });
-    }
+    if (anc && setKey(info.intent) === setKey(infos.get(anc).intent)) vacuous.add(c);
   }
 
   // drift: an Example that satisfies a Concept's full intent but

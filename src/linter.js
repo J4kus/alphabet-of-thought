@@ -285,6 +285,9 @@ function verify(root, nodes, report) {
   // A sub-Concept's inline Example is asserted data too, so it counts as a
   // differentia just as a default value does: `Reload: Ctrl+...` and
   // `Run: code ...` are told apart by their inline Examples, not position.
+  // A sub-Concept that asserts no slot at all has an implied `...`: with no
+  // attributes there is nothing yet to tell it apart, so its differentia is
+  // still to come, exactly as a Map would declare — it is excused.
   const slotSignature = (c) => {
     const slots = c.children
       .filter((k) => k.kind === ATTRIBUTE || k.kind === DEFAULT)
@@ -299,6 +302,7 @@ function verify(root, nodes, report) {
     const groups = new Map();
     for (const c of subConcepts) {
       const key = slotSignature(c);
+      if (!key) continue; // no attributes: the `...` is implied, differentia still to come
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(c);
     }
