@@ -217,9 +217,29 @@ Primitive
 
     - Workflow
 
-        Work Out What You Mean: Asynchronous
+        Work Out What You Mean
+            thread: Asynchronous
             - Create File
                 interval
                 timeout: when file is published
             - Iterate Over Extension
                 worker pool: 1
+    Animal
+        lives: land
+        blood temparature: hot
+        gives milk: no
+        lays eggs: no
+        Mammal
+            blood temparature: hot
+            gives milk: yes
+            Whale
+                lives: Water
+                blood temparature: hot
+                gives milk: yes
+            Human
+                lives: Land
+        Fish
+            lays eggs: ys
+            lives: water
+            blood temparature: hot
+            gives milk: yes

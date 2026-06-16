@@ -10,6 +10,13 @@
 //
 // The file is valid if and only if the violation count V = 0.
 //
+// On top of the arithmetic, a subsumption reasoner (subsumption.js) derives
+// the hierarchy a second time from each Concept's declared facts and holds
+// the written tree to it: a misfiled Concept (its attributes are another
+// Concept's), two kinds under one name, a shared definition or a cycle are
+// errors that count toward V. The single-inheritance check that primes once
+// only restated is now proved by the reasoner.
+//
 // Shared by the CLI (verify.js) and the VS Code extension (extension.js).
 
 const INDENT = 4;
@@ -213,15 +220,11 @@ function verify(root, nodes, report) {
     }
   }
 
-  // Single inheritance: gcd of any two siblings is exactly the parent
-  for (const node of all) {
-    const kids = realChildren(node);
-    for (let i = 1; i < kids.length; i++) {
-      if (gcd(kids[i - 1].chi, kids[i].chi) !== node.chi) {
-        report.error(kids[i].line, `gcd(chi('${kids[i - 1].name}'), chi('${kids[i].name}')) != chi('${node.name}') — siblings do not share exactly one parent`);
-      }
-    }
-  }
+  // Single inheritance used to be checked here as gcd(chi(A), chi(B)) ==
+  // chi(parent) for siblings. With a fresh unique prime per node that holds
+  // by construction — it never fired. The subsumption reasoner now verifies
+  // single inheritance for real (one most-specific genus per Concept), so
+  // the tautology is gone.
 
   // Always singular form: 'Person' not 'People'. A suffix heuristic, so a
   // warning: it catches 'Persons' and 'Categories', not irregulars.
@@ -324,8 +327,20 @@ function lint(text, rootName) {
   const { root, nodes } = parse(text, rootName, report);
   number(root, nodes);
   verify(root, nodes, report);
+  // Required lazily: subsumption.js reads KIND from this module, so a
+  // top-level require would be circular (as it is for crosslinks.js). The
+  // reasoner is authoritative: a Concept the definitions place elsewhere is
+  // an error, counted in V, so primes only cache a hierarchy it has cleared.
+  const { subsume } = require("./subsumption");
+  const sub = subsume(root, nodes);
+  for (const { line, message } of sub.findings) report.error(line, message);
   const byLine = (a, b) => a.line - b.line;
-  return { root, nodes, errors: report.errors.sort(byLine), warnings: report.warnings.sort(byLine) };
+  return {
+    root, nodes,
+    errors: report.errors.sort(byLine),
+    warnings: report.warnings.sort(byLine),
+    subsumption: { edges: sub.edges, consistent: sub.findings.length === 0 },
+  };
 }
 
 module.exports = {

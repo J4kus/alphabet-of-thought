@@ -36,7 +36,7 @@ function main() {
   }
   const file = args[0];
   const rootName = path.basename(file).replace(/\.[^.]*$/, "");
-  const { root, nodes, errors, warnings } = lint(fs.readFileSync(file, "utf-8"), rootName);
+  const { root, nodes, errors, warnings, subsumption } = lint(fs.readFileSync(file, "utf-8"), rootName);
 
   let i;
   if ((i = args.indexOf("--ask")) !== -1) {
@@ -90,6 +90,7 @@ function main() {
   for (const { line, message } of warnings) console.log(`${file}:${line}: warning: ${message}`);
   const v = errors.length;
   console.log(`\n${nodes.length} nodes, ${nodes.length} edges, largest prime ${nodes[nodes.length - 1].prime}, violations V = ${v}`);
+  console.log(`subsumption: ${subsumption.edges} derived is-a edges, hierarchy ${subsumption.consistent ? "consistent" : "inconsistent"}`);
   console.log(`V = 0: ${v === 0 ? "true — the file verifies" : "FALSE"}`);
   process.exit(v ? 1 : 0);
 }
