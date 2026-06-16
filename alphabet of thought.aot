@@ -20,20 +20,18 @@ Primitive
             url: www:github.com
         File
             extension
-            github
+                - aot
+                    format: plain text
+                    indent: 4 spaces, never tabs
+                    encoding: utf-8
+                    newline: unix
+                - vsix
+                - json
             format
             indent
             encoding
             newline
-            - Alphabet of Thought
-                extension: aot
-                github url: test
-                format: plain text
-                indent: 4 spaces, never tabs
-                encoding: utf-8
-                newline: unix
-            - vsix
-            - json
+            
         Token
             Idea
                 recognise
@@ -170,7 +168,7 @@ Primitive
                         file extension: .aot
                         scope name: source.aot
                         initialise git repository: Yes
-                Create `TextMate` Grammar
+                Create Grammar: TextMate
                     update file: aot.tmLanguage.json
                     update file: language-configuration.json
             Make Change
@@ -190,7 +188,7 @@ Primitive
                     Go To Link: https://marketplace.visualstudio.com/manage/publishers/Jakus
                     Click `...` `More Actions` Button
                     Click DropDown: Update
-                    Drag `*.vsix` File Into `Visual Studio Code` Window
+                    Drag Vsix File Into Visual Studio Code Window
                     click button: Install
                     click button: Reload
                 Upload Changes To GitHub

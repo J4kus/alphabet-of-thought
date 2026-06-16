@@ -1,6 +1,10 @@
 - Motivation
     Author
-        - think clearly about subject means thinking about whys
+        - think clearly about subject means
+        - thinking that can transform the world
+        - ...
+        uses: alphabet of thought
+
 
 
 
@@ -25,7 +29,6 @@
             Node
                 Dependency
                     Independent Node
-
                     Dependent Node
                         independent node
                 Tree (Reoccuring Tree)
@@ -45,7 +48,6 @@
                         node (control)
                 ...
             Edge
-
                 Directional Edge
                     from node
                     to node
@@ -54,7 +56,9 @@
                     second node
             ...
         Motiviation
-            Beneficiary
+            Stakeholder
+                interest (How much the stakeholder cares about the outcome)
+                influence  (Their ability to affect decisions, resources, or outcomes)
                 said of
                 Human (Natural Person)
                     - Jakus
@@ -195,8 +199,13 @@
                 updated time
                 updating author
         Function
+            consume
+            produce
             Objective
                 said of
+                - Draw Architecture
+                    consume measurement
+                    produce graph
             Type
                 not said of
         Workflow
@@ -282,14 +291,14 @@
                 item
                 Milestone
                     interval count: 0
-                    Time Only: 15:00
+                    Time Only: 12:00
                         precision: no seconds
-                        date: today
-                    Date
+                        date
+                    Date: Today
                     precision: no time component
-                    Datetime
+                    Datetime: 12:00 Today
                         precision: no seconds
-                    Precise Datetime
+                    Precise Datetime: 12:00:00:000 Today
                         precision: microseconds
                 Duration
                     interval count: 1
@@ -310,6 +319,7 @@
 - Function
     Improve Understand
         - Individual
+            ...
             Define Subject
             Understand Unconcious Incompentence About Subject
             Decide To Understand It Better
@@ -325,4 +335,4 @@
             ...
         - ...
     ...
-- Operation
+- Workflow

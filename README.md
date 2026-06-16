@@ -95,6 +95,8 @@ The restriction is deliberate: like a type system, one parent per idea forces yo
 
 The single inheritance chain should not be confused with composition, which Alpha allows: an `Employee` can be composed of a `human`, a `contract`, a `role` attribute, all of which sit in its single-inheritance hierarchy, independently inherited as *Attribute* of the `Employee` *Concept*. Composition is how you assemble a complex idea from parts that each have their own definition, while inheritance is how you say what kind of thing the idea is. The two are independent: an idea has exactly one parent it descends from, but each idea can be further described elsewhere (even off-file).
 
+The single inheritance should also not be confused with qualified Concepts. The concept of `Employee` maybe be used inside another concept, an objective from example `Train Employee`. The `Employee` and the `Train Employee` concepts are distinct and disambigous, but it is the same Concept of `Employee` is evoked in the write and readers mind for both. This is allowable in Alpha, infact it is celibrated inside the objective that the `Employee` was defined elsewhere, with a link. 
+
 
 | Connections | Expression | Type | Example | Extra Rule |
 |------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
@@ -219,6 +221,8 @@ Parent
 
 ## Primitives
 
+Thoughts can be used as a tool. The tool is to transform, and to be able to transform, a clear understand of the subject (the file name) need to be defined.
+
 Primitives require no special `.aot` syntax. They give you a checklist of questions any transforming process must answer. The Ideas and Connections say what an Idea *is*; the Causes say why it exists and how it is produced.
 
 The primitives do not link to one another; each is a tree of its own, and no cause terminates in another. This is the general rule, not a special case. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour (*Physics* II.7: the formal, final and efficient causes often come to one, which is the file name in Alpha).
@@ -227,11 +231,11 @@ The primitives do not link to one another; each is a tree of its own, and no cau
 
 Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as examples (not said of, not present in).
 
-Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Beneficiaries, Entities, Objectives and Workflows, and these cannot be examples or Attribute Values, while measurements, records, classes and dependencies can only be examples or Attribute Values.
+Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Stakeholder, Entities, Objectives and Workflows, and these cannot be examples or Attribute Values, while measurements, records, classes and dependencies can only be examples or Attribute Values.
 
 | Cause | Description | Native question | Primitive | Said of | Not Said Of |
 |-----------|---------|------------------|--|------------------|------------------|
-| **Final** | for the sake of which | Why, and for Whom | Motivation | Beneficiary (Whom) | Measurement (How Much) |
+| **Final** | for the sake of which | Why, and for Whom | Motivation | Stakeholder (Who) | Measurement (How Much) |
 | **Material** | that out of which | made of What | Graph | Entity (Where: the boundary that fixes where the Record resides in reality) | Record (What) |
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How: a parent's form is all its child objectives taken together) | Class (Which) |
 | **Efficient** | the agent and the means | by Whom, in what order | Workflow | Operation (Item in use) | Dependency (When) |
