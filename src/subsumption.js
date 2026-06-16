@@ -24,6 +24,14 @@
 //     C is-a D   D's whole definition is satisfied by C
 //                <=>  intent(D) is a subset of effIntent(C)
 //
+// A definition is closed (necessary and sufficient, the kind ≡ its facts)
+// unless the Concept carries a `...` Map child, which marks it open (its
+// facts are merely necessary, ⊑, with more differentiae to come — the same
+// "still incomplete" the differentia and child-count checks already read a
+// `...` to mean). An open Concept is never an inferred genus (its facts are
+// not sufficient to classify another), and is itself left unjudged (its
+// definition is not yet complete enough to call misfiled or equivalent).
+//
 // Holding the tree to the derived order yields the errors:
 //
 //     misfiling      C's one most-specific genus is a Concept filed
@@ -43,7 +51,7 @@
 
 const { KIND } = require("./linter");
 const { index, wordStarts, instantiates } = require("./crosslinks");
-const { CONCEPT, ATTRIBUTE, DEFAULT } = KIND;
+const { CONCEPT, ATTRIBUTE, DEFAULT, MAP } = KIND;
 
 function isSuperset(sup, sub) {
   for (const x of sub) if (!sup.has(x)) return false;
@@ -183,6 +191,11 @@ function subsume(root, nodes) {
     return anc && setKey(intent.get(c)) === setKey(intent.get(anc));
   };
 
+  // An open definition (a `...` Map child) is merely necessary, not
+  // sufficient: more differentiae may come. Such a Concept never classifies
+  // another (excluded as a genus) and is itself left unjudged below.
+  const isOpen = (c) => c.children.some((ch) => ch.kind === MAP);
+
   // Every Concept whose whole definition C satisfies — ancestors included,
   // because the placement is correct only when C's genus is one of them. A
   // genus rests on two declared names; an equal definition is an equivalence,
@@ -193,6 +206,7 @@ function subsume(root, nodes) {
       d !== c && d !== root &&
       names.get(d).size >= 2 &&
       !vacuous(d) &&
+      !isOpen(d) &&
       setKey(intent.get(d)) !== ck &&
       isSuperset(effIntent.get(c), intent.get(d)));
   };
@@ -248,7 +262,7 @@ function subsume(root, nodes) {
   // written under. One genus elsewhere is a misfiling; two incomparable
   // genera are two kinds under one name (single-inheritance, for real).
   for (const c of all) {
-    if (c === root || !intent.get(c).size || vacuous(c) || cycleMembers.has(c)) continue;
+    if (c === root || !intent.get(c).size || vacuous(c) || cycleMembers.has(c) || isOpen(c)) continue;
     const g = genera.get(c);
     if (!g.length) continue;
     const byIntent = new Map();
@@ -280,10 +294,10 @@ function subsume(root, nodes) {
   // pair, on the later line.
   for (let i = 0; i < all.length; i++) {
     const c = all[i];
-    if (c === root || names.get(c).size < 2 || vacuous(c)) continue;
+    if (c === root || names.get(c).size < 2 || vacuous(c) || isOpen(c)) continue;
     for (let j = i + 1; j < all.length; j++) {
       const d = all[j];
-      if (d === root || vacuous(d) || related(c, d)) continue;
+      if (d === root || vacuous(d) || isOpen(d) || related(c, d)) continue;
       if (setKey(intent.get(c)) === setKey(intent.get(d))) {
         const late = d.line >= c.line ? d : c;
         const other = late === d ? c : d;
