@@ -344,6 +344,6 @@ function lint(text, rootName) {
 }
 
 module.exports = {
-  lint, parse, number, verify, gcd, INDENT,
+  lint, parse, number, verify, gcd, primes, INDENT,
   KIND: { INDIVIDUAL, DEFAULT, CONCEPT, ATTRIBUTE, MAP },
 };

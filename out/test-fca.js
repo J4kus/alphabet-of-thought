@@ -2,6 +2,7 @@
 // fixtures, run suggest(), and check the drift / exhaustion findings
 // and the override semantics of the formal context.
 const fs = require("fs");
+const path = require("path");
 const { lint } = require("../src/linter");
 const { suggest, buildContext } = require("../src/fca");
 
@@ -132,7 +133,7 @@ const typed = [
 
 // 6) the reference file runs without throwing and reports a context
 {
-  const text = fs.readFileSync("alphabet of thought.aot", "utf-8");
+  const text = fs.readFileSync(path.join(__dirname, "..", "examples", "alphabet of thought.aot"), "utf-8");
   const { root, nodes } = lint(text, "alphabet of thought");
   const report = suggest(root, nodes);
   console.log(`reference file: ${report.objects} objects x ${report.columns} attributes, ${report.concepts} formal concepts, S = ${report.findings.length}`);

@@ -8,6 +8,8 @@ const path = require("path");
 const { lint, KIND } = require("./linter");
 const { resolve } = require("./crosslinks");
 const { suggest } = require("./fca");
+const { clashes } = require("./godel");
+const armstrong = require("./armstrong");
 
 const DEBOUNCE_MS = 300;
 // past this many Examples the lattice is no longer keystroke-cheap
@@ -21,11 +23,20 @@ function analyse(doc) {
   const { root, nodes, errors, warnings } = lint(doc.getText(), rootName);
   const links = resolve(doc.getText(), root, nodes);
   linksByDoc.set(doc.uri.toString(), links);
-  // a lattice over a broken tree means nothing, so suggest only on V = 0
+  // a lattice over a broken tree means nothing, so suggest only on V = 0.
+  // Gödel clash hints share the same advisory channel (no squiggle) and the
+  // same V = 0 gate.
   let suggestions = [];
   const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
-  if (!errors.length && objects >= 2 && objects <= MAX_FCA_OBJECTS) {
-    suggestions = suggest(root, nodes).findings;
+  if (!errors.length) {
+    if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
+      suggestions = suggest(root, nodes).findings;
+      // inferred functional dependencies (derivable / equivalent attributes)
+      suggestions = suggestions.concat(armstrong.findings(root, nodes));
+    }
+    // only the strong, content-identical clashes squiggle-free in the editor;
+    // the weaker same-name clashes stay on demand via `verify.js --clashes`
+    suggestions = suggestions.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
   return { errors, warnings, suggestions, links };
 }

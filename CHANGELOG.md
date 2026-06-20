@@ -4,6 +4,27 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.1.43] - 2026-06-20
+
+- Gödel-number query flags (`src/godel.js`), turning the content number into a small query language — all plain big-integer arithmetic:
+  - `--find "a: v" ["b" …]`: query by example — every idea whose content satisfies a partial spec, as one divisibility test against a query number `Q` (a bare `attribute` means "present, any value"; `attribute: value` means that exact value)
+  - `--common X Y`: the shared core of two ideas — every attribute they both set to the same value (the primes whose exponent is equal in both)
+  - `--near X [k]`: the `k` ideas most like `X` by content distance — fewest primes whose exponents differ — with the slots that differ listed
+- Armstrong's axioms / functional-dependency inference (`src/armstrong.js`), making the dependency reasoning part of the linter rather than only a discussion:
+  - `--fd`: functional dependencies inferred from the Examples by projecting their Gödel numbers — `X → Y` when `Y`'s value is constant within every `X`-group, with a key antecedent ignored unless it is a genuine bijection; a determined attribute is **derivable**, a two-way dependency is the same distinction written twice
+  - `--depends X`: the Concept-dependency graph from the crosslinks and its transitive closure (Armstrong transitivity) — what a Concept rests on directly and what it inherits through a chain
+  - the strongest inferred dependency also surfaces as an advisory **hint** in the linter and VS Code, under the same `V = 0` gate as the FCA/clash suggestions, never counted in `V`
+
+## [1.1.42] - 2026-06-20
+
+- Gödel numbering (`src/godel.js`): a second characteristic number `G(n)` that encodes a line's **content**, complementing `chi`, which encodes only its **ancestry**. One prime per attribute, raised to a power that encodes the value — exponent 0 absent, 1 present-but-unvalued, ≥2 a stable value code — so a line becomes an integer like `2³ × 3⁵ × 5²`. chi answers *where* a line sits, G answers *what* it says, both as plain big-integer arithmetic
+  - `verify.js --godel X`: prints the factorisation `prime^exponent * …` with a legend decoding each slot back to `attribute: value`
+  - `--clashes`: two unrelated Concepts/Examples that carry the same attribute **names** (equal radicals) or the same attributes **and** values (equal `G`), reported as separate strengths
+  - `--overrides`: every node that redeclares an inherited default with a new value — detected arithmetically as two p-adic valuations both ≥ 2 and unequal
+  - `--diff old.aot new.aot`: version-diffing as factorisation comparison over a shared prime/value table — a prime gained or lost is an attribute added or removed, a changed exponent is a changed value
+  - the strong, content-identical clash also surfaces as an advisory **hint** in the linter and VS Code (no squiggle, under the same `V = 0` gate as the FCA suggestions, never counted in `V`); the weaker same-names clash stays on demand via `--clashes`
+  - the feature universe and the override-aware "nearest value wins" walk mirror `fca.buildContext`, so `G` and the FCA context agree on what a node carries
+
 ## [1.1.22] - 2026-06-12
 
 - Child-count rule corrected: at most eight sub-Concepts per parent (a division into more kinds is not graspable at a glance); Individuals and attributes may come in any quantity — the old "no more than twelve children" warning counted everything

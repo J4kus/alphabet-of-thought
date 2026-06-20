@@ -2,6 +2,7 @@
 // in-memory .aot documents, then print the diagnostics it publishes and
 // check the crosslink decorations and go-to-definition.
 const fs = require("fs");
+const path = require("path");
 const Module = require("module");
 
 const published = new Map();
@@ -58,7 +59,7 @@ function makeDoc(fileName, text) {
 }
 
 // 1) diagnostics over the reference file, as before
-const doc = makeDoc("c:\\repo\\alphabet of thought.aot", fs.readFileSync("alphabet of thought.aot", "utf-8"));
+const doc = makeDoc("c:\\repo\\alphabet of thought.aot", fs.readFileSync(path.join(__dirname, "..", "examples", "alphabet of thought.aot"), "utf-8"));
 vscode.workspace._open(doc);
 
 const diags = published.get(doc.uri.toString());

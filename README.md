@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-Alpha is aimed at knowledge workers like analysts and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Example, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`), print the characteristic number of any idea (`--number`), and audit the tree by Formal Concept Analysis (`--suggest`): it treats the Examples and their attributes as a formal context, computes the concept lattice, and reports groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
+Alpha is aimed at knowledge workers like analysts and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Example, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`), print the characteristic number of any idea (`--number`), and audit the tree by Formal Concept Analysis (`--suggest`): it treats the Examples and their attributes as a formal context, computes the concept lattice, and reports groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula. Where `--number` encodes only *where* a line sits, a second number encodes *what it says*: `--godel` prints the Gödel number of an idea — one prime per attribute, raised to a power that encodes the value — and `--clashes`, `--overrides`, `--find`, `--common`, `--near`, and `--diff` query that number arithmetically (see [Gödel numbering](#gödel-numbering)). Building on it, `--fd` infers the functional dependencies the Examples bear out and `--depends` walks a Concept's declared dependencies (see [Armstrong's axioms](#armstrongs-axioms-dependency-inference)).
 
 Alpha is a text-based engineering language for working out what you mean in a way a machine can check.  You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
 
@@ -32,6 +32,46 @@ Arguments become checkable. This is the Leibniz point in the README: once "Socra
 AI can work on it reliably. Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then run verify.js to check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
 
 A realistic first use: take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — pick the matching primitive as a skeleton, write it as a .aot tree (1. Start with natural Concepts, 2. Build up from facts OR normalise an existing data structures and then Derive relations, establish attributes), and keep fixing squiggles until V = 0. The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point. 
+
+## Gödel numbering
+
+The characteristic number `chi = prime × chi(parent)` is a squarefree product: it records a line's **ancestry** — *where* it sits — and nothing else. The Gödel number `G` is its complement, after Gödel (1931): it records a line's **content** — *what it says* — by raising **primes to powers**. Each attribute gets one prime; the exponent encodes the value that attribute is set to:
+
+- exponent **0** — the attribute is absent (its prime does not divide `G`)
+- exponent **1** — the attribute is present but unvalued
+- exponent **k > 1** — the attribute carries a value, `k` a stable code for it
+
+So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what* — and every question below is plain arithmetic on `G`, run with `node verify.js <file.aot> --godel X` (print the factorisation and legend) or the query flags in the table.
+
+| What you ask | Arithmetic on `G` | CLI |
+|--------------|-------------------|-----|
+| Does idea *n* carry attribute *a*? | `prime(a)` divides `G(n)` | `--godel` (legend lists every attribute) |
+| Do *n* and *m* carry the **same attributes**? | `radical(G(n)) == radical(G(m))` (exponents stripped) | `--clashes` |
+| Are *n*'s attributes a **subset** of *m*'s? | `radical(G(n))` divides `radical(G(m))` | — |
+| Which ideas match a **partial spec** (`a: v` AND `b: w` …)? | build a query number `Q`; an idea matches iff `Q` divides `G(n)` | `--find "a: v" ["b" …]` |
+| Do *n* and *m* carry **identical content** (a clash)? | `G(n) == G(m)` | `--clashes` |
+| What value does *a* take on *n*? | the exponent of `prime(a)` in `G(n)`, decoded | `--godel` |
+| Which ideas **override** an inherited default? | `prime(a)` divides both `G(n)` and `G(ancestor)`, exponents ≥ 2 and unequal | `--overrides` |
+| What does a child **add or change** over its parent? | the primes whose exponent grew or changed | `--overrides`, `--diff` |
+| Which attributes are two ideas set to the **same value** (their shared core)? | the primes with the same exponent in both — `gcd`-style intersection | `--common X Y` |
+| Which existing ideas are **most like** *n*? | fewest primes whose exponents differ — a content distance | `--near X [k]` |
+| What changed between two **versions** of a file? | factor `G` under a shared table: a prime gained/lost is an attribute added/removed; a changed exponent is a changed value | `--diff old.aot new.aot` |
+| Which attributes are present but **not yet valued** (a todo list)? | primes with exponent exactly 1 | `--godel` |
+
+`--clashes` reports the two strengths separately: two ideas that share an attribute-name set but differ in their values (equal radicals), and the stronger case of two ideas with identical attributes *and* values (equal `G`). The strong, content-identical clash also surfaces in the ordinary lint pass as an advisory **hint** — like the `--suggest` findings, it appears only when the file already verifies (`V = 0`) and never counts toward `V`.
+
+## Armstrong's axioms (dependency inference)
+
+A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong's axioms are the inference rules for such dependencies, and `src/armstrong.js` makes them part of the linter in two ways, both reusing the Gödel numbers above.
+
+**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. Like the clash hint, the strongest of these surface as advisory `V = 0` hints; `--fd` prints the full inferred set.
+
+**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) answers `--depends X` — what a Concept rests on directly, and what it inherits through a chain.
+
+```
+node verify.js <file.aot> --fd          # functional dependencies inferred from the Examples
+node verify.js <file.aot> --depends X   # what Concept X depends on, direct and transitive
+```
 
 ## The four idea types ontology
 
@@ -167,6 +207,8 @@ The audit also reports the positive case: a `confirmed` line names each Concept 
 | 3 | **exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
 
 A `...` Map child marks a node intentionally incomplete and excuses it from the exhaustion checks; a Concept whose Examples share nothing beyond their ancestor's (a vacuous grouping) is skipped by drift.
+
+Two further hints come from the Gödel numbering in `src/godel.js` and `src/armstrong.js`, under the same `V = 0` gate. A **clash** names two unrelated Concepts or Examples whose Gödel numbers are equal — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. The weaker case (the same attribute *names* with differing values) is reported only on demand by `node verify.js <file.aot> --clashes`, never as an editor hint. A **dependency** names an attribute whose value the Examples always pin down from another — a derivable column worth modelling once; `node verify.js <file.aot> --fd` lists the full inferred set.
 
 ### Crosslinks — underlined, Ctrl+click jumps to the definition
 
