@@ -1,0 +1,101 @@
+lints
+Structure
+    Bread and Butter
+    Repeated Kind: alpha
+    Repeated Kind: beta
+    Identical Default
+        shade: red
+        shade: red
+    Leaky Map
+        ... still to do
+            leaked detail
+Warning Singular
+    Cars
+    Measure Missing Target
+        actual: 9
+    Measure Missing Actual
+        target: 5
+    Single Subtype
+        Only One Subtype
+    Lone Example Parent
+        - Solo Parent
+            - Solo Child
+    Slot Twin
+        Twin Heat A
+            heat: high
+        Twin Heat B
+            heat: high
+Eight Cap
+    Kind One
+    Kind Two
+    Kind Three
+    Kind Four
+    Kind Five
+    Kind Six
+    Kind Seven
+    Kind Eight
+    Kind Nine
+Whitespace
+	Tab Leaf
+      Six Space Indent
+    Jump Anchor
+            - Jumped Leaf
+    Empty Slot
+        weight:
+    Dash Slot
+        -nospace
+
+Hint
+    Mirror
+        - Twin Left
+            height: tall
+            mood: calm
+        - Twin Right
+            height: tall
+            mood: calm
+        - Lone Figure
+            height: short
+            mood: glad
+    Ledger
+        - Paris Sale
+            country: France
+            currency: EUR
+        - Lyon Sale
+            country: France
+            currency: EUR
+            channel: online
+        - Berlin Sale
+            country: Germany
+            currency: EUR
+        - Tokyo Sale
+            country: Japan
+            currency: JPY
+    Aquatic Audit
+        Fish
+            lives in water
+            - Trout
+                spotted
+            - Salmon
+                silver
+        Fowl
+            has wings
+            - Sparrow
+            - Goldfish
+                lives in water
+        - Sponge
+
+Clean
+    Singular Car
+    Balanced Measure
+        actual: 9
+        target: 10
+    Two Subtype Split
+        Subtype By Speed
+            speed: fast
+        Subtype By Size
+            size: large
+    Multi Example Parent
+        - Branch Parent
+            - Branch Child One
+            - Branch Child Two
+
