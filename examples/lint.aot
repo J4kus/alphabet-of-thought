@@ -1,4 +1,6 @@
-lints
+lint
+Lint
+    ... this should light up too because the same name cannot be the child
 Structure Error
     Bread and Butter
     Repeated Kind: alpha
@@ -46,7 +48,7 @@ Whitespace
         -nospace
 
 
-
+... no name with the same attribute
 Clean
     Singular Car
     Balanced Measure
