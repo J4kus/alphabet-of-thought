@@ -128,7 +128,17 @@ Everything below is enforced mechanically by the same linter, whether you run `n
 | 8 | **No "and" in a Concept** | A Concept name containing the word `and` — that is two kinds under one prime. Split it. |
 | 9 | **Univocity** | The same Concept name defined more than once. One name, one prime; a recurrence needs a distinguishing qualifier prefix. |
 | 10 | **No identical siblings** | Two children of one parent with the same kind, name, **and** value. Siblings may share a slot only if their default values differ. |
-| 11 | **Single inheritance** | `gcd(chi(siblingA), chi(siblingB)) ≠ chi(parent)` — the two siblings do not share exactly one parent. |
+
+Rules 1–10 are the syntactic and arithmetic checks (`src/linter.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, defaults, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. The placements the derived order contradicts are errors, also counted in `V`:
+
+| # | Rule | What triggers it |
+|---|------|------------------|
+| 11 | **Misfiling** | A Concept's one most-specific genus (the Concept whose full definition it satisfies) is filed somewhere other than where this Concept sits — its facts say it is a kind of a Concept it is not written under. |
+| 12 | **Multiple kinds** | A Concept's facts satisfy two genera, neither of which is under the other. A Concept must name one kind; file it under one and crosslink the other, or split it. This is the *real* single-inheritance check (it replaced the tautological gcd one). |
+| 13 | **Equivalence** | Two Concepts, neither above the other, carry the identical definition — their facts cannot tell the two kinds apart. Give one a differentia, or merge them. |
+| 14 | **Cycle** | A loop of mutual is-a in the derived order (`A is-a B is-a … is-a A`), which no hierarchy can hold. Break it by giving one member a differentia the others lack. |
+
+A genus must rest on at least two declared attribute names — one shared word is coincidence, not a kind.
 
 ### Warnings — yellow squiggle, in the Problems panel, but do **not** affect `V`
 
@@ -146,25 +156,41 @@ A `...` Map child marks a node intentionally incomplete, which **excuses** warni
 
 ### Hints — no squiggle, advisory (the `--suggest` Formal Concept Analysis audit)
 
-Hints come from auditing your hand-written Concept tree against the concept lattice your Examples' attributes actually support. They appear only when the file already verifies (`V = 0`) and it has **between 2 and 200 Examples** (below 2 there is nothing to analyse; above 200 the lattice is no longer cheap on every keystroke).
+Hints come from the Formal Concept Analysis audit in `src/fca.js` (after Wille, 1982): your hand-written Concept tree is checked against the concept lattice your Examples' attributes actually support. The Examples are the formal context's objects; their attribute names and `attribute: value` pairs — direct, inherited, and pulled in through crosslinks — are its columns. Hints appear only when the file already verifies (`V = 0`) and it has **between 2 and 200 Examples** (below 2 there is nothing to analyse; above 200 the lattice is no longer cheap on every keystroke).
+
+The audit also reports the positive case: a `confirmed` line names each Concept whose Examples are *exactly* a formal concept — a grouping the data supports precisely. The hints proper are the three mismatches it finds:
 
 | # | Hint | What it means |
 |---|------|---------------|
-| 1 | **proposed** | Two or more Examples all carry attributes that no Concept names. Name a Concept for the grouping (or, for a bare attribute, promote it onto the parent so every Example inherits it) — or ignore it as coincidence. If the shared attributes are only inherited, the essence belongs one level up, not in a new Concept. |
-| 2 | **differentia** | A Concept adds no attribute beyond its nearest Concept ancestor, so by the data its Examples are grouped by position only. Give it an attribute its siblings lack. |
-| 3 | **drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. |
-| 4 | **exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
-| 5 | **exhaustion (gaps)** | A parent's Examples that no sub-Concept matches by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
+| 1 | **drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. (Reported on the Example's line, at the most specific Concept it drifts toward.) |
+| 2 | **exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
+| 3 | **exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
+
+A `...` Map child marks a node intentionally incomplete and excuses it from the exhaustion checks; a Concept whose Examples share nothing beyond their ancestor's (a vacuous grouping) is skipped by drift.
 
 ### Crosslinks — underlined, Ctrl+click jumps to the definition
 
-The extension underlines three inline connections and resolves them for go-to-definition; hovering shows the target. They also deepen the `--suggest` analysis by carrying a referenced node's ancestry into the formal context.
+The extension (`src/crosslinks.js`) underlines three inline connections and resolves them for go-to-definition; hovering shows the target and its line. They also deepen the `--suggest` analysis by carrying a referenced node's ancestry into the formal context. The two link kinds are told apart by underline style, not colour (the link keeps its token's syntax colour): a **solid** underline points at a Concept, a **dotted** underline at an Example.
 
-| Connection | What links | Example |
-|------------|-----------|---------|
-| **attribute-is-a-Concept** | An attribute or default whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | `age integer: 5` → `integer` → `Integer` |
-| **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | `Independent Node` → `Node` → `Node` |
-| **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | `human: Socrates` → `- Socrates` |
+| Connection | What links | Underline | Example |
+|------------|-----------|-----------|---------|
+| **attribute-is-a-Concept** | An attribute or default whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | solid | `age integer: 5` → `integer` → `Integer` |
+| **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | solid | `Independent Node` → `Node` → `Node` |
+| **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | dotted | `human: Socrates` → `- Socrates` |
+
+## What `verify.js` can do
+
+The same linter, reasoner and FCA audit the extension runs are exposed on the command line through `verify.js`. Every invocation takes a `.aot` file as its first argument; the file name (without extension) is the root Concept. The optional flag selects what to do with the parsed, numbered tree.
+
+| Command | What it does | Output |
+|---------|--------------|--------|
+| `node verify.js <file.aot>` | **Verify.** Runs the full lint pass — the syntactic/arithmetic checks plus the subsumption reasoner — and prints every error and warning as `file:line: …`. | Lists errors then warnings, then a summary: node and edge counts, the largest prime assigned, `violations V = <n>`, the subsumption line (`<n> derived is-a edges, hierarchy consistent/inconsistent`), and `V = 0: true — the file verifies` or `FALSE`. **Exit code 0 when `V = 0`, 1 otherwise** — so it drops straight into a script or CI gate. |
+| `node verify.js <file.aot> --ask "X" "Y"` | **Is-a by divisibility.** Tests whether idea `X` is under idea `Y`, by checking `chi(Y)` divides `chi(X)`. | Prints both characteristic numbers and `'X' is [NOT] under 'Y'`. |
+| `node verify.js <file.aot> --genus "X" "Y"` | **Genus by gcd.** Finds the nearest common kind of `X` and `Y` as `gcd(chi(X), chi(Y))`, then names the node with that characteristic number. | Prints the gcd, the genus's name, and its full ancestry path. |
+| `node verify.js <file.aot> --number "X"` | **Characteristic number.** Prints idea `X`'s number as the product of the primes down its ancestry chain. | `chi(X) = p1 * p2 * … = <n>`, with the path. |
+| `node verify.js <file.aot> --suggest` | **FCA audit.** Builds the concept lattice from the Examples' attributes and audits the written tree against it (drift, exhaustion, and `confirmed` groupings). Runs **only on a file that already verifies** — if `V ≠ 0` it prints the errors and exits 1 instead, since a lattice over a broken tree means nothing. Needs **at least 2 Examples**. | Prints the formal-context size (`objects × attributes, formal concepts`), the `confirmed` Concepts, each finding as `file:line: …`, and `suggestions S = <n>`. |
+
+`--ask`, `--genus` and `--number` look the ideas up by exact name; an unknown name exits with code 2. These four arithmetic operations are the Leibniz point made runnable: an is-a claim, a common genus, or an idea's full ancestry is a computation over integers, not an opinion.
 
 ## Example
 
