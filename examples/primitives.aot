@@ -24,8 +24,9 @@
         Said Of
         confidence
     Primitive
-        ...
+        
         Graph
+            said of
             Node
                 Dependency
                     Independent Node
@@ -51,12 +52,13 @@
                 Non Directional Edge (Many To Many Dependency)
                     first node
                     second node
-            ...
+            Record
+                not said of
         Motiviation
-            Stakeholder
+            Beneficairy
+                said of
                 interest (How much the stakeholder cares about the outcome)
                 influence  (Their ability to affect decisions, resources, or outcomes)
-                said of
                 Human (Natural Person)
                     - Jakus
                     first name: Alida
@@ -212,6 +214,7 @@
                 - Object
                 - Role
                 - Value
+                said of
                 is bottleneck: yes
                 is tangible: no
                 useful life: infinite
@@ -286,13 +289,14 @@
 
             Time
                 item
+                not said of
                 Milestone
+                    precision: no seconds
                     interval count: 0
                     Time Only: 12:00
-                        precision: no seconds
                         date
                     Date: Today
-                    precision: no time component
+                        precision: date only
                     Datetime: 12:00 Today
                         precision: no seconds
                     Precise Datetime: 12:00:00:000 Today
@@ -314,22 +318,10 @@
 
 
 - Function
-    Improve Understand
-        - Individual
-            ...
-            Define Subject
-            Understand Unconcious Incompentence About Subject
-            Decide To Understand It Better
-            Indeitfy It is Best To Use THe Four Cause To Get A Complete Picture
-            Indentify Highest Usefulness Category To Start
-            Load Concepts Of Primitive In Brain
-            Start Fill Concepts While Programmiing
-            Fully Understand Subject
-                fully understand subject
-
-        - QA
-            Sample Understand To See If It Can Be Done Better
-            ...
-        - ...
-    ...
+    Write Primitive
+        - Motivation
+        - Graph
+        - Function
+        - Workflow
+    
 - Workflow
