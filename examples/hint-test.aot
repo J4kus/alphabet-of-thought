@@ -1,0 +1,38 @@
+Hint
+    Mirror
+        - Twin Left
+            height: tall
+            mood: calm
+        - Twin Right
+            height: tall
+            mood: calm
+        - Lone Figure
+            height: short
+            mood: glad
+    Ledger
+        - Paris Sale
+            country: France
+            currency: EUR
+        - Lyon Sale
+            country: France
+            currency: EUR
+            channel: online
+        - Berlin Sale
+            country: Germany
+            currency: EUR
+        - Tokyo Sale
+            country: Japan
+            currency: JPY
+    Aquatic Audit
+        Fish
+            lives in water
+            - Trout
+                spotted
+            - Salmon
+                silver
+        Fowl
+            has wings
+            - Sparrow
+            - Goldfish
+                lives in water
+        - Sponge
