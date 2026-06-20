@@ -45,6 +45,16 @@ const keyOf = (text) => text.trim().toLowerCase();
 const isSubstance = (n) => n.kind === CONCEPT || n.kind === INDIVIDUAL;
 const display = (n) => (n.kind === INDIVIDUAL ? `- ${n.name}` : n.name);
 
+// Whether a node asserts a slot of its OWN: an attribute or default value it
+// declares, or an inline value it carries. A substance node that asserts none
+// has an implied `...` — with nothing of its own yet to tell it apart, its
+// differentia is still to come — exactly as the differentia check in linter.js
+// reads an empty slot signature. Inherited attributes (which still drive G) do
+// not count: they are the genus, shared by every sibling, never a differentia.
+const assertsOwnSlot = (n) =>
+  (n.value !== undefined && n.value !== null && n.value !== "") ||
+  n.children.some((c) => c.kind === ATTRIBUTE || c.kind === DEFAULT);
+
 // The exponent of prime p in g (its p-adic valuation): how many times p
 // divides g. 0 when p does not divide g.
 function valuation(g, p) {
@@ -222,14 +232,19 @@ const related = (a, b) => a === b || isAncestor(a, b) || isAncestor(b, a);
 // stronger finding than a shared attribute-name set with differing values
 // (equal radicals). Each finding is tagged kind: "content" | "names" so a
 // caller can surface only the strong, content-identical clashes (the always-on
-// editor hint does) while the CLI reports both. Nodes with no attributes, and
-// `...`-Map-marked nodes (intentionally incomplete), are skipped — as the
-// FCA/subsumption checks do.
+// editor hint does) while the CLI reports both. Nodes that assert no attribute
+// of their own (an implied `...`, even when they inherit attributes that make G
+// match a sibling's), and `...`-Map-marked nodes (intentionally incomplete),
+// are skipped — as the differentia/FCA/subsumption checks do.
 function clashes(root, nodes) {
   const { attrPrime } = buildGodel(root, nodes);
   const primeList = [...attrPrime.values()];
   const eligible = [root, ...nodes].filter(
-    (n) => isSubstance(n) && n.godel > 1n && !n.children.some((c) => c.kind === MAP),
+    (n) =>
+      isSubstance(n) &&
+      n.godel > 1n &&
+      assertsOwnSlot(n) &&
+      !n.children.some((c) => c.kind === MAP),
   );
   const radCache = new Map();
   const rad = (n) => {
