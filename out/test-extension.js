@@ -64,14 +64,19 @@ vscode.workspace._open(doc);
 
 const diags = published.get(doc.uri.toString());
 const severityName = ["error", "warning", "info", "suggestion"];
-const violations = diags.filter((d) => d.severity < 2);
-const suggestions = diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Hint);
-console.log(`published ${violations.length} violations and ${suggestions.length} FCA suggestions`);
+const errorsD = diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Error);
+const warningsD = diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Warning);
+const hintsD = diags.filter((d) => d.severity === vscode.DiagnosticSeverity.Hint);
+console.log(`published ${errorsD.length} errors, ${warningsD.length} warnings, ${hintsD.length} hints`);
 for (const d of diags.slice(0, 3)) {
   console.log(`  [${severityName[d.severity]}] line ${d.range.a[0] + 1}: ${d.message}`);
 }
-console.log(violations.length === 0 && suggestions.length > 0
-  ? "PASS (the reference file verifies clean, with suggestions)"
+// The FCA audit (drift / exhaustion) and the content-identical Gödel clash are
+// errors; the inferred functional dependencies are warnings; nothing is a hint.
+const fcaOrClash = /^(drift|exhaustion|clash):/m.test(errorsD.map((d) => d.message).join("\n"));
+const depWarn = /^dependency:/m.test(warningsD.map((d) => d.message).join("\n"));
+console.log(errorsD.length > 0 && fcaOrClash && depWarn && hintsD.length === 0
+  ? "PASS (FCA/clash are errors; dependencies are warnings; no hints)"
   : "UNEXPECTED COUNT");
 
 // 2) crosslinks: an attribute-is-a-Concept and a default-is-a-Example

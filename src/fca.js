@@ -173,6 +173,17 @@ function suggest(root, nodes) {
   // linter: what is missing is declared, not forgotten, so don't flag it
   const incomplete = (n) => n.children.some((c) => c.kind === MAP);
 
+  // a Concept that declares no attribute of its own has an implied `...`:
+  // with nothing of its own yet to tell it apart its differentia is still to
+  // come, exactly as a Map would declare — the same reading the differentia
+  // check in linter.js and the clash check in godel.js both apply. An inline
+  // Example (`Run Command: code ...`) is content, not an attribute, so it does
+  // not count; inherited columns are the genus, shared by every sibling, never
+  // a differentia. Such a Concept cannot be told from a sibling by attributes
+  // because it asserts none, so the identical-intent comparison excuses it.
+  const assertsOwnAttr = (n) =>
+    n.children.some((c) => c.kind === ATTRIBUTE || c.kind === DEFAULT);
+
   // vacuous: a Concept whose Examples share nothing beyond what its
   // ancestor's already share adds no attribute of its own, so drift
   // toward it would be meaningless — the drift check below skips it
@@ -236,6 +247,7 @@ function suggest(root, nodes) {
     for (let i = 0; i < subs.length; i++) {
       for (let j = i + 1; j < subs.length; j++) {
         if (incomplete(subs[i]) || incomplete(subs[j])) continue;
+        if (!assertsOwnAttr(subs[i]) || !assertsOwnAttr(subs[j])) continue;
         if (setKey(infos.get(subs[i]).intent) === setKey(infos.get(subs[j]).intent)) {
           findings.push({
             line: subs[j].line,

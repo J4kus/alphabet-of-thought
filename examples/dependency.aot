@@ -1,0 +1,21 @@
+Squad
+    - Ada
+        rank: private
+        stripes: one
+        team: red
+        floor: lobby
+    - Ben
+        rank: corporal
+        stripes: two
+        team: blue
+        floor: lobby
+    - Cleo
+        rank: sergeant
+        stripes: three
+        team: green
+        floor: attic
+    - Dan
+        rank: private
+        stripes: one
+        team: green
+        floor: attic

@@ -128,10 +128,9 @@ Primitive
                             - May Link To Frame
                 Reference to a `not said of` Idea
                     - attribute-is-a-concept
-                        type: Reference
                     - default-is-a-example
-                        type: Reference
                     indentation: exactly 4 spaces per level
+                    type: Reference
 
     - Function
         ...

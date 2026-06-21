@@ -45,14 +45,19 @@ const keyOf = (text) => text.trim().toLowerCase();
 const isSubstance = (n) => n.kind === CONCEPT || n.kind === INDIVIDUAL;
 const display = (n) => (n.kind === INDIVIDUAL ? `- ${n.name}` : n.name);
 
-// Whether a node asserts a slot of its OWN: an attribute or default value it
-// declares, or an inline value it carries. A substance node that asserts none
-// has an implied `...` — with nothing of its own yet to tell it apart, its
-// differentia is still to come — exactly as the differentia check in linter.js
-// reads an empty slot signature. Inherited attributes (which still drive G) do
-// not count: they are the genus, shared by every sibling, never a differentia.
+// Whether a node asserts an ATTRIBUTE of its OWN: an attribute or default value
+// it declares. A substance node that asserts none has an implied `...` — with
+// nothing of its own yet to tell it apart, its differentia is still to come —
+// exactly as the differentia check in linter.js reads an empty slot signature.
+// An inline Example (a capitalised line's `: value`, e.g. `Run Command: code
+// ...`) is content, not an attribute: it is materialised as an Example child
+// and never enters G, so a Concept carrying only an inline Example asserts no
+// slot G can compare — two such Concepts would clash on inherited columns alone
+// while their inline Examples plainly differ, a false clash. They are excused,
+// just as a bare `- Example` with no attributes is. Inherited attributes (which
+// still drive G) do not count: they are the genus, shared by every sibling,
+// never a differentia.
 const assertsOwnSlot = (n) =>
-  (n.value !== undefined && n.value !== null && n.value !== "") ||
   n.children.some((c) => c.kind === ATTRIBUTE || c.kind === DEFAULT);
 
 // The exponent of prime p in g (its p-adic valuation): how many times p

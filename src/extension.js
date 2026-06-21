@@ -1,7 +1,8 @@
 // VS Code entry point for .aot documents: publishes the arithmetic
-// linter's errors and warnings as diagnostics (squiggles + Problems panel),
-// the FCA audit's suggestions as hints (no squiggle), paints the inline
-// crosslinks as links, and serves go-to-definition for them.
+// linter's errors (including the FCA audit and content-identical Gödel clash)
+// and warnings (including the inferred functional dependencies) as diagnostics
+// (squiggles + Problems panel), paints the inline crosslinks as links, and
+// serves go-to-definition for them.
 
 const vscode = require("vscode");
 const path = require("path");
@@ -26,19 +27,24 @@ function analyse(doc) {
   // a lattice over a broken tree means nothing, so suggest only on V = 0.
   // Gödel clash hints share the same advisory channel (no squiggle) and the
   // same V = 0 gate.
-  let suggestions = [];
+  // The FCA audit (drift / exhaustion) and the content-identical Gödel clash are
+  // errors (counted in V); the inferred functional dependencies are warnings
+  // (not counted in V). All of them mean nothing over a tree that does not yet
+  // verify, so they run only once the syntactic/subsumption pass is clean.
+  let deepErrors = [];
+  let depWarnings = [];
   const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
   if (!errors.length) {
     if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
-      suggestions = suggest(root, nodes).findings;
+      deepErrors = suggest(root, nodes).findings;
       // inferred functional dependencies (derivable / equivalent attributes)
-      suggestions = suggestions.concat(armstrong.findings(root, nodes));
+      depWarnings = armstrong.findings(root, nodes);
     }
-    // only the strong, content-identical clashes squiggle-free in the editor;
+    // only the strong, content-identical clashes are flagged in the editor;
     // the weaker same-name clashes stay on demand via `verify.js --clashes`
-    suggestions = suggestions.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
+    deepErrors = deepErrors.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
-  return { errors, warnings, suggestions, links };
+  return { errors: errors.concat(deepErrors), warnings: warnings.concat(depWarnings), links };
 }
 
 function linkRange(link) {
@@ -64,7 +70,7 @@ function decorate(editor, decorationTypes) {
 
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
-  const { errors, warnings, suggestions } = analyse(doc);
+  const { errors, warnings } = analyse(doc);
   const toDiagnostic = (severity) => ({ line, message }) => {
     // lines are 1-based; range covers the line's content
     const at = Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
@@ -75,12 +81,11 @@ function refresh(diagnostics, decorationTypes, doc) {
   };
   diagnostics.set(doc.uri, [
     // the linter's verdict is a problem: errors (V != 0) squiggle red and
-    // warnings squiggle yellow, both reaching the Problems panel. Only the
-    // FCA audit's suggestions are advisory, so they alone map to Hints: no
-    // squiggle, surfaced on hover / lightbulb, kept out of the Problems panel.
+    // warnings squiggle yellow, both reaching the Problems panel. The FCA audit
+    // and the content-identical clash are folded into errors; the inferred
+    // functional dependencies into warnings (see analyse). Nothing maps to Hint.
     ...errors.map(toDiagnostic(vscode.DiagnosticSeverity.Error)),
     ...warnings.map(toDiagnostic(vscode.DiagnosticSeverity.Warning)),
-    ...suggestions.map(toDiagnostic(vscode.DiagnosticSeverity.Hint)),
   ]);
   for (const editor of vscode.window.visibleTextEditors) {
     if (editor.document === doc) decorate(editor, decorationTypes);

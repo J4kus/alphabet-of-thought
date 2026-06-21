@@ -19,6 +19,9 @@ const { suggest } = require("./src/fca");
 const godel = require("./src/godel");
 const armstrong = require("./src/armstrong");
 
+// past this many Examples the lattice is no longer cheap; matches the extension
+const MAX_FCA_OBJECTS = 200;
+
 function find(root, nodes, name) {
   const match = [root, ...nodes].find((n) => n.name === name);
   if (!match) {
@@ -181,26 +184,33 @@ function main() {
     if (report.confirmed.length) {
       console.log(`confirmed: ${report.confirmed.length} Concept${report.confirmed.length === 1 ? " is" : "s are"} exactly the grouping${report.confirmed.length === 1 ? "" : "s"} the Examples' attributes support: ${report.confirmed.join(", ")}`);
     }
-    for (const { line, message } of report.findings) console.log(`${file}:${line}: ${message}`);
-    console.log(`\nsuggestions S = ${report.findings.length}`);
-    return;
+    // drift and exhaustion are errors counted in V, not advisories
+    for (const { line, message } of report.findings) console.log(`${file}:${line}: error: ${message}`);
+    console.log(`\nFCA audit: V = ${report.findings.length}${report.findings.length ? "" : " — the audit finds no violations"}`);
+    process.exit(report.findings.length ? 1 : 0);
   }
 
   for (const { line, message } of errors) console.log(`${file}:${line}: error: ${message}`);
-  for (const { line, message } of warnings) console.log(`${file}:${line}: warning: ${message}`);
-  // Clash and dependency hints are advisory, like the FCA suggestions: only
-  // over a tree that verifies, and never counted in V. The always-on clash
-  // hint surfaces only the strong, content-identical clashes; `--clashes`
-  // reports both strengths, `--fd` the full set of inferred dependencies.
+  // The FCA audit (drift / exhaustion) and the content-identical Gödel clash are
+  // errors counted in V; the inferred functional dependencies are warnings (not
+  // counted in V). All of them mean nothing over a tree that does not yet verify,
+  // so they run only once the syntactic/subsumption pass is clean. The content
+  // clash surfaces only the strong case; `--clashes` reports both strengths,
+  // `--fd` the full set of inferred dependencies.
+  let deepErrors = [];
+  let depWarnings = [];
   if (!errors.length) {
-    for (const { line, message, kind } of godel.clashes(root, nodes).findings) {
-      if (kind === "content") console.log(`${file}:${line}: hint: ${message}`);
+    const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
+    if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
+      deepErrors = suggest(root, nodes).findings;
+      depWarnings = armstrong.findings(root, nodes);
     }
-    for (const { line, message } of armstrong.findings(root, nodes)) {
-      console.log(`${file}:${line}: hint: ${message}`);
-    }
+    deepErrors = deepErrors.concat(godel.clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
-  const v = errors.length;
+  for (const { line, message } of deepErrors) console.log(`${file}:${line}: error: ${message}`);
+  for (const { line, message } of warnings) console.log(`${file}:${line}: warning: ${message}`);
+  for (const { line, message } of depWarnings) console.log(`${file}:${line}: warning: ${message}`);
+  const v = errors.length + deepErrors.length;
   console.log(`\n${nodes.length} nodes, ${nodes.length} edges, largest prime ${nodes[nodes.length - 1].prime}, violations V = ${v}`);
   console.log(`subsumption: ${subsumption.edges} derived is-a edges, hierarchy ${subsumption.consistent ? "consistent" : "inconsistent"}`);
   console.log(`V = 0: ${v === 0 ? "true — the file verifies" : "FALSE"}`);

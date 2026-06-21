@@ -58,13 +58,13 @@ So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5�
 | What changed between two **versions** of a file? | factor `G` under a shared table: a prime gained/lost is an attribute added/removed; a changed exponent is a changed value | `--diff old.aot new.aot` |
 | Which attributes are present but **not yet valued** (a todo list)? | primes with exponent exactly 1 | `--godel` |
 
-`--clashes` reports the two strengths separately: two ideas that share an attribute-name set but differ in their values (equal radicals), and the stronger case of two ideas with identical attributes *and* values (equal `G`). The strong, content-identical clash also surfaces in the ordinary lint pass as an advisory **hint** — like the `--suggest` findings, it appears only when the file already verifies (`V = 0`) and never counts toward `V`.
+`--clashes` reports the two strengths separately: two ideas that share an attribute-name set but differ in their values (equal radicals), and the stronger case of two ideas with identical attributes *and* values (equal `G`). The strong, content-identical clash also surfaces in the ordinary lint pass as an **error** counted in `V` — like the `--suggest` findings it is meaningless over a tree that does not yet verify, so it runs only once the syntactic/subsumption pass is clean, but when it fires it is a violation, not an advisory.
 
 ## Armstrong's axioms (dependency inference)
 
 A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong's axioms are the inference rules for such dependencies, and `src/armstrong.js` makes them part of the linter in two ways, both reusing the Gödel numbers above.
 
-**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. Like the clash hint, the strongest of these surface as advisory `V = 0` hints; `--fd` prints the full inferred set.
+**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as `V = 0` **warnings** (rules 8–9 above; they do not count toward `V`); `--fd` prints the full inferred set.
 
 **Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) answers `--depends X` — what a Concept rests on directly, and what it inherits through a chain.
 
@@ -180,6 +180,17 @@ Rules 1–10 are the syntactic and arithmetic checks (`src/linter.js`). On top o
 
 A genus must rest on at least two declared attribute names — one shared word is coincidence, not a kind.
 
+On top of rules 1–14, a third tier of errors comes from the **Formal Concept Analysis audit** (`src/fca.js`) and the **Gödel numbering** (`src/godel.js`). A lattice or a content comparison over a broken tree means nothing, so these run **only once rules 1–14 are clean** (the syntactic/subsumption pass verifies); the FCA ones additionally need **between 2 and 200 Examples**. When they fire they are violations counted in `V` — the file does not verify until they are resolved:
+
+| # | Rule | What triggers it |
+|---|------|------------------|
+| 15 | **Drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. |
+| 16 | **Exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
+| 17 | **Exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
+| 18 | **Clash** | Two unrelated Concepts or Examples with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. The weaker same-name case (equal radicals, differing values) is reported only on demand by `node verify.js <file> --clashes`. |
+
+A `...` Map child marks a node intentionally incomplete and excuses it from the drift and exhaustion checks (its missing siblings or attributes are declared, not forgotten). A Concept whose Examples share nothing beyond their ancestor's is skipped by drift.
+
 ### Warnings — yellow squiggle, in the Problems panel, but do **not** affect `V`
 
 | # | Rule | What triggers it |
@@ -194,21 +205,20 @@ A genus must rest on at least two declared attribute names — one shared word i
 
 A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten. A Map says *what is still missing, a todo, or uncertain* — it is never a description of the line above it (use a `(parentheses)` alias to name or explain a term).
 
-### Hints — no squiggle, advisory (the `--suggest` Formal Concept Analysis audit)
+Two more warnings come from the dependency inference in `src/armstrong.js`. Like the FCA audit they mean nothing over a broken tree, so they run **only once rules 1–14 are clean** and need **between 2 and 200 Examples**; they reuse the Gödel numbers above. They are warnings, not errors — a derivable column is a modelling smell, not a contradiction — so they do **not** count toward `V`:
 
-Hints come from the Formal Concept Analysis audit in `src/fca.js` (after Wille, 1982): your hand-written Concept tree is checked against the concept lattice your Examples' attributes actually support. The Examples are the formal context's objects; their attribute names and `attribute: value` pairs — direct, inherited, and pulled in through crosslinks — are its columns. Hints appear only when the file already verifies (`V = 0`) and it has **between 2 and 200 Examples** (below 2 there is nothing to analyse; above 200 the lattice is no longer cheap on every keystroke).
+| # | Rule | What triggers it |
+|---|------|------------------|
+| 8 | **Dependency (bijection)** | Two attributes vary one-to-one across the Examples — "the same distinction written twice". Model one and derive the other. |
+| 9 | **Dependency (determination)** | One attribute's value is always pinned down by another across the Examples — a derivable column. Model it once against its determinant. |
 
-The audit also reports the positive case: a `confirmed` line names each Concept whose Examples are *exactly* a formal concept — a grouping the data supports precisely. The hints proper are the three mismatches it finds:
+`node verify.js <file.aot> --fd` prints the full inferred set of dependencies (including the weaker ones that do not warn).
 
-| # | Hint | What it means |
-|---|------|---------------|
-| 1 | **drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. (Reported on the Example's line, at the most specific Concept it drifts toward.) |
-| 2 | **exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
-| 3 | **exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
+### No editor hints remain
 
-A `...` Map child marks a node intentionally incomplete and excuses it from the exhaustion checks; a Concept whose Examples share nothing beyond their ancestor's (a vacuous grouping) is skipped by drift.
+Earlier versions surfaced three advisory hint kinds with no squiggle: the FCA audit (`src/fca.js`, after Wille, 1982), the content clash (`src/godel.js`), and the dependency inference (`src/armstrong.js`). The FCA audit and the content clash are now **errors** counted in `V` (rules 15–18); the dependencies are now **warnings** (rules 8–9). Nothing maps to the editor's Hint severity any more.
 
-Two further hints come from the Gödel numbering in `src/godel.js` and `src/armstrong.js`, under the same `V = 0` gate. A **clash** names two unrelated Concepts or Examples whose Gödel numbers are equal — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. The weaker case (the same attribute *names* with differing values) is reported only on demand by `node verify.js <file.aot> --clashes`, never as an editor hint. A **dependency** names an attribute whose value the Examples always pin down from another — a derivable column worth modelling once; `node verify.js <file.aot> --fd` lists the full inferred set.
+One positive, advisory report survives outside the squiggle channel: the FCA audit's `confirmed` line names each Concept whose Examples are *exactly* a formal concept — a grouping the data supports precisely. It is surfaced only by `node verify.js <file.aot> --suggest`.
 
 ### Crosslinks — underlined, Ctrl+click jumps to the definition
 
@@ -230,7 +240,7 @@ The same linter, reasoner and FCA audit the extension runs are exposed on the co
 | `node verify.js <file.aot> --ask "X" "Y"` | **Is-a by divisibility.** Tests whether idea `X` is under idea `Y`, by checking `chi(Y)` divides `chi(X)`. | Prints both characteristic numbers and `'X' is [NOT] under 'Y'`. |
 | `node verify.js <file.aot> --genus "X" "Y"` | **Genus by gcd.** Finds the nearest common kind of `X` and `Y` as `gcd(chi(X), chi(Y))`, then names the node with that characteristic number. | Prints the gcd, the genus's name, and its full ancestry path. |
 | `node verify.js <file.aot> --number "X"` | **Characteristic number.** Prints idea `X`'s number as the product of the primes down its ancestry chain. | `chi(X) = p1 * p2 * … = <n>`, with the path. |
-| `node verify.js <file.aot> --suggest` | **FCA audit.** Builds the concept lattice from the Examples' attributes and audits the written tree against it (drift, exhaustion, and `confirmed` groupings). Runs **only on a file that already verifies** — if `V ≠ 0` it prints the errors and exits 1 instead, since a lattice over a broken tree means nothing. Needs **at least 2 Examples**. | Prints the formal-context size (`objects × attributes, formal concepts`), the `confirmed` Concepts, each finding as `file:line: …`, and `suggestions S = <n>`. |
+| `node verify.js <file.aot> --suggest` | **FCA audit.** Builds the concept lattice from the Examples' attributes and audits the written tree against it (drift, exhaustion, and `confirmed` groupings). Runs **only on a file that already passes rules 1–14** — if `V ≠ 0` it prints those errors and exits 1 instead, since a lattice over a broken tree means nothing. Needs **at least 2 Examples**. Drift and exhaustion are themselves errors counted in `V`. | Prints the formal-context size (`objects × attributes, formal concepts`), the advisory `confirmed` Concepts, each finding as `file:line: error: …`, and `FCA audit: V = <n>`. **Exit 0 only when no findings.** |
 
 `--ask`, `--genus` and `--number` look the ideas up by exact name; an unknown name exits with code 2. These four arithmetic operations are the Leibniz point made runnable: an is-a claim, a common genus, or an idea's full ancestry is a computation over integers, not an opinion.
 
