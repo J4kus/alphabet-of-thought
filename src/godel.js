@@ -266,13 +266,13 @@ function clashes(root, nodes) {
         findings.push({
           line,
           kind: "content",
-          message: `clash: '${display(a)}' and '${display(b)}' carry identical attributes and values (G = ${a.godel}) — the data cannot tell them apart: give one a differentia, or merge them`,
+          message: `clash: '${display(a)}' and '${display(b)}' carry identical attributes and values — nothing in the data tells them apart, so they are one idea written twice; give one a differentia (a distinguishing attribute or value), or merge them (G = ${a.godel})`,
         });
       } else if (rad(a) === rad(b)) {
         findings.push({
           line,
           kind: "names",
-          message: `clash: '${display(a)}' and '${display(b)}' carry the same attribute names, differing only in values (same radical) — confirm the values alone are meant to distinguish them`,
+          message: `clash: '${display(a)}' and '${display(b)}' have the same attribute names and differ only in their values — check that the values alone are meant to tell them apart (same radical)`,
         });
       }
     }
@@ -299,7 +299,7 @@ function overrides(root, nodes) {
         const label = naming.get(aKey) || aKey;
         findings.push({
           line: n.line,
-          message: `override: '${display(n)}' sets '${label}' to '${valueOfCode(aKey, vn, valueCode)}', overriding the inherited '${valueOfCode(aKey, va, valueCode)}'`,
+          message: `override: '${display(n)}' sets '${label}' to '${valueOfCode(aKey, vn, valueCode)}', replacing the '${valueOfCode(aKey, va, valueCode)}' it would otherwise inherit`,
         });
       }
     }

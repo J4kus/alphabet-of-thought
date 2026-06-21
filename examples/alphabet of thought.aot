@@ -44,21 +44,15 @@ Primitive
                         present in: False
                         example: Human
                     - Attribute (Universal Accident)
-                        - Essence And Accident
-                        - Only Lowercase Characters
-                        - Same Slot For Different Frames Means The Slot Has A Dependent Frame
-                        - Assign Enough Concatenated Frame Properties To Be Unambiguous
-                        - Order Per Type From Most Intrinsic To Most Extrinsic
-                        - No Transitive Frame Slot Dependence
+                        characters: lowercase
+                        ordering: Most Essenctial To Most Accidental
                         recognise: all lowercase
-                        said of: True
                         present in: True
                         example: full name
                 Content (Being Acted Upon)
                     said of: False
                     - Example (Individual Substance)
                         recognise: must start with dash and space
-                        said of: False
                         present in: False
                         is: Content
                         predicate: Is An Example Of
@@ -74,7 +68,6 @@ Primitive
                         start: :
                         end: End of line
                         recognise: colon separated value
-                        said of: False
                         present in: True
                         example: colour: red
                         allow special value override
@@ -85,7 +78,6 @@ Primitive
                         predicate: Detailed By
                     - Map
                         recognise: starts with ellipsis
-                        said of: False
                         begin: ...
                         end: End Of Line
                         is special value override: Yes

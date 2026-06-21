@@ -56,6 +56,29 @@ function gcd(a, b) {
   return a;
 }
 
+// Group items by a key. keyOf returning null drops the item from every group.
+function groupBy(items, keyOf) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = keyOf(item);
+    if (key === null) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return groups;
+}
+
+// Walk the groups that hold a duplicate. For each, fn is called once per
+// extra member (all but the first) with that member, the shared "lines a, b"
+// string, and the whole group — the shape every uniqueness check reports in.
+function eachDuplicate(groups, fn) {
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const where = group.map((d) => d.line).join(", ");
+    for (const dup of group.slice(1)) fn(dup, where, group);
+  }
+}
+
 // Return { kind, name, value } for one stripped line of content.
 //
 // A colon gives the term on its left a single inline value. What that value
@@ -100,26 +123,26 @@ function parse(text, rootName, report) {
     let content = raw;
     if (!content.trim()) return;
     if (content.includes("\t")) {
-      report.error(line, "tab character (4 spaces only)");
+      report.error(line, "tab character in the indentation — AOT indents with spaces only, four per level; replace the tab with spaces");
       content = content.replace(/\t/g, " ".repeat(INDENT));
     }
     const spaces = content.length - content.replace(/^ +/, "").length;
     if (spaces % INDENT) {
-      report.error(line, `indent of ${spaces} spaces: ${spaces} mod ${INDENT} = ${spaces % INDENT}, expected 0`);
+      report.error(line, `indent of ${spaces} spaces is not a whole number of levels — each level of nesting is exactly ${INDENT} spaces, so add or remove spaces to reach a multiple of ${INDENT} (${spaces} mod ${INDENT} = ${spaces % INDENT}, expected 0)`);
     }
     let depth = Math.floor(spaces / INDENT);
     if (depth - prevDepth > 1) {
-      report.error(line, `depth jump ${prevDepth} -> ${depth}: ${depth} - ${prevDepth} > 1, no parent at depth ${depth - 1}`);
+      report.error(line, `depth jump ${prevDepth} -> ${depth}: this line is ${depth - prevDepth} levels deeper than the line above, but a child sits exactly one level under its parent — there is no line at depth ${depth - 1} to be its parent; indent it to depth ${prevDepth + 1}`);
       depth = prevDepth + 1;
     }
     let trimmed = content.trim();
     if (trimmed[0] === "-" && !trimmed.startsWith("- ")) {
-      report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example must begin with '- ' (dash + space)`);
+      report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example begins with a dash then a space ('- '); add the missing space`);
       trimmed = "- " + trimmed.slice(1);
     }
     const { kind, name, value } = classify(trimmed);
     if (value === "") {
-      report.error(line, `'${name}:' has 0 characters after ':', expected a value — supply one or drop the colon`);
+      report.error(line, `'${name}:' has 0 characters after ':', expected a value — a colon assigns a value (as in 'colour: red'); add the value, or drop the colon to leave '${name}' as a bare attribute`);
     }
     const parent = stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, parent, children: [] };
@@ -163,7 +186,7 @@ function verify(root, nodes, report) {
   // The file name is the root Concept; do not repeat it as a top-level line
   for (const child of root.children) {
     if (child.name === root.name) {
-      report.error(child.line, `'${child.name}' repeats the file name: 2 primes for the root, expected 1 — the file name is the root Concept, begin with its children`);
+      report.error(child.line, `'${child.name}' repeats the file name — the file name is already the root Concept of the tree, so start with its children rather than naming it again (2 primes for the root, expected 1)`);
     }
   }
 
@@ -173,7 +196,7 @@ function verify(root, nodes, report) {
     if (node.kind === MAP) {
       const content = realChildren(node);
       if (content.length) {
-        report.error(node.line, `Map '... ${node.name}' has ${content.length} non-Map children, expected 0 (a Map may only contain Maps)`);
+        report.error(node.line, `Map '... ${node.name}' has ${content.length} non-Map children, expected 0 — a '...' Map marks what is missing or still to come, so it cannot hold real content; move those lines out from under it, or remove the '...'`);
       }
     }
   }
@@ -181,43 +204,22 @@ function verify(root, nodes, report) {
   // A Concept names one kind; 'and' joins two
   for (const node of nodes) {
     if (node.kind === CONCEPT && /\band\b/i.test(node.name)) {
-      report.error(node.line, `Concept '${node.name}' contains 'and': 2 kinds under 1 prime, expected 1 — split it into two Concepts`);
+      report.error(node.line, `Concept '${node.name}' contains 'and' — 'and' names two kinds at once, but a Concept must name exactly one; split it into two Concepts (2 kinds under 1 prime, expected 1)`);
     }
   }
 
   // Univocity: one Concept name, one prime
-  const seen = new Map();
-  for (const node of nodes) {
-    if (node.kind === CONCEPT) {
-      if (!seen.has(node.name)) seen.set(node.name, []);
-      seen.get(node.name).push(node);
-    }
-  }
-  for (const [name, defs] of seen) {
-    if (defs.length > 1) {
-      const where = defs.map((d) => d.line).join(", ");
-      for (const def of defs.slice(1)) {
-        report.error(def.line, `Concept '${name}' defined ${defs.length} times (lines ${where}): ${defs.length} primes for one term, expected 1 — add a distinguishing qualifier`);
-      }
-    }
-  }
+  const concepts = nodes.filter((n) => n.kind === CONCEPT);
+  eachDuplicate(groupBy(concepts, (n) => n.name), (dup, where, defs) => {
+    report.error(dup.line, `Concept '${dup.name}' defined ${defs.length} times (lines ${where}) — one name must mean one kind, but this name labels ${defs.length} different ones; give all but one a distinguishing qualifier, or merge them (${defs.length} definitions for one term, expected 1)`);
+  });
 
   // Ambiguity: identical siblings (same name AND same value) collapse meaning
   for (const node of all) {
-    const groups = new Map();
-    for (const child of realChildren(node)) {
-      const key = `${child.kind} ${child.name} ${child.value}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(child);
-    }
-    for (const dup of groups.values()) {
-      if (dup.length > 1) {
-        const where = dup.map((d) => d.line).join(", ");
-        for (const d of dup.slice(1)) {
-          report.error(d.line, `${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}) — siblings may share a slot only if default values differ`);
-        }
-      }
-    }
+    const byContent = groupBy(realChildren(node), (c) => `${c.kind} ${c.name} ${c.value}`);
+    eachDuplicate(byContent, (d, where) => {
+      report.error(d.line, `${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}) — two identical siblings add nothing and blur the meaning; give them different values, or keep just one`);
+    });
   }
 
   // Single inheritance used to be checked here as gcd(chi(A), chi(B)) ==
@@ -234,7 +236,7 @@ function verify(root, nodes, report) {
   };
   for (const node of nodes) {
     if (node.kind === CONCEPT && looksPlural(node.name)) {
-      report.warn(node.line, `Concept '${node.name}' appears plural: a Concept names 1 kind — use the singular form`);
+      report.warn(node.line, `Concept '${node.name}' appears plural — a Concept names one kind, not a set of them; use the singular form (e.g. 'Person', not 'People')`);
     }
   }
 
@@ -244,10 +246,10 @@ function verify(root, nodes, report) {
     const actual = defs.find((c) => c.name === "actual");
     const target = defs.find((c) => c.name === "target");
     if (actual && !target) {
-      report.warn(actual.line, `'${node.name}' has 'actual' without 'target': 1 of 2 measurement values — an actual without a target has no standard`);
+      report.warn(actual.line, `'${node.name}' has 'actual' without 'target' — a measurement needs both: an 'actual' is a reading with nothing to judge it against; add a 'target', or remove 'actual'`);
     }
     if (target && !actual) {
-      report.warn(target.line, `'${node.name}' has 'target' without 'actual': 1 of 2 measurement values — a target without an actual is potential`);
+      report.warn(target.line, `'${node.name}' has 'target' without 'actual' — a measurement needs both: a 'target' is a goal with no reading yet to compare; add an 'actual', or remove 'target'`);
     }
   }
 
@@ -264,14 +266,14 @@ function verify(root, nodes, report) {
     const kids = realChildren(node);
     const subConcepts = kids.filter((c) => c.kind === CONCEPT).length;
     if (subConcepts > 8) {
-      report.warn(node.line, `'${node.name}' has ${subConcepts} sub-Concepts, expected no more than eight — group some under an intermediate kind (Examples and attributes may be any quantity)`);
+      report.warn(node.line, `'${node.name}' has ${subConcepts} sub-Concepts, more than the eight a reader can take in at a glance — gather related ones under an in-between kind (Examples and attributes may be any number)`);
     }
     if (node.children.some((c) => c.kind === MAP)) continue;
     if (node.kind === CONCEPT && subConcepts === 1) {
-      report.warn(node.line, `'${node.name}' has 1 sub-Concept, expected 0 or more than one — a kind with one subtype is the subtype`);
+      report.warn(node.line, `'${node.name}' has 1 sub-Concept, expected 0 or more than one — a single subtype divides nothing (the parent simply is that subtype); add a sibling subtype, or merge the two`);
     }
     if (node.kind === INDIVIDUAL && kids.filter((c) => c.kind === INDIVIDUAL).length === 1) {
-      report.warn(node.line, `'${node.name}' has 1 sub-Example, expected 0 or more than one — an example with one sub-example is the sub-example`);
+      report.warn(node.line, `'${node.name}' has 1 sub-Example, expected 0 or more than one — a single sub-Example breaks nothing down (the parent simply is that sub-Example); add another, or merge the two`);
     }
   }
 
@@ -302,21 +304,11 @@ function verify(root, nodes, report) {
     if (node.children.some((c) => c.kind === MAP)) continue;
     const subConcepts = realChildren(node).filter((c) => c.kind === CONCEPT);
     if (subConcepts.length < 2) continue;
-    const groups = new Map();
-    for (const c of subConcepts) {
-      const key = slotSignature(c);
-      if (!key) continue; // no attributes: the `...` is implied, differentia still to come
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c);
-    }
-    for (const group of groups.values()) {
-      if (group.length > 1) {
-        const where = group.map((c) => c.line).join(", ");
-        for (const c of group.slice(1)) {
-          report.warn(c.line, `'${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}): sub-Concepts told apart by position only — give each a distinguishing attribute or default, or a '...' Map under '${node.name}' if the differentiae are still to come`);
-        }
-      }
-    }
+    // no attributes (empty signature): the `...` is implied, differentia still to come
+    const bySlots = groupBy(subConcepts, (c) => slotSignature(c) || null);
+    eachDuplicate(bySlots, (c, where) => {
+      report.warn(c.line, `'${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}) — same attributes and values, so only their order tells them apart; give each a differentia (a distinguishing attribute or value), or add a '...' Map under '${node.name}' if those differences are still to come`);
+    });
   }
 }
 
