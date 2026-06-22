@@ -42,26 +42,37 @@ Twin Kind
     Beta
         - B1
             flag
-Clean code
-    Clean code Category
-        - Item A
-            - Item A1
-            - Item A2
-        - Item B
-        - Item C
-    Clean Code Entry
-        - First Entry
-            sample category: Item A
-        - Second Entry
-            sample category: Item B      
-- Clean code correct crosslink of example to example
-    is correct: yes
-    clean code category
-        - Item A1
-        - Item B
-    type (not category)
-        - Item A1
-        - Item B
-    type (clean code category)
-        - Item A1
-        - Item B
+Covarying Pair
+    - Mark Alpha
+        code: A
+        tag: red
+        seq: one
+    - Mark Beta
+        code: A
+        tag: red
+        seq: two
+    - Mark Gamma
+        code: B
+        tag: green
+        seq: three
+    - Mark Delta
+        code: B
+        tag: green
+        seq: four
+Confirmed Equivalence
+    - Slot One
+        sku: P
+        title: Widget
+        bay: north
+    - Slot Two
+        sku: P
+        title: Widget
+        bay: south
+    - Slot Three
+        sku: Q
+        title: Gadget
+        bay: east
+    - Slot Four
+        sku: Q
+        title: Gadget
+        bay: west

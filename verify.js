@@ -153,8 +153,14 @@ function main() {
       process.exit(1);
     }
     const fds = armstrong.findings(root, nodes);
-    for (const { line, message } of fds) console.log(`${file}:${line}: ${message}`);
-    console.log(`\n${fds.length} functional dependenc${fds.length === 1 ? "y" : "ies"} inferred from the Examples`);
+    // --fd shows everything (covariation included); the editor only flags the
+    // confident ones. Tag each line with kind/confidence so the difference shows.
+    for (const { line, message, kind, confidence } of fds) {
+      const flagged = confidence >= armstrong.MIN_CONFIDENCE ? "" : " [editor: on demand only]";
+      console.log(`${file}:${line}: [${kind} ·conf ${confidence}]${flagged} ${message}`);
+    }
+    const flaggedCount = fds.filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE).length;
+    console.log(`\n${fds.length} functional dependenc${fds.length === 1 ? "y" : "ies"} inferred from the Examples (${flaggedCount} flagged in the editor, ${fds.length - flaggedCount} below the threshold)`);
     return;
   }
   if ((i = args.indexOf("--depends")) !== -1) {

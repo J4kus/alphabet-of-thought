@@ -209,10 +209,10 @@ Two more warnings come from the dependency inference in `src/armstrong.js`. Like
 
 | # | Rule | What triggers it |
 |---|------|------------------|
-| 8 | **Dependency (bijection)** | Two attributes vary one-to-one across the Examples — "the same distinction written twice". Model one and derive the other. |
+| 8 | **Dependency (equivalence)** | Two attributes determine each other across the Examples — "the same distinction written twice". Confirmed only when a value actually **repeats** (two Examples share it and still agree), so the collapse is witnessed and not coincidence. Model one and derive the other. |
 | 9 | **Dependency (determination)** | One attribute's value is always pinned down by another across the Examples — a derivable column. Model it once against its determinant. |
 
-`node verify.js <file.aot> --fd` prints the full inferred set of dependencies (including the weaker ones that do not warn).
+Each finding carries a **confidence**: the number of *confirming repeats* (Examples beyond the first that share a value and still agree). A pure one-to-one **covariation** — every Example distinct on both sides, so no value ever repeats — has confidence 0: the attributes track each other but no collapse is witnessed, so it could be coincidence. The editor flags only findings at or above `MIN_CONFIDENCE` (2) — a single confirming repeat is not enough, so a 3-Example case never squiggles; weaker and covariation-only pairs stay off the squiggle channel. `node verify.js <file.aot> --fd` prints the **full** set, tagging each with its kind (`covaries` / `derivable`) and confidence, and noting which ones the editor flags.
 
 ### No editor hints remain
 

@@ -81,6 +81,38 @@ const twins = [
   // reported once, not twice (code<->label and label<->code collapse)
   const oneToOne = fd.filter((f) => /vary one-to-one/.test(f.message) && f.message.includes("code"));
   check("equivalence reported once, not twice", oneToOne.length === 1);
+  // code/label is a pure bijection (A/B/C/D, no value repeats): covariation,
+  // confidence 0, kept off the editor.
+  const cl = oneToOne[0];
+  check("code/label tagged 'covaries' (no value repeats)", cl.kind === "covaries" && cl.confidence === 0);
+}
+
+// 2b) A confirmed equivalence: 'sku' and 'name' line up one-to-one AND two
+// values repeat (P/P/Q/Q), so the collapse is witnessed twice — 'derivable',
+// confidence 2, clears the editor threshold.
+const confirmed = [
+  "Stock",
+  "    - Bin 1",
+  "        sku: P",
+  "        name: Widget",
+  "    - Bin 2",
+  "        sku: P",
+  "        name: Widget",
+  "    - Bin 3",
+  "        sku: Q",
+  "        name: Gadget",
+  "    - Bin 4",
+  "        sku: Q",
+  "        name: Gadget",
+].join("\n");
+{
+  const { root, nodes, errors } = lint(confirmed, "Inv");
+  check("confirmed fixture parses clean", errors.length === 0);
+  const { findings: f2, MIN_CONFIDENCE } = require("../src/armstrong");
+  const fd = f2(root, nodes);
+  const eq = fd.find((f) => f.message.includes("sku") && f.message.includes("name"));
+  check("sku/name tagged 'derivable' with confidence 2", !!eq && eq.kind === "derivable" && eq.confidence === 2);
+  check("confirmed equivalence clears the editor threshold", !!eq && eq.confidence >= MIN_CONFIDENCE);
 }
 
 // 3) declared dependency closure: Z depends on X through Y, via the

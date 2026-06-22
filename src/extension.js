@@ -37,8 +37,11 @@ function analyse(doc) {
   if (!errors.length) {
     if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
       deepErrors = suggest(root, nodes).findings;
-      // inferred functional dependencies (derivable / equivalent attributes)
-      depWarnings = armstrong.findings(root, nodes);
+      // inferred functional dependencies (derivable / equivalent attributes).
+      // Only confident, witnessed dependencies are flagged in the editor; a bare
+      // one-to-one covariation (confidence 0) could be coincidence and stays on
+      // demand via `verify.js --fd`, like the same-name clash split below.
+      depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE);
     }
     // only the strong, content-identical clashes are flagged in the editor;
     // the weaker same-name clashes stay on demand via `verify.js --clashes`
