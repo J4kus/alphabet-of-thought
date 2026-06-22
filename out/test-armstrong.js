@@ -2,15 +2,13 @@
 // (src/armstrong.js): infer FDs from Example data via Gödel projections, and
 // walk the declared Concept-dependency closure.
 const { lint } = require("../src/linter");
-const { inferFDs, findings, dependsOf } = require("../src/armstrong");
+const { inferFDs, findings } = require("../src/armstrong");
 
 let failures = 0;
 function check(name, ok) {
   console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
   if (!ok) failures++;
 }
-
-const node = (root, nodes, name) => [root, ...nodes].find((n) => n.name === name);
 
 // 1) X -> Y inferred: 'country' determines 'currency' across the Examples,
 // but not the reverse (two countries can share a currency).
@@ -127,25 +125,6 @@ const partial = confirmed + "\n    - ...";
   const eq = fd.find((f) => f.message.includes("sku") && f.message.includes("name"));
   check("'...' marker keeps confidence 2", !!eq && eq.confidence === 2);
   check("'...' marker flags the finding incomplete", !!eq && eq.incomplete === true);
-}
-
-// 3) declared dependency closure: Z depends on X through Y, via the
-// attribute-is-a-Concept references.
-const deps = [
-  "X",
-  "    foo",
-  "Y",
-  "    a x",
-  "Z",
-  "    a y",
-].join("\n");
-{
-  const { root, nodes, errors } = lint(deps, "Graph");
-  check("deps fixture parses clean", errors.length === 0);
-  const Z = node(root, nodes, "Z");
-  const { direct, transitive } = dependsOf(root, nodes, Z);
-  check("Z depends directly on Y", direct.some((d) => d.name === "Y"));
-  check("Z depends transitively on X (through Y)", transitive.some((t) => t.node.name === "X" && t.through.some((n) => n.name === "Y")));
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

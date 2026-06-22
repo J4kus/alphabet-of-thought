@@ -55,7 +55,22 @@ Z
 - [ ] Do not use maps for extra info; use aliases instead
 - [ ] See if "Timing" and "domain" are still part of the language — remove or re-document accordingly
 - [ ] See if the CLI/linter can do extra arithmetic (beyond `--ask`, `--genus`, `--number`)
-
+- [ ] Re-add the `verify.js` command-line front-end (deleted to declutter). It wrapped the shared `src/` modules — nothing else imports it, so the extension is unaffected. Restore the whole-file check (`node verify.js <file>` with a `V = 0` verdict and exit code) plus the flags: `--ask X Y`, `--genus X Y`, `--number X`, `--godel X`, `--clashes`, `--overrides`, `--find "a: v"`, `--common X Y`, `--near X`, `--fd`, `--depends X`, `--diff old new`, `--suggest`. Two views are CLI-exclusive (not in the editor): `--suggest`'s `confirmed` line, and the on-demand `--fd` full set / `--clashes` weak same-name case. NOTE: the query helpers only `verify.js` used were removed from the shared modules too, so they must be restored alongside it — in `godel.js`: `overrides`, `diff` (+`pathOf`), `find`, `common`, `near`, `decode`, `decodeNumber`, `valueOfCode`, `distance`; in `armstrong.js`: `dependsOf`, `dependencyGraph`, `containedConcepts`, `conceptOf` (the last two need the `index`/`wordStarts` crosslinks import back). Their smoke tests were trimmed from `out/test-godel.js` and `out/test-armstrong.js` as well. Docs in README.md ("What `verify.js` can do"), CHANGELOG.md and this file still describe it
+Flag	What goes away
+node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = verifies) — the "objective referee" the README leans on for AI-assisted edits
+--ask X Y	Is-a test by divisibility
+--genus X Y	Nearest common kind via gcd
+--number X	Characteristic number as a prime product
+--godel X	Gödel factorisation with attribute/value legend
+--clashes	Both strengths of clash (editor shows only the strong content clash)
+--overrides	Nodes overriding an inherited default
+--find "a: v"	Search ideas by attribute/value
+--common X Y	Shared attribute core of two ideas
+--near X	Nearest ideas by content distance
+--fd	Full set of inferred functional dependencies (editor flags only the confident/complete ones)
+--depends X	Direct + transitive Concept dependencies
+--diff old new	Version diff as factorisation comparison
+--suggest	FCA audit + the positive confirmed report (only surfaced here, not in the editor)
 ## Linter / diagnostics
 - [X] Exclude words ending in "us" from plural detection
 - [ ] Make example/value matching not capitalisation-specific 
