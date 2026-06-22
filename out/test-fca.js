@@ -131,6 +131,34 @@ const typed = [
   );
 }
 
+// 5b) attribute-is-a-Concept value alignment: when an attribute is typed by
+// a Concept (attribute-is-a-Concept) and its value names an Example of that
+// Concept, the value contributes that Example's ancestry within the Concept
+// as columns — the same expansion test 4 gives an attribute that holds its
+// Examples directly. `shade colour: Crimson` (Crimson under Colour > Red)
+// expands to `shade colour: Red`, so it groups with `shade colour: Red`.
+const conceptTyped = [
+  "Colour",
+  "    - Red",
+  "        - Crimson",
+  "    - Blue",
+  "Pen",
+  "    - My Pen",
+  "        shade colour: Crimson",
+  "    - Other Pen",
+  "        shade colour: Red",
+].join("\n");
+{
+  const { root, nodes, errors } = lint(conceptTyped, "World");
+  check("concept-typed fixture parses clean", errors.length === 0);
+  const { objects, intents } = buildContext(root, nodes);
+  const myPen = objects.find((g) => g.name === "My Pen");
+  check(
+    "'shade colour: Crimson' expands to 'shade colour: Red' via the Concept type's Example ancestry",
+    intents.get(myPen).has("shade colour: red"),
+  );
+}
+
 // 6) the reference file runs without throwing and reports a context
 {
   const text = fs.readFileSync(path.join(__dirname, "..", "examples", "alphabet of thought.aot"), "utf-8");

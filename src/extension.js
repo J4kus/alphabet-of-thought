@@ -57,7 +57,8 @@ function decorate(editor, decorationTypes) {
   const concepts = [];
   const individuals = [];
   for (const link of links) {
-    const isConcept = link.connection !== "default-is-a-Example";
+    // dotted underline for links to an Example, solid for links to a Concept
+    const isConcept = link.target.kind !== KIND.INDIVIDUAL;
     const where = link.target.line ? `line ${link.target.line}` : "the file name";
     (isConcept ? concepts : individuals).push({
       range: linkRange(link),

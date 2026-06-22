@@ -108,3 +108,45 @@ console.log(landed ? "definition of 'person' -> line 1 'Person'" : "DEFINITION F
 
 const crosslinksPass = conceptLinks.length === 1 && individualLinks.length === 1 && landed;
 console.log(crosslinksPass ? "PASS (crosslinks)" : "UNEXPECTED CROSSLINKS");
+
+// 3) example-is-a-Example: an Example listed under an attribute that names a
+// Concept links to that Concept's Example, the same as the value form would.
+const { lint } = require("../src/linter");
+const { resolve } = require("../src/crosslinks");
+const listed = [
+  "Hue",
+  "    - Red",
+  "        - Crimson",
+  "        - Scarlet",
+  "    - Blue",
+  "Pen",
+  "    - Rose",
+  "        shade hue",
+  "            - Crimson",
+].join("\n");
+{
+  const { root, nodes } = lint(listed, "World");
+  const links = resolve(listed, root, nodes);
+  const link = links.find((l) => l.connection === "example-is-a-Example");
+  const ok = link && link.line === 9 && link.target.line === 3 && link.text === "Crimson";
+  console.log(ok
+    ? "PASS (example-is-a-Example: listed '- Crimson' links to its Concept type's '- Crimson')"
+    : "UNEXPECTED example-is-a-Example");
+  // a listed Example whose name is not of the attribute's Concept type must not link
+  const stray = [
+    "Hue",
+    "    - Red",
+    "Dance",
+    "    - Tango",
+    "Pen",
+    "    - Rose",
+    "        shade hue",
+    "            - Tango",
+  ].join("\n");
+  const s = lint(stray, "World");
+  const strayLinks = resolve(stray, s.root, s.nodes);
+  const noStray = !strayLinks.some((l) => l.connection === "example-is-a-Example");
+  console.log(noStray
+    ? "PASS (example-is-a-Example: a wrong-typed listed Example does not link)"
+    : "UNEXPECTED stray example-is-a-Example");
+}

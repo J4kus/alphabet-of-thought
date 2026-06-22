@@ -91,10 +91,29 @@ function buildContext(root, nodes) {
         if (valued.has(nameKey)) continue;
         valued.add(nameKey);
         put(`${child.name}: ${child.value}`);
+        // A value naming an Example contributes that Example's ancestry as
+        // columns, so a deep value groups with the shallower kinds above it.
+        // The Examples an attribute ranges over live in one of two places,
+        // and both anchor the walk the same way: the attribute itself, when
+        // it directly holds them (`operation` with `- Formula`, `- Observation`
+        // beneath, so `operation: Ratio` yields `operation: Formula`), or the
+        // Concept that types it (attribute-is-a-Concept, `shade colour` naming
+        // the `Colour` Concept whose Examples are `- Red`, `- Crimson`, so
+        // `shade colour: Crimson` yields `shade colour: Red`). The walk stops
+        // at whichever anchor the Example sits under.
         const target = individuals.get(child.value);
-        if (target && target !== child && instantiates(target, child.name)) {
+        const anchor =
+          target && target !== child
+            ? instantiates(target, child.name)
+              ? child.name
+              : type && instantiates(target, type.name)
+                ? type.name
+                : null
+            : null;
+        if (anchor) {
+          const stop = anchor.toLowerCase();
           for (let a = target.parent; a && a !== root; a = a.parent) {
-            if (a.name.toLowerCase() === child.name.toLowerCase()) break;
+            if (a.name.toLowerCase() === stop) break;
             put(`${child.name}: ${a.name}`);
           }
         }

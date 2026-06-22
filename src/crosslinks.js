@@ -1,4 +1,4 @@
-// Crosslink resolution for .aot documents: the three inline connections.
+// Crosslink resolution for .aot documents: the four inline connections.
 //
 //   attribute-is-a-Concept   an attribute's (or default's) trailing words
 //                            match a Concept name, case-insensitively:
@@ -6,6 +6,13 @@
 //   default-is-a-Example  a default value matches an Example name
 //                            exactly, case-sensitively:
 //                            `person: Socrates` links to `- Socrates`
+//   example-is-a-Example  an Example listed under an attribute that names
+//                            a Concept (attribute-is-a-Concept) matches an
+//                            Example of that Concept: `shade hue` typed by
+//                            `Hue` with `- Crimson` beneath links that
+//                            `- Crimson` to the `Hue` Concept's `- Crimson`.
+//                            The listed form of `shade hue: Crimson`, so it
+//                            links the same way the value does.
 //   concept-contains-Concept a Concept's name contains a run of words that
 //                            names another Concept, case-insensitively:
 //                            `Independent Node` links its `Node` to the
@@ -50,6 +57,23 @@ function index(root, nodes) {
       individuals.set(node.name, node);
   }
   return { concepts, individuals };
+}
+
+// The Concept an attribute (or default) names by its trailing words — the
+// attribute-is-a-Concept target, longest trailing run wins, as in resolve().
+// Its "type": `shade hue` names `Hue`. null when no trailing run is a Concept.
+function conceptType(node, concepts) {
+  for (const start of wordStarts(node.name)) {
+    const target = concepts.get(node.name.slice(start).toLowerCase());
+    if (target && target !== node) return target;
+  }
+  return null;
+}
+
+// Whether anc is an ancestor of node (node sits somewhere beneath it).
+function descendsFrom(node, anc) {
+  for (let p = node.parent; p; p = p.parent) if (p === anc) return true;
+  return false;
 }
 
 // Whether an Example genuinely instantiates an attribute: true when one of
@@ -138,6 +162,31 @@ function resolve(text, root, nodes) {
           startCol: valueStart,
           endCol: valueStart + node.value.length,
           text: node.value,
+          target,
+        });
+      }
+    }
+
+    // An Example listed under an attribute that names a Concept is the listed
+    // form of `attribute: Example`: link it to that Concept's Example, just as
+    // default-is-a-Example links the value. The defining Example is the first
+    // of its name (target !== node skips it); a later same-named Example under
+    // the typed attribute is the reference. Requiring the target to descend
+    // from the attribute's Concept keeps it to genuine values of that type.
+    if (node.kind === KIND.INDIVIDUAL && node.parent
+        && (node.parent.kind === KIND.ATTRIBUTE || node.parent.kind === KIND.DEFAULT)) {
+      const type = conceptType(node.parent, concepts);
+      const target = type && individuals.get(node.name);
+      if (type && target && target !== node && descendsFrom(target, type)) {
+        const dash = raw.indexOf("-", nameStart);
+        const after = raw.slice(dash + 1);
+        const valueStart = dash + 1 + (after.length - after.trimStart().length);
+        links.push({
+          connection: "example-is-a-Example",
+          line: node.line,
+          startCol: valueStart,
+          endCol: valueStart + node.name.length,
+          text: node.name,
           target,
         });
       }

@@ -42,3 +42,17 @@ Twin Kind
     Beta
         - B1
             flag
+Clean code
+    Category
+        - Item A
+            - Item A1
+            - Item A2
+        - Item B
+    First Entry
+        sample category: Item A
+    Second Entry
+        sample category: Item B
+        - Item C
+    - Clean code crosslink of example to example
+        sample category
+            - Item A1
