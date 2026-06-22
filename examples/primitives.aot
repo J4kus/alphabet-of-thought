@@ -207,11 +207,11 @@
             Type
                 not said of
         Workflow
-            Operation (In Use Item)
+            Worker Pool (In Use Item)
+                - Role
                 - Asset
                 - Function
                 - Object
-                - Role
                 - Value
                 said of
                 is bottleneck: yes
