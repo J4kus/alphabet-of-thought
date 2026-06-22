@@ -61,10 +61,16 @@ function index(root, nodes) {
 
 // The Concept an attribute (or default) names by its trailing words — the
 // attribute-is-a-Concept target, longest trailing run wins, as in resolve().
-// Its "type": `shade hue` names `Hue`. null when no trailing run is a Concept.
+// Its "type": `shade hue` names `Hue`. A parenthetical alias is an explicit
+// alternative name, so it is matched whole: `type (category)` is typed by
+// `Category`. null when neither the name nor the alias is a Concept.
 function conceptType(node, concepts) {
   for (const start of wordStarts(node.name)) {
     const target = concepts.get(node.name.slice(start).toLowerCase());
+    if (target && target !== node) return target;
+  }
+  if (node.alias) {
+    const target = concepts.get(node.alias.toLowerCase());
     if (target && target !== node) return target;
   }
   return null;
@@ -118,6 +124,26 @@ function resolve(text, root, nodes) {
             target,
           });
           break;
+        }
+      }
+      // a parenthetical alias is an explicit alternative name: link it whole
+      // when it names a Concept, so `type (category)` links `category` to the
+      // `Category` Concept, with the underline falling inside the parentheses
+      if (node.alias) {
+        const target = concepts.get(node.alias.toLowerCase());
+        if (target && target !== node) {
+          const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
+          const open = region.lastIndexOf("(");
+          const inner = region.slice(open + 1);
+          const aliasStart = open + 1 + (inner.length - inner.trimStart().length);
+          links.push({
+            connection: "attribute-is-a-Concept",
+            line: node.line,
+            startCol: aliasStart,
+            endCol: aliasStart + node.alias.length,
+            text: node.alias,
+            target,
+          });
         }
       }
     }

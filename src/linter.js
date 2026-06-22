@@ -98,14 +98,19 @@ function classify(text) {
     value = text.slice(colon + 1).trim();
     text = text.slice(0, colon).trim();
   }
-  // trailing (alias) does not change identity
+  // trailing (alias) does not change identity, but it names the same idea,
+  // so it is kept for crosslinking: `type (category)` links its alias to the
+  // `Category` Concept just as the bare attribute `category` would.
+  let alias = null;
   if (text.endsWith(")") && text.includes("(")) {
-    text = text.slice(0, text.lastIndexOf("(")).trim();
+    const open = text.lastIndexOf("(");
+    alias = text.slice(open + 1, -1).trim() || null;
+    text = text.slice(0, open).trim();
   }
   if (text && text[0] >= "a" && text[0] <= "z") {
-    return value !== null ? { kind: DEFAULT, name: text, value } : { kind: ATTRIBUTE, name: text, value: null };
+    return value !== null ? { kind: DEFAULT, name: text, value, alias } : { kind: ATTRIBUTE, name: text, value: null, alias };
   }
-  return { kind: CONCEPT, name: text, value };
+  return { kind: CONCEPT, name: text, value, alias };
 }
 
 // Parse text into a tree rooted at the file name (without extension),
@@ -140,12 +145,12 @@ function parse(text, rootName, report) {
       report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example begins with a dash then a space ('- '); add the missing space`);
       trimmed = "- " + trimmed.slice(1);
     }
-    const { kind, name, value } = classify(trimmed);
+    const { kind, name, value, alias } = classify(trimmed);
     if (value === "") {
       report.error(line, `'${name}:' has 0 characters after ':', expected a value — a colon assigns a value (as in 'colour: red'); add the value, or drop the colon to leave '${name}' as a bare attribute`);
     }
     const parent = stack[Math.min(depth, stack.length - 1)];
-    const node = { line, depth, kind, name, value, parent, children: [] };
+    const node = { line, depth, kind, name, value, alias: alias || null, parent, children: [] };
     parent.children.push(node);
     nodes.push(node);
     // A capitalised line with a colon is a Concept with one inline Example.
@@ -214,9 +219,11 @@ function verify(root, nodes, report) {
     report.error(dup.line, `Concept '${dup.name}' defined ${defs.length} times (lines ${where}) — one name must mean one kind, but this name labels ${defs.length} different ones; give all but one a distinguishing qualifier, or merge them (${defs.length} definitions for one term, expected 1)`);
   });
 
-  // Ambiguity: identical siblings (same name AND same value) collapse meaning
+  // Ambiguity: identical siblings (same name AND same value) collapse meaning.
+  // A differing alias sets them apart: `type (category)` and `type (Tag)` name
+  // the same attribute but type it by different Concepts, so they are distinct.
   for (const node of all) {
-    const byContent = groupBy(realChildren(node), (c) => `${c.kind} ${c.name} ${c.value}`);
+    const byContent = groupBy(realChildren(node), (c) => `${c.kind} ${c.name} ${c.value} ${c.alias || ""}`);
     eachDuplicate(byContent, (d, where) => {
       report.error(d.line, `${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}) — two identical siblings add nothing and blur the meaning; give them different values, or keep just one`);
     });
