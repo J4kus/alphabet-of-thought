@@ -113,6 +113,20 @@ const confirmed = [
   const eq = fd.find((f) => f.message.includes("sku") && f.message.includes("name"));
   check("sku/name tagged 'derivable' with confidence 2", !!eq && eq.kind === "derivable" && eq.confidence === 2);
   check("confirmed equivalence clears the editor threshold", !!eq && eq.confidence >= MIN_CONFIDENCE);
+  check("complete sample is not flagged incomplete", !!eq && !eq.incomplete);
+}
+
+// 2c) The same confirmed equivalence, but the Example set carries a '- ...'
+// marker: the sample is admittedly partial, so the high-confidence finding is
+// flagged 'incomplete' and stays off the editor squiggle.
+const partial = confirmed + "\n    - ...";
+{
+  const { root, nodes, errors } = lint(partial, "Inv");
+  check("partial fixture parses clean", errors.length === 0);
+  const fd = findings(root, nodes);
+  const eq = fd.find((f) => f.message.includes("sku") && f.message.includes("name"));
+  check("'...' marker keeps confidence 2", !!eq && eq.confidence === 2);
+  check("'...' marker flags the finding incomplete", !!eq && eq.incomplete === true);
 }
 
 // 3) declared dependency closure: Z depends on X through Y, via the

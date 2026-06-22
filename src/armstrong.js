@@ -27,7 +27,15 @@ const { KIND } = require("./linter");
 const { index, wordStarts } = require("./crosslinks");
 const godel = require("./godel");
 
-const { CONCEPT, INDIVIDUAL, ATTRIBUTE, DEFAULT } = KIND;
+const { CONCEPT, INDIVIDUAL, ATTRIBUTE, DEFAULT, MAP } = KIND;
+
+// A node is declared intentionally incomplete by an ellipsis among its
+// children — either a `...` Map (the README's marker, which excuses the
+// structural warnings) or a `- ...` Example. Examples under such a node are an
+// admitted partial sample, so any FD read off them is provisional: still worth
+// reporting on demand, but never confident enough for an editor squiggle.
+const isEllipsis = (c) => c.kind === MAP || (c.kind === INDIVIDUAL && c.name === "...");
+const isIncomplete = (node) => node.children.some(isEllipsis);
 
 // An inferred FD needs a few Examples behind it; one or two coincidences are
 // not a dependency.
@@ -140,7 +148,10 @@ function inferFDs(root, nodes) {
       // X is distinct on every Example (a bijection) — covariation, not a
       // witnessed collapse. See MIN_CONFIDENCE.
       const confirms = both.length - xVals.size;
-      holds.push({ x, y, support: both.length, confirms });
+      // provisional if any witnessing Example sits under an ellipsis-marked
+      // node: the sample is admittedly partial, so the FD never squiggles.
+      const incomplete = both.some((o) => o.parent && isIncomplete(o.parent));
+      holds.push({ x, y, support: both.length, confirms, incomplete });
     }
   }
   return { holds, label, lineOf, objects: objects.length };
@@ -163,23 +174,25 @@ function findings(root, nodes) {
     if (reported.has(key)) continue;
     reported.add(key);
     const lx = lineOf.get(h.x) || 1, ly = lineOf.get(h.y) || 1;
+    // an ellipsis under either side's Examples makes the whole finding provisional
+    const incomplete = back ? (h.incomplete || back.incomplete) : h.incomplete;
     if (back) {
       // equivalence: confidence is the collapse witnessed on either side.
       const confidence = Math.max(h.confirms, back.confirms);
       if (confidence === 0) {
         out.push({
-          line: Math.max(lx, ly), kind: "covaries", confidence,
+          line: Math.max(lx, ly), kind: "covaries", confidence, incomplete,
           message: `dependency: '${label(h.x)}' and '${label(h.y)}' covary one-to-one across the Examples (${h.support} pairs, no value repeats) — they track each other, but with no Example repeating a value this could be coincidence rather than a real equivalence; if they are meant to be the same distinction, model it once (advisory: the file still verifies)`,
         });
       } else {
         out.push({
-          line: Math.max(lx, ly), kind: "derivable", confidence,
+          line: Math.max(lx, ly), kind: "derivable", confidence, incomplete,
           message: `dependency: '${label(h.x)}' and '${label(h.y)}' are equivalent across the Examples (${h.support} agree, ${confidence} repeated value${confidence === 1 ? "" : "s"} confirm${confidence === 1 ? "s" : ""} it, none disagree) — they record the same distinction twice, so one is redundant; keep whichever reads clearer and derive the other (advisory: the file still verifies)`,
         });
       }
     } else {
       out.push({
-        line: ly, kind: "derivable", confidence: h.confirms,
+        line: ly, kind: "derivable", confidence: h.confirms, incomplete,
         message: `dependency: '${label(h.y)}' looks derivable — across ${h.support} Examples, every one with the same '${label(h.x)}' also has the same '${label(h.y)}' (${h.confirms} repeated '${label(h.x)}' value${h.confirms === 1 ? "" : "s"} confirm${h.confirms === 1 ? "s" : ""} it), so '${label(h.x)}' determines '${label(h.y)}'; set '${label(h.y)}' once from '${label(h.x)}' instead of repeating it (advisory: the file still verifies)`,
       });
     }
