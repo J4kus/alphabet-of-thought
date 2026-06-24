@@ -43,36 +43,59 @@
                 measurement operation used: Ranking
                 influence: Green
 
-- Network
+- Graph
     Mind
-        storage capacity
-        Global Workspace
-            specialist process
-                - Vision
-                - Language
-                - Memory Retrieval
-            storage capacity: 1 shared broadcast item between specialist processes
-            information rate: 39 bits a minute
-            storage capacity: 2 seconds of inner speech
-            - broadcast item
-            global workspace
-        Chunk
-            Working Memory
-                long term memory: schema
-                observation
-                storage capacity: 4 active chunks
-                is on-off switch: no
-            Long Term Memory
-                - schema
-                - generative model
-                storage capacity:  no vocabulary limit
-                grammar capacity: unbound
-                ...
-        Environment (Extended Mind)
-            - written note
-            - dialogue partner
-            - artificial intelligence model
-
+        Specialist Process
+            - Vision
+            - Language
+            - Memory Retrieval
+        Storage
+            capacity
+            Global Workspace
+                specialist process
+                storage capacity: 1 shared broadcast item between specialist processes
+                information rate: 39 bits a minute
+                storage capacity: 2 seconds of inner speech
+                - broadcast item
+                global workspace
+            Chunk
+                Working Memory
+                    long term memory: schema
+                    observation
+                    storage capacity: 4 active chunks
+                    is on-off switch: no
+                Long Term Memory
+                    - schema
+                    - generative model
+                    storage capacity:  no vocabulary limit
+                    grammar capacity: unbound
+                    ...
+            Environment (Extended Mind)
+                - written note
+                - dialogue partner
+                - artificial intelligence model
+        Thought
+            Intuition
+                Sensory processing
+                Learned association
+                thread: Parallel
+                processing rule: Dedicated
+                has lock: no
+                is bottleneck: no
+                useful life: milliseconds
+                is race: yes
+            Deliberation
+                thread: Synchronous
+                is bottleneck: yes
+                useful life: seconds per acquisition
+                - deliberation waits for conflict
+                    mechanism: Condition
+                - deliberation holds working memory
+                    mechanism: Synchronisation
+                - bias wins the race
+                    risk: Race Condition
+                - thought repeats per prediction error
+                    interval count: 2 or more
 - Function
     Predict Incoming Evidence
         Retrieve relevant schema
@@ -96,29 +119,7 @@
         Summon low confidence deliberation
 
 - Workflow
-    Thought
-        Intuition
-            thread: Parallel
-            - race
-                processing rule: Dedicated
-                has lock: no
-                is bottleneck: no
-                useful life: milliseconds
-                - sensory processing
-                - learned associations
-        Deliberation
-            thread: Synchronous
-            is bottleneck: yes
-            useful life: seconds per acquisition
-            - deliberation waits for conflict
-                mechanism: Condition
-            - deliberation holds working memory
-                mechanism: Synchronisation
-            - bias wins the race
-                risk: Race Condition
-            - thought repeats per prediction error
-                interval count: 2 or more
     maximum worker pool: many intuitions, one deliberation
     result: a justified, calibrated belief
-    is done: never
+    end: never
     exception: None
