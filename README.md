@@ -31,7 +31,22 @@ Arguments become checkable. This is the Leibniz point in the README: once "Socra
 
 AI can work on it reliably. Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then run verify.js to check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
 
+The language itself is small. There are four kinds of line — Concept, Attribute, Example, and value — one relationship, indentation, and one piece of punctuation, the colon. That is the whole grammar. There is no schema to declare before you write, no type annotations, and no separate query language: the same indented plain text serves whether you are sketching or being verified. A language this small is one you can hold entirely in your head, and so is any file written in it — which is also why the tooling can be an exact referee instead of a guesser, and why an AI can work the model without first learning a notation.
+
 A realistic first use: take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — pick the matching primitive as a skeleton, write it as a .aot tree (1. Start with natural Concepts, 2. Build up from facts OR normalise an existing data structures and then Derive relations, establish attributes), and keep fixing squiggles until V = 0. The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point. 
+
+## Starting axiomatically
+
+Alpha don't like Concept tree. The opposite way in — *axiomatic Alpha* — starts with a flat list of the facts you already know, the Examples and their attributes, and does **not** subdivide the Concept at all. You file every Example directly under the file-name root, give each one its attributes and values, and stop. The [Content over structure](#pragmatic) rule taken to its limit, and the inverse of normalising an existing schema, where you start from structure and derive the relations.
+
+The good news is there is no hard part to the axiomatic start, because thinking is never complete. Any checklist of the questions a subject must answer will do, but there is one here that I recommend:
+
+- **The Alpha primitives** — Motivation, Graph, Function, Workflow. Walk each one and you have asked why, what, how, and when (the four causes). All real knowledge straddles several primitives; if you cannot produce them all, you do not yet fully understand the subject.
+- **Kipling's Six Serving Men** — *What, Why, When, How, Where, Who* ("I keep six honest serving-men; they taught me all I knew"). Six attributes to hang on any Example, and the same six that label the columns of the primitives.
+- **Aristotle's ten Categories** — substance, quantity, quality, relation, place, time, position, having, action, being-acted-upon (*Categories* 4). The widest net for *what can be said of a thing*: each category is one more attribute to ask after.
+- **Your todo list** — Each open item is an Example the model is missing; emptying the list and completing the model are the same act.
+
+Whichever you use, the move is the same: generate the facts first, then let the tree fall out of them.
 
 ## Gödel numbering
 
@@ -319,10 +334,6 @@ Each of these Primitives has a said-of and a not-said-of part to guide the user 
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How: a parent's form is all its child objectives taken together) | Class (Which) |
 | **Efficient** | the agent and the means | by Whom, in what order | Workflow | Worker Pool (Item in use) | Time (When) |
 
-The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through all of its children together. No single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How, the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
-
-The Function tree relates to it differently: it *is the form of the motivation*, the arrangement that realises it, built from the material the Graph provides and carried out in the order the Workflow makes most efficient. 
-
 *Where* and *When* are not causes in their own right; they are the questions a cause's concepts answer. Matter is never placeless: everything that exists is somewhere, and place is the innermost boundary of what contains it (*Physics* IV). So the Entity is the Where: it bounds where a Record resides in reality, which is why the Graph primitive carries data residency, latency and disaster recovery. Likewise the Dependency is the When: it bounds when the efficient process may run. Kipling's six serving men label the columns, the four causes label the rows.
 
 ---
@@ -550,6 +561,10 @@ Repository
 ### Function Primitive
 
 Focus: **how the system does it**, decomposed as a tree.
+
+The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through all of its children together. No single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How, the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
+
+The Function tree relates to the other primitives differently: it *is the form of the motivation*, the arrangement that realises it, built from the material the Graph provides and carried out in the order the Workflow makes most efficient.
 
 ### Example
 
