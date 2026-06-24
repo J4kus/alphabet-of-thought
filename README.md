@@ -1,6 +1,6 @@
 # Alpha (.aot)
 
-Alpha is aimed at knowledge workers like analysts and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Example, is underlined as a link, and Ctrl+click jumps to the defining line. The same linter runs from the command line with `node verify.js <file.aot>`. The CLI can also answer an is-a question by divisibility (`--ask`), find the genus of two ideas by gcd (`--genus`), print the characteristic number of any idea (`--number`), and audit the tree by Formal Concept Analysis (`--suggest`): it treats the Examples and their attributes as a formal context, computes the concept lattice, and reports groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula. Where `--number` encodes only *where* a line sits, a second number encodes *what it says*: `--godel` prints the Gödel number of an idea — one prime per attribute, raised to a power that encodes the value — and `--clashes`, `--overrides`, `--find`, `--common`, `--near`, and `--diff` query that number arithmetically (see [Gödel numbering](#gödel-numbering)). Building on it, `--fd` infers the functional dependencies the Examples bear out and `--depends` walks a Concept's declared dependencies (see [Armstrong's axioms](#armstrongs-axioms-dependency-inference)).
+Alpha is aimed at knowledge workers like analysts and architects. Alpha comes with tooling that checks its rules for you. The VS Code extension (`alphabet-of-thought-*.vsix`) adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz. Every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. Tabs, broken indentation, depth jumps, a Concept defined twice and identical siblings all appear as squiggles in the Problems panel. The extension also resolves the inline crosslinks. An attribute whose trailing words match a Concept, or a Attribute Value that names an Example, is underlined as a link, and Ctrl+click jumps to the defining line. Beyond the syntactic checks, the linter audits the tree by Formal Concept Analysis: it treats the Examples and their attributes as a formal context, computes the concept lattice, and flags groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula. Where a line's characteristic number encodes only *where* it sits, a second Gödel number encodes *what it says* — one prime per attribute, raised to a power that encodes the value — and the linter compares those numbers to catch content clashes (see [Gödel numbering](#gödel-numbering)). Building on it, the linter infers the functional dependencies the Examples bear out and walks a Concept's declared dependencies (see [Armstrong's axioms](#armstrongs-axioms-dependency-inference)).
 
 Alpha is a text-based engineering language for working out what you mean in a way a machine can check.  You build knowledge as a tree of indented plain text, a human-first interface to a key-value store that makes strict design choices: single inheritance and only four types of ideas.
 
@@ -8,8 +8,7 @@ Alpha is a text-based engineering language for working out what you mean in a wa
 
 1. Pick a subject and name a file after it. The file name is the root concept — Thought.aot, Sales.aot, Payments.aot. Everything inside is a child of that one idea.
 2. Write indented plain text using only four kinds of line: a capitalised line is a Concept (a kind of thing), a lowercase line is an attribute (a property), - Dash is an Example (a real instance), and name: value gives the term before the colon one inline value — an Attribute Value under a lowercase attribute, or, under a capitalised Concept, the Concept's single inline Example (`Run Command: code --install …` is the Concept `Run Command` described by the one Example `code --install …`). Indentation is the only relationship: one parent per idea, general at the top, specific at the bottom.
-3. Let the tooling correct you as you type. The VS Code extension squiggles tabs, depth jumps, a Concept defined twice, identical siblings, an "and" in a Concept name — each one is a place where your model is ambiguous. Ctrl+click on a crosslink jumps to where a term is defined.
-4. Verify and query from the command line. node verify.js file.aot checks the whole tree (exit 0 = the file verifies); --ask, --genus, --number answer questions about it arithmetically, as covered earlier; --suggest audits your Concepts against the concept lattice the Examples' attributes actually support.
+3. Let the tooling correct you as you type. The VS Code extension squiggles tabs, depth jumps, a Concept defined twice, identical siblings, an "and" in a Concept name — each one is a place where your model is ambiguous. Ctrl+click on a crosslink jumps to where a term is defined. The same pass reports the violation total `V`; the file verifies when `V = 0`.
 
 ## What you'd use it for
 
@@ -27,9 +26,9 @@ The constraints are the product. Because every idea has exactly one parent, writ
 Two readers build the same mental model. No multiple inheritance means an idea never changes meaning depending on the path you took to it. A .aot file is a shared definition a team can extend instead of each human keeping a private version.
 
 Disagreements become locatable. When a colleague disputes the model, the dispute is about a specific line — a wrong parent, a missing differentia — not about a vibe in a paragraph.
-Arguments become checkable. This is the Leibniz point in the README: once "Socrates is a Human" is the divisibility of two integers, an is-a claim isn't an opinion, it's a computation the linter either confirms or refutes. V = 0 at the bottom of the CLI output means the file contains no structural contradictions.
+Arguments become checkable. This is the Leibniz point in the README: once "Socrates is a Human" is the divisibility of two integers, an is-a claim isn't an opinion, it's a computation the linter either confirms or refutes. V = 0 means the file contains no structural contradictions.
 
-AI can work on it reliably. Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then run verify.js to check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
+AI can work on it reliably. Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then let the linter check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
 
 The language itself is small. There are four kinds of line — Concept, Attribute, Example, and value — one relationship, indentation, and one piece of punctuation, the colon. That is the whole grammar. There is no schema to declare before you write, no type annotations, and no separate query language: the same indented plain text serves whether you are sketching or being verified. A language this small is one you can hold entirely in your head, and so is any file written in it — which is also why the tooling can be an exact referee instead of a guesser, and why an AI can work the model without first learning a notation.
 
@@ -56,37 +55,17 @@ The characteristic number `chi = prime × chi(parent)` is a squarefree product: 
 - exponent **1** — the attribute is present but unvalued
 - exponent **k > 1** — the attribute carries a value, `k` a stable code for it
 
-So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what* — and every question below is plain arithmetic on `G`, run with `node verify.js <file.aot> --godel X` (print the factorisation and legend) or the query flags in the table.
+So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what*. Every question a model asks of its content is then plain arithmetic on `G`: whether idea *n* carries attribute *a* (`prime(a)` divides `G(n)`), whether two ideas carry the same attributes (equal radicals) or identical content (equal `G`), what value an attribute takes on a line (the exponent of its prime, decoded), which ideas override an inherited default (a prime dividing both `G(n)` and `G(ancestor)` with unequal exponents ≥ 2), and which attributes are present but not yet valued (primes with exponent exactly 1).
 
-| What you ask | Arithmetic on `G` | CLI |
-|--------------|-------------------|-----|
-| Does idea *n* carry attribute *a*? | `prime(a)` divides `G(n)` | `--godel` (legend lists every attribute) |
-| Do *n* and *m* carry the **same attributes**? | `radical(G(n)) == radical(G(m))` (exponents stripped) | `--clashes` |
-| Are *n*'s attributes a **subset** of *m*'s? | `radical(G(n))` divides `radical(G(m))` | — |
-| Which ideas match a **partial spec** (`a: v` AND `b: w` …)? | build a query number `Q`; an idea matches iff `Q` divides `G(n)` | `--find "a: v" ["b" …]` |
-| Do *n* and *m* carry **identical content** (a clash)? | `G(n) == G(m)` | `--clashes` |
-| What value does *a* take on *n*? | the exponent of `prime(a)` in `G(n)`, decoded | `--godel` |
-| Which ideas **override** an inherited default? | `prime(a)` divides both `G(n)` and `G(ancestor)`, exponents ≥ 2 and unequal | `--overrides` |
-| What does a child **add or change** over its parent? | the primes whose exponent grew or changed | `--overrides`, `--diff` |
-| Which attributes are two ideas set to the **same value** (their shared core)? | the primes with the same exponent in both — `gcd`-style intersection | `--common X Y` |
-| Which existing ideas are **most like** *n*? | fewest primes whose exponents differ — a content distance | `--near X [k]` |
-| What changed between two **versions** of a file? | factor `G` under a shared table: a prime gained/lost is an attribute added/removed; a changed exponent is a changed value | `--diff old.aot new.aot` |
-| Which attributes are present but **not yet valued** (a todo list)? | primes with exponent exactly 1 | `--godel` |
-
-`--clashes` reports the two strengths separately: two ideas that share an attribute-name set but differ in their values (equal radicals), and the stronger case of two ideas with identical attributes *and* values (equal `G`). The strong, content-identical clash also surfaces in the ordinary lint pass as an **error** counted in `V` — like the `--suggest` findings it is meaningless over a tree that does not yet verify, so it runs only once the syntactic/subsumption pass is clean, but when it fires it is a violation, not an advisory.
+The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V`. Like the FCA findings it is meaningless over a tree that does not yet verify, so it runs only once the syntactic/subsumption pass is clean, but when it fires it is a violation, not an advisory.
 
 ## Armstrong's axioms (dependency inference)
 
 A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong's axioms are the inference rules for such dependencies, and `src/armstrong.js` makes them part of the linter in two ways, both reusing the Gödel numbers above.
 
-**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as `V = 0` **warnings** (rules 8–9 above; they do not count toward `V`); `--fd` prints the full inferred set.
+**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as `V = 0` **warnings** (rules 8–9 above; they do not count toward `V`).
 
-**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) answers `--depends X` — what a Concept rests on directly, and what it inherits through a chain.
-
-```
-node verify.js <file.aot> --fd          # functional dependencies inferred from the Examples
-node verify.js <file.aot> --depends X   # what Concept X depends on, direct and transitive
-```
+**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) gives what a Concept rests on directly, and what it inherits through a chain.
 
 ## The four idea types ontology
 
@@ -167,7 +146,7 @@ The single inheritance should also not be confused with qualified Concepts. The 
 
 ## Rules the tooling checks
 
-Everything below is enforced mechanically by the same linter, whether you run `node verify.js <file.aot>` or edit in VS Code. The extension maps the three layers to three severities: **errors** squiggle red, **warnings** squiggle yellow, and **hints** carry no squiggle. Only errors count toward the violation total `V`; the file verifies when `V = 0`.
+Everything below is enforced mechanically by the same linter as you edit in VS Code. The extension maps the three layers to three severities: **errors** squiggle red, **warnings** squiggle yellow, and **hints** carry no squiggle. Only errors count toward the violation total `V`; the file verifies when `V = 0`.
 
 ### Errors — red squiggle, counted in `V` (the file does not verify)
 
@@ -202,7 +181,7 @@ On top of rules 1–14, a third tier of errors comes from the **Formal Concept A
 | 15 | **Drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. |
 | 16 | **Exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
 | 17 | **Exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
-| 18 | **Clash** | Two unrelated Concepts or Examples with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. The weaker same-name case (equal radicals, differing values) is reported only on demand by `node verify.js <file> --clashes`. |
+| 18 | **Clash** | Two unrelated Concepts or Examples with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. (The weaker same-name case — equal radicals, differing values — is not itself a violation.) |
 
 A `...` Map child marks a node intentionally incomplete and excuses it from the drift and exhaustion checks (its missing siblings or attributes are declared, not forgotten). A Concept whose Examples share nothing beyond their ancestor's is skipped by drift.
 
@@ -227,37 +206,21 @@ Two more warnings come from the dependency inference in `src/armstrong.js`. Like
 | 8 | **Dependency (equivalence)** | Two attributes determine each other across the Examples — "the same distinction written twice". Confirmed only when a value actually **repeats** (two Examples share it and still agree), so the collapse is witnessed and not coincidence. Model one and derive the other. |
 | 9 | **Dependency (determination)** | One attribute's value is always pinned down by another across the Examples — a derivable column. Model it once against its determinant. |
 
-Each finding carries a **confidence**: the number of *confirming repeats* (Examples beyond the first that share a value and still agree). A pure one-to-one **covariation** — every Example distinct on both sides, so no value ever repeats — has confidence 0: the attributes track each other but no collapse is witnessed, so it could be coincidence. The editor flags only findings at or above `MIN_CONFIDENCE` (2) — a single confirming repeat is not enough, so a 3-Example case never squiggles; weaker and covariation-only pairs stay off the squiggle channel. An ellipsis marker among the Examples — a `...` Map or a `- ...` Example — declares the sample intentionally incomplete (the same marker that excuses warnings 4–7), so any dependency read off those Examples is **provisional**: it is never flagged, however high its confidence, since more data is openly still to come. `node verify.js <file.aot> --fd` prints the **full** set, tagging each with its kind (`covaries` / `derivable`) and confidence, and noting which ones the editor flags (and which are held back as incomplete).
+Each finding carries a **confidence**: the number of *confirming repeats* (Examples beyond the first that share a value and still agree). A pure one-to-one **covariation** — every Example distinct on both sides, so no value ever repeats — has confidence 0: the attributes track each other but no collapse is witnessed, so it could be coincidence. The editor flags only findings at or above `MIN_CONFIDENCE` (2) — a single confirming repeat is not enough, so a 3-Example case never squiggles; weaker and covariation-only pairs stay off the squiggle channel. An ellipsis marker among the Examples — a `...` Map or a `- ...` Example — declares the sample intentionally incomplete (the same marker that excuses warnings 4–7), so any dependency read off those Examples is **provisional**: it is never flagged, however high its confidence, since more data is openly still to come.
 
 ### No editor hints remain
 
 Earlier versions surfaced three advisory hint kinds with no squiggle: the FCA audit (`src/fca.js`, after Wille, 1982), the content clash (`src/godel.js`), and the dependency inference (`src/armstrong.js`). The FCA audit and the content clash are now **errors** counted in `V` (rules 15–18); the dependencies are now **warnings** (rules 8–9). Nothing maps to the editor's Hint severity any more.
 
-One positive, advisory report survives outside the squiggle channel: the FCA audit's `confirmed` line names each Concept whose Examples are *exactly* a formal concept — a grouping the data supports precisely. It is surfaced only by `node verify.js <file.aot> --suggest`.
-
 ### Crosslinks — underlined, Ctrl+click jumps to the definition
 
-The extension (`src/crosslinks.js`) underlines three inline connections and resolves them for go-to-definition; hovering shows the target and its line. They also deepen the `--suggest` analysis by carrying a referenced node's ancestry into the formal context. The two link kinds are told apart by underline style, not colour (the link keeps its token's syntax colour): a **solid** underline points at a Concept, a **dotted** underline at an Example.
+The extension (`src/crosslinks.js`) underlines three inline connections and resolves them for go-to-definition; hovering shows the target and its line. They also deepen the FCA audit by carrying a referenced node's ancestry into the formal context. The two link kinds are told apart by underline style, not colour (the link keeps its token's syntax colour): a **solid** underline points at a Concept, a **dotted** underline at an Example.
 
 | Connection | What links | Underline | Example |
 |------------|-----------|-----------|---------|
 | **attribute-is-a-Concept** | An attribute or default whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | solid | `age integer: 5` → `integer` → `Integer` |
 | **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | solid | `Independent Node` → `Node` → `Node` |
 | **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | dotted | `human: Socrates` → `- Socrates` |
-
-## What `verify.js` can do
-
-The same linter, reasoner and FCA audit the extension runs are exposed on the command line through `verify.js`. Every invocation takes a `.aot` file as its first argument; the file name (without extension) is the root Concept. The optional flag selects what to do with the parsed, numbered tree.
-
-| Command | What it does | Output |
-|---------|--------------|--------|
-| `node verify.js <file.aot>` | **Verify.** Runs the full lint pass — the syntactic/arithmetic checks plus the subsumption reasoner — and prints every error and warning as `file:line: …`. | Lists errors then warnings, then a summary: node and edge counts, the largest prime assigned, `violations V = <n>`, the subsumption line (`<n> derived is-a edges, hierarchy consistent/inconsistent`), and `V = 0: true — the file verifies` or `FALSE`. **Exit code 0 when `V = 0`, 1 otherwise** — so it drops straight into a script or CI gate. |
-| `node verify.js <file.aot> --ask "X" "Y"` | **Is-a by divisibility.** Tests whether idea `X` is under idea `Y`, by checking `chi(Y)` divides `chi(X)`. | Prints both characteristic numbers and `'X' is [NOT] under 'Y'`. |
-| `node verify.js <file.aot> --genus "X" "Y"` | **Genus by gcd.** Finds the nearest common kind of `X` and `Y` as `gcd(chi(X), chi(Y))`, then names the node with that characteristic number. | Prints the gcd, the genus's name, and its full ancestry path. |
-| `node verify.js <file.aot> --number "X"` | **Characteristic number.** Prints idea `X`'s number as the product of the primes down its ancestry chain. | `chi(X) = p1 * p2 * … = <n>`, with the path. |
-| `node verify.js <file.aot> --suggest` | **FCA audit.** Builds the concept lattice from the Examples' attributes and audits the written tree against it (drift, exhaustion, and `confirmed` groupings). Runs **only on a file that already passes rules 1–14** — if `V ≠ 0` it prints those errors and exits 1 instead, since a lattice over a broken tree means nothing. Needs **at least 2 Examples**. Drift and exhaustion are themselves errors counted in `V`. | Prints the formal-context size (`objects × attributes, formal concepts`), the advisory `confirmed` Concepts, each finding as `file:line: error: …`, and `FCA audit: V = <n>`. **Exit 0 only when no findings.** |
-
-`--ask`, `--genus` and `--number` look the ideas up by exact name; an unknown name exits with code 2. These four arithmetic operations are the Leibniz point made runnable: an is-a claim, a common genus, or an idea's full ancestry is a computation over integers, not an opinion.
 
 ## Example
 

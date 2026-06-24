@@ -41,12 +41,12 @@ function analyse(doc) {
       // Only confident, witnessed dependencies are flagged in the editor; a bare
       // one-to-one covariation (confidence 0) could be coincidence, and a finding
       // over an ellipsis-marked (intentionally incomplete) Example set is
-      // provisional. Both stay on demand via `verify.js --fd`, like the same-name
+      // provisional. Both are held back from the editor, like the same-name
       // clash split below.
       depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete);
     }
     // only the strong, content-identical clashes are flagged in the editor;
-    // the weaker same-name clashes stay on demand via `verify.js --clashes`
+    // the weaker same-name clashes are not surfaced
     deepErrors = deepErrors.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
   return { errors: errors.concat(deepErrors), warnings: warnings.concat(depWarnings), links };

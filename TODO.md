@@ -57,7 +57,7 @@ Z
 - [ ] Do not use maps for extra info; use aliases instead
 - [ ] See if "Timing" and "domain" are still part of the language — remove or re-document accordingly
 - [ ] See if the CLI/linter can do extra arithmetic (beyond `--ask`, `--genus`, `--number`)
-- [ ] Re-add the `verify.js` command-line front-end (deleted to declutter). It wrapped the shared `src/` modules — nothing else imports it, so the extension is unaffected. Restore the whole-file check (`node verify.js <file>` with a `V = 0` verdict and exit code) plus the flags: `--ask X Y`, `--genus X Y`, `--number X`, `--godel X`, `--clashes`, `--overrides`, `--find "a: v"`, `--common X Y`, `--near X`, `--fd`, `--depends X`, `--diff old new`, `--suggest`. Two views are CLI-exclusive (not in the editor): `--suggest`'s `confirmed` line, and the on-demand `--fd` full set / `--clashes` weak same-name case. NOTE: the query helpers only `verify.js` used were removed from the shared modules too, so they must be restored alongside it — in `godel.js`: `overrides`, `diff` (+`pathOf`), `find`, `common`, `near`, `decode`, `decodeNumber`, `valueOfCode`, `distance`; in `armstrong.js`: `dependsOf`, `dependencyGraph`, `containedConcepts`, `conceptOf` (the last two need the `index`/`wordStarts` crosslinks import back). Their smoke tests were trimmed from `out/test-godel.js` and `out/test-armstrong.js` as well. Docs in README.md ("What `verify.js` can do"), CHANGELOG.md and this file still describe it
+- [ ] Re-add the `verify.js` command-line front-end (deleted to declutter). It wrapped the shared `src/` modules — nothing else imports it, so the extension is unaffected. Restore the whole-file check (`node verify.js <file>` with a `V = 0` verdict and exit code) plus the flags: `--ask X Y`, `--genus X Y`, `--number X`, `--godel X`, `--clashes`, `--overrides`, `--find "a: v"`, `--common X Y`, `--near X`, `--fd`, `--depends X`, `--diff old new`, `--suggest`. Two views are CLI-exclusive (not in the editor): `--suggest`'s `confirmed` line, and the on-demand `--fd` full set / `--clashes` weak same-name case. NOTE: the query helpers only `verify.js` used were removed from the shared modules too, so they must be restored alongside it — in `godel.js`: `overrides`, `diff` (+`pathOf`), `find`, `common`, `near`, `decode`, `decodeNumber`, `valueOfCode`, `distance`; in `armstrong.js`: `dependsOf`, `dependencyGraph`, `containedConcepts`, `conceptOf` (the last two need the `index`/`wordStarts` crosslinks import back). Their smoke tests were trimmed from `out/test-godel.js` and `out/test-armstrong.js` as well. The README's CLI docs were removed; CHANGELOG.md and this file (the restore plan below) still describe it, so restoring will need the README docs re-added too
 Flag	What goes away
 node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = verifies) — the "objective referee" the README leans on for AI-assisted edits
 --ask X Y	Is-a test by divisibility
@@ -73,6 +73,33 @@ node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = ver
 --depends X	Direct + transitive Concept dependencies
 --diff old new	Version diff as factorisation comparison
 --suggest	FCA audit + the positive confirmed report (only surfaced here, not in the editor)
+
+### Functionality currently gone (with `verify.js` deleted)
+
+Detail behind the restore item above. Split by whether anything still provides it.
+
+**Fully gone — no editor equivalent, these were CLI-only:**
+- [ ] Whole-file pass/fail with a `V = 0` verdict and exit code — the scriptable CI gate / "objective referee" for AI-assisted edits
+- [ ] `--ask X Y` — is-a test by divisibility
+- [ ] `--genus X Y` — nearest common kind via gcd
+- [ ] `--number X` — characteristic number as a prime product
+- [ ] `--godel X` — Gödel factorisation with attribute/value legend
+- [ ] `--overrides` — nodes overriding an inherited default
+- [ ] `--find "a: v"` — search ideas by attribute/value
+- [ ] `--common X Y` — shared attribute core of two ideas
+- [ ] `--near X` — nearest ideas by content distance
+- [ ] `--diff old new` — version diff as factorisation comparison
+- [ ] `--depends X` — direct + transitive Concept dependencies
+- [ ] `--suggest` `confirmed` report — positive FCA groupings the data supports exactly (advisory)
+- [ ] `--fd` full set — every inferred dependency, including low-confidence / covariation-only ones
+- [ ] `--clashes` weak case — same-attribute-name (equal radical, differing value) clashes
+
+**Still available — runs automatically in the VS Code extension, just no CLI:**
+- Syntactic and subsumption errors and warnings (rules 1–14)
+- FCA drift and exhaustion errors (rules 15–17)
+- The strong content clash error (rule 18)
+- Confident, complete dependency warnings (rules 8–9)
+
 ## Linter / diagnostics
 - [X] Exclude words ending in "us" from plural detection
 - [ ] Make example/value matching not capitalisation-specific 

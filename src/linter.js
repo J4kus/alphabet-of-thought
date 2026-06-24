@@ -17,7 +17,7 @@
 // errors that count toward V. The single-inheritance check that primes once
 // only restated is now proved by the reasoner.
 //
-// Shared by the CLI (verify.js) and the VS Code extension (extension.js).
+// Used by the VS Code extension (extension.js).
 
 const INDENT = 4;
 

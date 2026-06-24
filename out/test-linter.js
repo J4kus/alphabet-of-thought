@@ -3,8 +3,7 @@
 // the internal helpers (classify, realChildren, looksPlural, slotSignature,
 // makeReport) are exercised through the public parse / verify they back.
 //
-// The hint sources are the three advisory streams extension.js surfaces as
-// DiagnosticSeverity.Hint and verify.js prints as "hint:" / "suggestions":
+// The hint sources are the three advisory streams extension.js processes:
 //   godel.clashes (content)   identical-content nodes
 //   armstrong.findings        derivable / equivalent attributes (FDs)
 //   fca.suggest               the FCA audit (confirmed / drift / exhaustion)

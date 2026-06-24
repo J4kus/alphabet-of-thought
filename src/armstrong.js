@@ -46,8 +46,8 @@ const MIN_SUPPORT = 3;
 // rather than merely lining up with it. Zero means a pure bijection (every
 // Example distinct on both sides): the attributes covary one-to-one but no
 // collapse is ever witnessed, so it could be coincidence. The editor flags
-// only findings at or above this threshold; weaker ones stay on demand via
-// `verify.js --fd`. At 2, a single confirming repeat is not enough — a
+// only findings at or above this threshold; weaker ones are not surfaced.
+// At 2, a single confirming repeat is not enough — a
 // 3-Example case (where a varying attribute can muster at most one repeat)
 // never squiggles; it takes >= 4 Examples with a genuine repeat. Drop to 1 to
 // flag any witnessed repeat, or 0 to flag bare one-to-one covariation too.

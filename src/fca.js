@@ -14,7 +14,7 @@
 //     exhaustion  sub-Concepts must cover the parent's Examples by
 //                 their attributes, and be distinguishable by them
 //
-// Shared by the CLI (verify.js). Pure: no I/O, no dependencies.
+// Pure: no I/O, no dependencies.
 
 const { KIND } = require("./linter");
 const { index, wordStarts, instantiates } = require("./crosslinks");
