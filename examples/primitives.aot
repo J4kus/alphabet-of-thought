@@ -9,21 +9,11 @@
 
 
 - Graph
-    Is Said Of
-        Not Said Of
-            time
-                start time
-                end time
-                created time
-                updated time
-            is active
-            author
-                created author
-                updated author
-        Said Of
-        confidence
+    
+    Alpha Node
+        said of
+        present in
     Primitive
-        
         Graph
             said of
             Node
@@ -52,7 +42,7 @@
                     first node
                     second node
             Record
-                not said of
+                said of: Not Said Of
         Motiviation
             Beneficairy
                 said of
@@ -82,7 +72,7 @@
                     nickname
                     tax number
             Measurement
-                not said of
+                said of: Not Said Of
                 superordinate measurement: None
                 name
                 expected value
@@ -205,7 +195,7 @@
                     consume measurement
                     produce graph
             Type
-                not said of
+                said of: Not Said Of
         Workflow
             Worker Pool (In Use Item)
                 - Role
@@ -256,7 +246,7 @@
                                     - multiple nodes with same data
                                 - optimistic concurrency (speculate then reconcile on rare miss)
 
-                            - decorrelate the need (activity based costing)
+                            - decorrelate the need from the specific resource
                             - satisficing (good enough optimisation of requirements)
                                 - net and clear
                                 - collapse the obligation graph

@@ -36,36 +36,16 @@ A realistic first use: take something you currently explain badly in a document 
 
 ## Starting axiomatically
 
-Alpha don't like Concept tree. The opposite way in — *axiomatic Alpha* — starts with a flat list of the facts you already know, the Examples and their attributes, and does **not** subdivide the Concept at all. You file every Example directly under the file-name root, give each one its attributes and values, and stop. The [Content over structure](#pragmatic) rule taken to its limit, and the inverse of normalising an existing schema, where you start from structure and derive the relations.
+Alpha isn't only a Concept tree, like an ontology. To start in *axiomatic Alpha*, a flat list of examples and their attributes, and does **not** subdivide the Concept at all. You file every Example directly under the file-name root, give each one its attributes and values. The [Content over structure](#pragmatic) rule taken to its limit, and the inverse of normalising an existing schema, where you start from structure and derive the relations.
 
-The good news is there is no hard part to the axiomatic start, because thinking is never complete. Any checklist of the questions a subject must answer will do, but there is one here that I recommend:
+The good news is there is no hard part to the axiomatic start, because thinking is never complete. Any checklist of the questions a subject must answer will do, but there is one here that I recommend (in order of sophistication):
 
-- **The Alpha primitives** — Motivation, Graph, Function, Workflow. Walk each one and you have asked why, what, how, and when (the four causes). All real knowledge straddles several primitives; if you cannot produce them all, you do not yet fully understand the subject.
-- **Kipling's Six Serving Men** — *What, Why, When, How, Where, Who* ("I keep six honest serving-men; they taught me all I knew"). Six attributes to hang on any Example, and the same six that label the columns of the primitives.
-- **Aristotle's ten Categories** — substance, quantity, quality, relation, place, time, position, having, action, being-acted-upon (*Categories* 4). The widest net for *what can be said of a thing*: each category is one more attribute to ask after.
 - **Your todo list** — Each open item is an Example the model is missing; emptying the list and completing the model are the same act.
+- **Kipling's Six Serving Men** — *What, Why, When, How, Where, Who* ("I keep six honest serving-men; they taught me all I knew"). Six Example to start with.
+- **Aristotle's ten Categories** — substance, quantity, quality, relation, place, time, position, having, action, being-acted-upon (*Categories* 4). The widest net for *what can be said of a thing*: each category is one more attribute to ask after.
+- **The Alpha primitives** — Motivation, Graph, Function, Workflow. All real knowledge straddles all the primitives; if you cannot produce them all, you do not yet fully understand the subject.
 
 Whichever you use, the move is the same: generate the facts first, then let the tree fall out of them.
-
-## Gödel numbering
-
-The characteristic number `chi = prime × chi(parent)` is a squarefree product: it records a line's **ancestry** — *where* it sits — and nothing else. The Gödel number `G` is its complement, after Gödel (1931): it records a line's **content** — *what it says* — by raising **primes to powers**. Each attribute gets one prime; the exponent encodes the value that attribute is set to:
-
-- exponent **0** — the attribute is absent (its prime does not divide `G`)
-- exponent **1** — the attribute is present but unvalued
-- exponent **k > 1** — the attribute carries a value, `k` a stable code for it
-
-So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what*. Every question a model asks of its content is then plain arithmetic on `G`: whether idea *n* carries attribute *a* (`prime(a)` divides `G(n)`), whether two ideas carry the same attributes (equal radicals) or identical content (equal `G`), what value an attribute takes on a line (the exponent of its prime, decoded), which ideas override an inherited default (a prime dividing both `G(n)` and `G(ancestor)` with unequal exponents ≥ 2), and which attributes are present but not yet valued (primes with exponent exactly 1).
-
-The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V`. Like the FCA findings it is meaningless over a tree that does not yet verify, so it runs only once the syntactic/subsumption pass is clean, but when it fires it is a violation, not an advisory.
-
-## Armstrong's axioms (dependency inference)
-
-A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong's axioms are the inference rules for such dependencies, and `src/armstrong.js` makes them part of the linter in two ways, both reusing the Gödel numbers above.
-
-**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as `V = 0` **warnings** (rules 8–9 above; they do not count toward `V`).
-
-**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) gives what a Concept rests on directly, and what it inherits through a chain.
 
 ## The four idea types ontology
 
@@ -224,6 +204,25 @@ The extension (`src/crosslinks.js`) underlines three inline connections and reso
 | **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | solid | `Independent Node` → `Node` → `Node` |
 | **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | dotted | `human: Socrates` → `- Socrates` |
 
+## Gödel numbering
+
+The characteristic number `chi = prime × chi(parent)` is a squarefree product: it records a line's **ancestry** — *where* it sits — and nothing else. The Gödel number `G` is its complement, after Gödel (1931): it records a line's **content** — *what it says* — by raising **primes to powers**. Each attribute gets one prime; the exponent encodes the value that attribute is set to:
+
+- exponent **0** — the attribute is absent (its prime does not divide `G`)
+- exponent **1** — the attribute is present but unvalued
+- exponent **k > 1** — the attribute carries a value, `k` a stable code for it
+
+So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what*. Every question a model asks of its content is then plain arithmetic on `G`: whether idea *n* carries attribute *a* (`prime(a)` divides `G(n)`), whether two ideas carry the same attributes (equal radicals) or identical content (equal `G`), what value an attribute takes on a line (the exponent of its prime, decoded), which ideas override an inherited default (a prime dividing both `G(n)` and `G(ancestor)` with unequal exponents ≥ 2), and which attributes are present but not yet valued (primes with exponent exactly 1).
+
+The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V`. Like the FCA findings it is meaningless over a tree that does not yet verify, so it runs only once the syntactic/subsumption pass is clean, but when it fires it is a violation, not an advisory.
+
+## Armstrong's axioms (dependency inference)
+
+A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong's axioms are the inference rules for such dependencies, and `src/armstrong.js` makes them part of the linter in two ways, both reusing the Gödel numbers above.
+
+**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as `V = 0` **warnings** (rules 8–9 above; they do not count toward `V`).
+
+**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) gives what a Concept rests on directly, and what it inherits through a chain.
 ## Example
 
 ```aot

@@ -31,6 +31,23 @@ Primitive
             indent
             encoding
             newline
+        Aristotlian Category
+            Said Of
+                - Is Said Of
+                - Not Said Of
+                    time
+                        start time
+                        end time
+                        created time
+                        updated time
+                    is active
+                    author
+                        created author
+                        updated author
+            Present in
+                - Is Present In
+                - Not Present In
+            confidence
         Token
             Idea
                 recognise
@@ -38,7 +55,7 @@ Primitive
                 present in
                 example
                 Schema (Acting On)
-                    said of: True
+                    said of: Is Said Of
                     - Concept (Universal Substance)
                         recognise: first letter is capitalised
                         present in: False
@@ -50,7 +67,7 @@ Primitive
                         present in: True
                         example: full name
                 Content (Being Acted Upon)
-                    said of: False
+                    said of: Not Said Of
                     - Example (Individual Substance)
                         recognise: must start with dash and space
                         present in: False
