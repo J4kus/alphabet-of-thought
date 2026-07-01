@@ -149,4 +149,46 @@ const listed = [
   console.log(noStray
     ? "PASS (example-is-a-Example: a wrong-typed listed Example does not link)"
     : "UNEXPECTED stray example-is-a-Example");
+
+  // default-is-a-Example: a value only links when it names an Example the
+  // attribute genuinely ranges over — either held directly beneath it, or
+  // under the Concept it is typed to. A value merely sharing a name with an
+  // unrelated Example ('interval count: 1' matching a '- 1' filed elsewhere)
+  // must not link, but the same value naming the attribute's own '- 1' must.
+  const values = [
+    "Length",
+    "    maximum number of elements",
+    "        - 1",
+    "Time",
+    "    Duration",
+    "        interval count: 1",
+    "    span length",
+    "        maximum number of elements: 1",
+  ].join("\n");
+  const v = lint(values, "World");
+  const valueLinks = resolve(values, v.root, v.nodes).filter((l) => l.connection === "default-is-a-Example");
+  const strayValue = valueLinks.some((l) => l.line === 6); // Duration's interval count: 1
+  const ownValue = valueLinks.some((l) => l.line === 8);   // maximum number of elements: 1
+  console.log(!strayValue && ownValue
+    ? "PASS (default-is-a-Example: unrelated same-named Example does not link; the attribute's own does)"
+    : "UNEXPECTED default-is-a-Example value linking");
+
+  // Among several same-named Examples, a concept-typed value picks the one
+  // under its Concept, not the document's first: 'interval count: 1' links to
+  // the '- 1' under the 'Interval Count' Concept, past the earlier stray '- 1'.
+  const typed = [
+    "Length",
+    "    maximum number of elements",
+    "        - 1",
+    "Interval Count",
+    "    - 1",
+    "Duration",
+    "    interval count: 1",
+  ].join("\n");
+  const t = lint(typed, "World");
+  const typedLink = resolve(typed, t.root, t.nodes)
+    .find((l) => l.connection === "default-is-a-Example" && l.line === 7);
+  console.log(typedLink && typedLink.target.line === 5
+    ? "PASS (default-is-a-Example: concept-typed value picks the in-scope Example among duplicates)"
+    : "UNEXPECTED concept-typed duplicate resolution");
 }

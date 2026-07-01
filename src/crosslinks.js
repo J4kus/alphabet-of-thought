@@ -102,7 +102,18 @@ function instantiates(node, attrName) {
 // lines and 0-based columns; target is the defining node.
 function resolve(text, root, nodes) {
   const lines = text.split(/\r?\n/);
-  const { concepts, individuals } = index(root, nodes);
+  const { concepts } = index(root, nodes);
+
+  // Every Example by name, in document order — a value or listed Example may
+  // share a name with several (`- 1` under both `Interval Count` and `maximum
+  // number of elements`), so resolution picks the one in the attribute's
+  // scope rather than the document's first.
+  const individualsByName = new Map();
+  for (const n of nodes) {
+    if (n.kind !== KIND.INDIVIDUAL) continue;
+    const list = individualsByName.get(n.name);
+    if (list) list.push(n); else individualsByName.set(n.name, [n]);
+  }
 
   const links = [];
   for (const node of nodes) {
@@ -177,8 +188,20 @@ function resolve(text, root, nodes) {
     }
 
     if (node.kind === KIND.DEFAULT && node.value) {
-      const target = individuals.get(node.value);
-      if (target && target !== node) {
+      // Only a genuine value of the attribute links: the named Example must
+      // instantiate the attribute, either because the attribute directly holds
+      // it (`operation: Ratio`, Ratio filed beneath `operation`) or because the
+      // attribute names the Concept it lives under (attribute-is-a-Concept,
+      // `person: Socrates` typed by `Person`, `interval count: 1` typed by the
+      // `Interval Count` Concept). Among Examples of that name the in-scope one
+      // is chosen, so a same-named Example filed under an unrelated attribute —
+      // the `- 1` under `maximum number of elements` — is never picked.
+      const type = conceptType(node, concepts);
+      const target = (individualsByName.get(node.value) || []).find(
+        (cand) => cand !== node
+          && (instantiates(cand, node.name) || (type && instantiates(cand, type.name)))
+      );
+      if (target) {
         const colon = raw.indexOf(":", nameStart);
         const after = raw.slice(colon + 1);
         const valueStart = colon + 1 + (after.length - after.trimStart().length);
@@ -202,8 +225,10 @@ function resolve(text, root, nodes) {
     if (node.kind === KIND.INDIVIDUAL && node.parent
         && (node.parent.kind === KIND.ATTRIBUTE || node.parent.kind === KIND.DEFAULT)) {
       const type = conceptType(node.parent, concepts);
-      const target = type && individuals.get(node.name);
-      if (type && target && target !== node && descendsFrom(target, type)) {
+      const target = type && (individualsByName.get(node.name) || []).find(
+        (cand) => cand !== node && descendsFrom(cand, type)
+      );
+      if (target) {
         const dash = raw.indexOf("-", nameStart);
         const after = raw.slice(dash + 1);
         const valueStart = dash + 1 + (after.length - after.trimStart().length);

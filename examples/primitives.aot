@@ -285,31 +285,33 @@
                             - Race Condition
                             - Deadlock
 
-
+            
             Time
-                item
-                not said of
                 Milestone
-                    precision: no seconds
+                    precision
                     interval count: 0
-                    Time Only: 12:00
-                        date
-                    Date: Today
-                        precision: date only
-                    Datetime: 12:00 Today
-                        precision: no seconds
-                    Precise Datetime: 12:00:00:000 Today
-                        precision: microseconds
+                    format
+                        - Time Only
+                            seconds precision: no seconds
+                            date precision: no date
+                        - Date
+                            precision: no time
+                        - Datetime
+                            precision: no seconds
+                        - Precise Datetime
+                            precision: microseconds
                 Duration
                     interval count: 1
                 Cycle
                     interval count: 2 or more
-
+                item
+                not said of
                 result
                 is done
                 exception
                 start condition
                 interval: 5 seconds
+                interval count
                 timeout
                 polling duration
                 precision: up to minutes
