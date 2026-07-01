@@ -132,6 +132,8 @@ The single inheritance chain should not be confused with composition, which Alph
 
 The single inheritance should also not be confused with qualified Concepts. The concept of `Employee` maybe be used inside another concept, an objective from example `Train Employee`. The `Employee` and the `Train Employee` concepts are distinct and disambigous, but it is the same Concept of `Employee` is evoked in the write and readers mind for both. This is allowable in Alpha, infact it is celibrated inside the objective that the `Employee` was defined elsewhere, with a link. 
 
+A sub-Concept is an **is-a**, never a **has-a**. Indenting one Concept under another asserts the child *is a kind of* the parent, so every attribute the child adds must be a **differentia** — a fact that makes it a *narrower kind of the same genus*, answering "what kind of parent is this?". A child may of course carry more attributes than its parent; what matters is not how many it adds but that they narrow the *same* kind. If the added facts instead describe a separate dimension the thing merely *has* — a format, a property on its own axis — then you have written a has-a as an is-a: the Concept now names two kinds at once, and the subsumption reasoner flags it (rule 12, Multiple kinds). Pull that has-a out into its own attribute or Concept and crosslink it, so the child's place in the tree stays purely about what it *is*.
+
 
 | Connections | Expression | Type | Example | Extra Rule |
 |------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
