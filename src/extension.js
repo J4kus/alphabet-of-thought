@@ -78,10 +78,13 @@ function decorate(editor, decorationTypes) {
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
   const { errors, warnings } = analyse(doc);
-  const toDiagnostic = (severity) => ({ line, message }) => {
-    // lines are 1-based; range covers the line's content
+  const toDiagnostic = (severity) => ({ line, message, startCol, endCol }) => {
+    // lines are 1-based; a finding that carries columns (a table cell)
+    // squiggles just that span, otherwise the whole line's content
     const at = Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
-    const range = doc.lineAt(at).range;
+    const range = startCol !== undefined
+      ? new vscode.Range(at, startCol, at, endCol)
+      : doc.lineAt(at).range;
     const diagnostic = new vscode.Diagnostic(range, message, severity);
     diagnostic.source = "aot";
     return diagnostic;
@@ -110,6 +113,37 @@ const definitionProvider = {
       }
     }
     return null;
+  },
+};
+
+// --- table cell colouring ---------------------------------------------------
+// The grammar colours whole lines by shape, which is right everywhere but
+// inside a table, where one line holds several kinds of idea. Semantic
+// tokens overlay the parsed cells so a table is coloured exactly as its
+// written-out form would be: header cells as attributes, name cells as
+// Examples, value cells as Attribute Values. package.json maps each token
+// type back to the grammar's own scopes, so themes use identical colours.
+const TOKEN_TYPES = ["property", "enumMember", "string"];
+const ATTR_TOKEN = 0, EXAMPLE_TOKEN = 1, VALUE_TOKEN = 2;
+const semanticLegend = new vscode.SemanticTokensLegend(TOKEN_TYPES, []);
+const semanticProvider = {
+  provideDocumentSemanticTokens(doc) {
+    const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
+    const { nodes } = lint(doc.getText(), rootName);
+    const builder = new vscode.SemanticTokensBuilder(semanticLegend);
+    for (const node of nodes) {
+      if (node.kind === KIND.ATTRIBUTE && node.cell) {
+        builder.push(node.line - 1, node.nameCol, node.name.length, ATTR_TOKEN);
+        if (node.alias && node.aliasCol !== undefined) {
+          builder.push(node.line - 1, node.aliasCol, node.alias.length, ATTR_TOKEN);
+        }
+      } else if (node.kind === KIND.INDIVIDUAL && node.nameCol !== undefined && node.name) {
+        builder.push(node.line - 1, node.nameCol, node.name.length, EXAMPLE_TOKEN);
+      } else if (node.kind === KIND.DEFAULT && node.cell && node.value) {
+        builder.push(node.line - 1, node.valueCol, node.value.length, VALUE_TOKEN);
+      }
+    }
+    return builder.build();
   },
 };
 
@@ -231,6 +265,8 @@ function activate(context) {
           vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
       },
     }),
+    // table cells coloured by their parsed kind, as their line forms are
+    vscode.languages.registerDocumentSemanticTokensProvider({ language: "aot" }, semanticProvider, semanticLegend),
     // the org table editor's commands and its aot.inTable keybinding gate
     ...Object.entries(tableOps).map(([id, op]) =>
       vscode.commands.registerTextEditorCommand(id, (editor) => runTableOp(editor, op))),

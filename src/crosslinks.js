@@ -149,10 +149,14 @@ function resolve(text, root, nodes) {
       if (node.alias) {
         const target = concepts.get(node.alias.toLowerCase());
         if (target && target !== node) {
-          const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
-          const open = region.lastIndexOf("(");
-          const inner = region.slice(open + 1);
-          const aliasStart = open + 1 + (inner.length - inner.trimStart().length);
+          // a table header cell recorded its alias offset at parse time
+          let aliasStart = node.aliasCol;
+          if (aliasStart === undefined) {
+            const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
+            const open = region.lastIndexOf("(");
+            const inner = region.slice(open + 1);
+            aliasStart = open + 1 + (inner.length - inner.trimStart().length);
+          }
           links.push({
             connection: "attribute-is-a-Concept",
             line: node.line,

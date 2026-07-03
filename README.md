@@ -89,6 +89,12 @@ Creating a table is org's flow: type `| name | size |`, press `Enter` (a fresh e
 
 The table is pure shorthand: the tree it parses to is identical to writing each row as a `- Example` with `attribute: value` children, so everything that reads the tree works over a table unchanged — inheritance, the crosslinks (a header cell that names a Concept underlines solid, a value cell that names an Example underlines dotted, and both Ctrl+click to the definition), the FCA audit, the Gödel numbers, and the dependency inference.
 
+Every editor feature of Alpha reaches inside the cells too:
+
+- **Colouring**: header cells are painted as attributes, name cells as Examples, value cells as Attribute Values — the very colours their written-out line forms get (the extension's semantic tokens map back to the grammar's own scopes) — with the pipes and the name-column label left as quiet table chrome.
+- **Aliases**: a header cell may carry a parenthetical alias, `size (length)`, which strips, colours and crosslinks exactly as it would on a bare attribute line.
+- **Linting in place**: a table finding pins the offending cell rather than the whole line — a capitalised column, a row's extra cells, an empty name cell each squiggle where they sit.
+
 That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreadsheet re-computes derived columns; Alpha's audits them. Two rows with the same name are an identical-siblings error; two rows with identical content are a Gödel clash; a row that carries every attribute another Concept's Examples share is drift; and a column whose values are pinned down by another column — the very thing org would compute with a formula — is what the Armstrong dependency warnings flag. In Alpha a computed column is not a formula to store but a dependency to model once, against its determinant. See [`examples/spreadsheet.aot`](examples/spreadsheet.aot).
 
 ## The four idea types ontology

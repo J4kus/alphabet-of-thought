@@ -20,6 +20,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   - Command Palette (**AOT Table**): *Sort Rows by Column at Cursor* (org `C-c ^`: the data run around the cursor, header safe; numeric when every key reads as a number, `$`/`%`/commas ignored) and *Create Table from Selected Lines* (org `C-c |`: CSV, TSV or multi-space lines; the first line lowercased into the header, separator drawn beneath)
   - org's creation flow: header row, `Enter`, type `-`, `Tab` — a lone dash run in the first cell (or a raw `|-` line) becomes a full separator on the next redraw
   - all the cursor math and row/column surgery is pure and tested in `src/table.js` (`out/test-table.js`); the extension only finds the block, applies one operation, redraws and places the cursor
+- Full Alpha feature parity inside table cells:
+  - **colouring**: a semantic-token provider paints header cells as attributes, name cells as Examples and value cells as Attribute Values; `semanticTokenScopes` maps the token types back to the grammar's own scopes (`variable.other.property.aot`, `constant.language.individual.aot`, `string.unquoted.value.aot`) so themes colour a table cell identically to its written-out line form — pipes and the name-column label stay as quiet khaki chrome
+  - **aliases**: a header cell may carry a parenthetical alias (`size (length)`), stripped from the attribute name at parse time and crosslinked/coloured exactly as on a bare attribute line
+  - **linting in place**: a finding may carry `{ startCol, endCol }`, and the table checks do — a capitalised column, a row's extra cells and an empty name cell squiggle the offending cell, not the whole line
 
 ## [1.1.43] - 2026-06-20
 

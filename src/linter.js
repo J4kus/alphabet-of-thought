@@ -30,12 +30,14 @@ const TYPE_NAME = ["Example", "Default Value", "Concept", "attribute", "Map"];
 
 // One home for every finding. parse and verify both report through this,
 // so no check has to know whether it produces an error or a warning until
-// it calls error() or warn().
+// it calls error() or warn(). A finding may carry { startCol, endCol } to
+// pin the squiggle to a span (a table cell); without it the editor
+// underlines the whole line.
 function makeReport() {
   const errors = [], warnings = [];
   return {
     errors, warnings,
-    error: (line, message) => errors.push({ line, message }),
+    error: (line, message, range) => errors.push({ line, message, ...range }),
     warn: (line, message) => warnings.push({ line, message }),
   };
 }
@@ -183,16 +185,27 @@ function parse(text, rootName, report) {
         table = { depth, attrs: [] };
         let last = null;
         for (const cell of row.slice(1)) {
-          if (!cell.text) {
+          // a header cell is an attribute term, so it may carry a trailing
+          // (alias) exactly as the bare line form does
+          let name = cell.text, alias = null, aliasCol;
+          if (name.endsWith(")") && name.includes("(")) {
+            const open = name.lastIndexOf("(");
+            const inner = name.slice(open + 1, -1);
+            alias = inner.trim() || null;
+            if (alias) aliasCol = cell.col + open + 1 + (inner.length - inner.trimStart().length);
+            name = name.slice(0, open).trim();
+          }
+          if (!name) {
             table.attrs.push(null);
             continue;
           }
-          if (cell.text[0] >= "A" && cell.text[0] <= "Z") {
-            report.error(line, `column '${cell.text}' is capitalised — a table column names an attribute of '${parent.name}', and attributes are lowercase; lowercase it`);
+          if (name[0] >= "A" && name[0] <= "Z") {
+            report.error(line, `column '${name}' is capitalised — a table column names an attribute of '${parent.name}', and attributes are lowercase; lowercase it`,
+              { startCol: cell.col, endCol: cell.col + cell.text.length });
           }
           const attr = {
-            line, depth, kind: ATTRIBUTE, name: cell.text, value: null,
-            alias: null, parent, children: [], nameCol: cell.col, cell: true,
+            line, depth, kind: ATTRIBUTE, name, value: null,
+            alias, aliasCol, parent, children: [], nameCol: cell.col, cell: true,
           };
           parent.children.push(attr);
           nodes.push(attr);
@@ -208,10 +221,14 @@ function parse(text, rootName, report) {
         // data row: one Example named by the first cell, one Attribute
         // Value per further cell — an empty cell asserts nothing
         if (!row[0].text) {
-          report.error(line, "table row has an empty first cell, expected the Example's name — the first column names the Example the row describes");
+          report.error(line, "table row has an empty first cell, expected the Example's name — the first column names the Example the row describes",
+            { startCol: row[0].col, endCol: row[0].col + 1 });
         }
         if (row.length - 1 > table.attrs.length) {
-          report.error(line, `table row has ${row.length} cells but the header names ${table.attrs.length + 1} columns — remove the extra cells, or add columns to the header`);
+          const first = row[table.attrs.length + 1];
+          const lastCell = row[row.length - 1];
+          report.error(line, `table row has ${row.length} cells but the header names ${table.attrs.length + 1} columns — remove the extra cells, or add columns to the header`,
+            { startCol: first.col, endCol: lastCell.col + Math.max(lastCell.text.length, 1) });
         }
         const example = {
           line, depth, kind: INDIVIDUAL, name: row[0].text, value: null,

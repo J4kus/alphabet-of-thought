@@ -9,6 +9,7 @@ const published = new Map();
 const registeredCommands = new Map();
 let definitionProvider = null;
 let formattingProvider = null;
+let semanticProvider = null;
 const vscode = {
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Diagnostic: class { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
@@ -30,6 +31,13 @@ const vscode = {
     }),
     registerDefinitionProvider: (selector, provider) => { definitionProvider = provider; return { dispose() {} }; },
     registerDocumentFormattingEditProvider: (selector, provider) => { formattingProvider = provider; return { dispose() {} }; },
+    registerDocumentSemanticTokensProvider: (selector, provider) => { semanticProvider = provider; return { dispose() {} }; },
+  },
+  SemanticTokensLegend: class { constructor(types, modifiers) { Object.assign(this, { types, modifiers }); } },
+  SemanticTokensBuilder: class {
+    constructor(legend) { this.legend = legend; this.tokens = []; }
+    push(line, char, length, type) { this.tokens.push([line, char, length, type]); }
+    build() { return { tokens: this.tokens }; }
   },
   TextEdit: { replace: (range, text) => ({ range, text }) },
   Selection: class { constructor(...a) { this.a = a; this.active = { line: a[0], character: a[1] }; } },
@@ -264,4 +272,37 @@ const listed = [
       ? "PASS (table editor: 14 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
+}
+
+// 6) table cells carry Alpha's colouring and crosslinks: semantic tokens
+// paint header cells as attributes (aliases included), name cells as
+// Examples and value cells as values, and a header alias crosslinks to the
+// Concept it names, exactly as the bare attribute form would.
+{
+  const text = [
+    "Length",
+    "Otter",
+    "    | name | size (length) | colour |",
+    "    |------+----------------+--------|",
+    "    | Ollie | 5 | brown |",
+  ].join("\n");
+  const doc5 = makeDoc("c:\repo\World.aot", text);
+  const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc5);
+  const has = (t) => tokens.some((x) => x.join(",") === t.join(","));
+  const tokensOk = has([2, 13, 4, 0])   // header 'size' as attribute
+    && has([2, 19, 6, 0])               // header alias 'length' as attribute
+    && has([2, 29, 6, 0])               // header 'colour' as attribute
+    && has([4, 6, 5, 1])                // name cell 'Ollie' as Example
+    && has([4, 14, 1, 2])               // value cell '5' as value
+    && has([4, 18, 5, 2]);              // value cell 'brown' as value
+  console.log(tokensOk
+    ? "PASS (table: cells coloured as attribute / Example / value)"
+    : "UNEXPECTED semantic tokens " + JSON.stringify(tokens));
+
+  const t6 = lint(text, "World");
+  const aliasLink = resolve(text, t6.root, t6.nodes).find((l) =>
+    l.connection === "attribute-is-a-Concept" && l.line === 3 && l.text === "length");
+  console.log(aliasLink && aliasLink.startCol === 19 && aliasLink.target.name === "Length"
+    ? "PASS (table: a header cell's alias crosslinks to its Concept)"
+    : "UNEXPECTED header alias link " + JSON.stringify(aliasLink));
 }

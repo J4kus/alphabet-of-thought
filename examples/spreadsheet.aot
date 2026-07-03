@@ -1,3 +1,9 @@
+Enumeration
+    Country
+        - France
+        - Germany
+        - Japan
+    ...
 Order
     | name             | country | currency | basket size |
     |------------------+---------+----------+-------------|
@@ -5,10 +11,9 @@ Order
     | Bolt March Order | Germany | EUR      | $3,100      |
     | Kite March Order | Japan   | JPY      | $780        |
 Refund
-    | name              | country | reason         |
-    |-------------------+---------+----------------|
-    | Acme March Refund | France  | Damaged carton |
-    | gege              | seg     |                |
-    |                   |         |                |
-    
+    | name              | country | reason         | test table |
+    |-------------------+---------+----------------+------------|
+    | Acme March Refund | France  | Damaged carton | tt         |
+    | Kite March Refund | Japan   | Defective item |            |
 
+    

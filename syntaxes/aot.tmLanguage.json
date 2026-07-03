@@ -49,7 +49,7 @@
             "match": "\\|[\\s\\-+:|]*$"
         },
         {
-            "comment": "table row: the '|' form of an Example — khaki (support.function), distinct from the blue of '- ' Examples so tabular data reads as its own thing",
+            "comment": "table row: the base colour for table chrome (pipes, the name-column label, lone '|' Examples) — the extension's semantic tokens overlay real cells with their Alpha colours (attribute / Example / value)",
             "name": "support.function.table.aot",
             "match": "\\|.*$"
         }

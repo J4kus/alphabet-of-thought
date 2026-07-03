@@ -34,7 +34,7 @@ function makeReport() {
   const errors = [], warnings = [];
   return {
     errors, warnings,
-    error: (line, message) => errors.push({ line, message }),
+    error: (line, message, range) => errors.push({ line, message, ...range }),
     warn: (line, message) => warnings.push({ line, message }),
   };
 }
@@ -222,6 +222,25 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     const p = parse(aot("Thing", "    | Pear |"), "Root", r);
     check("table: '| Pear |' (lone cell) is the plain Example 'Pear'",
       node(p.root, p.nodes, "Pear").kind === INDIVIDUAL && r.errors.length === 0);
+  }
+  // a header cell is an attribute term, so it carries a (alias) like one
+  {
+    const r = makeReport();
+    const p = parse(aot("Otter", "    | name | size (length) |", "    |------+---------------|", "    | Ollie | 5 |"), "Zoo", r);
+    const attr = p.nodes.find((n) => n.name === "size");
+    check("table: a header cell's (alias) is parsed off the name",
+      attr && attr.kind === ATTRIBUTE && attr.alias === "length" && attr.aliasCol === 19);
+    check("table: the row's cells still value the stripped name",
+      node(p.root, p.nodes, "Ollie").children.some((c) => c.name === "size" && c.value === "5"));
+    check("table: a header alias parses without errors", r.errors.length === 0);
+  }
+  // table findings pin the offending cell, not the whole line
+  {
+    const r = makeReport();
+    parse(aot("Otter", "    | name | Size |", "    |------+------|", "    | Ollie | 5 |"), "Zoo", r);
+    const e = r.errors.find((x) => /capitalised/.test(x.message));
+    check("table: the capitalised-column error carries its cell's columns",
+      e && e.startCol === 13 && e.endCol === 17);
   }
   // a blank line ends the table, as in org
   {

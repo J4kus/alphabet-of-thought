@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.1.70",
+  "version": "1.1.71",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -41,6 +41,22 @@
         "language": "aot",
         "scopeName": "source.aot",
         "path": "./syntaxes/aot.tmLanguage.json"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "aot",
+        "scopes": {
+          "property": [
+            "variable.other.property.aot"
+          ],
+          "enumMember": [
+            "constant.language.individual.aot"
+          ],
+          "string": [
+            "string.unquoted.value.aot"
+          ]
+        }
       }
     ],
     "commands": [
