@@ -19,31 +19,19 @@ Refund
     | Kite March Refund | Japan   | Defective item | test       | 2      |
     
 Person
-    | name       |
-    |------------|
-    | John Doe   |
-    | Jane Smith |
-Organisation
-    | # | full name | sort name | registration number |
-    |---+-----------+-----------+---------------------|
-   
-
-Party
-    Beneficiary
-        - Jakus
-        - No
-    Participant
-        - Yes
-        - No
-    | # | person     | is beneficiary | is participant | deal             |
-    |---+------------+----------------+----------------+------------------|
-    | 1 | John Doe   | No             | Yes            | Acme March Order |
-    | 2 | Jane Smith | No             | Yes            | Bolt March Order |
-
+    | name      | country | age | gender | som |
+    |-----------+---------+-----+--------+-----|
+    | Christine | France  | 39  | Female |     |
+    
 Deal
-    | #                        |
-    |--------------------------|
-    | Living Annuity           |
-    | Retirement Annuity       |
-    | Unit Trust               |
-    | Tax-Free Savings Account |
+    | name       | country | amount | currency | person    |
+    |------------+---------+--------+----------+-----------|
+    | Acme March | France  | 1200   | EUR      | Christine |
+    | Bolt March | Germany | 3100   | EUR      | Christine |
+    | Kite March | Japan   | 780    | JPY      | Christine |
+    |            |         |        |          |           |
+    |
+Person2
+    | name      | country | age | gender | som |
+    |-----------+---------+-----+--------+-----|
+    | Christine | France  | 39  | Female |     |

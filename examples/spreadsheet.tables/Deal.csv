@@ -1,5 +1,6 @@
-#
-Living Annuity
-Retirement Annuity
-Unit Trust
-Tax-Free Savings Account
+name,country,amount,currency,person
+Acme March,France,1200,EUR,Christine
+Bolt March,Germany,3100,EUR,Christine
+Kite March,Japan,780,JPY,Christine
+,,,,
+,,,,
