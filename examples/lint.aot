@@ -11,22 +11,24 @@ Structure Error
     Leaky Map
         ... still to do
             leaked detail
-Warning Singular
+Plurals
     Cars
-    Measure Missing Target
-        actual: 9
-    Measure Missing Actual
-        target: 5
-    Single Subtype
-        Only One Subtype
-    Lone Example Parent
-        - Solo Parent
-            - Solo Child
-    Slot Twin
-        Twin Heat A
-            heat: high
-        Twin Heat B
-            heat: high
+    People
+    Bus
+Measure Missing Target
+    actual: 9
+Measure Missing Actual
+    target: 5
+Single Subtype
+    Only One Subtype
+Lone Example Parent
+    - Solo Parent
+        - Solo Child
+Slot Twin
+    Twin Heat A
+        heat: high
+    Twin Heat B
+        heat: high
 Eight Cap
     Kind One
     Kind Two

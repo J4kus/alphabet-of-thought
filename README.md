@@ -171,7 +171,7 @@ A `...` Map child marks a node intentionally incomplete and excuses it from the 
 
 | # | Rule | What triggers it |
 |---|------|------------------|
-| 1 | **Singular Concepts** | A Concept name that looks plural (suffix heuristic: catches `Humans`, `Categories`, not irregulars). Use the singular form. |
+| 1 | **Singular Concepts** | A Concept name whose last word is plural (checked with `pluralize`, so it catches irregulars too: `Humans`, `Categories`, `People`). Use the singular form. |
 | 2 | **Measurement needs a target** | A node with an `actual:` default but no `target:`. |
 | 3 | **Measurement needs an actual** | A node with a `target:` default but no `actual:`. |
 | 4 | **At most eight sub-Concepts** | More than eight sub-Concepts under one node. Group some under an intermediate kind. (Examples and attributes may be any quantity.) |

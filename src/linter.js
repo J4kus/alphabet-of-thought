@@ -19,6 +19,8 @@
 //
 // Used by the VS Code extension (extension.js).
 
+const pluralize = require("pluralize");
+
 const INDENT = 4;
 
 // Node types as Said-of / Present-in bits: t = 2*S + P
@@ -235,11 +237,14 @@ function verify(root, nodes, report) {
   // single inheritance for real (one most-specific genus per Concept), so
   // the tautology is gone.
 
-  // Always singular form: 'Person' not 'People'. A suffix heuristic, so a
-  // warning: it catches 'Persons' and 'Categories', not irregulars.
+  // Always singular form: 'Person' not 'People'. The last word carries the
+  // number ('Bank Accounts'), so pluralize.isPlural judges that word — it
+  // knows irregulars ('People', 'Categories') a suffix test would miss. Still
+  // a warning: pluralize guesses, and words that are the same either way
+  // (e.g. 'Series') can go either way.
   const looksPlural = (name) => {
-    const last = name.split(/\s+/).pop().toLowerCase();
-    return last.length >= 4 && last.endsWith("s") && !/(ss|us|is|os)$/.test(last);
+    const last = name.split(/\s+/).pop();
+    return pluralize.isPlural(last);
   };
   for (const node of nodes) {
     if (node.kind === CONCEPT && looksPlural(node.name)) {

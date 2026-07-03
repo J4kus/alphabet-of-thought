@@ -120,6 +120,30 @@
             Rate confidence in answer
             Summon low confidence deliberation
 - Workflow
-    Evidence Accumulation
+    Simplistic Thought
+
+        thread: Synchronous
+        - Schema Retrieval
+            interval: 
+        - Setup Primitive
+            interval: 1 minute
+        - Code Token
+            interval: 1 minute
+        - Share File
+            interval: 1 minute
+        Make Change
+            thread: Synchronous
+            - Run `python install.py` Command
+                interval: 1 minute
+            - Update Package Version
+                interval: 1 minute
+            - Update Local Extension
+                interval: 1 minute
+            - Update Remote Extension
+                interval: 1 minute
+            - Make Changes To Marketplace
+                interval: 1 minute
+            - Upload Changes To GitHub
+                interval: 1 minute
         
 
