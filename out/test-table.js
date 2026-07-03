@@ -7,7 +7,7 @@ const {
   cells, isSeparator, align, blockAt, widthsOf, render, cellStart, colAt,
   padRows, dataRow, nextCell, prevCell, nextRow, moveColumn, moveRow,
   insertColumn, deleteColumn, insertRow, deleteRow, insertSeparator,
-  sortRows, fromRegion,
+  sortRows, fromRegion, cleanName, tablesOf, toCsv, fromCsv, updateTable,
 } = require("../src/table");
 
 let failures = 0;
@@ -148,6 +148,63 @@ const fresh = () => blockAt(doc, 3);
   const spaced = fromRegion(["name  size", "Ollie  5"]);
   check("fromRegion: multi-space columns as a last resort", spaced[2] === "| Ollie | 5    |");
   check("fromRegion: nothing from blank lines", fromRegion(["   ", ""]) === null);
+}
+
+// ---------------------------------------------------------------------------
+// the CSV mirror: tablesOf / toCsv / fromCsv / updateTable
+// ---------------------------------------------------------------------------
+{
+  const sheet = [
+    "Order",
+    "    | name | country |",
+    "    |------+---------|",
+    "    | Acme | France  |",
+    "    | Bolt | Germany |",
+    "Refund (Return)",
+    "    | name | reason  |",
+    "    |------+---------|",
+    "    | R1   | Damaged |",
+    "Organisation",
+    "    | # | full name |",
+  ];
+  const ts = tablesOf(sheet, "spreadsheet");
+  check("tablesOf: finds complete tables under their parent names",
+    ts.length === 2 && ts[0].name === "Order" && ts[1].name === "Refund");
+  check("tablesOf: grid is header plus data rows",
+    ts[0].header.join(",") === "name,country" && ts[0].rows[1].join(",") === "Bolt,Germany");
+  check("tablesOf: an assumed lone header is skipped (still being typed)",
+    !ts.some((t) => t.name === "Organisation"));
+  check("tablesOf: a top-level table is named by the root",
+    tablesOf(["| name |", "|------|", "| Solo |"], "zoo")[0].name === "zoo");
+
+  check("cleanName: strips markers, values and aliases",
+    cleanName("Refund (Return)") === "Refund" && cleanName("- Acme: x") === "Acme");
+
+  check("toCsv: quotes only what needs it",
+    toCsv([["name", "note"], ["Acme", 'a, "b"\nc']]) === 'name,note\nAcme,"a, ""b""\nc"\n');
+  const grid = fromCsv('name,note\r\nAcme,"a, ""b""\nc"\r\n');
+  check("fromCsv: quoted commas, doubled quotes and newlines survive",
+    grid.length === 2 && grid[1][1] === 'a, "b"\nc');
+  check("fromCsv: a pipe is bent to a broken bar", fromCsv("a|b,c")[0][0] === "a¦b");
+  check("fromCsv round-trips toCsv",
+    JSON.stringify(fromCsv(toCsv([["a", "b"], ["1", "x,y"]]))) === JSON.stringify([["a", "b"], ["1", "x,y"]]));
+
+  const u = updateTable(sheet, "Order", ["name", "country", "currency"], [["Acme", "France", "EUR"]]);
+  check("updateTable: replaces the Concept's block in place",
+    u.changed && u.from === 1 && u.to === 4
+    && u.block[0] === "    | name | country | currency |"
+    && u.block[2] === "    | Acme | France  | EUR      |");
+  const same = updateTable(sheet, "Refund", ["name", "reason"], [["R1", "Damaged"]]);
+  check("updateTable: an identical grid changes nothing", same.changed === false);
+  const lone = updateTable(sheet, "Organisation", ["#", "full name"], [["1", "Acme Ltd"]]);
+  check("updateTable: completes an assumed lone header",
+    lone.changed && lone.from === 10 && lone.to === 10 && lone.block.length === 3);
+  const ins = updateTable(["Person"], "Person", ["name"], [["John"]]);
+  check("updateTable: inserts beneath a table-less Concept",
+    ins.changed && ins.to < ins.from && ins.from === 1
+    && ins.block.length === 3 && ins.block[0] === "    | name |" && ins.block[2] === "    | John |");
+  check("updateTable: an unknown Concept is null",
+    updateTable(["Order"], "Ghost", ["a"], [], "root") === null);
 }
 
 // ---------------------------------------------------------------------------

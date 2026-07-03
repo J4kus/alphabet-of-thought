@@ -247,6 +247,123 @@ function fromRegion(lines) {
   return render(block);
 }
 
+// --- the CSV mirror ---------------------------------------------------------
+// Every table is mirrored to a CSV file named after its parent Concept and
+// kept in sync both ways. The functions here are the pure halves: find the
+// tables in a text, serialise a grid to CSV and back, and work out the
+// exact line edit that folds a CSV grid back into its .aot table.
+
+// The name a table is filed under: its parent line's term, stripped of an
+// Example marker, an inline value and a parenthetical alias.
+const cleanName = (t) => t.replace(/^[-|]\s+/, "").split(":")[0].replace(/\([^)]*\)\s*$/, "").trim();
+
+// Every complete table in the text (header + separator + rows): its parent
+// name — the nearest shallower line, or the root name — with its grid and
+// location. Assumed lone headers are skipped: they are still being typed.
+function tablesOf(lines, rootName) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const block = blockAt(lines, i);
+    if (!block) continue;
+    i = block.end;
+    if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) continue;
+    let name = rootName;
+    for (let j = block.start - 1; j >= 0; j--) {
+      if (!lines[j].trim()) continue;
+      if (lines[j].match(/^ */)[0].length < block.indent.length) {
+        name = cleanName(lines[j].trim());
+        break;
+      }
+    }
+    if (!name) continue;
+    const header = block.rows[0].cells;
+    const rows = block.rows.slice(2).filter((r) => !r.sep)
+      .map((r) => header.map((_, k) => r.cells[k] || ""));
+    out.push({ name, start: block.start, end: block.end, indent: block.indent, header, rows });
+  }
+  return out;
+}
+
+// A grid as RFC 4180 CSV: cells holding a comma, quote or newline are
+// quoted, quotes doubled; rows end in '\n'.
+function toCsv(grid) {
+  const cell = (c) => (/[",\r\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c);
+  return grid.map((row) => row.map(cell).join(",")).join("\n") + "\n";
+}
+
+// CSV text back to a grid. Quoted cells may hold commas, doubled quotes
+// and newlines; unquoted cells are trimmed. A pipe cannot survive inside a
+// pipe table, so it is bent to a broken bar.
+function fromCsv(text) {
+  const grid = [];
+  let row = [], cell = "", quoted = false;
+  for (let i = 0; i <= text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else if (ch !== undefined) cell += ch;
+      continue;
+    }
+    if (ch === '"' && cell.trim() === "") { quoted = true; cell = ""; continue; }
+    if (ch === ",") { row.push(cell.trim()); cell = ""; continue; }
+    if (ch === "\n" || ch === "\r" || ch === undefined) {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      if (cell !== "" || row.length) { row.push(cell.trim()); grid.push(row); }
+      row = []; cell = "";
+      continue;
+    }
+    cell += ch;
+  }
+  return grid.map((r) => r.map((c) => c.replace(/\|/g, "¦")));
+}
+
+// The line edit that folds a CSV grid back into its table: replace the
+// Concept's existing table block, or insert one directly beneath the
+// Concept when it has none yet. Returns { changed, from, to, block } —
+// lines from..to (inclusive) become the block; to < from is a pure insert
+// before `from`. null when no line defines the named Concept.
+function updateTable(lines, name, header, rows, rootName) {
+  let conceptLine = -1, conceptIndent = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t || t[0] === "|" || isSeparator(t)) continue;
+    if (cleanName(t) === name) {
+      conceptLine = i;
+      conceptIndent = lines[i].match(/^ */)[0].length;
+      break;
+    }
+  }
+  if (conceptLine === -1 && name !== rootName) return null;
+  const indent = " ".repeat(conceptLine === -1 ? 0 : conceptIndent + 4);
+  // the Concept's scope: up to the first shallower-or-equal non-blank
+  // line; its table is the first pipe block at exactly its child depth
+  // (a sub-Concept's own table sits deeper and is not this one)
+  let from = conceptLine + 1, to = from - 1;
+  for (let i = conceptLine + 1; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    const ind = lines[i].match(/^ */)[0].length;
+    if (conceptLine !== -1 && ind <= conceptIndent) break;
+    if (t[0] === "|" && ind === indent.length) {
+      const found = blockAt(lines, i);
+      from = found.start;
+      to = found.end;
+      break;
+    }
+  }
+  const block = render({
+    indent,
+    rows: [
+      { sep: false, cells: header },
+      { sep: true, cells: [] },
+      ...rows.map((cells) => ({ sep: false, cells })),
+    ],
+  });
+  const changed = lines.slice(from, to + 1).join("\n") !== block.join("\n");
+  return { changed, from, to, block };
+}
+
 // Re-align every table in the text so the pipes line up. A table is an
 // unbroken run of pipe rows sharing one indent that contains a separator
 // row — lone pipe Examples are left exactly as written.
@@ -270,4 +387,5 @@ module.exports = {
   cells, isSeparator, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, insertSeparator, sortRows, fromRegion,
+  cleanName, tablesOf, toCsv, fromCsv, updateTable,
 };

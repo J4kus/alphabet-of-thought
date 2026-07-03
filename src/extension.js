@@ -6,6 +6,7 @@
 
 const vscode = require("vscode");
 const path = require("path");
+const fs = require("fs");
 const { lint, KIND } = require("./linter");
 const { resolve } = require("./crosslinks");
 const table = require("./table");
@@ -115,6 +116,67 @@ const definitionProvider = {
     return null;
   },
 };
+
+// --- the CSV mirror -----------------------------------------------------------
+// Every table lives twice: as the pipe grid in the .aot and as a CSV named
+// after its parent Concept in a sibling '<file>.tables' folder. Saving the
+// .aot rewrites the CSVs; editing a CSV folds the grid back into the .aot
+// table (or inserts one under the Concept) and saves it. Both directions
+// write only when the content genuinely differs, which is what stops the
+// two mirrors from chasing each other.
+
+const syncEnabled = () => vscode.workspace.getConfiguration("aot").get("tableCsvSync", true);
+const lastWritten = new Map(); // csv path -> the content this extension wrote
+
+const csvName = (name) => name.replace(/[\\/:*?"<>|]/g, "-") + ".csv";
+
+function syncAotToCsv(doc) {
+  if (doc.languageId !== "aot" || !syncEnabled()) return;
+  if (!/\.aot$/i.test(doc.fileName)) return;
+  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
+  const found = table.tablesOf(doc.getText().split(/\r?\n/), rootName);
+  if (!found.length) return;
+  const dir = doc.fileName.replace(/\.aot$/i, ".tables");
+  fs.mkdirSync(dir, { recursive: true });
+  for (const t of found) {
+    const file = path.join(dir, csvName(t.name));
+    const csv = table.toCsv([t.header, ...t.rows]);
+    if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === csv) continue;
+    lastWritten.set(file, csv);
+    fs.writeFileSync(file, csv);
+  }
+}
+
+async function syncCsvIntoAot(uri) {
+  if (!syncEnabled()) return;
+  const csvPath = uri.fsPath;
+  const dir = path.dirname(csvPath);
+  if (!dir.endsWith(".tables")) return;
+  let csv;
+  try { csv = fs.readFileSync(csvPath, "utf8"); } catch { return; }
+  if (lastWritten.get(csvPath) === csv) return; // our own write echoing back
+  const aotPath = dir.slice(0, -".tables".length) + ".aot";
+  if (!fs.existsSync(aotPath)) return;
+  const grid = table.fromCsv(csv);
+  if (!grid.length) return;
+  const doc = await vscode.workspace.openTextDocument(aotPath);
+  const rootName = path.basename(aotPath).replace(/\.[^.]*$/, "");
+  const name = path.basename(csvPath, ".csv");
+  const result = table.updateTable(
+    doc.getText().split(/\r?\n/), name, grid[0], grid.slice(1), rootName);
+  if (!result || !result.changed) return;
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const edit = new vscode.WorkspaceEdit();
+  if (result.to < result.from) {
+    const at = Math.min(result.from, doc.lineCount);
+    edit.insert(doc.uri, new vscode.Position(at, 0), result.block.join(eol) + eol);
+  } else {
+    const range = new vscode.Range(result.from, 0, result.to, doc.lineAt(result.to).text.length);
+    edit.replace(doc.uri, range, result.block.join(eol));
+  }
+  await vscode.workspace.applyEdit(edit);
+  await doc.save(); // the save re-mirrors, converging both copies
+}
 
 // --- table cell colouring ---------------------------------------------------
 // The grammar colours whole lines by shape, which is right everywhere but
@@ -273,7 +335,13 @@ function activate(context) {
     vscode.commands.registerTextEditorCommand("aot.table.fromSelection", fromSelection),
     vscode.window.onDidChangeTextEditorSelection(updateTableContext),
     vscode.window.onDidChangeActiveTextEditor(updateTableContext),
+    // the CSV mirror: .aot saves write the CSVs, CSV edits fold back in
+    vscode.workspace.onDidSaveTextDocument(syncAotToCsv),
   );
+  const csvWatcher = vscode.workspace.createFileSystemWatcher("**/*.tables/*.csv");
+  csvWatcher.onDidChange(syncCsvIntoAot);
+  csvWatcher.onDidCreate(syncCsvIntoAot);
+  context.subscriptions.push(csvWatcher);
   updateTableContext();
 }
 

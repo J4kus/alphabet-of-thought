@@ -11,10 +11,10 @@ Order
     | Bolt March Order | Germany | EUR      | $3,100      |
     | Kite March Order | Japan   | JPY      | $780        |
 Refund
-    | name              | country | reason         | test table |
-    |-------------------+---------+----------------+------------|
-    | Acme March Refund | France  | Damaged carton | tt         |
-    | Kite March Refund | Japan   | Defective item |            |
+    | name              | country | reason         | test table | test 2 |
+    |-------------------+---------+----------------+------------+--------|
+    | Acme March Refund | France  | Damaged carton | tt         | 1      |
+    | Kite March Refund | Japan   | Defective item | test       | 2      |
 
     
 Person
@@ -24,6 +24,8 @@ Person
     | Jane Smith |
 Organisation
     | # | full name | sort name | registration number |
+    |---+-----------+-----------+---------------------|
+   
 
 Party
     Beneficiary
@@ -32,13 +34,14 @@ Party
     Participant
         - Yes
         - No
-    | # | person     | is beneficiary | is participant | deal        |
+    | # | person     | is beneficiary | is participant | deal             |
     |---+------------+----------------+----------------+------------------|
     | 1 | John Doe   | No             | Yes            | Acme March Order |
     | 2 | Jane Smith | No             | Yes            | Bolt March Order |
 
 Deal
-    | #                |
-    |------------------|
-    | Living Annuity |
+    | #                  |
+    |--------------------|
+    | Living Annuity     |
     | Retirement Annuity |
+    | Unit Trust         |

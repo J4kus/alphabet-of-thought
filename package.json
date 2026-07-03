@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.1.72",
+  "version": "1.1.73",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -43,6 +43,16 @@
         "path": "./syntaxes/aot.tmLanguage.json"
       }
     ],
+    "configuration": {
+      "title": "alphabet of thought",
+      "properties": {
+        "aot.tableCsvSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mirror every table to a CSV file named after its parent Concept in a sibling '<file>.tables' folder when the .aot is saved, and fold edits made to those CSVs back into the .aot table."
+        }
+      }
+    },
     "semanticTokenScopes": [
       {
         "language": "aot",

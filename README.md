@@ -87,6 +87,16 @@ Two more live in the Command Palette as **AOT Table**: *Sort Rows by Column at C
 
 Creating a table is org's flow: type `| name | size |`, press `Enter` (a fresh empty row appears, aligned), type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row. A raw `|-` line expands the same way.
 
+### The CSV mirror
+
+Every table lives twice: as the pipe grid in the `.aot`, and as a CSV file named after its parent Concept in a sibling `<file>.tables` folder — `spreadsheet.aot` with an `Order` table keeps `spreadsheet.tables/Order.csv`. The two stay in sync automatically:
+
+- **Saving the `.aot`** writes one CSV per complete table (header, separator, rows — an assumed lone header still being typed is left alone). Cells holding commas, quotes or newlines are quoted per RFC 4180; a top-level table is named by the file's root Concept.
+- **Editing a CSV** — in Excel, a script, anything — folds the grid back into the matching Concept's table, aligned, and saves the file. A new CSV dropped into the folder inserts a table under its Concept if one doesn't exist yet.
+- Both directions write only when the content genuinely differs, so the two mirrors never chase each other. Deleting a CSV never deletes the table. A pipe typed into a CSV cell is bent to a broken bar (`¦`), since it cannot survive inside a pipe grid.
+
+The mirror means the same knowledge is at once a checked Alpha model and an ordinary spreadsheet any tool can read — turn it off with the `aot.tableCsvSync` setting.
+
 The table is pure shorthand: the tree it parses to is identical to writing each row as a `- Example` with `attribute: value` children, so everything that reads the tree works over a table unchanged — inheritance, the crosslinks (a header cell that names a Concept underlines solid, a value cell that names an Example underlines dotted, and both Ctrl+click to the definition), the FCA audit, the Gödel numbers, and the dependency inference.
 
 Every editor feature of Alpha reaches inside the cells too:

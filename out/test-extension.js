@@ -54,11 +54,50 @@ const vscode = {
     onDidChangeTextEditorSelection: () => ({ dispose() {} }),
     onDidChangeActiveTextEditor: () => ({ dispose() {} }),
   },
+  WorkspaceEdit: class {
+    constructor() { this.ops = []; }
+    replace(uri, range, text) { this.ops.push({ type: "replace", uri, range, text }); }
+    insert(uri, pos, text) { this.ops.push({ type: "insert", uri, pos, text }); }
+  },
   workspace: {
     textDocuments: [],
     onDidOpenTextDocument: (fn) => { vscode.workspace._open = fn; return { dispose() {} }; },
     onDidChangeTextDocument: () => ({ dispose() {} }),
     onDidCloseTextDocument: () => ({ dispose() {} }),
+    onDidSaveTextDocument: (fn) => { vscode.workspace._save = fn; return { dispose() {} }; },
+    createFileSystemWatcher: () => ({
+      onDidChange: (fn) => { vscode.workspace._csvChanged = fn; },
+      onDidCreate: (fn) => { vscode.workspace._csvCreated = fn; },
+      dispose() {},
+    }),
+    getConfiguration: () => ({ get: (key, fallback) => fallback }),
+    // a real file-backed document, so the CSV sync can be tested end to end
+    openTextDocument: async (p) => {
+      const doc = {
+        lines: fs.readFileSync(p, "utf8").split(/\r?\n/),
+        languageId: "aot", fileName: p, eol: vscode.EndOfLine.LF,
+        get lineCount() { return this.lines.length; },
+        getText() { return this.lines.join("\n"); },
+        lineAt(i) { return { range: new vscode.Range(i, 0, i, this.lines[i].length), text: this.lines[i] }; },
+        save: async () => fs.writeFileSync(p, doc.lines.join("\n")),
+      };
+      doc.uri = { fsPath: p, toString: () => "file:///" + p, __doc: doc };
+      return doc;
+    },
+    applyEdit: async (edit) => {
+      for (const op of edit.ops) {
+        const doc = op.uri.__doc;
+        if (op.type === "replace") {
+          const [sl, , el] = op.range.a;
+          doc.lines.splice(sl, el - sl + 1, ...op.text.split("\n"));
+        } else {
+          const parts = op.text.split("\n");
+          if (parts[parts.length - 1] === "") parts.pop();
+          doc.lines.splice(op.pos.line, 0, ...parts);
+        }
+      }
+      return true;
+    },
   },
 };
 const load = Module._load;
@@ -306,3 +345,44 @@ const listed = [
     ? "PASS (table: a header cell's alias crosslinks to its Concept)"
     : "UNEXPECTED header alias link " + JSON.stringify(aliasLink));
 }
+
+// 7) the CSV mirror, end to end on real files: saving the .aot writes one
+// CSV per table into '<file>.tables', named after the parent Concept; a
+// CSV edit folds back into the .aot table, aligned, and saves it.
+(async () => {
+  const tmp = path.join(__dirname, "tmp-sync");
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  const aotPath = path.join(tmp, "World.aot");
+  const aotText = [
+    "Otter",
+    "    | name  | size |",
+    "    |-------+------|",
+    "    | Ollie | 5    |",
+  ].join("\n");
+  fs.writeFileSync(aotPath, aotText);
+
+  // save the .aot -> Otter.csv appears
+  vscode.workspace._save(makeDoc(aotPath, aotText));
+  const csvPath = path.join(tmp, "World.tables", "Otter.csv");
+  const written = fs.existsSync(csvPath) && fs.readFileSync(csvPath, "utf8");
+  console.log(written === "name,size\nOllie,5\n"
+    ? "PASS (csv mirror: saving the .aot writes <Concept>.csv)"
+    : "UNEXPECTED csv written: " + JSON.stringify(written));
+
+  // edit the CSV -> the .aot table gains the row, aligned, and is saved
+  fs.writeFileSync(csvPath, "name,size\nOllie,5\nPebble,3\n");
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
+  const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
+  console.log(after[3] === "    | Ollie  | 5    |" && after[4] === "    | Pebble | 3    |"
+    ? "PASS (csv mirror: a CSV edit folds back into the .aot table)"
+    : "UNEXPECTED aot after csv edit: " + JSON.stringify(after));
+
+  // our own write echoing back does nothing
+  const before = fs.readFileSync(aotPath, "utf8");
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
+  console.log(fs.readFileSync(aotPath, "utf8") === before
+    ? "PASS (csv mirror: no self-chase — an unchanged grid edits nothing)"
+    : "UNEXPECTED csv loop");
+  fs.rmSync(tmp, { recursive: true, force: true });
+})();
