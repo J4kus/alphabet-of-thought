@@ -76,6 +76,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     "    weight: 5",
     "    height",
     "    - Apple",
+    "    | Pear",
     "    ... rest",
     "    Run Command (cmd)",
   );
@@ -88,6 +89,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   check("classify: 'weight: 5' -> DEFAULT with value", kid("weight").kind === DEFAULT && kid("weight").value === "5");
   check("classify: bare 'height' -> ATTRIBUTE, value null", kid("height").kind === ATTRIBUTE && kid("height").value === null);
   check("classify: '- Apple' -> INDIVIDUAL", kid("Apple").kind === INDIVIDUAL);
+  check("classify: '| Pear' (table row) -> INDIVIDUAL", kid("Pear").kind === INDIVIDUAL);
   check("classify: '... rest' -> MAP named 'rest'", kid("rest").kind === MAP);
   check("classify: trailing (alias) dropped from the name", kid("Run Command") && kid("Run Command").kind === CONCEPT);
 }
@@ -140,11 +142,17 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     parse(aot("Thing", "    weight:"), "Root", report);
     check("parse: empty value after ':' is an error", hasError(report, /0 characters after ':'/));
   }
-  // dash with no following space
+  // dash or pipe with no following space
   {
     const report = makeReport();
     parse(aot("Thing", "    -Apple"), "Root", report);
     check("parse: '-Apple' (no space after dash) is an error", hasError(report, /0 spaces after '-'/));
+  }
+  {
+    const report = makeReport();
+    const p = parse(aot("Thing", "    |Pear"), "Root", report);
+    check("parse: '|Pear' (no space after pipe) is an error", hasError(report, /0 spaces after '\|'/));
+    check("parse: '|Pear' still becomes the INDIVIDUAL 'Pear'", node(p.root, p.nodes, "Pear").kind === INDIVIDUAL);
   }
   // blank lines are skipped, not numbered
   {

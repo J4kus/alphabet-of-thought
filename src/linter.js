@@ -93,7 +93,8 @@ function eachDuplicate(groups, fn) {
 // when the colon has nothing after it (an empty value, caught in parse).
 function classify(text) {
   if (text.startsWith("...")) return { kind: MAP, name: text.slice(3).trim(), value: null };
-  if (text.startsWith("- ")) return { kind: INDIVIDUAL, name: text.slice(2).trim(), value: null };
+  // '- ' opens an Example; '| ' is its table-row form and means the same
+  if (text.startsWith("- ") || text.startsWith("| ")) return { kind: INDIVIDUAL, name: text.slice(2).trim(), value: null };
   let value = null;
   const colon = text.indexOf(":");
   if (colon !== -1) {
@@ -143,9 +144,10 @@ function parse(text, rootName, report) {
       depth = prevDepth + 1;
     }
     let trimmed = content.trim();
-    if (trimmed[0] === "-" && !trimmed.startsWith("- ")) {
-      report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example begins with a dash then a space ('- '); add the missing space`);
-      trimmed = "- " + trimmed.slice(1);
+    const marker = trimmed[0];
+    if ((marker === "-" || marker === "|") && !trimmed.startsWith(marker + " ")) {
+      report.error(line, `'${trimmed}' has 0 spaces after '${marker}', expected 1 — an Example begins with a dash or pipe then a space ('${marker} '); add the missing space`);
+      trimmed = marker + " " + trimmed.slice(1);
     }
     const { kind, name, value, alias } = classify(trimmed);
     if (value === "") {

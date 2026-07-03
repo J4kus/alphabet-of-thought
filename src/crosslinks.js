@@ -229,9 +229,9 @@ function resolve(text, root, nodes) {
         (cand) => cand !== node && descendsFrom(cand, type)
       );
       if (target) {
-        const dash = raw.indexOf("-", nameStart);
-        const after = raw.slice(dash + 1);
-        const valueStart = dash + 1 + (after.length - after.trimStart().length);
+        // the Example marker ('-' or '|') is the line's first non-space character
+        const after = raw.slice(nameStart + 1);
+        const valueStart = nameStart + 1 + (after.length - after.trimStart().length);
         links.push({
           connection: "example-is-a-Example",
           line: node.line,

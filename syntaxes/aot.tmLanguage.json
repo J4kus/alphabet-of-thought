@@ -44,8 +44,8 @@
             "match": "~.*"
         },
         {
-            "comment": "table: tabular layout (neutral)",
-            "name": "markup.raw.table.aot",
+            "comment": "table row: the '|' form of an Example — khaki (support.function), distinct from the blue of '- ' Examples so tabular data reads as its own thing",
+            "name": "support.function.table.aot",
             "match": "\\|.*$"
         }
 

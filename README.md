@@ -121,7 +121,7 @@ A sub-Concept is an **is-a**, never a **has-a**. Indenting one Concept under ano
 | **has-a** | Indent attribute under a term | Indented | `Human` → indent → `full name` | |
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
 | **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Human (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
-| **has-Example** | Indent Dash prefix after a term | Indented | `Human` → indent → `- Gottfried Wilhelm Leibniz` | |
+| **has-Example** | Indent Dash prefix after a term | Indented | `Human` → indent → `- Gottfried Wilhelm Leibniz` | A pipe prefix (`\| Gottfried Wilhelm Leibniz`, the table-row form) marks an Example too |
 | **Maps-to** | Indent `...` followed by a note under a token | Indented | `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never a plain description of the line above it**. To explain or rename a term, use a `(parentheses)` alias instead. | 
 | **Attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
 | **Default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `human: Gottfried Wilhelm Leibniz`, where the value references the Example | |
