@@ -218,7 +218,7 @@ function sortRows(block, row, col) {
   while (a > 0 && !block.rows[a - 1].sep) a--;
   while (b < block.rows.length - 1 && !block.rows[b + 1].sep) b++;
   if (a === b) return null;
-  const key = (r) => (r.cells[col] || "").trim();
+  const key = (r) => splitCell((r.cells[col] || "").trim()).value;
   const num = (r) => parseFloat(key(r).replace(/[$,%\s]/g, ""));
   const run = block.rows.slice(a, b + 1);
   const numeric = run.every((r) => key(r) !== "" && !isNaN(num(r)));
@@ -245,6 +245,201 @@ function fromRegion(lines) {
     rows: [rows[0], { sep: true, cells: [] }, ...rows.slice(1)],
   };
   return render(block);
+}
+
+// --- formulas ----------------------------------------------------------------
+// A cell may derive its value, org's spreadsheet folded into the cell
+// itself: `10 =$1+10` keeps the value first and the formula visible after
+// it. Every table command, the formatter and the CSV mirror recompute.
+//
+//   $N                         the same row's column N (1 = the name column)
+//   sum($N) avg($N) min($N) max($N)   over the table's other data rows
+//   + - * / ( ) and plain numbers
+//
+// $ signs, thousands commas and % in referenced values are ignored, so a
+// money column reads as its number.
+
+// Split a cell into its value and its formula: eq is the index of the '='
+// (the cell's first character, or following a space), -1 when there is none.
+function splitCell(text) {
+  if (!text) return { value: text || "", eq: -1 };
+  if (text[0] === "=") return { value: "", eq: 0 };
+  const at = text.lastIndexOf(" =");
+  if (at === -1) return { value: text, eq: -1 };
+  return { value: text.slice(0, at).trim(), eq: at + 1 };
+}
+
+const numericValue = (text) => parseFloat(String(text).replace(/[$,%\s]/g, ""));
+
+// Evaluate a formula against ctx: cell(n) is the same row's column n as a
+// number, column(n) the other rows' numbers. Throws on bad syntax.
+function evalFormula(src, ctx) {
+  let i = 0;
+  const err = (m) => { throw new Error(m); };
+  const ws = () => { while (src[i] === " ") i++; };
+  const ref = () => {
+    i++; // the '$'
+    let digits = "";
+    while (/[0-9]/.test(src[i])) digits += src[i++];
+    if (!digits) err("expected a column number after '$'");
+    return +digits;
+  };
+  const aggregate = { sum: (a) => a.reduce((x, y) => x + y, 0), avg: (a) => a.reduce((x, y) => x + y, 0) / a.length, min: (a) => Math.min(...a), max: (a) => Math.max(...a) };
+  function factor() {
+    ws();
+    if (src[i] === "-") { i++; return -factor(); }
+    if (src[i] === "(") {
+      i++;
+      const v = expr();
+      ws();
+      if (src[i] !== ")") err("missing ')'");
+      i++;
+      return v;
+    }
+    if (src[i] === "$") return ctx.cell(ref());
+    const fn = /^(sum|avg|min|max)\s*\(/i.exec(src.slice(i));
+    if (fn) {
+      i += fn[0].length;
+      ws();
+      if (src[i] !== "$") err(`${fn[1]}() takes a column reference like $2`);
+      const col = ref();
+      ws();
+      if (src[i] !== ")") err("missing ')'");
+      i++;
+      const values = ctx.column(col);
+      if (!values.length) err(`column $${col} has no numeric values`);
+      return aggregate[fn[1].toLowerCase()](values);
+    }
+    const num = /^\d+(\.\d+)?/.exec(src.slice(i));
+    if (num) { i += num[0].length; return +num[0]; }
+    err(i >= src.length ? "the formula ends too soon" : `unexpected '${src[i]}'`);
+  }
+  function term() {
+    let v = factor();
+    for (;;) {
+      ws();
+      if (src[i] === "*") { i++; v *= factor(); }
+      else if (src[i] === "/") { i++; v /= factor(); }
+      else return v;
+    }
+  }
+  function expr() {
+    let v = term();
+    for (;;) {
+      ws();
+      if (src[i] === "+") { i++; v += term(); }
+      else if (src[i] === "-") { i++; v -= term(); }
+      else return v;
+    }
+  }
+  const v = expr();
+  ws();
+  if (i < src.length) err(`unexpected '${src[i]}'`);
+  return v;
+}
+
+// Render a computed number the way the old value was written: a leading $
+// and thousands commas survive recomputation; two decimals at most.
+function formatValue(n, old) {
+  if (!isFinite(n)) throw new Error("the result is not a number");
+  const rounded = Math.round(n * 100) / 100;
+  const s = old.includes(",")
+    ? rounded.toLocaleString("en-US", { maximumFractionDigits: 2 })
+    : String(rounded);
+  return (old.trim().startsWith("$") ? "$" : "") + s;
+}
+
+// The data rows of a complete table block (header and separators aside).
+function dataRowsOf(block) {
+  const rows = block.rows.filter((r) => !r.sep);
+  return block.rows.length >= 2 && !block.rows[0].sep && block.rows[1].sep ? rows.slice(1) : [];
+}
+
+// Evaluate one cell's formula in its row and table. Returns the value it
+// should carry; throws with a reason when it cannot compute.
+function computeCell(rows, row, text) {
+  const { value, eq } = splitCell(text);
+  const formula = text.slice(eq + 1);
+  const ctx = {
+    cell: (c) => {
+      const n = numericValue(splitCell(row.cells[c - 1] || "").value);
+      if (isNaN(n)) throw new Error(`$${c} is not numeric on this row`);
+      return n;
+    },
+    column: (c) => rows.filter((r) => r !== row)
+      .map((r) => numericValue(splitCell(r.cells[c - 1] || "").value))
+      .filter((n) => !isNaN(n)),
+  };
+  return formatValue(evalFormula(formula, ctx), value);
+}
+
+// Recompute every formula cell in the block, top-down and left-to-right,
+// so a formula may build on the column before it; extra passes let a
+// reference to a later formula converge. A cell that cannot compute shows
+// #ERR and keeps its formula.
+function recompute(block) {
+  const rows = dataRowsOf(block);
+  let changedAtAll = false;
+  for (let pass = 0; pass < 5; pass++) {
+    let changed = false;
+    for (const row of rows) {
+      row.cells.forEach((text, k) => {
+        const { value, eq } = splitCell(text);
+        if (eq === -1) return;
+        let out;
+        try { out = computeCell(rows, row, text); } catch { out = "#ERR"; }
+        if (out !== value) {
+          row.cells[k] = out + " =" + text.slice(eq + 1).trim();
+          changed = true;
+        }
+      });
+    }
+    changedAtAll = changedAtAll || changed;
+    if (!changed) break;
+  }
+  return changedAtAll;
+}
+
+// Audit every formula in the text for the linter and the colouring: its
+// exact span (from the '=' to the cell's end) plus what is wrong with it —
+// an error that cannot compute, or a stale value the next recompute fixes.
+function formulas(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const block = blockAt(lines, i);
+    if (!block) continue;
+    i = block.end;
+    const rows = dataRowsOf(block);
+    if (!rows.length) continue;
+    for (const row of rows) {
+      const abs = block.start + block.rows.indexOf(row);
+      const cs = cells(lines[abs]);
+      cs.forEach((cell, k) => {
+        const { value, eq } = splitCell(cell.text);
+        if (eq === -1) return;
+        const span = {
+          line: abs + 1,
+          startCol: cell.col + eq,
+          endCol: cell.col + cell.text.length,
+          formula: cell.text.slice(eq + 1).trim(),
+        };
+        try {
+          const computed = computeCell(rows, row, cell.text);
+          if (computed !== value) {
+            span.stale = true;
+            span.message = value === ""
+              ? `formula '=${span.formula}' is not yet computed (= ${computed}) — press Tab in the table, or run Format Document`
+              : `value '${value}' does not match its formula (= ${computed}) — press Tab in the table, or run Format Document, to recompute`;
+          }
+        } catch (e) {
+          span.error = true;
+          span.message = `formula '=${span.formula}' does not compute — ${e.message}`;
+        }
+        out.push(span);
+      });
+    }
+  }
+  return out;
 }
 
 // --- the CSV mirror ---------------------------------------------------------
@@ -352,14 +547,16 @@ function updateTable(lines, name, header, rows, rootName) {
       break;
     }
   }
-  const block = render({
+  const tableBlock = {
     indent,
     rows: [
       { sep: false, cells: header },
       { sep: true, cells: [] },
       ...rows.map((cells) => ({ sep: false, cells })),
     ],
-  });
+  };
+  recompute(tableBlock); // formulas arriving from the CSV compute too
+  const block = render(tableBlock);
   const changed = lines.slice(from, to + 1).join("\n") !== block.join("\n");
   return { changed, from, to, block };
 }
@@ -376,6 +573,7 @@ function align(text) {
     if (!block) continue;
     i = block.end; // one visit per block
     if (!block.rows.some((r) => r.sep)) continue;
+    recompute(block); // formulas first, so the widths fit the fresh values
     render(block).forEach((aligned, k) => {
       if (aligned !== lines[block.start + k]) edits.push({ line: block.start + k + 1, text: aligned });
     });
@@ -388,4 +586,5 @@ module.exports = {
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, insertSeparator, sortRows, fromRegion,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
+  splitCell, evalFormula, formatValue, recompute, formulas,
 };

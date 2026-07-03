@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator } = require("./table");
+const { cells: tableCells, isSeparator, splitCell } = require("./table");
 
 const INDENT = 4;
 
@@ -237,10 +237,14 @@ function parse(text, rootName, report) {
         nodes.push(example);
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
           const attr = table.attrs[c - 1];
-          if (!attr || !row[c].text) continue;
+          // a formula ('10 =$1+10') derives the value: only the value part
+          // is the Attribute Value; the formula itself is presentation,
+          // audited and coloured by the editor, invisible to the model
+          const { value } = splitCell(row[c].text);
+          if (!attr || !value) continue;
           const cellValue = {
             line, depth: depth + 1, kind: DEFAULT, name: attr.name,
-            value: row[c].text, alias: null, parent: example, children: [],
+            value, alias: null, parent: example, children: [],
             valueCol: row[c].col, cell: true,
           };
           example.children.push(cellValue);

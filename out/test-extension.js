@@ -386,3 +386,42 @@ const listed = [
     : "UNEXPECTED csv loop");
   fs.rmSync(tmp, { recursive: true, force: true });
 })();
+
+// 8) formulas: the span after the '=' is coloured as its own token, a
+// stale value publishes a pinned warning, and Tab recomputes it.
+{
+  const calc = [
+    "Order",
+    "    | name | price | total    |",
+    "    |------+-------+----------|",
+    "    | A    | 10    | 15 =$2*2 |",
+  ].join("\n");
+  const doc8 = makeDoc("c:\repo\Calc.aot", calc);
+  const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc8);
+  const formulaTok = tokens.find((t) => t[3] === 3);
+  console.log(formulaTok && formulaTok[0] === 3 && formulaTok[1] === 24 && formulaTok[2] === 5
+    ? "PASS (formula: '=$2*2' carries its own colour token)"
+    : "UNEXPECTED formula token " + JSON.stringify(tokens.filter((t) => t[3] === 3)));
+
+  vscode.workspace._open(doc8);
+  const calcDiags = published.get(doc8.uri.toString()) || [];
+  const stale = calcDiags.find((d) => /does not match its formula \(= 20\)/.test(d.message));
+  console.log(stale && stale.severity === vscode.DiagnosticSeverity.Warning && stale.range.a[1] === 24
+    ? "PASS (formula: a stale value warns on exactly its span)"
+    : "UNEXPECTED formula diagnostics " + JSON.stringify(calcDiags.map((d) => d.message)));
+
+  // Tab recomputes: the stale 15 becomes 20
+  let applied8 = null;
+  const editor8 = {
+    document: doc8,
+    selection: new vscode.Selection(3, 7, 3, 7),
+    edit: (cb) => { cb({ replace: (range, t) => { applied8 = t; } }); return Promise.resolve(true); },
+    revealRange: () => {},
+  };
+  registeredCommands.get("aot.table.nextCell")(editor8);
+  Promise.resolve().then(() => {
+    console.log(applied8 && applied8.includes("| 20 =$2*2 |")
+      ? "PASS (formula: Tab recomputes the value in place)"
+      : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
+  });
+}

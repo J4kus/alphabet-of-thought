@@ -51,7 +51,18 @@ function analyse(doc) {
     // the weaker same-name clashes are not surfaced
     deepErrors = deepErrors.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
-  return { errors: errors.concat(deepErrors), warnings: warnings.concat(depWarnings), links };
+  // cell formulas: one that cannot compute is an error, a value the next
+  // recompute would change is a warning — both pinned to the formula's span
+  const formulaErrors = [], formulaWarnings = [];
+  for (const f of table.formulas(doc.getText().split(/\r?\n/))) {
+    if (f.error) formulaErrors.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
+    else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
+  }
+  return {
+    errors: errors.concat(deepErrors, formulaErrors),
+    warnings: warnings.concat(depWarnings, formulaWarnings),
+    links,
+  };
 }
 
 function linkRange(link) {
@@ -185,8 +196,8 @@ async function syncCsvIntoAot(uri) {
 // written-out form would be: header cells as attributes, name cells as
 // Examples, value cells as Attribute Values. package.json maps each token
 // type back to the grammar's own scopes, so themes use identical colours.
-const TOKEN_TYPES = ["property", "enumMember", "string"];
-const ATTR_TOKEN = 0, EXAMPLE_TOKEN = 1, VALUE_TOKEN = 2;
+const TOKEN_TYPES = ["property", "enumMember", "string", "macro"];
+const ATTR_TOKEN = 0, EXAMPLE_TOKEN = 1, VALUE_TOKEN = 2, FORMULA_TOKEN = 3;
 const semanticLegend = new vscode.SemanticTokensLegend(TOKEN_TYPES, []);
 const semanticProvider = {
   provideDocumentSemanticTokens(doc) {
@@ -204,6 +215,11 @@ const semanticProvider = {
       } else if (node.kind === KIND.DEFAULT && node.cell && node.value) {
         builder.push(node.line - 1, node.valueCol, node.value.length, VALUE_TOKEN);
       }
+    }
+    // everything from a cell's '=' to its end is the formula, in its own
+    // colour, so derivations read apart from the data at a glance
+    for (const f of table.formulas(doc.getText().split(/\r?\n/))) {
+      builder.push(f.line - 1, f.startCol, f.endCol - f.startCol, FORMULA_TOKEN);
     }
     return builder.build();
   },
@@ -224,6 +240,7 @@ function runTableOp(editor, op) {
   if (!block) return;
   const target = op(block, pos.line - block.start, table.colAt(lines[pos.line], pos.character));
   if (!target) return;
+  table.recompute(block); // every table keystroke recalculates, as org's TAB does
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {

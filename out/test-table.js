@@ -8,6 +8,7 @@ const {
   padRows, dataRow, nextCell, prevCell, nextRow, moveColumn, moveRow,
   insertColumn, deleteColumn, insertRow, deleteRow, insertSeparator,
   sortRows, fromRegion, cleanName, tablesOf, toCsv, fromCsv, updateTable,
+  splitCell, evalFormula, formatValue, recompute, formulas,
 } = require("../src/table");
 
 let failures = 0;
@@ -148,6 +149,73 @@ const fresh = () => blockAt(doc, 3);
   const spaced = fromRegion(["name  size", "Ollie  5"]);
   check("fromRegion: multi-space columns as a last resort", spaced[2] === "| Ollie | 5    |");
   check("fromRegion: nothing from blank lines", fromRegion(["   ", ""]) === null);
+}
+
+// ---------------------------------------------------------------------------
+// formulas: `10 =$1+10` — the value first, its derivation after it
+// ---------------------------------------------------------------------------
+{
+  check("splitCell: value and formula part at the ' ='",
+    JSON.stringify(splitCell("10 =$1+10")) === '{"value":"10","eq":3}'
+    && splitCell("=$2*2").value === "" && splitCell("=$2*2").eq === 0
+    && splitCell("plain text").eq === -1);
+
+  const ctx = { cell: (c) => c * 10, column: () => [1, 2, 3] };
+  check("evalFormula: references and precedence", evalFormula("$2+3*4", ctx) === 32);
+  check("evalFormula: parentheses and unary minus", evalFormula("-(2+3)*$1", ctx) === -50);
+  check("evalFormula: sum/avg over a column", evalFormula("sum($3)", ctx) === 6 && evalFormula("avg($3)", ctx) === 2);
+  check("evalFormula: bad syntax throws",
+    (() => { try { evalFormula("$2+", ctx); return false; } catch { return true; } })());
+
+  check("formatValue: keeps the $ and thousands commas of the old value",
+    formatValue(1500, "$1,000") === "$1,500" && formatValue(20, "") === "20" && formatValue(1.256, "") === "1.26");
+
+  const b = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["name", "price", "qty", "total"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["A", "$1,200", "2", "=$2*$3"] },
+      { sep: false, cells: ["B", "$100", "1", "100 =$2*$3"] },
+      { sep: false, cells: ["Total", "", "", "=sum($4)"] },
+    ],
+  };
+  recompute(b);
+  check("recompute: fills an empty value from its formula", b.rows[2].cells[3] === "2400 =$2*$3");
+  check("recompute: an already true value stays put", b.rows[3].cells[3] === "100 =$2*$3");
+  check("recompute: sum() totals the other rows, fresh values included", b.rows[4].cells[3] === "2500 =sum($4)");
+
+  const broken = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["name", "x"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["A", "=$1*2"] },
+    ],
+  };
+  recompute(broken);
+  check("recompute: a formula that cannot compute shows #ERR and keeps the formula",
+    broken.rows[2].cells[1] === "#ERR =$1*2");
+
+  const sheet = [
+    "Order",
+    "    | name | price | total    |",
+    "    |------+-------+----------|",
+    "    | A    | 10    | 20 =$2*2 |",
+    "    | B    | 10    | 5 =$2/   |",
+    "    | C    | 10    | 15 =$2*2 |",
+  ];
+  const found = formulas(sheet);
+  check("formulas: audits every formula cell", found.length === 3);
+  check("formulas: a true value raises nothing", !found[0].stale && !found[0].error);
+  check("formulas: the span runs from the '=' to the cell's end",
+    found[0].line === 4 && found[0].startCol === 24 && sheet[3][found[0].startCol] === "=");
+  check("formulas: bad syntax is an error", found[1].error === true && /does not compute/.test(found[1].message));
+  check("formulas: a stale value warns with the fresh result",
+    found[2].stale === true && found[2].message.includes("= 20"));
+
+  check("align: recomputes formulas before padding",
+    align(["| name | b     |", "|------+-------|", "| 2    | =$1*2 |"].join("\n")).some((e) => e.text.includes("4 =$1*2")));
 }
 
 // ---------------------------------------------------------------------------

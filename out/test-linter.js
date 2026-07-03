@@ -255,6 +255,22 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
       node(p.root, p.nodes, "Ollie").children.some((c) => c.name === "size" && c.value === "5"));
     check("table: a header alias parses without errors", r.errors.length === 0);
   }
+  // a formula rides after the value ('20 =$2*2'); the model sees only the value
+  {
+    const r = makeReport();
+    const p = parse(aot(
+      "Order",
+      "    | name | price | total    |",
+      "    |------+-------+----------|",
+      "    | A    | 10    | 20 =$2*2 |",
+      "    | B    | 10    | =$2*2    |",
+    ), "Zoo", r);
+    const a = node(p.root, p.nodes, "A"), b = node(p.root, p.nodes, "B");
+    check("table: a cell's formula is stripped from its Attribute Value",
+      a.children.some((c) => c.name === "total" && c.value === "20"));
+    check("table: a not-yet-computed formula cell asserts nothing",
+      !b.children.some((c) => c.name === "total") && r.errors.length === 0);
+  }
   // table findings pin the offending cell, not the whole line
   {
     const r = makeReport();

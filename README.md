@@ -87,6 +87,26 @@ Two more live in the Command Palette as **AOT Table**: *Sort Rows by Column at C
 
 Creating a table is org's flow: type `| name | size |`, press `Enter` (a fresh empty row appears, aligned), type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row. A raw `|-` line expands the same way.
 
+### Formulas
+
+A cell may derive its value — org's spreadsheet folded into the cell itself, value first, formula visible after it:
+
+```aot
+Order
+    | name             | country | currency | basket size     |
+    |------------------+---------+----------+-----------------|
+    | Acme March Order | France  | EUR      | $1,200          |
+    | Bolt March Order | Germany | EUR      | $3,100          |
+    | Kite March Order | Japan   | JPY      | $780            |
+    | Total            |         |          | $5,080 =sum($4) |
+```
+
+- `$N` is the same row's column `N` (1 = the name column); `sum($N)`, `avg($N)`, `min($N)` and `max($N)` range over the table's other data rows; `+ - * / ( )` and plain numbers complete the grammar. `$` signs, thousands commas and `%` in referenced values are ignored, so a money column reads as its number.
+- **Every table keystroke recalculates** — Tab, Enter, any table command, Format Document, and a CSV arriving through the mirror. Type just `=$2*$3` in a cell, press Tab, and the value materialises in front of the formula. A computed value keeps the old value's `$` and thousands commas.
+- **The formula wears its own colour** — everything from the `=` to the cell's end is a distinct semantic token (`keyword.control`), so derivations read apart from data at a glance.
+- **The linter audits it**: a formula that cannot compute (bad syntax, a non-numeric reference) is an **error** on exactly its span; a value that no longer matches its formula — someone edited a referenced cell — is a **warning** naming the fresh result, fixed by the next Tab or Format Document. A cell showing `#ERR` kept its formula and is waiting to be fixed.
+- The model never sees the formula: the Attribute Value is the value part alone, so crosslinks, FCA, Gödel numbers and dependency inference all work on clean data. (The Armstrong warnings will still tell you when a whole *column* is derivable — a formula column is exactly that, made explicit.)
+
 ### The CSV mirror
 
 Every table lives twice: as the pipe grid in the `.aot`, and as a CSV file named after its parent Concept in a sibling `<file>.tables` folder — `spreadsheet.aot` with an `Order` table keeps `spreadsheet.tables/Order.csv`. The two stay in sync automatically:

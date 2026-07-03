@@ -5,17 +5,19 @@ Enumeration
         - Japan
     ...
 Order
-    | name             | country | currency | basket size |
-    |------------------+---------+----------+-------------|
-    | Acme March Order | France  | EUR      | $1,200      |
-    | Bolt March Order | Germany | EUR      | $3,100      |
-    | Kite March Order | Japan   | JPY      | $780        |
+    | name             | country | currency | basket size     | number of baskets |             |
+    |------------------+---------+----------+-----------------+-------------------+-------------|
+    | Acme March Order | France  | EUR      | $1,200          | 1                 | 1200 =$4*$5 |
+    | Bolt March Order | Germany | EUR      | $3,100          | 2                 | 6200 =$4*$5 |
+    | Kite March Order | Japan   | JPY      | $780            | 3                 | 2340 =$4*$5 |
+    | Total            |         |          | $5,080 =sum($4) | 4                 | 9740 =$4*$5 |
+    
 Refund
     | name              | country | reason         | test table | test 2 |
     |-------------------+---------+----------------+------------+--------|
     | Acme March Refund | France  | Damaged carton | tt         | 1      |
     | Kite March Refund | Japan   | Defective item | test       | 2      |
-
+    
     
 Person
     | name       |
@@ -40,8 +42,9 @@ Party
     | 2 | Jane Smith | No             | Yes            | Bolt March Order |
 
 Deal
-    | #                  |
-    |--------------------|
-    | Living Annuity     |
-    | Retirement Annuity |
-    | Unit Trust         |
+    | #                        |
+    |--------------------------|
+    | Living Annuity           |
+    | Retirement Annuity       |
+    | Unit Trust               |
+    | Tax-Free Savings Account |

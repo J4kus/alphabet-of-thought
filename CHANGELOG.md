@@ -20,6 +20,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   - Command Palette (**AOT Table**): *Sort Rows by Column at Cursor* (org `C-c ^`: the data run around the cursor, header safe; numeric when every key reads as a number, `$`/`%`/commas ignored) and *Create Table from Selected Lines* (org `C-c |`: CSV, TSV or multi-space lines; the first line lowercased into the header, separator drawn beneath)
   - org's creation flow: header row, `Enter`, type `-`, `Tab` — a lone dash run in the first cell (or a raw `|-` line) becomes a full separator on the next redraw
   - all the cursor math and row/column surgery is pure and tested in `src/table.js` (`out/test-table.js`); the extension only finds the block, applies one operation, redraws and places the cursor
+- Cell formulas — org's spreadsheet folded into the cell, value first, derivation visible after it: `$5,080 =sum($4)`
+  - grammar: `$N` (same row's column N, 1 = the name column), `sum/avg/min/max($N)` over the other data rows, `+ - * / ( )` and numbers; `$`, thousands commas and `%` in referenced values are ignored
+  - every table keystroke, Format Document and the CSV mirror recompute (multi-pass, so chained formulas converge); a fresh value keeps the old one's `$` and comma formatting; a cell that cannot compute shows `#ERR` and keeps its formula
+  - the span from the `=` to the cell's end wears its own semantic colour (`keyword.control.formula.aot`)
+  - the linter audits formulas on exactly their span: cannot-compute is an error, a stale value is a warning naming the fresh result
+  - the model sees only the value part — crosslinks, FCA, Gödel and dependency inference run on clean data
 - The CSV mirror (`aot.tableCsvSync`, on by default): every complete table is mirrored to `<file>.tables/<Concept>.csv`, named after its parent Concept (the root Concept for a top-level table), and the two stay in sync
   - saving the `.aot` writes the CSVs (RFC 4180 quoting); editing or creating a CSV folds the grid back into the Concept's table — replacing it, completing an assumed lone header, or inserting a fresh table — aligned, then saves the `.aot`
   - both directions write only on genuine content change, so the mirrors never chase each other; deleting a CSV never deletes a table; pipes in CSV cells are bent to `¦`
