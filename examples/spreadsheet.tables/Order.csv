@@ -1,5 +1,5 @@
-name,country,currency,basket size,number of baskets,
+name,country,currency,basket size,number of baskets,total value
 Acme March Order,France,EUR,"$1,200",1,1200 =$4*$5
 Bolt March Order,Germany,EUR,"$3,100",2,6200 =$4*$5
 Kite March Order,Japan,JPY,$780,3,2340 =$4*$5
-Total,,,"$5,080 =sum($4)",4,9740 =$4*$5
+Total,,,"$5,080 =sum($4)",6 =sum($5),30480 =$4*$5
