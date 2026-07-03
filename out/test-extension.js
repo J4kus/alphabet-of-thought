@@ -6,7 +6,9 @@ const path = require("path");
 const Module = require("module");
 
 const published = new Map();
+const registeredCommands = new Map();
 let definitionProvider = null;
+let formattingProvider = null;
 const vscode = {
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Diagnostic: class { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
@@ -27,11 +29,22 @@ const vscode = {
       dispose: () => {},
     }),
     registerDefinitionProvider: (selector, provider) => { definitionProvider = provider; return { dispose() {} }; },
+    registerDocumentFormattingEditProvider: (selector, provider) => { formattingProvider = provider; return { dispose() {} }; },
+  },
+  TextEdit: { replace: (range, text) => ({ range, text }) },
+  Selection: class { constructor(...a) { this.a = a; this.active = { line: a[0], character: a[1] }; } },
+  EndOfLine: { LF: 1, CRLF: 2 },
+  commands: {
+    registerTextEditorCommand: (id, fn) => { registeredCommands.set(id, fn); return { dispose() {} }; },
+    executeCommand: () => {},
   },
   window: {
     visibleTextEditors: [],
+    activeTextEditor: undefined,
     createTextEditorDecorationType: (style) => ({ style, dispose() {} }),
     onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
+    onDidChangeTextEditorSelection: () => ({ dispose() {} }),
+    onDidChangeActiveTextEditor: () => ({ dispose() {} }),
   },
   workspace: {
     textDocuments: [],
@@ -54,7 +67,7 @@ function makeDoc(fileName, text) {
     uri: { toString: () => "file:///" + fileName.replace(/\\/g, "/").replace(/ /g, "%20") },
     lineCount: lines.length,
     getText: () => text,
-    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length) }),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
   };
 }
 
@@ -191,4 +204,64 @@ const listed = [
   console.log(typedLink && typedLink.target.line === 5
     ? "PASS (default-is-a-Example: concept-typed value picks the in-scope Example among duplicates)"
     : "UNEXPECTED concept-typed duplicate resolution");
+}
+
+// 4) tables: a value cell crosslinks to the Example it names, the header
+// cell to the Concept its attribute is typed by, and Format Document
+// aligns the columns as org-mode's TAB does.
+{
+  const table = [
+    "Measurement Operation",
+    "    - Ratio",
+    "Metric",
+    "    | name | measurement operation |",
+    "    |------+-----------------------|",
+    "    | Speed | Ratio |",
+  ].join("\n");
+  const t = lint(table, "World");
+  const links = resolve(table, t.root, t.nodes);
+  const headerLink = links.find((l) => l.connection === "attribute-is-a-Concept" && l.line === 4);
+  const cellLink = links.find((l) => l.connection === "default-is-a-Example" && l.line === 6);
+  const headerOk = headerLink && headerLink.startCol === 13 && headerLink.target.line === 1;
+  const cellOk = cellLink && cellLink.startCol === 14 && cellLink.text === "Ratio" && cellLink.target.line === 2;
+  console.log(headerOk && cellOk
+    ? "PASS (table: header cell links to its Concept, value cell to its Example)"
+    : "UNEXPECTED table crosslinks");
+
+  const doc3 = makeDoc("c:\repo\World.aot", table);
+  const edits = formattingProvider.provideDocumentFormattingEdits(doc3);
+  const aligned = edits.some((e) => e.text === "    | Speed | Ratio                 |");
+  console.log(aligned && edits.length === 3
+    ? "PASS (table: Format Document aligns the columns)"
+    : "UNEXPECTED table formatting " + JSON.stringify(edits));
+}
+
+// 5) the org table editor: the commands are registered, and Tab re-aligns
+// the block then lands the cursor at the start of the next cell.
+{
+  console.log(`registered ${registeredCommands.size} table command(s)`);
+  const text = [
+    "Otter",
+    "    | name | size |",
+    "    |--+--|",
+    "    | Ollie | 5 |",
+  ].join("\n");
+  const doc4 = makeDoc("c:\repo\World.aot", text);
+  doc4.eol = vscode.EndOfLine.LF;
+  let applied = null;
+  const editor = {
+    document: doc4,
+    selection: new vscode.Selection(3, 7, 3, 7), // inside 'Ollie'
+    edit: (cb) => { cb({ replace: (range, t) => { applied = { range, t }; } }); return Promise.resolve(true); },
+    revealRange: () => {},
+  };
+  registeredCommands.get("aot.table.nextCell")(editor);
+  Promise.resolve().then(() => {
+    const ok = applied
+      && applied.t.split("\n")[2] === "    | Ollie | 5    |"
+      && editor.selection.active.line === 3 && editor.selection.active.character === 14;
+    console.log(ok && registeredCommands.size === 14
+      ? "PASS (table editor: 14 commands; Tab aligns and moves to the next cell)"
+      : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
+  });
 }

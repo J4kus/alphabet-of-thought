@@ -120,8 +120,14 @@ function resolve(text, root, nodes) {
     const raw = lines[node.line - 1] || "";
     const nameStart = raw.length - raw.trimStart().length;
 
-    if (node.kind === KIND.ATTRIBUTE || node.kind === KIND.DEFAULT) {
-      // the longest trailing run of words that names a Concept wins
+    // A table cell's Attribute Value carries its column's attribute name,
+    // but that name is written on the header line, not here — the header's
+    // own ATTRIBUTE node links it, so the name link is skipped for cells.
+    if ((node.kind === KIND.ATTRIBUTE || node.kind === KIND.DEFAULT) && node.valueCol === undefined) {
+      // the longest trailing run of words that names a Concept wins; a
+      // table header cell knows its exact column offset, other lines start
+      // at the first non-space character
+      const base = node.nameCol !== undefined ? node.nameCol : nameStart;
       for (const start of wordStarts(node.name)) {
         const suffix = node.name.slice(start);
         const target = concepts.get(suffix.toLowerCase());
@@ -129,8 +135,8 @@ function resolve(text, root, nodes) {
           links.push({
             connection: "attribute-is-a-Concept",
             line: node.line,
-            startCol: nameStart + start,
-            endCol: nameStart + node.name.length,
+            startCol: base + start,
+            endCol: base + node.name.length,
             text: suffix,
             target,
           });
@@ -202,9 +208,14 @@ function resolve(text, root, nodes) {
           && (instantiates(cand, node.name) || (type && instantiates(cand, type.name)))
       );
       if (target) {
-        const colon = raw.indexOf(":", nameStart);
-        const after = raw.slice(colon + 1);
-        const valueStart = colon + 1 + (after.length - after.trimStart().length);
+        // a table cell knows its exact offset; a 'name: value' line finds
+        // its value after the colon
+        let valueStart = node.valueCol;
+        if (valueStart === undefined) {
+          const colon = raw.indexOf(":", nameStart);
+          const after = raw.slice(colon + 1);
+          valueStart = colon + 1 + (after.length - after.trimStart().length);
+        }
         links.push({
           connection: "default-is-a-Example",
           line: node.line,
@@ -229,9 +240,13 @@ function resolve(text, root, nodes) {
         (cand) => cand !== node && descendsFrom(cand, type)
       );
       if (target) {
-        // the Example marker ('-' or '|') is the line's first non-space character
-        const after = raw.slice(nameStart + 1);
-        const valueStart = nameStart + 1 + (after.length - after.trimStart().length);
+        // a table row's Example knows its first cell's offset; otherwise the
+        // marker ('-' or '|') is the line's first non-space character
+        let valueStart = node.nameCol;
+        if (valueStart === undefined) {
+          const after = raw.slice(nameStart + 1);
+          valueStart = nameStart + 1 + (after.length - after.trimStart().length);
+        }
         links.push({
           connection: "example-is-a-Example",
           line: node.line,

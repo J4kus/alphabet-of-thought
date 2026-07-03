@@ -47,6 +47,50 @@ The good news is there is no hard part to the axiomatic start, because thinking 
 
 Whichever you use, the move is the same: generate the facts first, then let the tree fall out of them.
 
+## Tables — org-mode spreadsheets as Alpha
+
+Alpha recreates org-mode's plain-text spreadsheet: a pipe table the linter reads as ordinary Examples, so the axiomatic start above can be written as the grid it already is.
+
+```aot
+Order
+    | name             | country | currency | basket size |
+    |------------------+---------+----------+-------------|
+    | Acme March Order | France  | EUR      | $1,200      |
+    | Bolt March Order | Germany | EUR      | $3,100      |
+    | Kite March Order | Japan   | JPY      | $780        |
+```
+
+- The header row's cells after the first declare the columns as **attributes** of the parent, exactly as bare lowercase lines would — so a capitalised column is an error. The first cell only labels the name column and asserts nothing.
+- As in org, the `|---+---|` separator row is what marks the row above as the header; the separator is layout, never a node.
+- Every data row is an **Example** named by its first cell, and every further cell is that Example's **Attribute Value** for its column. An empty cell asserts nothing. A multi-cell row with no header, a row with more cells than the header names, and an empty name cell are all errors.
+- A blank line, any non-pipe line, or a change of indent ends the table. A pipe row with a single cell stays a plain Example — the `- ` form written with `|`.
+- **Format Document** (`Shift+Alt+F`) re-aligns every table as org's `TAB` does: each column padded to its widest cell, separator rows redrawn to match. Lone pipe Examples are left exactly as written.
+
+### The table editor
+
+Org's table automations are built in. While the cursor is on a table row (any pipe row with a second pipe, or a separator), the extension takes over these keys; every one of them re-aligns the whole table first, so a table never needs manual spacing:
+
+| Key | What it does |
+|-----|--------------|
+| `Tab` | Re-align, then jump to the next field; at the table's last field a new empty row is appended |
+| `Shift+Tab` | Previous field, wrapping to the row above |
+| `Enter` | Same column, next row; appends a row at the bottom (`Shift+Enter` still inserts a plain newline to leave the table) |
+| `Alt+←` / `Alt+→` | Move the cursor's column left / right, header and all |
+| `Alt+↑` / `Alt+↓` | Move the cursor's row up / down (a row hops over the separator) |
+| `Alt+Shift+→` | Insert an empty column where the cursor stands |
+| `Alt+Shift+←` | Delete the cursor's column |
+| `Alt+Shift+↓` | Insert an empty row above the cursor's |
+| `Alt+Shift+↑` | Delete the cursor's row |
+| `Alt+-` | Insert a separator line below the cursor's row |
+
+Two more live in the Command Palette as **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — the run of data rows around the cursor, header safe behind its separator; numeric when every key reads as a number, `$`, `%` and thousands commas ignored, alphabetic otherwise) and *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV or multi-space-aligned lines and they become an aligned table, the first line lowercased into the header with the separator drawn beneath).
+
+Creating a table is org's flow: type `| name | size |`, press `Enter` (a fresh empty row appears, aligned), type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row. A raw `|-` line expands the same way.
+
+The table is pure shorthand: the tree it parses to is identical to writing each row as a `- Example` with `attribute: value` children, so everything that reads the tree works over a table unchanged — inheritance, the crosslinks (a header cell that names a Concept underlines solid, a value cell that names an Example underlines dotted, and both Ctrl+click to the definition), the FCA audit, the Gödel numbers, and the dependency inference.
+
+That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreadsheet re-computes derived columns; Alpha's audits them. Two rows with the same name are an identical-siblings error; two rows with identical content are a Gödel clash; a row that carries every attribute another Concept's Examples share is drift; and a column whose values are pinned down by another column — the very thing org would compute with a formula — is what the Armstrong dependency warnings flag. In Alpha a computed column is not a formula to store but a dependency to model once, against its determinant. See [`examples/spreadsheet.aot`](examples/spreadsheet.aot).
+
 ## The four idea types ontology
 
 They are the crossing of **Said-of** and **Present-in** (*Categories* 2)
@@ -121,7 +165,7 @@ A sub-Concept is an **is-a**, never a **has-a**. Indenting one Concept under ano
 | **has-a** | Indent attribute under a term | Indented | `Human` → indent → `full name` | |
 | **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
 | **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Human (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
-| **has-Example** | Indent Dash prefix after a term | Indented | `Human` → indent → `- Gottfried Wilhelm Leibniz` | A pipe prefix (`\| Gottfried Wilhelm Leibniz`, the table-row form) marks an Example too |
+| **has-Example** | Indent Dash prefix after a term | Indented | `Human` → indent → `- Gottfried Wilhelm Leibniz` | A pipe prefix (`\| Gottfried Wilhelm Leibniz`, the table-row form) marks an Example too; a multi-cell pipe row is a whole spreadsheet row — see [Tables](#tables--org-mode-spreadsheets-as-alpha) |
 | **Maps-to** | Indent `...` followed by a note under a token | Indented | `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never a plain description of the line above it**. To explain or rename a term, use a `(parentheses)` alias instead. | 
 | **Attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
 | **Default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `human: Gottfried Wilhelm Leibniz`, where the value references the Example | |

@@ -8,6 +8,7 @@ const vscode = require("vscode");
 const path = require("path");
 const { lint, KIND } = require("./linter");
 const { resolve } = require("./crosslinks");
+const table = require("./table");
 const { suggest } = require("./fca");
 const { clashes } = require("./godel");
 const armstrong = require("./armstrong");
@@ -112,6 +113,75 @@ const definitionProvider = {
   },
 };
 
+// --- the org table editor ---------------------------------------------------
+// Each command finds the table block under the cursor, applies one of the
+// pure operations from table.js, redraws the whole block aligned, and lands
+// the cursor at the start of the target cell — so every table keystroke
+// re-aligns, exactly as org's TAB does. The Tab/Enter/Alt+Arrow keybindings
+// are gated on the aot.inTable context so they only fire inside a table.
+
+function runTableOp(editor, op) {
+  const doc = editor.document;
+  const lines = doc.getText().split(/\r?\n/);
+  const pos = editor.selection.active;
+  const block = table.blockAt(lines, pos.line);
+  if (!block) return;
+  const target = op(block, pos.line - block.start, table.colAt(lines[pos.line], pos.character));
+  if (!target) return;
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
+  editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
+    const line = block.start + target.row;
+    const character = table.cellStart(block, target.col);
+    editor.selection = new vscode.Selection(line, character, line, character);
+    editor.revealRange(new vscode.Range(line, character, line, character));
+  });
+}
+
+const tableOps = {
+  "aot.table.nextCell": table.nextCell,
+  "aot.table.prevCell": table.prevCell,
+  "aot.table.nextRow": table.nextRow,
+  "aot.table.moveColumnLeft": (b, r, c) => table.moveColumn(b, r, c, -1),
+  "aot.table.moveColumnRight": (b, r, c) => table.moveColumn(b, r, c, 1),
+  "aot.table.moveRowUp": (b, r, c) => table.moveRow(b, r, c, -1),
+  "aot.table.moveRowDown": (b, r, c) => table.moveRow(b, r, c, 1),
+  "aot.table.insertColumn": table.insertColumn,
+  "aot.table.deleteColumn": table.deleteColumn,
+  "aot.table.insertRow": table.insertRow,
+  "aot.table.deleteRow": table.deleteRow,
+  "aot.table.insertSeparator": table.insertSeparator,
+  "aot.table.sortRows": table.sortRows,
+};
+
+// Turn the selected delimited lines (CSV, TSV, or multi-space columns) into
+// an aligned table, org's C-c |: first line the header, separator beneath.
+function fromSelection(editor) {
+  const doc = editor.document;
+  const sel = editor.selection;
+  if (sel.isEmpty) return;
+  const endLine = sel.end.character === 0 && sel.end.line > sel.start.line ? sel.end.line - 1 : sel.end.line;
+  const lines = [];
+  for (let i = sel.start.line; i <= endLine; i++) lines.push(doc.lineAt(i).text);
+  const rendered = table.fromRegion(lines);
+  if (!rendered) return;
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const range = new vscode.Range(sel.start.line, 0, endLine, doc.lineAt(endLine).text.length);
+  editor.edit((b) => b.replace(range, rendered.join(eol)));
+}
+
+// The cursor sits in a table when its line is a pipe row that is more than
+// a lone-cell Example: a second pipe (a closed or multi-cell row) or a
+// leading dash (a separator, even the half-typed '|-' that Tab completes).
+const IN_TABLE = /^\s*\|(.*\||\s*-)/;
+function updateTableContext() {
+  const editor = vscode.window.activeTextEditor;
+  const inTable = !!(editor && editor.document.languageId === "aot"
+    && editor.selection.active.line < editor.document.lineCount
+    && IN_TABLE.test(editor.document.lineAt(editor.selection.active.line).text));
+  vscode.commands.executeCommand("setContext", "aot.inTable", inTable);
+}
+
 function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection("aot");
   // A crosslink is a *state* (navigable) layered on a token that already has
@@ -153,7 +223,22 @@ function activate(context) {
       for (const editor of editors) decorate(editor, decorationTypes);
     }),
     vscode.languages.registerDefinitionProvider({ language: "aot" }, definitionProvider),
+    // Format Document re-aligns every table's columns, as org-mode's TAB
+    // does: each column padded to its widest cell, separators redrawn.
+    vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {
+      provideDocumentFormattingEdits(doc) {
+        return table.align(doc.getText()).map(({ line, text }) =>
+          vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
+      },
+    }),
+    // the org table editor's commands and its aot.inTable keybinding gate
+    ...Object.entries(tableOps).map(([id, op]) =>
+      vscode.commands.registerTextEditorCommand(id, (editor) => runTableOp(editor, op))),
+    vscode.commands.registerTextEditorCommand("aot.table.fromSelection", fromSelection),
+    vscode.window.onDidChangeTextEditorSelection(updateTableContext),
+    vscode.window.onDidChangeActiveTextEditor(updateTableContext),
   );
+  updateTableContext();
 }
 
 function deactivate() {}

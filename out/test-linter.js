@@ -163,6 +163,121 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
 }
 
 // ---------------------------------------------------------------------------
+// tables: org-style plain-text spreadsheets — header + separator + data rows.
+// A table is a grid of Examples: header cells declare the columns as
+// attributes of the parent, each data row is an Example named by its first
+// cell, and each further cell is that Example's Attribute Value.
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Otter",
+    "    | name   | size | colour |",
+    "    |--------+------+--------|",
+    "    | Ollie  | 5    | brown  |",
+    "    | Pebble | 3    |        |",
+  );
+  const report = makeReport();
+  const { root, nodes } = parse(text, "Zoo", report);
+  const otter = node(root, nodes, "Otter");
+  check("table: a well-formed table parses without errors", report.errors.length === 0);
+  check("table: header cells declare attributes on the parent",
+    otter.children.some((c) => c.kind === ATTRIBUTE && c.name === "size")
+    && otter.children.some((c) => c.kind === ATTRIBUTE && c.name === "colour"));
+  const ollie = node(root, nodes, "Ollie");
+  check("table: a data row is an Example named by its first cell",
+    ollie && ollie.kind === INDIVIDUAL && ollie.parent === otter);
+  check("table: cells become Attribute Values under the row's Example",
+    ollie.children.some((c) => c.kind === DEFAULT && c.name === "size" && c.value === "5")
+    && ollie.children.some((c) => c.kind === DEFAULT && c.name === "colour" && c.value === "brown"));
+  const pebble = node(root, nodes, "Pebble");
+  check("table: an empty cell asserts nothing",
+    pebble.children.length === 1 && pebble.children[0].name === "size" && pebble.children[0].value === "3");
+  check("table: the separator row is layout, not a node",
+    nodes.every((n) => !n.name.includes("--")));
+
+  // the full pipeline accepts a table (subsumption included)
+  check("table: a table verifies (V = 0)", lint(text, "Zoo").errors.length === 0);
+
+  // a multi-cell row with no header has no columns to read the cells by
+  {
+    const r = makeReport();
+    parse(aot("Otter", "    | Ollie | 5 |"), "Zoo", r);
+    check("table: a multi-cell row without a header is an error", hasError(r, /no header names its columns/));
+  }
+  // more cells than the header names
+  {
+    const r = makeReport();
+    parse(aot("Otter", "    | name | size |", "    |------+------|", "    | Ollie | 5 | extra |"), "Zoo", r);
+    check("table: more cells than header columns is an error", hasError(r, /but the header names 2 columns/));
+  }
+  // a column names an attribute, and attributes are lowercase
+  {
+    const r = makeReport();
+    parse(aot("Otter", "    | name | Size |", "    |------+------|", "    | Ollie | 5 |"), "Zoo", r);
+    check("table: a capitalised column is an error", hasError(r, /column 'Size' is capitalised/));
+  }
+  // a lone-cell pipe row stays a plain Example, closing pipe or not
+  {
+    const r = makeReport();
+    const p = parse(aot("Thing", "    | Pear |"), "Root", r);
+    check("table: '| Pear |' (lone cell) is the plain Example 'Pear'",
+      node(p.root, p.nodes, "Pear").kind === INDIVIDUAL && r.errors.length === 0);
+  }
+  // a blank line ends the table, as in org
+  {
+    const r = makeReport();
+    parse(aot("Otter", "    | name | size |", "    |------+------|", "", "    | Ollie | 5 |"), "Zoo", r);
+    check("table: a blank line ends the table", hasError(r, /no header names its columns/));
+  }
+}
+
+// the spreadsheet payoff: the whole engine reads table rows as Examples,
+// so dependency inference works straight off the grid
+{
+  const ledger = aot(
+    "Order",
+    "    | name | country | currency |",
+    "    |------+---------+----------|",
+    "    | A    | France  | EUR      |",
+    "    | B    | France  | EUR      |",
+    "    | C    | Germany | EUR      |",
+    "    | D    | Japan   | JPY      |",
+  );
+  const { root, nodes, errors } = lint(ledger, "Sales");
+  check("table/FD: the ledger table verifies", errors.length === 0);
+  check("table/FD: dependencies are inferred across table rows",
+    armstrong.findings(root, nodes).some((f) => /determines 'currency'/.test(f.message) && f.message.includes("country")));
+}
+
+// ---------------------------------------------------------------------------
+// table.align: org's TAB — every column padded to its widest cell
+// ---------------------------------------------------------------------------
+{
+  const { align, cells, isSeparator } = require("../src/table");
+  check("cells: '| a | b |' -> two cells", cells("| a | b |").map((c) => c.text).join(",") === "a,b");
+  check("cells: offsets point at the cell text", cells("| a | b |")[1].col === 6);
+  check("cells: '| gegeg' (no closing pipe) is one cell", cells("| gegeg").length === 1);
+  check("isSeparator: '|---+---|' yes, '| a |' no", isSeparator("|---+---|") && !isSeparator("| a |"));
+
+  const messy = aot(
+    "Otter",
+    "    | name | size |",
+    "    |--+--|",
+    "    | Ollie | 5 |",
+  );
+  const edits = align(messy);
+  check("align: rows are padded to the widest cell",
+    edits.some((e) => e.text === "    | name  | size |")
+    && edits.some((e) => e.text === "    | Ollie | 5    |"));
+  check("align: the separator is redrawn to match",
+    edits.some((e) => e.text === "    |-------+------|"));
+  check("align: a lone pipe Example is left exactly as written",
+    align(aot("A", "    | gegeg")).length === 0);
+  check("align: an already aligned table needs no edits",
+    align(aot("Otter", "    | name  | size |", "    |-------+------|", "    | Ollie | 5    |")).length === 0);
+}
+
+// ---------------------------------------------------------------------------
 // number: chi = prime * chi(parent), so ancestry is divisibility
 // ---------------------------------------------------------------------------
 {

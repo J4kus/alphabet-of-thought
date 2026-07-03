@@ -20,6 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
+const { cells: tableCells, isSeparator } = require("./table");
 
 const INDENT = 4;
 
@@ -93,8 +94,9 @@ function eachDuplicate(groups, fn) {
 // when the colon has nothing after it (an empty value, caught in parse).
 function classify(text) {
   if (text.startsWith("...")) return { kind: MAP, name: text.slice(3).trim(), value: null };
-  // '- ' opens an Example; '| ' is its table-row form and means the same
-  if (text.startsWith("- ") || text.startsWith("| ")) return { kind: INDIVIDUAL, name: text.slice(2).trim(), value: null };
+  // '- ' opens an Example. Pipe rows (the table form of an Example) are
+  // handled in parse, which rewrites a lone-cell row to this '- ' form.
+  if (text.startsWith("- ")) return { kind: INDIVIDUAL, name: text.slice(2).trim(), value: null };
   let value = null;
   const colon = text.indexOf(":");
   if (colon !== -1) {
@@ -126,10 +128,28 @@ function parse(text, rootName, report) {
   const nodes = [];
   const stack = [root]; // stack[d + 1] is the last node seen at depth d
   let prevDepth = -1;
-  text.split(/\r?\n/).forEach((raw, i) => {
+  // The active table, set by a header row: { depth, attrs } where attrs[c]
+  // is the ATTRIBUTE node column c + 1 was declared as (null for an empty
+  // header cell). Only an unbroken run of pipe rows at one depth shares
+  // columns — a blank line, another kind of line, or a depth change ends it.
+  let table = null;
+  const lines = text.split(/\r?\n/);
+  // A header row is told from a data row exactly as in org: the line
+  // directly beneath it (blank lines aside) is a '|---|' separator.
+  const separatorFollows = (i) => {
+    for (let j = i + 1; j < lines.length; j++) {
+      const t = lines[j].trim();
+      if (t) return isSeparator(t);
+    }
+    return false;
+  };
+  lines.forEach((raw, i) => {
     const line = i + 1;
     let content = raw;
-    if (!content.trim()) return;
+    if (!content.trim()) {
+      table = null; // a blank line ends a table, as in org
+      return;
+    }
     if (content.includes("\t")) {
       report.error(line, "tab character in the indentation — AOT indents with spaces only, four per level; replace the tab with spaces");
       content = content.replace(/\t/g, " ".repeat(INDENT));
@@ -144,10 +164,82 @@ function parse(text, rootName, report) {
       depth = prevDepth + 1;
     }
     let trimmed = content.trim();
+    // a '|---+---|' separator row is table layout, never a node: it marks
+    // the row above it as the table's header
+    if (isSeparator(trimmed)) return;
     const marker = trimmed[0];
+    if (table && (marker !== "|" || depth !== table.depth)) table = null;
     if ((marker === "-" || marker === "|") && !trimmed.startsWith(marker + " ")) {
       report.error(line, `'${trimmed}' has 0 spaces after '${marker}', expected 1 — an Example begins with a dash or pipe then a space ('${marker} '); add the missing space`);
       trimmed = marker + " " + trimmed.slice(1);
+    }
+    if (marker === "|") {
+      const row = tableCells(content);
+      const parent = stack[Math.min(depth, stack.length - 1)];
+      if (row.length > 1 && !table && separatorFollows(i)) {
+        // header row: the cells after the first declare the columns as
+        // attributes of the parent, exactly as bare lowercase lines would;
+        // the first cell only labels the name column and asserts nothing
+        table = { depth, attrs: [] };
+        let last = null;
+        for (const cell of row.slice(1)) {
+          if (!cell.text) {
+            table.attrs.push(null);
+            continue;
+          }
+          if (cell.text[0] >= "A" && cell.text[0] <= "Z") {
+            report.error(line, `column '${cell.text}' is capitalised — a table column names an attribute of '${parent.name}', and attributes are lowercase; lowercase it`);
+          }
+          const attr = {
+            line, depth, kind: ATTRIBUTE, name: cell.text, value: null,
+            alias: null, parent, children: [], nameCol: cell.col, cell: true,
+          };
+          parent.children.push(attr);
+          nodes.push(attr);
+          table.attrs.push(attr);
+          last = attr;
+        }
+        stack.length = depth + 1;
+        stack.push(last || parent);
+        prevDepth = depth;
+        return;
+      }
+      if (table) {
+        // data row: one Example named by the first cell, one Attribute
+        // Value per further cell — an empty cell asserts nothing
+        if (!row[0].text) {
+          report.error(line, "table row has an empty first cell, expected the Example's name — the first column names the Example the row describes");
+        }
+        if (row.length - 1 > table.attrs.length) {
+          report.error(line, `table row has ${row.length} cells but the header names ${table.attrs.length + 1} columns — remove the extra cells, or add columns to the header`);
+        }
+        const example = {
+          line, depth, kind: INDIVIDUAL, name: row[0].text, value: null,
+          alias: null, parent, children: [], nameCol: row[0].col,
+        };
+        parent.children.push(example);
+        nodes.push(example);
+        for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
+          const attr = table.attrs[c - 1];
+          if (!attr || !row[c].text) continue;
+          const cellValue = {
+            line, depth: depth + 1, kind: DEFAULT, name: attr.name,
+            value: row[c].text, alias: null, parent: example, children: [],
+            valueCol: row[c].col, cell: true,
+          };
+          example.children.push(cellValue);
+          nodes.push(cellValue);
+        }
+        stack.length = depth + 1;
+        stack.push(example);
+        prevDepth = depth;
+        return;
+      }
+      if (row.length > 1) {
+        report.error(line, `table row has ${row.length} cells but no header names its columns — add a header row of attribute names directly above the data rows, with a '|---|' separator row between them`);
+      }
+      // a lone-cell pipe row is a plain Example: rewrite it to the '- ' form
+      trimmed = "- " + (row.length ? row[0].text : "");
     }
     const { kind, name, value, alias } = classify(trimmed);
     if (value === "") {

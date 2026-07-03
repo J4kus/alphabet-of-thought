@@ -44,6 +44,11 @@
             "match": "~.*"
         },
         {
+            "comment": "table separator: the '|---+---|' rule that marks the row above as the table's header — layout, not content, so it recedes like a comment",
+            "name": "comment.line.table-separator.aot",
+            "match": "\\|[\\s\\-+:|]*$"
+        },
+        {
             "comment": "table row: the '|' form of an Example — khaki (support.function), distinct from the blue of '- ' Examples so tabular data reads as its own thing",
             "name": "support.function.table.aot",
             "match": "\\|.*$"

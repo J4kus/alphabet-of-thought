@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.1.67",
+  "version": "1.1.70",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -41,6 +41,154 @@
         "language": "aot",
         "scopeName": "source.aot",
         "path": "./syntaxes/aot.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "aot.table.nextCell",
+        "title": "Next Cell",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.prevCell",
+        "title": "Previous Cell",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.nextRow",
+        "title": "Next Row",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveColumnLeft",
+        "title": "Move Column Left",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveColumnRight",
+        "title": "Move Column Right",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveRowUp",
+        "title": "Move Row Up",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveRowDown",
+        "title": "Move Row Down",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.insertColumn",
+        "title": "Insert Column",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.deleteColumn",
+        "title": "Delete Column",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.insertRow",
+        "title": "Insert Row Above",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.deleteRow",
+        "title": "Delete Row",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.insertSeparator",
+        "title": "Insert Separator Below",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.sortRows",
+        "title": "Sort Rows by Column at Cursor",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.fromSelection",
+        "title": "Create Table from Selected Lines",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aot.table.nextCell",
+        "key": "tab",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable && !suggestWidgetVisible && !inSnippetMode"
+      },
+      {
+        "command": "aot.table.prevCell",
+        "key": "shift+tab",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable && !suggestWidgetVisible && !inSnippetMode"
+      },
+      {
+        "command": "aot.table.nextRow",
+        "key": "enter",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable && !suggestWidgetVisible"
+      },
+      {
+        "command": "aot.table.moveColumnLeft",
+        "key": "alt+left",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.moveColumnRight",
+        "key": "alt+right",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.moveRowUp",
+        "key": "alt+up",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.moveRowDown",
+        "key": "alt+down",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.insertColumn",
+        "key": "alt+shift+right",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.deleteColumn",
+        "key": "alt+shift+left",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.insertRow",
+        "key": "alt+shift+down",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.deleteRow",
+        "key": "alt+shift+up",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.insertSeparator",
+        "key": "alt+-",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
       }
     ]
   },

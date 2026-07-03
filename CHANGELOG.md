@@ -4,6 +4,23 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.1.68] - 2026-07-03
+
+- Org-mode plain-text spreadsheets (`src/table.js`): a pipe table is a grid of Examples, parsed by the linter into the exact tree that writing each row as `- Example` with `attribute: value` children would give
+  - a header row followed by a `|---+---|` separator (org's rule) declares its cells after the first as **attributes** of the parent; the first cell only labels the name column; the separator is layout, never a node
+  - each data row is an **Example** named by its first cell, each further cell that Example's **Attribute Value** for its column; an empty cell asserts nothing; a blank line, a non-pipe line or a change of indent ends the table; a lone-cell pipe row stays a plain Example
+  - new errors: a multi-cell row with no header, more cells than the header names, a capitalised column (a column names an attribute, and attributes are lowercase), an empty name cell
+  - crosslinks resolve per cell with exact column offsets: a header cell that names a Concept links solid, a value cell that names an Example links dotted, both Ctrl+click to the definition
+  - **Format Document** re-aligns every table as org's `TAB` does — each column padded to its widest cell, separators redrawn; lone pipe Examples untouched
+  - the separator row recedes like a comment in the grammar; data rows keep their khaki table colour
+  - because rows are ordinary Examples, the FCA audit, the Gödel clashes and the Armstrong dependency inference run straight off the grid — org's `#+TBLFM` derived column is exactly Alpha's derivable-column warning, a dependency to model once rather than a formula to store
+- The org table editor: all of org-mode's table automations, live while the cursor is on a table row (the `aot.inTable` context — a pipe row with a second pipe, or a separator), every command re-aligning the whole table first
+  - `Tab` / `Shift+Tab` next / previous field (`Tab` at the last field appends a row); `Enter` same column next row, appending at the bottom (`Shift+Enter` leaves the table with a plain newline)
+  - `Alt+←/→` move column, `Alt+↑/↓` move row (rows hop the separator), `Alt+Shift+→/←` insert / delete column, `Alt+Shift+↓/↑` insert row above / delete row, `Alt+-` insert a separator below
+  - Command Palette (**AOT Table**): *Sort Rows by Column at Cursor* (org `C-c ^`: the data run around the cursor, header safe; numeric when every key reads as a number, `$`/`%`/commas ignored) and *Create Table from Selected Lines* (org `C-c |`: CSV, TSV or multi-space lines; the first line lowercased into the header, separator drawn beneath)
+  - org's creation flow: header row, `Enter`, type `-`, `Tab` — a lone dash run in the first cell (or a raw `|-` line) becomes a full separator on the next redraw
+  - all the cursor math and row/column surgery is pure and tested in `src/table.js` (`out/test-table.js`); the extension only finds the block, applies one operation, redraws and places the cursor
+
 ## [1.1.43] - 2026-06-20
 
 - Gödel-number query flags (`src/godel.js`), turning the content number into a small query language — all plain big-integer arithmetic:
