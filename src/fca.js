@@ -71,15 +71,18 @@ function buildContext(root, nodes) {
   const objects = nodes.filter((n) => n.kind === INDIVIDUAL);
   const intents = new Map();
   const directs = new Map(); // columns the Example declares itself, not inherited
+  const origins = new Map(); // per Example: column key -> nearest declaring node
   for (const g of objects) {
     const intent = new Set();
     const direct = new Set();
+    const origin = new Map();
     const valued = new Set();
     for (let n = g; n; n = n.parent) {
       const put = (text) => {
         const k = keyOf(text);
         intent.add(k);
         if (n === g) direct.add(k);
+        if (!origin.has(k)) origin.set(k, n);
       };
       for (const child of n.children) {
         if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
@@ -121,8 +124,9 @@ function buildContext(root, nodes) {
     }
     intents.set(g, intent);
     directs.set(g, direct);
+    origins.set(g, origin);
   }
-  return { objects, intents, directs, display };
+  return { objects, intents, directs, origins, display };
 }
 
 // All formal concepts of the context. Every concept intent is an
@@ -158,7 +162,7 @@ function computeConcepts(objects, intents) {
 // are { line, message } sorted by line; or { tooFew: true } when there
 // are fewer than two Examples to analyse.
 function suggest(root, nodes) {
-  const { objects, intents, display } = buildContext(root, nodes);
+  const { objects, intents, origins, display } = buildContext(root, nodes);
   if (objects.length < 2) {
     return { objects: objects.length, columns: display.size, concepts: 0, confirmed: [], findings: [], tooFew: true };
   }
@@ -219,12 +223,22 @@ function suggest(root, nodes) {
     if (anc && setKey(info.intent) === setKey(infos.get(anc).intent)) vacuous.add(c);
   }
 
+  // all genus: a Concept whose whole intent is declared above it —
+  // every shared column originates on an ancestor, none on the Concept
+  // itself or its Examples — asserts nothing of its own to drift toward:
+  // an outside Example matching that intent matches the surroundings,
+  // not the kind, so the drift check skips it. A column declared on the
+  // Concept or beneath it (its subtree, by divisibility) is its own.
+  const allInherited = (c, info) =>
+    ![...info.intent].some((k) =>
+      info.extent.some((g) => origins.get(g).get(k).chi % c.chi === 0n));
+
   // drift: an Example that satisfies a Concept's full intent but
   // sits elsewhere. Report only the most specific Concept(s) per
   // Example — matching a sub-Concept implies matching its ancestors.
   const driftByObject = new Map();
   for (const [c, info] of infos) {
-    if (c === root || !info.intent.size || vacuous.has(c)) continue;
+    if (c === root || !info.intent.size || vacuous.has(c) || allInherited(c, info)) continue;
     for (const g of objects) {
       if (info.extent.includes(g)) continue;
       if (isSuperset(intents.get(g), info.intent)) {

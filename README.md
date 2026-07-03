@@ -165,7 +165,7 @@ On top of rules 1–14, a third tier of errors comes from the **Formal Concept A
 | 17 | **Exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
 | 18 | **Clash** | Two unrelated Concepts or Examples with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. (The weaker same-name case — equal radicals, differing values — is not itself a violation.) |
 
-A `...` Map child marks a node intentionally incomplete and excuses it from the drift and exhaustion checks (its missing siblings or attributes are declared, not forgotten). A Concept whose Examples share nothing beyond their ancestor's is skipped by drift.
+A `...` Map child marks a node intentionally incomplete and excuses it from the drift and exhaustion checks (its missing siblings or attributes are declared, not forgotten). A Concept whose Examples share nothing beyond their ancestor's is skipped by drift, as is a Concept whose whole shared intent is inherited from above it — when neither the Concept nor its Examples declare any of it, there is nothing of its own to drift toward.
 
 ### Warnings — yellow squiggle, in the Problems panel, but do **not** affect `V`
 
