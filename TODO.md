@@ -52,6 +52,7 @@ Z
 ## Language / spec
 - [ ] Allow highlighting across all aot files in repo or local filesystem
 - [x] ~~Remove the tables from the language (rather use links)~~ — decided the other way: tables grew into org-style spreadsheets (a header row + `|---|` separator declares the columns as attributes, each data row is an Example, each cell an Attribute Value; Format Document aligns the columns). See README → Tables
+- [ ] Make sure the first column values are the same colour as examples and fill in a incremental number if there is no other value
 - [ ] All attributes have a has-a relationshio with more attributes for metadata and complex composite concepts directly in the attribute
 - [ ] Allow negation inside the language (it is already with ~)
 - [ ] Do not use maps for extra info; use aliases instead
