@@ -17,3 +17,28 @@ Refund
     | Kite March Refund | Japan   | Defective item |            |
 
     
+Person
+    | name       |
+    |------------|
+    | John Doe   |
+    | Jane Smith |
+Organisation
+    | # | full name | sort name | registration number |
+
+Party
+    Beneficiary
+        - Jakus
+        - No
+    Participant
+        - Yes
+        - No
+    | # | person     | is beneficiary | is participant | deal        |
+    |---+------------+----------------+----------------+------------------|
+    | 1 | John Doe   | No             | Yes            | Acme March Order |
+    | 2 | Jane Smith | No             | Yes            | Bolt March Order |
+
+Deal
+    | #                |
+    |------------------|
+    | Living Annuity |
+    | Retirement Annuity |

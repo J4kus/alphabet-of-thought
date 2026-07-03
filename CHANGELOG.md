@@ -7,7 +7,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [1.1.68] - 2026-07-03
 
 - Org-mode plain-text spreadsheets (`src/table.js`): a pipe table is a grid of Examples, parsed by the linter into the exact tree that writing each row as `- Example` with `attribute: value` children would give
-  - a header row followed by a `|---+---|` separator (org's rule) declares its cells after the first as **attributes** of the parent; the first cell only labels the name column; the separator is layout, never a node
+  - a header row followed by a `|---+---|` separator (org's rule) declares its cells after the first as **attributes** of the parent; the first cell only labels the name column; the separator is layout, never a node; a single-cell row above a separator heads a one-column table, and a lone multi-cell row (nothing tabular beneath it) is assumed to be a header being typed, so a fresh table never errors mid-keystroke
   - each data row is an **Example** named by its first cell, each further cell that Example's **Attribute Value** for its column; an empty cell asserts nothing; a blank line, a non-pipe line or a change of indent ends the table; a lone-cell pipe row stays a plain Example
   - new errors: a multi-cell row with no header, more cells than the header names, a capitalised column (a column names an attribute, and attributes are lowercase), an empty name cell
   - crosslinks resolve per cell with exact column offsets: a header cell that names a Concept links solid, a value cell that names an Example links dotted, both Ctrl+click to the definition

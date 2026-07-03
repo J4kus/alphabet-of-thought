@@ -198,11 +198,32 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   // the full pipeline accepts a table (subsumption included)
   check("table: a table verifies (V = 0)", lint(text, "Zoo").errors.length === 0);
 
-  // a multi-cell row with no header has no columns to read the cells by
+  // data rows with no header have no columns to read the cells by
   {
     const r = makeReport();
-    parse(aot("Otter", "    | Ollie | 5 |"), "Zoo", r);
-    check("table: a multi-cell row without a header is an error", hasError(r, /no header names its columns/));
+    parse(aot("Otter", "    | Ollie | 5 |", "    | Pebble | 3 |"), "Zoo", r);
+    check("table: data rows without a header are an error", hasError(r, /no header names its columns/));
+  }
+  // a lone multi-cell row is a header being typed: assumed, not demanded
+  {
+    const r = makeReport();
+    const p = parse(aot("Organisation", "    | # | full name | sort name |"), "Zoo", r);
+    const org = node(p.root, p.nodes, "Organisation");
+    check("table: a lone multi-cell row is assumed to be the header",
+      r.errors.length === 0
+      && org.children.some((c) => c.kind === ATTRIBUTE && c.name === "full name")
+      && org.children.some((c) => c.kind === ATTRIBUTE && c.name === "sort name"));
+  }
+  // a single-cell row above a separator heads a one-column table
+  {
+    const r = makeReport();
+    const p = parse(aot("Person", "    | name |", "    |------|", "    | John Doe |", "    | Jane Smith |"), "Zoo", r);
+    const person = node(p.root, p.nodes, "Person");
+    check("table: a single-cell header above a separator is not an Example",
+      r.errors.length === 0
+      && node(p.root, p.nodes, "name") === undefined
+      && person.children.filter((c) => c.kind === INDIVIDUAL).length === 2
+      && node(p.root, p.nodes, "John Doe").kind === INDIVIDUAL);
   }
   // more cells than the header names
   {
@@ -242,10 +263,11 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     check("table: the capitalised-column error carries its cell's columns",
       e && e.startCol === 13 && e.endCol === 17);
   }
-  // a blank line ends the table, as in org
+  // a blank line ends the table, as in org: rows beyond it no longer
+  // belong to the header's columns
   {
     const r = makeReport();
-    parse(aot("Otter", "    | name | size |", "    |------+------|", "", "    | Ollie | 5 |"), "Zoo", r);
+    parse(aot("Otter", "    | name | size |", "    |------+------|", "", "    | Ollie | 5 |", "    | Pebble | 3 |"), "Zoo", r);
     check("table: a blank line ends the table", hasError(r, /no header names its columns/));
   }
 }

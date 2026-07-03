@@ -61,8 +61,8 @@ Order
 ```
 
 - The header row's cells after the first declare the columns as **attributes** of the parent, exactly as bare lowercase lines would — so a capitalised column is an error. The first cell only labels the name column and asserts nothing.
-- As in org, the `|---+---|` separator row is what marks the row above as the header; the separator is layout, never a node.
-- Every data row is an **Example** named by its first cell, and every further cell is that Example's **Attribute Value** for its column. An empty cell asserts nothing. A multi-cell row with no header, a row with more cells than the header names, and an empty name cell are all errors.
+- As in org, the `|---+---|` separator row directly beneath a row is what marks that row as the header; the separator is layout, never a node. A single-cell row above a separator heads a one-column table (its rows are plain Examples). And a **lone** multi-cell row — nothing tabular on the line after it — is a header being typed: it is assumed, the separator and data rows still to come, so a fresh table never squiggles mid-keystroke.
+- Every data row is an **Example** named by its first cell, and every further cell is that Example's **Attribute Value** for its column. An empty cell asserts nothing. Two or more rows with no header above them, a row with more cells than the header names, and an empty name cell are all errors.
 - A blank line, any non-pipe line, or a change of indent ends the table. A pipe row with a single cell stays a plain Example — the `- ` form written with `|`.
 - **Format Document** (`Shift+Alt+F`) re-aligns every table as org's `TAB` does: each column padded to its widest cell, separator rows redrawn to match. Lone pipe Examples are left exactly as written.
 

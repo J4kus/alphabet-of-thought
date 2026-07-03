@@ -136,15 +136,6 @@ function parse(text, rootName, report) {
   // columns — a blank line, another kind of line, or a depth change ends it.
   let table = null;
   const lines = text.split(/\r?\n/);
-  // A header row is told from a data row exactly as in org: the line
-  // directly beneath it (blank lines aside) is a '|---|' separator.
-  const separatorFollows = (i) => {
-    for (let j = i + 1; j < lines.length; j++) {
-      const t = lines[j].trim();
-      if (t) return isSeparator(t);
-    }
-    return false;
-  };
   lines.forEach((raw, i) => {
     const line = i + 1;
     let content = raw;
@@ -178,7 +169,15 @@ function parse(text, rootName, report) {
     if (marker === "|") {
       const row = tableCells(content);
       const parent = stack[Math.min(depth, stack.length - 1)];
-      if (row.length > 1 && !table && separatorFollows(i)) {
+      // A header row is told from a data row as in org: the line directly
+      // beneath it is a '|---|' separator (so a single-cell row above one
+      // is a one-column table's header, not an Example). A lone multi-cell
+      // row — nothing tabular on the next line — is a header being typed:
+      // it is assumed, the separator and data rows still to come.
+      const below = i + 1 < lines.length ? lines[i + 1].trim() : "";
+      const separatorBelow = isSeparator(below);
+      const rowBelow = !separatorBelow && below[0] === "|";
+      if (!table && (separatorBelow || (row.length > 1 && !rowBelow))) {
         // header row: the cells after the first declare the columns as
         // attributes of the parent, exactly as bare lowercase lines would;
         // the first cell only labels the name column and asserts nothing
