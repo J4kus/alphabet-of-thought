@@ -1,23 +1,23 @@
 // Functional-dependency reasoning over a parsed .aot tree, after Armstrong
-// (1974). The TODO's six "Armstrong's Axioms" — Reflexivity, Augmentation,
-// Transitivity, Union, Decomposition, Pseudotransitivity — are exactly the
-// inference rules for functional dependencies. This module makes them part of
-// the linter in two ways:
+// (1974), whose axioms — Reflexivity, Augmentation, Transitivity, Union,
+// Decomposition, Pseudotransitivity — are the inference rules for functional
+// dependencies. This module does NOT apply those rules: it works with
+// single-attribute dependencies only, where the composite-set rules
+// (Augmentation, Union, Decomposition, Pseudotransitivity) never arise and
+// Reflexivity is vacuous. What it does is INFER FDs from the Example data,
+// via Gödel numbers: two Examples that agree on attribute X agree on Y, for
+// every Example carrying both? Then X -> Y. The check is a projection of the
+// Gödel number: group the Examples by the exponent of X's prime and ask
+// whether Y's exponent is constant in each group. An attribute Y determined
+// by another X is derivable — a redundancy worth modelling once (3NF, the
+// normalisation reasoning the README ties to the Graph primitive). X <-> Y is
+// the same distinction written twice.
 //
-//   1. INFERRED FDs (from the Example data, via Gödel numbers). Two Examples
-//      that agree on attribute X agree on Y, for every Example carrying both?
-//      Then X -> Y. The check is a projection of the Gödel number: group the
-//      Examples by the exponent of X's prime and ask whether Y's exponent is
-//      constant in each group. An attribute Y determined by another X is
-//      derivable — a redundancy worth modelling once (3NF, the normalisation
-//      reasoning the README ties to the Graph primitive). X <-> Y is the same
-//      distinction written twice.
-//
-//   2. DECLARED dependencies (from the Concept references). attribute-is-a-
-//      Concept and concept-contains-Concept are edges "C depends on D"; their
-//      transitive closure (Armstrong Transitivity) answers --depends: what a
-//      Concept rests on directly and what it inherits through a chain
-//      (Z depends on X through Y).
+// Transitivity was the one axiom ever mechanized here — the transitive
+// closure of DECLARED dependencies (attribute-is-a-Concept and
+// concept-contains-Concept edges), which answered the CLI's --depends. That
+// code (dependsOf, dependencyGraph, containedConcepts, conceptOf) was removed
+// with verify.js; see the restore item in TODO.md.
 //
 // Inferred-FD findings are advisory, like the FCA / Gödel-clash hints: surfaced
 // only over a tree that verifies (V = 0), never counted in V. Pure: no I/O,

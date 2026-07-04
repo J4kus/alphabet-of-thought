@@ -302,7 +302,7 @@ A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong
 
 **Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`) the two attributes are the **same distinction written twice**. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as `V = 0` **warnings** (rules 8–9 above; they do not count toward `V`).
 
-**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) gives what a Concept rests on directly, and what it inherits through a chain.
+**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) gave what a Concept rests on directly, and what it inherits through a chain. This view lived in the deleted `verify.js` CLI (`--depends`) and is currently gone — see the restore item in TODO.md. Only the inferred-FD warnings above run in the editor today.
 ## Example
 
 ```aot

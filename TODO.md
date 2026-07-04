@@ -2,38 +2,14 @@
 
 ## Theoretical upgrades (from Claude discussion)
 
-- [ X ] Description logics — from declared facts to inferred ones: allow Concepts to carry conjunction-only definitions over attributes and other Concepts, then replace the divisibility check with a subsumption reasoner that derives the hierarchy and proves it consistent (catches misfiled Concepts, e.g. Whale ⊑ Mammal). Keep prime numbers as a cache of the reasoner's output; preserve the single-file plain-text ethos
-    - [x] First version in the linter (`src/subsumption.js`): each Concept's definition is derived, no new syntax, from the attributes and Concepts it declares; a subsumption reasoner audits the written tree and warns on misfiled Concepts (Whale ⊑ Mammal) and equivalent definitions. Runs in the default lint pass as warnings, so primes still cache the written tree
-    - [x] Replace the divisibility/single-inheritance check outright with the reasoner: the tautological `gcd` sibling check is gone, findings are now errors counted in V (misfiling, two kinds under one name, equivalence, cycle), `name: value` refinements are folded in (literal pairs, value-ancestry expansion, and override-aware inheritance where a child's `: hot` shadows an ancestor's `: cold`), and `verify.js` prints a consistency verdict. Primes stay as the cache the reasoner clears
-- [x] Gödel numbering — encode the whole line, not just the ancestry: primes raised to powers so the characteristic number also encodes which attributes/values are set (e.g. 2³ × 3⁵ × 5² …). Tooling-only change in `verify.js` (big-integers); buys arithmetic queries like "find all Examples that override the parent default" and version-diffing as factorisation comparison. Make a list of all of the things it can do in alpha. I can think of checking that two examples or concepts do not carry the same attributes or attribute values
-    - [x] Landed in `src/godel.js`: a second characteristic number `G(n)` complementary to `chi` — one prime per attribute, the exponent encoding the value (1 = present/unvalued, ≥2 = a value code). chi answers "where", G answers "what". CLI: `--godel X` prints the factorisation + legend, `--clashes` reports two nodes carrying the same attributes (same radical) or the same attributes-and-values (G equal, reported separately), `--overrides` lists nodes redeclaring an inherited default, `--diff old.aot new.aot` is version-diffing as factorisation comparison. The strong content-identical clash also surfaces as an advisory hint in the linter (no squiggle, never counted in V). The full capability list is the "Gödel numbering" table in the README
-    - [ ] Add a diff in version checker is some whay
-- [x] Lattice theory / Formal Concept Analysis — derive the tree instead of writing it: a `--suggest` CLI mode that takes the Examples + attributes as FCA input, computes the concept lattice, and audits the hand-written tree against it (proposes Concepts you haven't named; makes the exhaustion test checkable: a partition is valid iff the children's attribute sets cover the parent's extent)
-- [x] Make `--suggest` crosslink-aware: expand crosslinked values into their ancestry via src/crosslinks.js (e.g. `measurement operation used: Ratio` also yields the `Formula` column, since Ratio sits under Formula in the Measurement schema), and attribute names ending in a Concept contribute that Concept as a column
+
 - [ ] Make `--suggest` primitive-aware: decide how the primitives' own Concept trees (Beneficiary, Measurement, …) enter the formal context when they live outside the modelled file (a `--schema <file.aot>` flag? bundled primitive definitions?) — without one, FCA judges Beneficiary Concepts like Subject/Audience by Measurement columns, a said-of category mistake
 - [ ] Curry–Howard / type theory — make the Function tree executable: a specification is a type, an implementation a proof. Attach argument/result attributes to each objective so a parent objective is a product type of its children; verify children's outputs compose into the parent's claimed result; generate test skeletons / interface stubs from a `.aot` Function tree. Needs a minimal type vocabulary (`data type` subtree under Measurement) and a rule that sibling objectives declare what they consume and produce
 - [ ] Embeddings — the fuzzy assistant around the exact core (tooling only, nothing in the language): catch synonym violations (flag `client` and `customer` appearing as different Concepts), suggest placement when writing a new Example (propose nearest existing parent), and power the AI-extends-the-model workflow where the LLM drafts by similarity and the prime linter referees exactly
 - [ ] Epistemics via reserved attributes — make `confidence`, `status` (proposed / contested / accepted / deprecated), and `source` reserved attributes the tooling understands: `--ask` returns qualified answers ("yes, at confidence 0.6, contested"), confidence propagates down inheritance by multiplication, and `--list contested` becomes a meeting-agenda generator
 - [x] Make Armstrong's Axioms (Dependency Inference) part of the linter and not only a discussion — `src/armstrong.js`: `--fd` infers functional dependencies from the Examples via Gödel projections (with a derivability/redundancy hint), `--depends` walks the declared Concept-dependency closure (transitivity). See the [Armstrong's axioms](README.md#armstrongs-axioms-dependency-inference) section of the README.
-#### Armstrong's Axioms (Dependency Inference)
 
-| Rule | In Alpha Terms |
-|------|----------------|
-| Reflexivity | A Concept determines any subset of its own attributes |
-| Augmentation | Adding an attribute to a Concept referencing another Concept preserves a dependency |
-| Transitivity | If Concept Z depends on Concept Y and Concept Y depends on Concept X, then Concept Z depends on Concept X |
-| Union | Multiple dependencies from same source combine into one |
-| Decomposition | A composite dependency breaks into Example parts |
-| Pseudotransitivity | A transitive chain extends by adding context to bridge a gap |
 
-```aot
-X
-Y
-    X
-Z
-    Y
-    ... Z is transitively dependent on X (through Y)
-```
 [ ] Explain in the readme how to write in Alpha
 - Model data as sets of facts
 - Each Concept = one record type with a fixed number of attributes
