@@ -1,48 +1,16 @@
 # Alpha (.aot)
 
-Alpha is the world's smallest engineering text-based notation for writing down what you think — powered by an [tooling](#the-tooling) that checks your thoughts against the world's most powerful ideas about thinking. The `.aot` file extension lints as you type and is **verified** when its violation total `V` reaches 0.
+Alpha is the world's smallest engineering text-based notation for writing down what you your biggest, complicated thoughts — powered by an [tooling](#the-tooling) that checks your thoughts against the world's most powerful ideas about thinking. 
+
+A language this small is why the tooling can be an exact referee instead of a guesser, and why an AI can work the model. The `.aot` file extension lints as you type and is **verified** when its violation total `V` reaches 0.
 
 If your thoughts need to be bigger than one brain can handle at a time, or just want your ideas to survive contact with an LLM, Alpha gives you a way to write them so that anyone — including you, six months from now — can read them instantly. If you can draw a family tree, you already know how Alpha works.
 
-**Four kinds of ideas.** Alpha agrees with Aristotle that everything you think falls into four categories (Aristotle, Categories 2, 1a20–24):
+**Contents:** [What you'd use it for](#what-youd-use-it-for) · [Why bother with the strictness](#why-bother-with-the-strictness) · [Quick start](#quick-start) · [The language](#the-language) · [Starting axiomatically](#starting-axiomatically) · [Tables](#tables--org-mode-spreadsheets-as-alpha) · [The four primitives](#the-four-primitives) · [The tooling](#the-tooling) · [Design rules](#design-rules) ...to be updated
 
-- **Concepts** — `Human`
-- **Examples** — `Socrates`
-- **Attributes** — `is alive`
-- **Default values** — `No`
+## Example
 
-**One parent, four connections.** Every idea in Alpha has exactly one parent. A parent can have many children; a child never has two parents called the "parent-children chain". The connection to that parent is one of four kinds: **is-a**, **has-a**, **is an example of**, or **value-is**.
-
-That single rule is Alpha's whole discipline — and its whole payoff. Yes, the world sometimes feels like a tangled lattice: Socrates is a human, but also a philosopher, also an Athenian. Alpha makes you pick the one parent that matters. That choice is exactly what makes an Alpha file readable at a glance instead of a diagram you need a lie-down after.
-
-Every idea, no matter how elemental or complex, has exactly one relationship, to exactly one other idea, and the chain runs from general (the file name) to specific until it terminates. An idea never means something different depending on which path you took to reach it.
-
-The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
-
-The inheritance rules in one snippet:
-
-```aot
-Parent
-    essential parent attribute: normal value
-    Child
-        essential child attribute not in parent
-        - Child Example
-            essential parent attribute: new value
-            essential child attribute not in parent: value
-            child example attribute
-        ... generally there is more than one example per Concept
-    ... generally there is more than one child per parent
-```
-
-`Child` inherits `essential parent attribute: normal value` from `Parent`. The `- Child Example` overrides that inherited value with `new value`, assigns a default to `essential child attribute not in parent`, and adds `child example attribute` — an accidental attribute not present in the `Child` Concept. (The two `...` lines mark the example as deliberately incomplete, which is the only thing a Map does.)
-
-The parent-children chain should not be confused with composition, which Alpha allows: an `Employee` can be composed of a `human`, a `contract`, a `role` attribute, all of which sit in its single-inheritance hierarchy, independently inherited as *Attribute* of the `Employee` *Concept*. Composition is how you assemble a complex idea from parts that each have their own definition, while inheritance is how you say what kind of thing the idea is. The two are independent: an idea has exactly one parent it descends from, but each idea can be further described elsewhere (even off-file).
-
-The parent-children chain should also not be confused with qualified Concepts. The Concept of `Employee` may be used inside another Concept — an objective, for example `Train Employee`. The `Employee` and the `Train Employee` Concepts are distinct and unambiguous, but it is the same Concept of `Employee` that is evoked in the writer's and reader's mind for both. This is allowable in Alpha; in fact it is celebrated inside the objective that the `Employee` was defined elsewhere, with a link.
-
-A sub-Concept is an **is-a**, never a **has-a**. Indenting one Concept under another asserts the child *is a kind of* the parent, so every attribute the child adds must be a **differentia** — a fact that makes it a *narrower kind of the same genus*, answering "what kind of parent is this?". A child may of course carry more attributes than its parent; what matters is not how many it adds but that they narrow the *same* kind. If the added facts instead describe a separate dimension the thing merely *has* — a format, a property on its own axis — then you have written a has-a as an is-a: the Concept now names two kinds at once, and the subsumption reasoner flags it (rule 12, Multiple kinds). Pull that has-a out into its own attribute or Concept and crosslink it, so the child's place in the tree stays purely about what it *is*.
-
-The four kinds and the one rule, together:
+Yes, the world sometimes feels like a tangled lattice: Socrates is a human, but also a philosopher, also an Athenian. Alpha makes you pick the one parent that matters. That choice is exactly what makes an Alpha file readable at a glance instead of a diagram you need a lie-down after.
 
 ```aot
 - Alpha Example
@@ -69,119 +37,45 @@ The four kinds and the one rule, together:
         -  Philosopher
 ```
 
-The Concept `Human` **has** the attribute `is alive`; `Socrates` **is an example of** a Human; and on Socrates the inherited attribute takes the value `No`.
+## Why bother with strictness?
+
+- **Arguments become checkable.** This is the Leibniz point: once "Socrates is-example-of a Human" is the divisibility of two integers, an is-example-of claim isn't an opinion, it's a computation the linter either confirms or refutes. `V = 0` means the file contains no structural contradictions.
+- **Two readers build the same mental model.** A `.aot` file is a shared definition a team can extend. No private version.
+- **Disagreements become locatable.** When disputes arise, the dispute is about a specific line — a wrong parent, a missing differentia — not about a vibe in a paragraph.
+- **AI can work on it reliably.** Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then let the linter check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
+
+## Principles
+
+### Parent-Children chain
+
+Every idea in Alpha has exactly one parent. A parent can have many children; a child never has two parents called the "parent-children chain".
+
+Every idea, no matter how elemental or complex, has exactly one parent, to exactly one other idea, and the chain runs from general (the file name) to specific until it terminates. An idea never means something different depending on which path you took to reach it.
+
+The restriction is deliberate: like a type system, one parent per idea forces you to decide what an idea *is* before you can write it down, and that explicit commitment is one other people can share. Everyone who opens the file, including your future self, extends the same tree instead of rebuilding a private version in their head. Once the structure is that precise, AI can do the synthesis and abstraction with you instead of guessing at what you meant.
+
+### Four kinds of ideas
+
+Alpha agrees with Aristotle that everything you think falls into four categories (Aristotle, Categories 2, 1a20–24). They are the crossing of **Said-of** and **Present-in**.
+
+    | Kind                                      | how to recognise                                                                              | expression                      | purpose                                                                                                                                                                                                 | extra Rules                                                                                                                                                                                                                                                                                                                                                                                                                                      | example                     | Said of (S)    | Present in (P) |
+    |-------------------------------------------+-----------------------------------------------------------------------------------------------+---------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------+----------------+----------------|
+    | **Example** (Individual Substance)        | A `- ` (dash + space) child, **or** the `value` in a capitalised `Concept: value` line        | Indent Dash prefix after a term | A concrete Example (instance) of the parent Concept or attribute, rather than a single Attribute Value.                                                                                                 | `- Socrates`, or `Run Command: code --install …` Usually a `- ` child — the `- ` prefix is what makes a line an Example, and without it a lowercase line is always an attribute. A single Example may instead ride inline on its Concept's own line as `Concept: value` (the `value` is the Example); this is the same kind, just written inline, and reads as an Example everywhere (counts, crosslinks, FCA)                                                                                                                                                                                                                                                                                                                                                                                                 | `Human` indent `- Socrates` | **False (~S)** | **False (~P)** |
+    | **Concept** (Universal Substance)         | First letter is capitalised                                                                   | Indent Concept under a term     | Defines a class or type of idea                                                                                                                                                                         | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique. A sub-Concept is an **is-a**, never a **has-a**. Indenting one Concept under another asserts the child *is a kind of* the parent. "And" (always split the function into two siblings). Start two levels of granularity above the detail you need, then prune until every leaf is directly executable. Remove anything that does not serve the model. | `Mammal` indent `Human`     | **True (S)**   | **False (~P)** |
+    | **Attribute** (Universal Accident)        | All lowercase                                                                                 | Indent attribute under a term   | Defines a property that a Concept has                                                                                                                                                                   | Every attribute is itself a Concept that can be expanded on somewhere else, whether or not it is defined elsewhere                                                                                                                                                                                                                                                                                                                               | `Human` indent `is alive`   | **True (S)**   | **True (P)**   |
+    | **Attribute Value** (Individual Accident) | The `value` after the colon in `attribute: value`; the term before the colon is **lowercase** | Colon after a term              | The concrete value an attribute takes. An `attribute: value` line is **two** ideas — the attribute (`colour`) and the value (`red`) that descends from it — written on one line, not one combined thing | `colour: red` (the value `red`, under the attribute `colour`)                                                                                                                                                                                                                                                                                                                                                                                    | `is alive: No`              | **False (~S)** | **True (P)**   |
+                                                                                              | `is alive: No`              | **False (~S)** | **True (P)**   |
 
 
+see [Tables](#tables--org-mode-spreadsheets-as-alpha) ... TO ELABORATE HERE
 
-**Contents:** [What you'd use it for](#what-youd-use-it-for) · [Why bother with the strictness](#why-bother-with-the-strictness) · [Quick start](#quick-start) · [The language](#the-language) · [Starting axiomatically](#starting-axiomatically) · [Tables](#tables--org-mode-spreadsheets-as-alpha) · [The four primitives](#the-four-primitives) · [The tooling](#the-tooling) · [Design rules](#design-rules)
-
-## What you'd use it for
-
-Alpha is aimed at knowledge workers like analysts and architects. You can use it purely for your own thoughts, without describing the "why" of your thoughts, but Alpha has four primitives for the four kinds of model knowledge work keeps producing anyway (Physics II.3, 194b17–20), usually scattered across slides and spreadsheets
-
-### The four primitives
-
-Thoughts can be used as a tool. The tool is to transform, and to be able to transform, a clear understanding of the subject (the file name) needs to be defined.
-
-Aristotle's complete answer to *why a thing is and how it comes to be* (*Physics* II.3). The primitive names are always grouped as examples (not said of, not present in). **The four causes complete every explanation**: final (motivation), material (graph), formal (function), efficient (workflow). The primitives of Alpha are built on them. The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*. Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Stakeholder, Entities, Objectives and Workflows, and these cannot be examples or Attribute Values, while measurements, records, classes and dependencies can only be examples or Attribute Values.
-
-The primitives do not link to one another; each is a tree of its own, and no cause terminates in another. This is the general rule, not a special case. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour.
-
-| Cause | Description | Native question | Primitive | Said of | Not Said Of |
-|-----------|---------|------------------|--|------------------|------------------|
-| **Final** | for the sake of which | Why, and for Whom | Motivation | Stakeholder (Who) | Measurement (How Much) |
-| **Material** | that out of which | made of What | Graph | Entity (Where: the boundary that fixes where the Record resides in reality) | Record (What) |
-| **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How) | Class (Which) |
-| **Efficient** | the agent and the means | by Whom, in what order | Workflow | Worker Pool (Item in use) | Time (When) |
-
-- **[Motivation](#motivation-primitive)** — goals and KPIs with a beneficiary, an actual, a target, and a red/amber/green influence rolling up a tree. This is an OKR tree or a metrics dashboard as text: the sales example below (Mike owns revenue growth, which decomposes into new clients, basket size, churn) is exactly what a quarterly business review tries to communicate.
-
-Focus: **what and why things are measured** by **who is the beneficiary of them**
-
-The Motivation Primitive describes what you are trying to achieve and who owns it. It models the beneficiary alongside the measurements they use, so every measurement records its owner.
-
-Every measurement carries both a `target` value and an `actual` value. Alpha requires both because a measurement only means something when you can compare the actual against the target.
-- **[Graph](#graph-primitive)** — data modelling: which entities exist, where records reside, what depends on what. It even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database.
-- **[Function](#function-primitive)** — capability decomposition: what the system achieves, as a tree of verb-phrase objectives where each parent is achieved exactly by all its children together. The value-chain example is an org's capability map; the naming rules ("no and, no manage, no flow words") force each node to be one testable claim.
-Focus: **how the system does it**, decomposed as a tree.
-
-The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through all of its children together. No single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How, the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
-
-The Function tree relates to the other primitives differently: it *is the form of the motivation*, the arrangement that realises it.
-
-
-#### Naming Rules
-
-- **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
-- **Types**: conventionally nouns only, expressed as Example ideas → `- Payment Type`
-
-#### Forbidden in Functions
-
-- "And" (always split the function into two siblings)
-- Vague terms for services ("manage", "ensure")
-- Performance related terms ("good", "acceptable")
-- Information management ("information", "data", "content", "info")
-- Political words ("Business", "IT", "Management", "Support", or "Execution")
-- Flow words ("then", "next")
-
-#### Decomposition Rules for Objectives
-
-- 3 to 7 sub-objectives per parent objective
-- Test each split with the **Why**, **How**, and **Which** questions described under [The four primitives](#the-four-primitives)
-
-#### Pitch Level
-
-- Start two levels of granularity above the detail you need, then prune until every leaf is directly executable.
-- Remove anything that does not serve the model.
-
-#### Include attributes
-
-Attributes may be attached to functions to describe their arguments and results.
-- **[Workflow](#workflow-primitive)** — who does what in what order, including concurrency: locks, queues, race conditions, what's the bottleneck. The Thought.aot example models intuition vs. deliberation this way.
-
-## Why bother with the strictness
-
-The constraints are the product. Because every idea has exactly one parent, writing a line forces a decision — is this a kind, a property, or an instance, and of what? Those are exactly the decisions prose lets you dodge. The payoffs:
-
-**Two readers build the same mental model.** No multiple inheritance means an idea never changes meaning depending on the path you took to it. A `.aot` file is a shared definition a team can extend instead of each human keeping a private version.
-
-**Disagreements become locatable.** When a colleague disputes the model, the dispute is about a specific line — a wrong parent, a missing differentia — not about a vibe in a paragraph.
-
-**Arguments become checkable.** This is the Leibniz point: once "Socrates is a Human" is the divisibility of two integers, an is-a claim isn't an opinion, it's a computation the linter either confirms or refutes. `V = 0` means the file contains no structural contradictions.
-
-**AI can work on it reliably.** Plain text is what language models consume, and the linter is an objective referee: you can ask an AI to extend or critique the model, then let the linter check the result mechanically rather than by re-reading. The tree gives the AI your actual ontology instead of letting it guess from prose.
-
-**The language itself is small.** There are four kinds of line — Concept, Attribute, Example, and value — one relationship, indentation, and one piece of punctuation, the colon. That is the whole grammar. There is no schema to declare before you write, no type annotations, and no separate query language: the same indented plain text serves whether you are sketching or being verified. A language this small is one you can hold entirely in your head, and so is any file written in it — which is also why the tooling can be an exact referee instead of a guesser, and why an AI can work the model without first learning a notation.
-
-## Quick start
-
-Install the VS Code extension (`alphabet-of-thought-*.vsix`) for the linter, the colouring and the table editor, then:
-
-A realistic first use: take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — pick the matching [primitive](#the-four-primitives) as a skeleton, write it as a `.aot` tree (start with natural Concepts and build up from facts, or normalise an existing data structure and then derive relations and establish attributes), and keep fixing squiggles until `V = 0`. The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point.
-
-2. **Write indented plain text using only four kinds of line**: Ask an LLM to write the file using this readme (https://marketplace.visualstudio.com/items?itemName=Jakus.alphabet-of-thought) and get it to use the tooling to fix anything it got incorrect.
-3. **Ask it to explain what it wrote**: Get an explanation of what it wrote. You'll be amazed at what you learn about something you thought you knew.
-
-## The language
-
-### The four kinds of ideas
-
-They are the crossing of **Said-of** and **Present-in**.
-
-| Idea Type | How to Recognise | Purpose | Extra Rules | Example | Said of (S) | Present in (P) |
-|-----------|------------------|---------|-------------|---------|-------------|----------------|
-| **Example** (Individual Substance) | A `- ` (dash + space) child, **or** the `value` in a capitalised `Concept: value` line | A concrete Example (instance) of the parent Concept or attribute, rather than a single Attribute Value. Usually a `- ` child — the `- ` prefix is what makes a line an Example, and without it a lowercase line is always an attribute. A single Example may instead ride inline on its Concept's own line as `Concept: value` (the `value` is the Example); this is the same kind, just written inline, and reads as an Example everywhere (counts, crosslinks, FCA) | `- Socrates`, or `Run Command: code --install …` | **False (~S)** | **False (~P)** |
-| **Concept** (Universal Substance) | First letter is capitalised | Defines a class or type of idea | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique | `Human` | **True (S)** | **False (~P)** |
-| **Attribute** (Universal Accident) | All lowercase | Defines a property that a Concept has | Every attribute is itself a Concept that can be expanded on somewhere else, whether or not it is defined elsewhere | `full name` | **True (S)** | **True (P)** |
-| **Attribute Value** (Individual Accident) | The `value` after the colon in `attribute: value`; the term before the colon is **lowercase** | The concrete value an attribute takes. An `attribute: value` line is **two** ideas — the attribute (`colour`) and the value (`red`) that descends from it — written on one line, not one combined thing | `colour: red` (the value `red`, under the attribute `colour`) | **False (~S)** | **True (P)** |
-
+... to be added to Attribute Value Extra Rules
 An `attribute: value` line is shorthand for **two** ideas, not one. `colour: red` says the attribute `colour` — a universal accident the Concept *has* — takes the individual value `red`. The inheritance runs **Concept/Example → attribute → value**: the value descends from its attribute, and the attribute from the idea that carries it. The value never descends from the Example directly, and `colour` is not part of the value's name — the attribute and its value merely share a line.
 
+... to be added to Exmaple extra rules
 A `Concept: value` line is the same shorthand on the Substance side. The capitalised term stays an ordinary **Concept**; `value` is one Example of it — exactly what a `- value` child would be — written inline as a convenient first Example. The inheritance runs **Concept → Example**, just as with a dashed child. Like any Example, the inline one inherits **all** of the Concept's attributes *and* their values (defaults) — the value (`code --install`) is the Example's own identity, and everything the Concept defines accrues to that Example instance, exactly as for a `- ` child. The inheritance is the Example's, not the Concept's. Further Examples may follow as ordinary `- ` children below it, and the Concept may still divide into **sub-Concepts**, each with Examples of its own — the inline value is simply one Example among however many the Concept comes to have.
 
-### How to decide: Concept vs Example vs attribute
-
-A model only communicates when its ideas are classified correctly. Apply these tests in order:
+A model only communicates when its ideas are classified correctly (Concept vs Example vs attribute). Apply these tests in order:
 
 #### 1. Exhaustion test (Concept vs Example)
 
@@ -195,24 +89,120 @@ If the children together **partition** the parent, they are **Concepts** (subtyp
 
 Attributes are lowercase properties a Concept **has**. They are not necessarily leaf nodes; an attribute may have its own children: Examples, Concepts, values, or further attributes.
 
-#### The basic relationships
+### Attribute inheritance
 
-| Connections | Expression | Type | Example | Extra Rule |
-|------------------------|----------------------------------|-----------|-------------------------------------------|-----------------------------------------------|
-| **has-Example** | Indent Dash prefix after a term | Indented | `Human` → indent → `- Gottfried Wilhelm Leibniz` | A pipe prefix (`\| Gottfried Wilhelm Leibniz`, the table-row form) marks an Example too; a multi-cell pipe row is a whole spreadsheet row — see [Tables](#tables--org-mode-spreadsheets-as-alpha) |
-| **is-a** | Indent Concept under a term | Indented | `Organisation` → indent → `Business` | |
-| **has-a** | Indent attribute under a term | Indented | `Human` → indent → `full name` | |
-| **value-is** | Colon after a term | Indented | `full name: Gottfried Leibniz` | |
+The inheritance rules in one snippet:
 
-#### Confidence challenges
+```aot
+Parent
+    essential parent attribute: normal value
+    Child
+        essential child attribute not in parent
+        - Child Example
+            essential parent attribute: new value
+            essential child attribute not in parent: value
+            child example attribute
+        ... generally there is more than one example per Concept
+    ... generally there is more than one child per parent
+```
+
+`Child` inherits `essential parent attribute: normal value` from `Parent`. The `- Child Example` overrides that inherited value with `new value`, assigns a default to `essential child attribute not in parent`, and adds `child example attribute` — an accidental attribute not present in the `Child` Concept. (The two `...` lines mark the example as deliberately incomplete, which is the only thing a Map does.)
+
+### Cross-links
+
+#### Composition
+
+Attributes are sometimes atomic values, but also allowed in alpha is Attributes that is defined as a Concept somewhere else. An `Employee` can be composed of a `human`, a `contract`, a `role` attribute, all of which sit in its parent-children chain, independently inherited as *Attribute* of the `Employee` *Concept*. Cross-link composition is how you assemble a complex idea from parts that each have their own definition, while inheritance is how you say what kind of thing the idea is.
+
+| **Attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
+| **Default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `human: Gottfried Wilhelm Leibniz`, where the value references the Example | |
+
+#### Concept Differentia
+
+The Concept of `Employee` may be used inside another Concept. For example `Train Employee`. The `Employee` and the `Train Employee` Concepts are distinct and unambiguous, but it is the same Concept of `Employee` that is evoked in the writer's and reader's mind for both. This is allowable in Alpha; in fact it is celebrated inside the objective that the `Employee` was defined elsewhere, with a link.
+
+S every attribute the child adds must be a **differentia** — a fact that makes it a *narrower kind of the same genus*, answering "what kind of parent is this?". A child may of course carry more attributes than its parent; what matters is not how many it adds but that they narrow the *same* kind. If the added facts instead describe a separate dimension the thing merely *has* — a format, a property on its own axis — then you have written a has-a as an is-a: the Concept now names two kinds at once, and the subsumption reasoner flags it (rule 12, Multiple kinds). Pull that has-a out into its own attribute or Concept and crosslink it, so the child's place in the tree stays purely about what it *is*.
+
+#### Attribute Alias
+
+Attributes may be renamed 
+
+### Confidence challenges
 
 | **has-another-name** | Parentheses after a term. Provides an alternative or derived name for an idea.  | Indented | `Human (Natural Person)` | If some or all of an attribute's trailing words match a Concept, those words act as an alias, with no parentheses required |
 | **Maps-to** | Indent `...` followed by a note under a token | Indented | `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never a plain description of the line above it**. To explain or rename a term, use a `(parentheses)` alias instead. |
 
-#### Crosslinking
+### The four primitives
 
-| **Attribute-is-a-Concept** | Attribute name (or last words) matches a Concept name | Inline | `age integer: 5` → `integer` → `Integer` Concept | |
-| **Default-is-a-Example** | Value matches an Example name exactly (case-sensitive) | Inline | `human: Gottfried Wilhelm Leibniz`, where the value references the Example | |
+Alpha is aimed at knowledge workers like analysts and architects. You can use it purely for your own thoughts, without describing the "why" of your thoughts, but Alpha has four primitives for the four kinds of model knowledge work keeps producing anyway (Physics II.3, 194b17–20), usually scattered across slides and spreadsheets
+
+Thoughts can be used as a tool. The tool is to transform, and to be able to transform, a clear understanding of the subject (the file name) needs to be defined.
+
+Aristotle's complete answer to *why a thing is and how it comes to be*. The primitive names are always grouped as examples (not said of, not present in). **The four causes complete every explanation**: final (motivation), material (graph), formal (function), efficient (workflow). The primitives of Alpha are built on them. The alphabet of thought primitives combines Aristotle's *Categories*, *Causes*, *Prior Analytics*, and Kipling's *Six Serving Men*. Each of these Primitives has a said-of and a not-said-of part to guide the user on how to model. For example, the only concepts are Stakeholder, Entities, Objectives and Workflows, and these cannot be examples or Attribute Values, while measurements, records, classes and dependencies can only be examples or Attribute Values.
+
+The primitives do not link to one another; each is a tree of its own, and no cause terminates in another. This is the general rule, not a special case. A complete explanation holds all four in balance, with each cause answered with respect to the others and none reduced to a pointer into its neighbour.
+
+| Cause | Description | Native question | Primitive | Said of | Not Said Of |
+|-----------|---------|------------------|--|------------------|------------------|
+| **Final** | for the sake of which | Why, and for Whom | Motivation | Stakeholder (Who) | Measurement (How Much) |
+| **Material** | that out of which | made of What | Graph | Entity (Where: the boundary that fixes where the Record resides in reality) | Record (What) |
+| **Formal** | the form, the arrangement of parts | What it is, How it is achieved | Function | Objective (How) | Class (Which) |
+| **Efficient** | the agent and the means | by Whom, in what order | Workflow | Worker Pool (Item in use) | Time (When) |
+
+#### Motivation
+
+Goals and KPIs with a beneficiary, an actual, a target, and a red/amber/green influence rolling up a tree. This is an OKR tree or a metrics dashboard as text: the sales example below (Mike owns revenue growth, which decomposes into new clients, basket size, churn) is exactly what a quarterly business review tries to communicate.
+
+Focus: **what and why things are measured** by **who is the beneficiary of them**
+
+The Motivation Primitive describes what you are trying to achieve and who owns it. It models the beneficiary alongside the measurements they use, so every measurement records its owner.
+
+Every measurement carries both a `target` value and an `actual` value. Alpha requires both because a measurement only means something when you can compare the actual against the target.
+#### Graph
+
+data modelling: which entities exist, where records reside, what depends on what. It even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database.
+
+#### Function
+capability decomposition: what the system achieves, as a tree of verb-phrase objectives where each parent is achieved exactly by all its children together. The value-chain example is an org's capability map; the naming rules ("no and, no manage, no flow words") force each node to be one testable claim.
+Focus: **how the system does it**, decomposed as a tree.
+
+The questions in the Function tree run in different directions. Ask *How* downward: a parent objective is achieved exclusively through all of its children together. No single child is the how; the complete set is, and that arrangement is the parent's form (*Metaphysics* Z: the form of a house is the arrangement of its bricks, not the bricks). Ask *Why* upward: the answer to a child objective's why is its parent. The root is one or more objectives that cannot be reduced any further; their why is not answered by another node but balanced with the How, the whole tree beneath them. Ask *Which* of an objective to reach a Class. Alpha follows Aristotle in taking the form of a working thing to be its function: an axe that cannot chop is an axe in name only (*De Anima* II.1).
+
+The Function tree relates to the other primitives differently: it *is the form of the motivation*, the arrangement that realises it.
+
+
+##### Naming Rules
+
+- **Objective**: verb + qualified object → `Calculate Payment` (One verb per function, named objectively)
+- **Types**: conventionally nouns only, expressed as Example ideas → `- Payment Type`
+
+##### Forbidden in Functions
+
+- Vague terms for services ("manage", "ensure")
+- Performance related terms ("good", "acceptable")
+- Information management ("information", "data", "content", "info")
+- Political words ("Business", "IT", "Management", "Support", or "Execution")
+- Flow words ("then", "next")
+
+##### Decomposition Rules for Objectives
+
+- 3 to 7 sub-objectives per parent objective
+- Test each split with the **Why**, **How**, and **Which** questions described under [The four primitives](#the-four-primitives)
+
+##### Include attributes
+
+Attributes may be attached to functions to describe their arguments and results.
+
+#### Workflow
+
+who works in what order, including concurrency: locks, queues, race conditions, what's the bottleneck. The Thought.aot example models intuition vs. deliberation this way.
+
+### File format
+
+- Extension: `.aot`
+- Indentation: exactly 4 spaces per level (Do NOT use tabs)
+- Every line is a node
+- The **file name is the root Concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Human.aot` begins directly with `full name`, `age`, and so on.
 
 ### Classical style rules
 
@@ -227,23 +217,20 @@ These rules keep a model readable and unambiguous, so that two readers of the sa
 - Remove redundant Concepts
 - Only decompose further when detail adds meaningful value
 
-### File format
 
-- Extension: `.aot`
-- Indentation: exactly 4 spaces per level (Do NOT use tabs)
-- Every line is a node
-- The **file name is the root Concept**. Do not repeat it as the first line; the file's top-level nodes are already its children. For example, `Human.aot` begins directly with `full name`, `age`, and so on.
+## Quick start
 
-## Starting axiomatically
+Install the VS Code extension (`alphabet-of-thought-*.vsix`) for the linter, the colouring and the table editor, then:
 
-An *axiomatic* start is a flat list of Examples: you file every Example directly under the file-name root. It is the [Content over structure](#pragmatic) rule taken to its limit, and the inverse of normalising an existing schema, where you start from structure.
+A realistic first use: take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — pick the matching [primitive](#the-four-primitives) as a skeleton, write it as a `.aot` tree (start with natural Concepts and build up from facts, or normalise an existing data structure and then derive relations and establish attributes), and keep fixing squiggles until `V = 0`. The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point.
 
-The good news is there is no hard part to the axiomatic start, because thinking is never complete. Any checklist of the questions a subject must answer will do, but there is one here that I recommend (in order of sophistication):
+2. **Write indented plain text using only four kinds of line**: An *axiomatic* start is a flat list of Examples: you file every Example directly under the file-name root. It is the [Content over structure](#pragmatic) rule taken to its limit, and the inverse of normalising an existing schema, where you start from structure. The good news is there is no hard part to the axiomatic start, because thinking is never complete. Any checklist of the questions a subject must answer will do, but there is one here that I recommend (in order of sophistication):
 
 - **Your todo list** — Each open item is an Example the model is missing; emptying the list and completing the model are the same act.
 - **Kipling's Six Serving Men** — *What, Why, When, How, Where, Who* ("I keep six honest serving-men; they taught me all I knew"). Six Examples to start with.
 - **Aristotle's ten Categories** — substance, quantity, quality, relation, place, time, position, having, action, being-acted-upon (*Categories* 4). The widest net for *what can be said of a thing*: each category is one more attribute to ask after.
 - **The Alpha primitives** — Motivation, Graph, Function, Workflow. All real knowledge straddles all the primitives; if you cannot produce them all, you do not yet fully understand the subject.
+3. **Ask it to explain what it wrote**: Get an explanation of what it wrote. You'll be amazed at what you learn about something you thought you knew.
 
 Whichever you use, the move is the same: generate the facts first, then branch out from there.
 

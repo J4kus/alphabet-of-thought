@@ -1,22 +1,8 @@
-- Alpha Example
-    Human
-        is alive
-        - Socrates
-            is alive: No
-    Participation
-        City of Residence
-            city
-            - Socrates' Residence
-                human: Socrates
-                city: Athena
-        Employment
-            occupation
-            - Socrates' Job
-                human Socrates
-                occupation: Philosopher
-        human
-    City
-        - Athena
-            residence known as: Athenian
-    Occupation
-        -  Philosopher
+Idea Kind   
+    | name                                      | how to recognise                                                                              | expression                      | purpose                                                                                                                                                                                                 | extra Rules                                                                                                                                                                                                                                                                                                                                                                                                                                      | example                     | Said of (S)    | Present in (P) |
+    |-------------------------------------------+-----------------------------------------------------------------------------------------------+---------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------+----------------+----------------|
+    | **Example** (Individual Substance)        | A `- ` (dash + space) child, **or** the `value` in a capitalised `Concept: value` line        | Indent Dash prefix after a term | A concrete Example (instance) of the parent Concept or attribute, rather than a single Attribute Value.                                                                                                 | `- Socrates`, or `Run Command: code --install …`                                                                                                                                                                                                                                                                                                                                                                                                 | `Human` indent `- Socrates` | **False (~S)** | **False (~P)** |
+    | **Concept** (Universal Substance)         | First letter is capitalised                                                                   | Indent Concept under a term     | Defines a class or type of idea                                                                                                                                                                         | A Concept may reappear elsewhere only if a distinguishing qualifier prefix makes it unique. A sub-Concept is an **is-a**, never a **has-a**. Indenting one Concept under another asserts the child *is a kind of* the parent. "And" (always split the function into two siblings). Start two levels of granularity above the detail you need, then prune until every leaf is directly executable. Remove anything that does not serve the model. | `Mammal` indent `Human`     | **True (S)**   | **False (~P)** |
+    | **Attribute** (Universal Accident)        | All lowercase                                                                                 | Indent attribute under a term   | Defines a property that a Concept has                                                                                                                                                                   | Every attribute is itself a Concept that can be expanded on somewhere else, whether or not it is defined elsewhere                                                                                                                                                                                                                                                                                                                               | `Human` indent `is alive`   | **True (S)**   | **True (P)**   |
+    | **Attribute Value** (Individual Accident) | The `value` after the colon in `attribute: value`; the term before the colon is **lowercase** | Colon after a term              | The concrete value an attribute takes. An `attribute: value` line is **two** ideas — the attribute (`colour`) and the value (`red`) that descends from it — written on one line, not one combined thing | `colour: red` (the value `red`, under the attribute `colour`)                                                                                                                                                                                                                                                                                                                                                                                    | `is alive: No`              | **False (~S)** | **True (P)**   |
+

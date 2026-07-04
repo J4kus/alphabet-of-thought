@@ -9,8 +9,10 @@
 - [ ] Epistemics via reserved attributes — make `confidence`, `status` (proposed / contested / accepted / deprecated), and `source` reserved attributes the tooling understands: `--ask` returns qualified answers ("yes, at confidence 0.6, contested"), confidence propagates down inheritance by multiplication, and `--list contested` becomes a meeting-agenda generator
 - [x] Make Armstrong's Axioms (Dependency Inference) part of the linter and not only a discussion — `src/armstrong.js`: `--fd` infers functional dependencies from the Examples via Gödel projections (with a derivability/redundancy hint), `--depends` walks the declared Concept-dependency closure (transitivity). See the [Armstrong's axioms](README.md#armstrongs-axioms-dependency-inference) section of the README.
 
+- [ ] Generalise table calculations and csv saving
+- [ ] make tabs better to use for tables
 
-[ ] Explain in the readme how to write in Alpha
+- [ ] Explain in the readme how to write in Alpha
 - Model data as sets of facts
 - Each Concept = one record type with a fixed number of attributes
 - Non-nullable attributes listed first; attribute order otherwise meaningless
