@@ -7,29 +7,19 @@
 - [ ] Curry–Howard / type theory — make the Function tree executable: a specification is a type, an implementation a proof. Attach argument/result attributes to each objective so a parent objective is a product type of its children; verify children's outputs compose into the parent's claimed result; generate test skeletons / interface stubs from a `.aot` Function tree. Needs a minimal type vocabulary (`data type` subtree under Measurement) and a rule that sibling objectives declare what they consume and produce
 - [ ] Embeddings — the fuzzy assistant around the exact core (tooling only, nothing in the language): catch synonym violations (flag `client` and `customer` appearing as different Concepts), suggest placement when writing a new Example (propose nearest existing parent), and power the AI-extends-the-model workflow where the LLM drafts by similarity and the prime linter referees exactly
 - [ ] Epistemics via reserved attributes — make `confidence`, `status` (proposed / contested / accepted / deprecated), and `source` reserved attributes the tooling understands: `--ask` returns qualified answers ("yes, at confidence 0.6, contested"), confidence propagates down inheritance by multiplication, and `--list contested` becomes a meeting-agenda generator
-- [x] Make Armstrong's Axioms (Dependency Inference) part of the linter and not only a discussion — `src/armstrong.js`: `--fd` infers functional dependencies from the Examples via Gödel projections (with a derivability/redundancy hint), `--depends` walks the declared Concept-dependency closure (transitivity). See the [Armstrong's axioms](README.md#armstrongs-axioms-dependency-inference) section of the README.
+- [ ] Make all of Armstrong's Axioms part of the linter as far as pssible and not only a discussion — `src/armstrong.js`: `--fd` infers functional dependencies from the Examples via Gödel projections (with a derivability/redundancy hint),
 
 - [ ] Generalise table calculations and csv saving
 - [ ] make tabs better to use for tables
 
 - [ ] Explain in the readme how to write in Alpha
-- Model data as sets of facts
-- Each Concept = one record type with a fixed number of attributes
-- Non-nullable attributes listed first; attribute order otherwise meaningless
-- A relational attribute referencing another Concept uses that Concept's name (lowercase)
-- No many-to-many relations on attributes; use Event Associations
-- Identify functional dependencies between attributes
-- Use subset data to clarify scope
-- Use aliases to describe Concepts
-- Final names must be implementable
-- Prioritise Concepts by relevance
-- Create parent Concepts to group related children
-- Look for likenesses and differences to form general structures
-- Remove attributes that do not serve the model
+- [ ] add a rule that there are not a many to many relationship. No many-to-many relations on attributes; use Event Associations
+
 
 ## Language / spec
+- [ ] Allow Ordered Numbers as Examples
+- [ ] Allow hiding of data
 - [ ] Allow highlighting across all aot files in repo or local filesystem
-- [x] ~~Remove the tables from the language (rather use links)~~ — decided the other way: tables grew into org-style spreadsheets (a header row + `|---|` separator declares the columns as attributes, each data row is an Example, each cell an Attribute Value; Format Document aligns the columns). See README → Tables
 - [ ] Make sure the first column values are the same colour as examples and fill in a incremental number if there is no other value
 - [ ] All attributes have a has-a relationshio with more attributes for metadata and complex composite concepts directly in the attribute
 - [ ] Allow negation inside the language (it is already with ~)
@@ -53,52 +43,12 @@ node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = ver
 --diff old new	Version diff as factorisation comparison
 --suggest	FCA audit + the positive confirmed report (only surfaced here, not in the editor)
 
-### Functionality currently gone (with `verify.js` deleted)
-
-Detail behind the restore item above. Split by whether anything still provides it.
-
-**Fully gone — no editor equivalent, these were CLI-only:**
-- [ ] Whole-file pass/fail with a `V = 0` verdict and exit code — the scriptable CI gate / "objective referee" for AI-assisted edits
-- [ ] `--ask X Y` — is-a test by divisibility
-- [ ] `--genus X Y` — nearest common kind via gcd
-- [ ] `--number X` — characteristic number as a prime product
-- [ ] `--godel X` — Gödel factorisation with attribute/value legend
-- [ ] `--overrides` — nodes overriding an inherited default
-- [ ] `--find "a: v"` — search ideas by attribute/value
-- [ ] `--common X Y` — shared attribute core of two ideas
-- [ ] `--near X` — nearest ideas by content distance
-- [ ] `--diff old new` — version diff as factorisation comparison
-- [ ] `--depends X` — direct + transitive Concept dependencies
-- [ ] `--suggest` `confirmed` report — positive FCA groupings the data supports exactly (advisory)
-- [ ] `--fd` full set — every inferred dependency, including low-confidence / covariation-only ones
-- [ ] `--clashes` weak case — same-attribute-name (equal radical, differing value) clashes
-
-**Still available — runs automatically in the VS Code extension, just no CLI:**
-- Syntactic and subsumption errors and warnings (rules 1–14)
-- FCA drift and exhaustion errors (rules 15–17)
-- The strong content clash error (rule 18)
-- Confident, complete dependency warnings (rules 8–9)
-
 ## Linter / diagnostics
-- [X] Exclude words ending in "us" from plural detection
 - [ ] Make example/value matching not capitalisation-specific 
 - [ ] `default-is-a-Example` now requires the Example to instantiate the attribute being valued: some ancestor of the Example must carry the attribute's name (or a trailing run of its words, the alias rule). `exponent: 1` no longer links to an unrelated `- 1` filed under another attribute; the same guard applies to the FCA value-ancestry expansion... Example value matching should only be allowed if the example is one that is the same concept as the one defined (need to carry the highlighting in the file even if it is partial)
-- [x] Enforce a sub-Concept cap per parent (landed as: at most eight sub-Concepts; Examples and attributes unlimited — replaces the old twelve-children-of-any-kind warning)
-- [ ] Detect same words used in a Concept that are not part of the same tree
 - [ ] Reword the "Concept defined twice" diagnostic (say something more useful instead)
-- [ ] Show how far an idea is on the dependency tree (depth indicator)
+- [ ] Have a javascript file that can highlight wording differences
+- [ ] Show how far an Concept is on the dependency tree (depth indicator) when you hover over it
 
 ## Editor / highlighting (VS Code extension)
-- [X] Highlight when the last words of a line are part of another Concept
-- [X] Highlight when part of a Concept matches (partial matches, not just full)
 - [ ] Colour aliases differently from other tokens
-- [X] Investigate: why is the same colour term highlighted in different ways? [?]
-
-## Docs / README
-- [X] Use links on examples (make examples clickable / link to defining lines or files)
-- [ ] Remove AI-generated tells from the prose
-- [ ] Add a Parent → Child example
-- [ ] Explain "jumbled up causes" generally (instead of case-by-case)
-- [ ] Explain modeling intention using the four primitives [?]
-- [ ] Work in: "All knowledge will straddle several of the primitives — if you don't produce them all, you're not an expert."
-- [ ] Phrase explanations as "what happens" rather than "explanation of what happens"
