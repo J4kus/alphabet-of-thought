@@ -1,235 +1,572 @@
-Primitive
-    - Motivation
-        Knowledge Worker (User)
-            - Work out what you mean
-            - Others come to mean the same thing you mean
-            Business Analyst
-                models: processes
-            Enterprise Architect
-                models: systems
-            Domain Expert
-                models: concepts
-            Data Architect
-                models: data
-            Product Manager
-                models: outcomes
-    - Network
-        Definition
-            network: where it lives and is recorded — paradigmatic cause, the pattern
-        GitHub
-            url: www:github.com
-        File
-            extension
-                - aot
-                    format: plain text
-                    indent: 4 spaces, never tabs
-                    encoding: utf-8
-                    newline: unix
-                - vsix
-                - json
-            format
-            indent
-            encoding
-            newline
-        Aristotlian Category
-            Said Of
-                - Is Said Of
-                - Not Said Of
-                    time
-                        start time
-                        end time
-                        created time
-                        updated time
-                    is active
-                    author
-                        created author
-                        updated author
-            Present in
-                - Is Present In
-                - Not Present In
-            confidence
-        Token
-            Idea
-                recognise
-                said of
-                present in
-                example
-                Schema (Acting On)
-                    said of: Is Said Of
-                    - Concept (Universal Substance)
-                        recognise: first letter is capitalised
-                        present in: False
-                        example: Human
-                    - Attribute (Universal Accident)
-                        characters: lowercase
-                        ordering: Most Essenctial To Most Accidental
-                        recognise: all lowercase
-                        present in: True
-                        example: full name
-                Content (Being Acted Upon)
-                    said of: Not Said Of
-                    - Example (Individual Substance)
-                        recognise: must start with dash and space
-                        present in: False
-                        is: Content
-                        predicate: Is An Example Of
-                        begin
-                            - Dash
-                            - End of Line
-                            - ` inside a concept or attribute
-                        end: end of line
-                        allow special value override
-                            - Ellipsis
-                            - Boolean
-                    - Default Value (Individual Accident)
-                        start: :
-                        end: End of line
-                        recognise: colon separated value
-                        present in: True
-                        example: colour: red
-                        allow special value override
-                            - Boolean
-                            - Ellipses
-                        allow folding: Yes
-                        allow special value override: No
-                        predicate: Detailed By
-                    - Map
-                        recognise: starts with ellipsis
-                        begin: ...
-                        end: End Of Line
-                        is special value override: Yes
-                        predicate: Explained By
-            Connection
-                Indented Hierarchy
-                    ...
-                    Place a thing by its nearest kind (genus)
-                    Add a qualifier that sets it apart (differentia)
-                    - is-a
-                    - has-a
-                    rules
-                        - Parent Child
-                            - May Have Many First Class Entities
-                            - Indent For Child Of Parent
-                            - Child Is A Parent
-                            - More Than One Child
-                            - No More Than Eight Child Concepts
-                            - A Child's Child Is A Parent
-                            - A Child Has One Parent
-                            - Two Different Types If Different Parents
-                            - Inheritance
-                                - Inherit Slots From Full Lineage Of Parents
-                                - Overload To Closest Inheritance
-                        - Sibling
-                            - All Siblings Have The Same Granularity
-                            - Siblings May Have The Same Slot If Default Values Are Different
-                            - New Lines
 
-                Same Line Connection
-                    - value-is
-                    - has-another-name
-                        begin: (
-                        end: )
-                        allow special value override: Ellipsis
-                        - For Dependency Or A More General Context Name
-                        - Can Be Used For Both A Frame And A Slot
-                        - On The Same Line As Frame Or Slot
-                            - When Frame Has More Than One Of The Same Slots
-                            - May Link To Frame
-                Reference to a `not said of` Idea
-                    - attribute-is-a-concept
-                    - default-is-a-example
-                    indentation: exactly 4 spaces per level
-                    type: Reference
-
-    - Function
-        ...
-        Understand Foundation
-            - Alphabet of Human Thought
-                - every concept is reduced to primitive elements
-                - every complex idea expressible as a combination of those elements
-                - every argument is verifiable like arithmetic
-            - Pragmatic
-                - An idea becomes clear after the connections to other ideas are defined
-                - Knowledge holds its shape best as a tree of plain text, not prose or diagrams
-            - Aristotelian
-                - You never think from nothing; every new thought extends structures you already know
-                - Place each thing by its genus, then add the differentia that sets it apart
-        Iterate Over Extension
-            ...
-            Create New Language
+- Motivation
+    Knowledge Worker (User)
+        - Work out what you mean
+        - Others come to mean the same thing you mean
+- Graph
+    File
+        extension
+            - aot
+                format: plain text
+                indent: 4 spaces, never tabs
+                encoding: utf-8
+                newline: unix
+            - vsix
+            - json
+        format
+        indent
+        encoding
+        newline
+    Aristotlian Category
+        Said Of
+            - Is Said Of
+            - Not Said Of
+                time
+                    start time
+                    end time
+                    created time
+                    updated time
+                is active
+                author
+                    created author
+                    updated author
+        Present in
+            - Is Present In
+            - Not Present In
+        confidence
+    Token
+        Idea
+            recognise
+            said of
+            present in
+            example
+            Schema (Acting On)
+                said of: Is Said Of
+                - Concept (Universal Substance)
+                    recognise: first letter is capitalised
+                    present in: False
+                    example: Human
+                - Attribute (Universal Accident)
+                    characters: lowercase
+                    ordering: Most Essenctial To Most Accidental
+                    recognise: all lowercase
+                    present in: True
+                    example: full name
+            Content (Being Acted Upon)
+                said of: Not Said Of
+                - Example (Individual Substance)
+                    recognise: must start with dash and space
+                    present in: False
+                    is: Content
+                    predicate: Is An Example Of
+                    begin
+                        - Dash
+                        - End of Line
+                        - ` inside a concept or attribute
+                    end: end of line
+                    allow special value override
+                        - Ellipsis
+                        - Boolean
+                - Default Value (Individual Accident)
+                    start: :
+                    end: End of line
+                    recognise: colon separated value
+                    present in: True
+                    example: colour: red
+                    allow special value override
+                        - Boolean
+                        - Ellipses
+                    allow folding: Yes
+                    allow special value override: No
+                    predicate: Detailed By
+                - Map
+                    recognise: starts with ellipsis
+                    begin: ...
+                    end: End Of Line
+                    is special value override: Yes
+                    predicate: Explained By
+        Connection
+            Indented Hierarchy
                 ...
-                Install Dependency
-                Create Yo Code Extension
-                    ...
-                    Go To Terminal
-                    Change Path To Where You Want To Save The File
-                    Type `yo code` Into Terminal
-                    Follow Prompt
-                        what type of extension do you want to create: New Language Support
-                        url or file to import, or none for new: ENTER
-                        extension name: alphabet of thought
-                        extension identifier: aot
-                        extension description: alphabet of thought
-                        language id: aot
-                        language name: alphabet of thought
-                        file extension: .aot
-                        scope name: source.aot
-                        initialise git repository: Yes
-                Create Grammar: TextMate
-                    update file: aot.tmLanguage.json
-                    update file: language-configuration.json
-            Make Change
-                Run `python install.py` Command
-                    ...
-                    Update Package Version
-                        Update Version Number
-                            file: package.json
-                            attribute: "version"
-                        Run `npx @vscode/vsce package` Command
-                    Update Local Extension
-                        Run Command: code --install-extension .\alphabet-of-thought-1.1.2.vsix --force
-                        Reload VS Code For the new version to take effect: Ctrl+Shift+P → "Developer: Reload Window"
-                        Verify The New Version Loaded (Extensions panel shows the new version number)
-                    Update Remote Extension
-                Make Changes To Marketplace
-                    Go To Link: https://marketplace.visualstudio.com/manage/publishers/Jakus
-                    Click `...` `More Actions` Button
-                    Click DropDown: Update
-                    Drag Vsix File Into Visual Studio Code Window
-                    click button: Install
-                    click button: Reload
-                Upload Changes To GitHub
-        Publish File
-            Create File
-                file extension: aot
-                - plain text, not prose
-                - a tree, not a diagram
-                - use full words, never abbreviate
-                - fix all misspellings
-            Setup Primitive
-                scaffold: Primitive
-                - Motivation
-                - Network
-                - Function
-                - Workflow
-            Code Token
-                encode: Token
-                - Ideas
-                - Connections
-                    Inheritance
-                    Polymorphism
-                    One term, one definition
-            Share File
+                Place a thing by its nearest kind (genus)
+                Add a qualifier that sets it apart (differentia)
+                - is-a
+                - has-a
+                rules
+                    - Parent Child
+                        - May Have Many First Class Entities
+                        - Indent For Child Of Parent
+                        - Child Is A Parent
+                        - More Than One Child
+                        - No More Than Eight Child Concepts
+                        - A Child's Child Is A Parent
+                        - A Child Has One Parent
+                        - Two Different Types If Different Parents
+                        - Inheritance
+                            - Inherit Slots From Full Lineage Of Parents
+                            - Overload To Closest Inheritance
+                    - Sibling
+                        - All Siblings Have The Same Granularity
+                        - Siblings May Have The Same Slot If Default Values Are Different
+                        - New Lines
 
-    ... To-Do
+            Same Line Connection
+                - value-is
+                - has-another-name
+                    begin: (
+                    end: )
+                    allow special value override: Ellipsis
+                    - For Dependency Or A More General Context Name
+                    - Can Be Used For Both A Frame And A Slot
+                    - On The Same Line As Frame Or Slot
+                        - When Frame Has More Than One Of The Same Slots
+                        - May Link To Frame
+            Reference to a `not said of` Idea
+                - attribute-is-a-concept
+                - default-is-a-example
+                indentation: exactly 4 spaces per level
+                type: Reference
 
-    - Workflow
+- Function
+    ...
+    Understand Foundation
+        - Alphabet of Human Thought
+            - every concept is reduced to primitive elements
+            - every complex idea expressible as a combination of those elements
+            - every argument is verifiable like arithmetic
+        - Pragmatic
+            - An idea becomes clear after the connections to other ideas are defined
+            - Knowledge holds its shape best as a tree of plain text, not prose or diagrams
+        - Aristotelian
+            - You never think from nothing; every new thought extends structures you already know
+            - Place each thing by its genus, then add the differentia that sets it apart
+    Iterate Over Extension
+        ...
+        Create New Language
+            ...
+            Install Dependency
+            Create Yo Code Extension
+                ...
+                Go To Terminal
+                Change Path To Where You Want To Save The File
+                Type `yo code` Into Terminal
+                Follow Prompt
+                    what type of extension do you want to create: New Language Support
+                    url or file to import, or none for new: ENTER
+                    extension name: alphabet of thought
+                    extension identifier: aot
+                    extension description: alphabet of thought
+                    language id: aot
+                    language name: alphabet of thought
+                    file extension: .aot
+                    scope name: source.aot
+                    initialise git repository: Yes
+            Create Grammar: TextMate
+                update file: aot.tmLanguage.json
+                update file: language-configuration.json
+        Make Change
+            Run `python install.py` Command
+                ...
+                Update Package Version
+                    Update Version Number
+                        file: package.json
+                        attribute: "version"
+                    Run `npx @vscode/vsce package` Command
+                Update Local Extension
+                    Run Command: code --install-extension .\alphabet-of-thought-1.1.2.vsix --force
+                    Reload VS Code For the new version to take effect: Ctrl+Shift+P → "Developer: Reload Window"
+                    Verify The New Version Loaded (Extensions panel shows the new version number)
+                Update Remote Extension
+            Make Changes To Marketplace
+                Go To Link: https://marketplace.visualstudio.com/manage/publishers/Jakus
+                Click `...` `More Actions` Button
+                Click DropDown: Update
+                Drag Vsix File Into Visual Studio Code Window
+                click button: Install
+                click button: Reload
+            Upload Changes To GitHub
+    Publish File
+        Create File
+            file extension: aot
+            - plain text, not prose
+            - a tree, not a diagram
+            - use full words, never abbreviate
+            - fix all misspellings
+        Setup Primitive
+            scaffold: Primitive
+            - Motivation
+            - Network
+            - Function
+            - Workflow
+        Code Token
+            encode: Token
+            - Ideas
+            - Connections
+                Inheritance
+                Polymorphism
+                One term, one definition
+        Share File
 
-        Work Out What You Mean
-            thread: Asynchronous
-            - Create File
-                interval
-                timeout: when file is published
-            - Iterate Over Extension
-                worker pool: 1
+... To-Do
+
+- Workflow
+
+    Work Out What You Mean
+        thread: Asynchronous
+        - Create File
+            interval
+            timeout: when file is published
+        - Iterate Over Extension
+            worker pool: 1
     
+... what was under primitives
+- Graph
+    - Example
+        Repository
+            path
+            - Source code
+                path: src/
+            - Configuration
+                path: config/
+            - Tests
+                path: tests/
+    - Thought
+        Alpha Node
+            said of
+            present in
+        Primitive
+            Graph
+                said of
+                Node
+                    Dependency
+                        Independent Node
+                        Dependent Node
+                            independent node
+                    Tree (Reoccuring Tree)
+                        Parent
+                        Child
+                            tree
+                    Star (Flat Tree)
+                        Root
+                        Peripheral
+                            root
+                        Remote
+                            first peripheral
+                            second peripheral
+                            node (control)
+                    ...
+                Edge
+                    Directional Edge
+                        from node
+                        to node
+                    Non Directional Edge (Many To Many Dependency)
+                        first node
+                        second node
+                Record
+                    said of: Not Said Of
+            Motiviation
+                Beneficairy
+                    said of
+                    interest (How much the stakeholder cares about the outcome)
+                    influence  (Their ability to affect decisions, resources, or outcomes)
+                    Human (Natural Person)
+                        - Jakus
+                        first name: Alida
+                        surname: Zondo
+                        title
+                        date of birth
+                        gender
+                        home language
+                        nationality (country)
+                        is living: yes
+                    Organisation
+                        ...
+                        Business
+                        Government
+                        N G O
+                        Foundation
+                        trading name
+                        no terminology name
+                        is business unit
+                        is user classified
+                        incorporated country
+                        nickname
+                        tax number
+                Measurement
+                    said of: Not Said Of
+                    superordinate measurement: None
+                    name
+                    expected value
+                    actual value
+                    measurement operation used
+                        - Observation
+                            characteristic (trait)
+                            class
+                            stereotype
+                        - Formula
+                            - Arithmetic
+                                - Addition (Sum)
+                                - Subtraction
+                                - Multiplication (Product)
+                                - Division
+                                    - Ratio
+                                    - ...
+                                - ...
+                            - Statistical
+                                - Maximum
+                                - Minimum
+                                - Average
+                                    - Mean
+                                    - Mode
+                                    - Median
+                                - Standard Deviation
+                                - Sample Size
+                                - ...
+                        - Grading
+                            grade interval minimum
+                            grade interval maximum
+                            number of grades
+                        - Rescaled Measurement
+                            - Fahrenheit to Celsius
+                            - ...
+                            multiplier measurement: 1
+                            offset scaling magnitude: 0
+                            exponent (power): 1
+                        - Ranking
+                            minimum ranking
+                            maximum ranking
+                            is minimum ranking open: false
+                            is maximum ranking open: false
+
+                        - Refinement
+                    data type
+                        Numeric
+                            - Amount
+                                - Cyclomatic Complexity
+                                - Lines Of Code
+                            - Current
+                                - Amps
+                                - ...
+                            - Length
+                                - Meter
+                                - ...
+                            - Light
+                                - Candela
+                                - ...
+                            - Mass
+                                - Kilogram
+                                - ...
+                            - Temperature Unit
+                                - Kelvin
+                                - ...
+                            - Time
+                                - Second
+                                - ...
+                            - ...
+                            is integer: No
+                            offset scaling magnitude
+                                - 0
+                                    is integer: Yes
+                                - ... anything other than 0
+                                    is integer: No
+                            numeric base: 10
+                            is signed: true
+                            relative zero point
+
+                        - Text (characters)
+                        - Audio
+                        - Video
+                        - Image
+                        - Ignore
+                        offset scaling magnitude
+                        numeric base
+                        numeric base: 10
+                        is signed: true
+                        multiplier measurement
+                        minimum number of elements: 1
+                        maximum number of elements (length): 1
+                            - 1
+                            - container
+                                - 2
+                                - ...
+                            - stream
+                                end of stream
+                        validation rule
+                            - Valid Value Enumeration
+                            - ...
+                        minimum bit count: 0
+                        maximum bit count: infinite
+                        is constant value: No
+                    superordinate measurement influence
+                        - Red
+                        - Amber
+                        - Green
+                        - None
+                    instrument
+                    author
+                    start time
+                    updated time
+                    updating author
+            - Function
+                - Example
+                    Do Value Chain Activity
+                    Primary
+                        Promote brand offering (Marketing & Sales)
+                            - Launch social media ad campaigns
+                            - Negotiate vendor contracts with retail partners
+                            - Publish promotional discounts for seasonal sales
+                        Manage inbound material (Inbound Logistics)
+                            - Unload raw steel from delivery trucks
+                            - Inspect organic ingredients for quality assurance
+                            - Store digital components in temperature-controlled warehouses
+                        Transform raw input (Operations)
+                            - Assemble electronic circuits on the production line
+                            - Bake artisan bread in commercial ovens
+                            - Package finished apparel into retail-ready boxes
+                        Distribute finished product (Outbound Logistics)
+                            - Load delivery fleets for regional distribution
+                            - Fulfill online orders via third-party couriers
+                            - Dispatch bulk cargo to international shipping ports
+                        Support final customer (Service)
+                            - Repair broken hardware under warranty agreements
+                            - Process product returns via customer service
+                            - Troubleshoot software glitches over live chat
+                    Support
+                        Govern company infrastructure (Firm Infrastructure)
+                            - Audit financial ledgers
+                            - Draft legal contracts
+                            - Secure internal networks (Against cyber threats)
+                        Develop human talent (Human Resource Management)
+                            - Interview engineering candidates
+                            - Conduct safety training
+                            - Administer employee benefits
+                                - payroll systems
+                                - ...
+                        Advance proprietary technology (Technological Development)
+                            - Code automated features
+                            - Test alternative materials
+                            - Upgrade database servers
+                        Source essential good (Procurement)
+                            - Source raw fabrics
+                            - Purchase office equipment
+                            - Approve vendor bids
+            Workflow
+                Worker Pool (In Use Item)
+                    - Role
+                    - Asset
+                    - Function
+                    - Object
+                    - Value
+                    said of
+                    is bottleneck: yes
+                    is tangible: no
+                    useful life: infinite
+                    write-off method: not applicable
+                    maximum worker pool: 1
+                    thread
+                        Concurrent (Single-Threading)
+                            - Synchronise
+                            - Reentrant Lock
+                            - Event
+                            - Condition
+                            - Barrier
+                            fixes
+                                - shared state
+                                    - delete (design away)
+                                    - clamp into single complex (no shared medium)
+                                    - coordinate once, offline, by convention
+                                    - pass messages and isolate (guard)
+                                        - separate service
+                                        - hide information
+                                    - reduce costs
+                                        - free riding
+                                        - unreliable channels sacrifice consistency or availability
+                                - externalise
+                                    - precompute
+                                    - parallelise
+                                    - asynchronise
+                                    - defer
+                                - add cheaper resources
+                                    - diversified copies
+                                        - multiversion concurrency
+                                        - readers never block writers
+                                        - (no lock at all)
+                                        - validate on commit only
+                                    - buffer ("Slack")
+                                        - me
+                                        - another party
+                                    - fastest gun redundancy
+                                        - fire at several replicas and take first answer
+                                        - multiple nodes with same data
+                                    - optimistic concurrency (speculate then reconcile on rare miss)
+
+                                - decorrelate the need from the specific resource
+                                - satisficing (good enough optimisation of requirements)
+                                    - net and clear
+                                    - collapse the obligation graph
+                                - outsource dependency to whoever can handle it better
+                                - substitute collateral
+                        Asynchronous
+                            wrapped concurrent
+                            waiting for: external instrument
+                            suspension event
+                            awaiting event
+                            wrapped coroutine
+                        Parallel (Multithreading)
+                            maximum worker pool: many
+                            is worker pool count known: no
+                            processing rule
+                                - Queue
+                                    has lock: yes
+                                - Dedicated
+                                    has lock: no
+                                - Semaphore
+                                    permit count
+                            is memory shared in pool of workers
+                                - Thread
+                                - Process
+                            risk
+                                - Race Condition
+                                - Deadlock
+
+                
+                Time
+                    Milestone
+                        precision
+                        interval count: 0
+                        format
+                            - Time Only
+                                seconds precision: no seconds
+                                date precision: no date
+                            - Date
+                                precision: no time
+                            - Datetime
+                                precision: no seconds
+                            - Precise Datetime
+                                precision: microseconds
+                    Duration
+                        interval count: 1
+                    Cycle
+                        interval count: 2 or more
+                    item
+                    not said of
+                    result
+                    is done
+                    exception
+                    start condition
+                    interval: 5 seconds
+                    interval count
+                    timeout
+                    polling duration
+                    precision: up to minutes
+                    displacement from greenwich meridian hours: +0
+
+
+- Function
+    Write Primitive
+        - Motivation
+        - Graph
+        - Function
+        - Workflow
+    
+- Workflow

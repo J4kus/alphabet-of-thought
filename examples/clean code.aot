@@ -87,3 +87,18 @@ Functional Dependency
             right: q
         - Loner
             memo: solo
+Drift Problem Fix
+    location: building 3
+    Otter
+        - Ollie
+            size: 5
+            location: tank 1
+        - Pebble
+    Seal
+        - Splash
+    Sign
+        - Feeding Times Poster
+            size: 10
+    Map
+        - Wall Map
+            location: entrance hall

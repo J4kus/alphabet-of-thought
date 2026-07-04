@@ -121,10 +121,8 @@
             Rate confidence in answer
             Summon low confidence deliberation
 - Workflow
-    Worker
+    Collective Belief
         thinker
-        - Synchronous
-            use intuition: gegeg
+        - Asynchronous
+            use intuition
             make deliberation
-                | gegeg
-        
