@@ -1,10 +1,10 @@
 # Alpha (.aot)
 
-Alpha is the world's smallest engineering text-based notation for writing down what you your biggest, complicated thoughts — powered by an [tooling](#the-tooling) that checks your thoughts against the world's most powerful ideas about thinking. 
+Alpha is the world's smallest knowledge represenation notation for writing down what your biggest, complicated thoughts are ergomically — powered by an [tooling](#the-tooling) that checks your thoughts against the world's most powerful ideas about thinking. 
 
 A language this small is why the tooling can be an exact referee instead of a guesser, and why an AI can work the model. The `.aot` file extension lints as you type and is **verified** when its violation total `V` reaches 0.
 
-If your thoughts need to be bigger than one brain can handle at a time, or just want your ideas to survive contact with an LLM, Alpha gives you a way to write them so that anyone — including you, six months from now — can read them instantly. If you can draw a family tree, you already know how Alpha works.
+If your thoughts need to be bigger than one brain can handle at a time, or just want your ideas to survive contact with an LLM, Alpha gives you a way to write them so that anyone — including you, six months from now — can read them instantly.
 
 **Contents:** [What you'd use it for](#what-youd-use-it-for) · [Why bother with the strictness](#why-bother-with-the-strictness) · [Quick start](#quick-start) · [The language](#the-language) · [Starting axiomatically](#starting-axiomatically) · [Tables](#tables--org-mode-spreadsheets-as-alpha) · [The four primitives](#the-four-primitives) · [The tooling](#the-tooling) · [Design rules](#design-rules) ...to be updated
 
@@ -97,7 +97,15 @@ Parent
 
 `Child` inherits `essential parent attribute: normal value` from `Parent`. The `- Child Example` overrides that inherited value with `new value`, assigns a default to `essential child attribute not in parent`, and adds `child example attribute` — an accidental attribute not present in the `Child` Concept. (The two `...` lines mark the example as deliberately incomplete, which is the only thing a Map does.)
 
-### Cross-links
+### Crosslinks — underlined, Ctrl+click jumps to the definition
+
+The extension (`src/crosslinks.js`) underlines three inline connections and resolves them for go-to-definition; hovering shows the target and its line. They also deepen the FCA audit by carrying a referenced node's ancestry into the formal context. The two link kinds are told apart by underline style, not colour (the link keeps its token's syntax colour): a **solid** underline points at a Concept, a **dotted** underline at an Example.
+
+| Connection | What links | Underline | Example |
+|------------|-----------|-----------|---------|
+| **attribute-is-a-Concept** | An attribute or default whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | solid | `age integer: 5` → `integer` → `Integer` |
+| **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | solid | `Independent Node` → `Node` → `Node` |
+| **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | dotted | `human: Socrates` → `- Socrates` |
 
 #### Composition
 
@@ -381,16 +389,6 @@ Each finding carries a **confidence**: the number of *confirming repeats* (Examp
 #### No editor hints remain
 
 Earlier versions surfaced three advisory hint kinds with no squiggle: the FCA audit (`src/fca.js`, after Wille, 1982), the content clash (`src/godel.js`), and the dependency inference (`src/armstrong.js`). The FCA audit and the content clash are now **errors** counted in `V` (rules 15–18); the dependencies are now **warnings** (rules 8–9). Nothing maps to the editor's Hint severity any more.
-
-### Crosslinks — underlined, Ctrl+click jumps to the definition
-
-The extension (`src/crosslinks.js`) underlines three inline connections and resolves them for go-to-definition; hovering shows the target and its line. They also deepen the FCA audit by carrying a referenced node's ancestry into the formal context. The two link kinds are told apart by underline style, not colour (the link keeps its token's syntax colour): a **solid** underline points at a Concept, a **dotted** underline at an Example.
-
-| Connection | What links | Underline | Example |
-|------------|-----------|-----------|---------|
-| **attribute-is-a-Concept** | An attribute or default whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | solid | `age integer: 5` → `integer` → `Integer` |
-| **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | solid | `Independent Node` → `Node` → `Node` |
-| **default-is-a-Example** | A default value that matches an Example name **exactly** (case-sensitive). | dotted | `human: Socrates` → `- Socrates` |
 
 ### Gödel numbering
 

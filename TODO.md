@@ -52,3 +52,83 @@ node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = ver
 
 ## Editor / highlighting (VS Code extension)
 - [ ] Colour aliases differently from other tokens
+
+
+
+# Implement Armstrong's Axioms as fully as possible
+
+## Context
+
+The TODO's table maps Armstrong's six axioms (Reflexivity, Augmentation, Transitivity, Union, Decomposition, Pseudotransitivity) to Alpha terms, but reconciliation showed **none are implemented as inference rules**: `src/armstrong.js` only *mines* single-attribute FDs from Example data, and the one mechanized axiom (Transitivity, as the declared Concept-dependency closure behind the old CLI's `--depends`) was deleted in commit `1b58c33` ("refactor: declutter") along with `verify.js`. This plan makes all six axioms real. User decisions: restore the declared-dependency closure **plus an editor hover surface** (no CLI restore); mine **composite two-attribute determinants** (gives Augmentation/Decomposition/Pseudotransitivity material, enables candidate-key discovery); report via **minimal cover** (suppress derivable FDs, group by determinant).
+
+Everything stays advisory (never counted in `V`), pure CommonJS, no new dependencies. The deleted code is recoverable verbatim from `git show 1b58c33^:src/armstrong.js` and `git show 1b58c33^:out/test-armstrong.js`.
+
+## Step 1 — `src/armstrong.js`: restore + generalize (keep existing exports working)
+
+**1a. Restore declared-dependency machinery** (verbatim from `1b58c33^`): `conceptOf`, `containedConcepts`, `dependencyGraph`, `dependsOf`. Requires re-adding `const { index, wordStarts } = require("./crosslinks")` (both still exported at `crosslinks.js:268`) and `CONCEPT` in the KIND destructure. `dependsOf(root, nodes, concept)` returns `{ direct: [node], transitive: [{ node, through: [node] }] }` — Armstrong Transitivity at the Concept level.
+
+**1b. FD representation**: holds become `{ lhs: [sortedAttrKeys] (len 1–2), rhs: attrKey, x, y, support, confirms, incomplete }` where `x`/`y` are back-compat aliases (`x = lhs.length===1 ? lhs[0] : undefined`, `y = rhs`) so existing tests (`out/test-armstrong.js`, `out/test-linter.js:306`) keep passing. Dedup key: join lhs with `"\n"` (attr keys are multi-word, never multi-line).
+
+**1c. Pair mining** in `inferFDs`: factor the group-check into a shared `mine(lhsKeys, yKey, …)` helper (group Examples by lhs code-tuple, check y constant per group). Singleton pass unchanged semantically; build `determinedBy: Map(y -> Set(x))` while emitting. Pair pass, for each unordered attr pair `{a,b}` and each other `y`:
+- **Augmentation-prune**: skip if `a` or `b` alone already determines `y`
+- support ≥ `MIN_SUPPORT` (3) on Examples valued on all three; pre-check the `a∩b` intersection before the y-loop
+- variation guards: y ≥ 2 codes, the tuple ≥ 2 values, **and each of a, b individually ≥ 2 codes** (else it's a disguised singleton with an extraneous attribute)
+- **pair key-guard**: tuple distinct on every Example ⇒ skip unconditionally (no bijection exception — a real `{a,b}↔y` implies `y→a`, `y→b`, which the singleton pass reports)
+- `confirms = support − distinctTuples`; `incomplete` as today (ellipsis-marked parents)
+
+Complexity: O(A³·N) worst case; fine at the existing gates (N ≤ 200 via `MAX_FCA_OBJECTS`, few dozen attrs), and the prunes cut most of it. State this in a comment.
+
+**1d. `closure(attrs, fds)`** — attribute-set closure X⁺, the sound-and-complete embodiment of all six axioms: seed with X (Reflexivity), fixpoint-fire every fd whose lhs ⊆ set (Augmentation/Transitivity/Pseudotransitivity via chaining; Union/Decomposition free since rhs is atomic). Naive loop is fine at this scale.
+
+**1e. `minimalCover(fds)`** (returns a new array):
+1. *Left-reduction* (Reflexivity/Augmentation): for 2-attr lhs, if `closure(lhs∖{a}, fds)` contains rhs, reduce to the singleton (dedupe via key, keep higher confirms / less incomplete).
+2. *Redundancy elimination* (Transitivity/Pseudotransitivity): weakest-first (ascending confirms, incomplete first), drop `f` if `closure(f.lhs, rest)` contains `f.rhs` — where `rest` excludes `f` **and** (evidence guard) any `g` with `g.confirms < min(f.confirms, MIN_CONFIDENCE)` or `g.incomplete && !f.incomplete`. This guarantees an editor-grade squiggle is never suppressed in favour of sub-threshold/incomplete chains.
+
+**1f. `findings(root, nodes)` rework**:
+1. Equivalence pass first, over the **raw** singleton holds (current `byPair` logic, messages unchanged — `covaries` + equivalence `derivable`), recording reported pairs; this guarantees the "same distinction written twice" message survives the cover.
+2. `minimalCover(holds)`, skip members already reported as equivalences.
+3. **Union grouping** by determinant: editor-grade members (confirms ≥ `MIN_CONFIDENCE` && !incomplete) sharing a determinant merge into one finding — `kind: "derivable"`, `confidence = min(members)`, `line = max(lineOf(rhs))`, message `dependency: 'country' determines 'currency' and 'dialing code' — …` (single-member groups keep the **current one-way message verbatim**, so `out/test-linter.js:306` passes untouched). Composite-lhs findings get a new message: `'price' looks derivable from 'brand' and 'model' together — … while neither alone determines it …`. Weak members emit individually with today's messages (filtered from the editor at `extension.js:48` as before).
+4. Finding shape stays `{ line, kind, confidence, incomplete, message }` — **no change to `extension.js:48`'s filter**.
+
+**1g. `candidateKeys(root, nodes)`** — hover-only, **not** a finding (a key is descriptive, not a fixable redundancy; it has no natural confidence for the filter). Per Example table (parent with ≥ 3 godel-numbered INDIVIDUAL children): fully-populated columns only; singleton keys = all-distinct codes; pair keys = all-distinct tuples with neither member already a key (minimality). Returns `Map(parentNode -> [[attrKey,…],…])`. Factor the `valuedOn` builder out of `inferFDs` for reuse.
+
+**1h. Exports**: add `closure, minimalCover, candidateKeys, dependsOf, dependencyGraph, containedConcepts, conceptOf` to the existing three.
+
+**1i. Header comment**: rewrite lines 1–21 (currently says the module does NOT apply the axioms) — it now does: closure = all six axioms; mining = singleton + pairs with the Augmentation-prune; findings = minimal cover (left-reduction, redundancy drop) + Union grouping, atomic rhs = Decomposition; `dependsOf` restored, surfaced as the Concept hover. Keep the "advisory, never counted in V; pure" paragraph, add `./crosslinks` to the dependency list.
+
+## Step 2 — `src/extension.js`: Concept hover
+
+- Extend the cache at line 22: `linksByDoc` → `analysisByDoc = new Map(); // uri -> { links, root, nodes, clean }`; update touchpoints at lines 28, 74, 120, 333. Hover reuses the last analysis — never re-lints per hover.
+- New `hoverProvider` next to `definitionProvider` (line 118): on a line whose node is `kind === KIND.CONCEPT` (`n.line === position.line + 1`), build a `vscode.MarkdownString` from `armstrong.dependsOf(root, nodes, node)` — direct deps, then transitive as `` `X` (via `Y` → `Z`) `` — plus, when `cached.clean` and the Concept's Example count is within the 2–200 gate, its `candidateKeys` (recomputing buildGodel on demand is milliseconds; comment it). Return `null` when there's nothing to show. Coexists with decoration `hoverMessage`s (VS Code stacks hovers).
+- Register in `activate()` beside line 338: `vscode.languages.registerHoverProvider({ language: "aot" }, hoverProvider)`.
+
+## Step 3 — Tests (plain Node scripts, no framework)
+
+- **`out/test-armstrong.js`**: restore the deleted `dependsOf`/`dependencyGraph` fixture verbatim (`git show 1b58c33^:out/test-armstrong.js`). New fixtures: transitive chain city→country→currency (mined `city→currency` exists in `.holds` but **no finding** pairs city with currency — cover suppresses it, plain suppression, no chain narration); Union grouping (exactly one `/'country' determines/` finding containing both dependents, confidence = min); composite pair (brand+model→price where neither alone works); pair key-guard (all-distinct tuple determines nothing); Augmentation-prune (no 2-attr lhs containing country with rhs currency); candidateKeys (code unique, brand+model unique, minimality).
+- **`out/test-extension.js`**: extend the vscode mock (near line 32) with `registerHoverProvider`, `Hover`, `MarkdownString` stubs — **required in the same change as Step 2 or `activate()` crashes the smoke test**. Add a hover smoke check (provideHover on a Concept line → markdown mentions direct + transitive deps). The line-137 assertion (`/^dependency:/` among warnings for `examples/alphabet of thought.aot`) must still pass — grouped messages keep the prefix; if that file's warning set changes shape, inspect what merged vs. vanished before touching the assertion.
+- **`out/test-linter.js`**: no edits expected; its `/determines 'currency'/` and covariation regexes are preserved by the verbatim single-member message path.
+
+## Step 4 — Docs
+
+- **README.md** (recently rewritten — locate by heading, not line number): section `Armstrong's axioms (dependency inference)` — the axioms are now applied: name which axiom does what (per 1f/1e); add composite determinants and candidate keys to the "Inferred from the Examples" paragraph; rewrite the "Declared by the Concept references" paragraph (no longer "currently gone" — restored, surfaced as the Concept hover; CLI itself still deleted per TODO). Mention the hover in the tooling section's dependency-inference bullet.
+- **TODO.md** — *optional/careful: the user's buffer may hold unsaved edits.* If touched: note in the line-37 restore item that armstrong.js's four helpers are back (only godel.js helpers remain for verify.js), and move `--depends X` from "Fully gone" to "Still available (as the Concept hover)".
+
+## Verification
+
+```
+node out/test-armstrong.js
+node out/test-linter.js
+node out/test-extension.js
+node out/test-godel.js
+node out/test-fca.js
+node out/test-table.js
+```
+
+All must exit 0 / print PASS. Manual: `code --extensionDevelopmentPath=. examples`, open `examples/alphabet of thought.aot` (dependency warnings still squiggle, now grouped per determinant), hover a Concept whose attributes reference other Concepts (direct + through-chain list), hover a table's parent Concept in `examples/spreadsheet.aot` (candidate keys), Ctrl+click a crosslink (DefinitionProvider still works off the renamed cache).
+
+## Implementation order
+
+1. Restore the four dependency functions + exports + restored smoke test (green suite, no behavior change).
+2. Mining/closure/cover/findings/candidateKeys + header comment + new armstrong tests.
+3. Hover provider + cache rename + test-extension mock update, together.
+4. Docs.
