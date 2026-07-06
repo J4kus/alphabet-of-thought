@@ -64,7 +64,7 @@ const PLAIN = /^[A-Za-z][a-z]*(?:'[a-z]+)?$/;
 
 // Spelling hints over a document's text. Returns { line, message, startCol,
 // endCol } findings (1-based lines, 0-based columns), one per occurrence.
-// extraWords is the user's own vocabulary (aot.spellingWords), lowercased.
+// extraWords is the user's own vocabulary (aot.acceptedWords), lowercased.
 function check(text, extraWords) {
   const [gb, us] = load();
   const hints = [];

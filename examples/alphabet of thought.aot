@@ -66,7 +66,7 @@
                     end: end of line
                     allow special value override
                         - Ellipsis
-                        - Boolean
+                        - Booleans
                 - Default Value (Individual Accident)
                     start: :
                     end: End of line
@@ -231,7 +231,7 @@
                             grade interval minimum
                             grade interval maximum
                             number of grades
-                        - Rescaled Measurement
+                        - Re-scaled Measurement
                             - Fahrenheit to Celsius
                             - ...
                             multiplier measurement: 1

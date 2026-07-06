@@ -376,6 +376,11 @@ check("verify: identical sibling defaults are an error",
 check("verify: a plural Concept name warns",
   lintTree(aot("Animals"), "Zoo").report.warnings.some((w) => /appears plural/.test(w.message)));
 
+// an accepted word (lint's third argument, fed by the editor's Quick Fix via
+// aot.acceptedWords) is not read as plural
+check("verify: an accepted word is not flagged plural",
+  !lint(aot("Animals"), "Zoo", new Set(["animals"])).warnings.some((w) => /appears plural/.test(w.message)));
+
 // actual without target / target without actual (warnings)
 check("verify: 'actual' without 'target' warns",
   lintTree(aot("Metric", "    actual: 5")).report.warnings.some((w) => /'actual' without 'target'/.test(w.message)));

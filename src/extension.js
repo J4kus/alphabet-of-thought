@@ -23,9 +23,18 @@ const MAX_FCA_OBJECTS = 200;
 // uri string -> { links, root, nodes } from the last analysis of that document
 const analysisByDoc = new Map();
 
+// The user's accepted words (aot.acceptedWords, lowercased): the spelling
+// hints skip them and a Concept ending in one is not read as plural. The
+// Quick Fix on either finding appends to the list.
+function acceptedWords() {
+  const config = vscode.workspace.getConfiguration("aot");
+  return new Set((config.get("acceptedWords", []) || []).map((w) => String(w).toLowerCase()));
+}
+
 function analyse(doc) {
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-  const { root, nodes, errors, warnings } = lint(doc.getText(), rootName);
+  const accepted = acceptedWords();
+  const { root, nodes, errors, warnings } = lint(doc.getText(), rootName, accepted);
   const links = resolve(doc.getText(), root, nodes);
   analysisByDoc.set(doc.uri.toString(), { links, root, nodes });
   // a lattice over a broken tree means nothing, so suggest only on V = 0.
@@ -62,11 +71,9 @@ function analyse(doc) {
   }
   // spelling is advisory prose-hygiene, independent of the tree's verdict:
   // words longer than four characters that no English dialect (nor the
-  // user's own aot.spellingWords vocabulary) knows, off with aot.spellingHints
-  const config = vscode.workspace.getConfiguration("aot");
-  const hints = config.get("spellingHints", true)
-    ? spelling.check(doc.getText(),
-        new Set((config.get("spellingWords", []) || []).map((w) => String(w).toLowerCase())))
+  // user's accepted words) knows, off with aot.spellingHints
+  const hints = vscode.workspace.getConfiguration("aot").get("spellingHints", true)
+    ? spelling.check(doc.getText(), accepted)
     : [];
   return {
     errors: errors.concat(deepErrors, formulaErrors),
@@ -189,6 +196,42 @@ const hoverProvider = {
     return new vscode.Hover(md, range);
   },
 };
+
+// The lightbulb on a spelling hint or an appears-plural warning accepts the
+// word: it joins aot.acceptedWords in the user settings, the spelling hints
+// skip it and a Concept ending in it is no longer read as plural. The word
+// is read back out of the message (both formats are this extension's own).
+const ACCEPT_SPELLING = /^'(.+)' is not in the dictionary/;
+const ACCEPT_PLURAL = /^Concept '(.+)' appears plural/;
+const codeActionProvider = {
+  provideCodeActions(doc, range, context) {
+    const actions = [];
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot") continue;
+      const spelt = ACCEPT_SPELLING.exec(diagnostic.message);
+      const plural = ACCEPT_PLURAL.exec(diagnostic.message);
+      // a plural finding is about the Concept's last word, which carries the number
+      const word = spelt ? spelt[1] : plural ? plural[1].split(/\s+/).pop() : null;
+      if (!word) continue;
+      const action = new vscode.CodeAction(
+        `Accept '${word}' (add to aot.acceptedWords)`, vscode.CodeActionKind.QuickFix);
+      action.diagnostics = [diagnostic];
+      action.command = { command: "aot.acceptWord", title: `Accept '${word}'`, arguments: [word] };
+      actions.push(action);
+    }
+    return actions;
+  },
+};
+
+// Append a word to aot.acceptedWords (user settings, case-insensitive). The
+// configuration change re-lints every open document, so the finding clears.
+async function acceptWord(word) {
+  const config = vscode.workspace.getConfiguration("aot");
+  const words = config.get("acceptedWords", []) || [];
+  const low = String(word).toLowerCase();
+  if (words.some((w) => String(w).toLowerCase() === low)) return;
+  await config.update("acceptedWords", [...words, low], vscode.ConfigurationTarget.Global);
+}
 
 // --- the CSV mirror -----------------------------------------------------------
 // Every table lives twice: as the pipe grid in the .aot and as a CSV named
@@ -400,6 +443,17 @@ function activate(context) {
     vscode.languages.registerDefinitionProvider({ language: "aot" }, definitionProvider),
     // hovering a Concept (or a crosslink to one) lists its dependency chains
     vscode.languages.registerHoverProvider({ language: "aot" }, hoverProvider),
+    // the Quick Fix that accepts a hinted word into aot.acceptedWords
+    vscode.languages.registerCodeActionsProvider({ language: "aot" }, codeActionProvider, {
+      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+    }),
+    vscode.commands.registerCommand("aot.acceptWord", acceptWord),
+    // a settings change (accepted words, spelling toggle, ...) re-lints
+    // every open document so the findings track it immediately
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration("aot")) return;
+      vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
+    }),
     // Format Document re-aligns every table's columns, as org-mode's TAB
     // does: each column padded to its widest cell, separators redrawn.
     vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {

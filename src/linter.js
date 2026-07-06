@@ -361,6 +361,7 @@ function verify(root, nodes, report, accepted) {
   // (e.g. 'Series') can go either way.
   const looksPlural = (name) => {
     const last = name.split(/\s+/).pop();
+    if (accepted && accepted.has(last.toLowerCase())) return false;
     return pluralize.isPlural(last);
   };
   for (const node of nodes) {
@@ -443,11 +444,12 @@ function verify(root, nodes, report, accepted) {
 
 // Full lint pass over a document's text. Returns the numbered tree along
 // with errors and warnings as { line, message } (lines are 1-based).
-function lint(text, rootName) {
+// accepted (optional) is the user's accepted-words Set, see verify.
+function lint(text, rootName, accepted) {
   const report = makeReport();
   const { root, nodes } = parse(text, rootName, report);
   number(root, nodes);
-  verify(root, nodes, report);
+  verify(root, nodes, report, accepted);
   // Required lazily: subsumption.js reads KIND from this module, so a
   // top-level require would be circular (as it is for crosslinks.js). The
   // reasoner is authoritative: a Concept the definitions place elsewhere is

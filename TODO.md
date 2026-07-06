@@ -44,6 +44,7 @@ node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = ver
 --suggest	FCA audit + the positive confirmed report (only surfaced here, not in the editor)
 
 ## Linter / diagnostics
+- [ ] Example linknig may only be to examples of concepts not exampels of attributes
 - [ ] Make example/value matching not capitalisation-specific 
 - [ ] `default-is-a-Example` now requires the Example to instantiate the attribute being valued: some ancestor of the Example must carry the attribute's name (or a trailing run of its words, the alias rule). `exponent: 1` no longer links to an unrelated `- 1` filed under another attribute; the same guard applies to the FCA value-ancestry expansion... Example value matching should only be allowed if the example is one that is the same concept as the one defined (need to carry the highlighting in the file even if it is partial)
 - [ ] Reword the "Concept defined twice" diagnostic (say something more useful instead)

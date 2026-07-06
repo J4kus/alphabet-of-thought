@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.1.77",
+  "version": "1.1.78",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -56,13 +56,13 @@
           "default": true,
           "description": "Hint words longer than four characters that neither British nor American English knows, with suggestions. Hints show on their span and on hover, never in the Problems panel."
         },
-        "aot.spellingWords": {
+        "aot.acceptedWords": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [],
-          "description": "Your own vocabulary: words the spelling hints should accept in addition to the dictionaries (case-insensitive)."
+          "description": "Your own vocabulary, case-insensitive: the spelling hints accept these words, and a Concept whose last word is one of them is not flagged as plural. The Quick Fix on either finding adds the word here."
         }
       }
     },

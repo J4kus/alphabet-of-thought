@@ -11,11 +11,17 @@ let definitionProvider = null;
 let formattingProvider = null;
 let semanticProvider = null;
 let hoverProvider = null;
+let codeActionsProvider = null;
+const plainCommands = new Map();
+const configStore = {};
 const vscode = {
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Diagnostic: class { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
   MarkdownString: class { constructor() { this.value = ""; } appendMarkdown(s) { this.value += s; return this; } },
   Hover: class { constructor(contents, range) { Object.assign(this, { contents, range }); } },
+  CodeAction: class { constructor(title, kind) { Object.assign(this, { title, kind }); } },
+  CodeActionKind: { QuickFix: "quickfix" },
+  ConfigurationTarget: { Global: 1, Workspace: 2 },
   Range: class {
     constructor(...a) { this.a = a; }
     contains(p) {
@@ -34,6 +40,7 @@ const vscode = {
     }),
     registerDefinitionProvider: (selector, provider) => { definitionProvider = provider; return { dispose() {} }; },
     registerHoverProvider: (selector, provider) => { hoverProvider = provider; return { dispose() {} }; },
+    registerCodeActionsProvider: (selector, provider) => { codeActionsProvider = provider; return { dispose() {} }; },
     registerDocumentFormattingEditProvider: (selector, provider) => { formattingProvider = provider; return { dispose() {} }; },
     registerDocumentSemanticTokensProvider: (selector, provider) => { semanticProvider = provider; return { dispose() {} }; },
   },
@@ -48,6 +55,7 @@ const vscode = {
   EndOfLine: { LF: 1, CRLF: 2 },
   commands: {
     registerTextEditorCommand: (id, fn) => { registeredCommands.set(id, fn); return { dispose() {} }; },
+    registerCommand: (id, fn) => { plainCommands.set(id, fn); return { dispose() {} }; },
     executeCommand: () => {},
   },
   window: {
@@ -69,12 +77,23 @@ const vscode = {
     onDidChangeTextDocument: () => ({ dispose() {} }),
     onDidCloseTextDocument: () => ({ dispose() {} }),
     onDidSaveTextDocument: (fn) => { vscode.workspace._save = fn; return { dispose() {} }; },
+    onDidChangeConfiguration: (fn) => { vscode.workspace._configChanged = fn; return { dispose() {} }; },
     createFileSystemWatcher: () => ({
       onDidChange: (fn) => { vscode.workspace._csvChanged = fn; },
       onDidCreate: (fn) => { vscode.workspace._csvCreated = fn; },
       dispose() {},
     }),
-    getConfiguration: () => ({ get: (key, fallback) => fallback }),
+    // a store-backed configuration, so a Quick Fix's update round-trips:
+    // writing fires onDidChangeConfiguration exactly as the real one does
+    getConfiguration: () => ({
+      get: (key, fallback) => (key in configStore ? configStore[key] : fallback),
+      update: async (key, value) => {
+        configStore[key] = value;
+        if (vscode.workspace._configChanged) {
+          vscode.workspace._configChanged({ affectsConfiguration: (section) => section === "aot" });
+        }
+      },
+    }),
     // a real file-backed document, so the CSV sync can be tested end to end
     openTextDocument: async (p) => {
       const doc = {
@@ -548,3 +567,39 @@ const listed = [
     ? "PASS (spelling: 'colour'/'gray' both dialects, short words and URLs stay silent)"
     : "UNEXPECTED extra spelling hints " + JSON.stringify(sHints.map((d) => d.message)));
 }
+
+// 11) accepting a word: the Quick Fix on a spelling hint or an appears-plural
+// warning appends the word to aot.acceptedWords; the settings change re-lints
+// and both findings clear.
+(async () => {
+  const text = [
+    "People",
+    "    note: the pakage arrived",
+  ].join("\n");
+  const docA = makeDoc("c:\\repo\\Accept.aot", text);
+  vscode.workspace.textDocuments.push(docA); // so the settings-change refresh sees it
+  vscode.workspace._open(docA);
+  const diagsOf = () => published.get(docA.uri.toString()) || [];
+  const hint = diagsOf().find((d) => d.message.includes("'pakage'"));
+  const plural = diagsOf().find((d) => /appears plural/.test(d.message));
+  const actions = codeActionsProvider.provideCodeActions(docA, hint && hint.range,
+    { diagnostics: [hint, plural].filter(Boolean) });
+  const acceptSpelt = actions.find((a) => a.title === "Accept 'pakage' (add to aot.acceptedWords)");
+  const acceptPlural = actions.find((a) => a.title === "Accept 'People' (add to aot.acceptedWords)");
+  console.log(hint && plural && acceptSpelt && acceptPlural
+    ? "PASS (accept: both a spelling hint and a plural warning offer the Quick Fix)"
+    : "UNEXPECTED accept actions " + JSON.stringify(actions.map((a) => a.title)));
+
+  await plainCommands.get("aot.acceptWord")(...acceptSpelt.command.arguments);
+  await plainCommands.get("aot.acceptWord")(...acceptPlural.command.arguments);
+  const cleared = !diagsOf().some((d) => d.message.includes("'pakage'") || /appears plural/.test(d.message));
+  console.log(cleared && configStore.acceptedWords.join(",") === "pakage,people"
+    ? "PASS (accept: the words join aot.acceptedWords and both findings clear)"
+    : "UNEXPECTED accept round trip " + JSON.stringify({ store: configStore.acceptedWords, diags: diagsOf().map((d) => d.message) }));
+
+  // accepting the same word twice writes nothing new
+  await plainCommands.get("aot.acceptWord")("People");
+  console.log(configStore.acceptedWords.join(",") === "pakage,people"
+    ? "PASS (accept: a word already accepted is not duplicated)"
+    : "UNEXPECTED duplicate accept " + JSON.stringify(configStore.acceptedWords));
+})();
