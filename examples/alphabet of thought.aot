@@ -66,7 +66,7 @@
                     end: end of line
                     allow special value override
                         - Ellipsis
-                        - Booleans
+                        - Boolean
                 - Default Value (Individual Accident)
                     start: :
                     end: End of line
