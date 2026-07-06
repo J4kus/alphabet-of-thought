@@ -10,9 +10,12 @@ const registeredCommands = new Map();
 let definitionProvider = null;
 let formattingProvider = null;
 let semanticProvider = null;
+let hoverProvider = null;
 const vscode = {
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
   Diagnostic: class { constructor(range, message, severity) { Object.assign(this, { range, message, severity }); } },
+  MarkdownString: class { constructor() { this.value = ""; } appendMarkdown(s) { this.value += s; return this; } },
+  Hover: class { constructor(contents, range) { Object.assign(this, { contents, range }); } },
   Range: class {
     constructor(...a) { this.a = a; }
     contains(p) {
@@ -30,6 +33,7 @@ const vscode = {
       dispose: () => {},
     }),
     registerDefinitionProvider: (selector, provider) => { definitionProvider = provider; return { dispose() {} }; },
+    registerHoverProvider: (selector, provider) => { hoverProvider = provider; return { dispose() {} }; },
     registerDocumentFormattingEditProvider: (selector, provider) => { formattingProvider = provider; return { dispose() {} }; },
     registerDocumentSemanticTokensProvider: (selector, provider) => { semanticProvider = provider; return { dispose() {} }; },
   },
@@ -131,13 +135,43 @@ console.log(`published ${errorsD.length} errors, ${warningsD.length} warnings, $
 for (const d of diags.slice(0, 3)) {
   console.log(`  [${severityName[d.severity]}] line ${d.range.a[0] + 1}: ${d.message}`);
 }
-// The FCA audit (drift / exhaustion) and the content-identical Gödel clash are
-// errors; the inferred functional dependencies are warnings; nothing is a hint.
-const fcaOrClash = /^(drift|exhaustion|clash):/m.test(errorsD.map((d) => d.message).join("\n"));
-const depWarn = /^dependency:/m.test(warningsD.map((d) => d.message).join("\n"));
-console.log(errorsD.length > 0 && fcaOrClash && depWarn && hintsD.length === 0
-  ? "PASS (FCA/clash are errors; dependencies are warnings; no hints)"
+// The reference file verifies (V = 0), so no errors; whatever hints appear
+// must all be spelling (the only finding that maps to Hint).
+const spellingOnly = hintsD.every((d) => / is not in the dictionary/.test(d.message));
+console.log(errorsD.length === 0 && spellingOnly
+  ? "PASS (reference file verifies; hints are spelling only)"
   : "UNEXPECTED COUNT");
+
+// Severity mapping on a fixture that carries one of each deep finding: the
+// content-identical Gödel clash publishes as an error, the inferred
+// functional dependency as a warning — the drifting reference file can't be
+// trusted to keep exhibiting either.
+{
+  const stock = [
+    "Stock",
+    "    - Bin 1",
+    "        sku: P",
+    "        name: Widget",
+    "    - Bin 2",
+    "        sku: P",
+    "        name: Widget",
+    "    - Bin 3",
+    "        sku: Q",
+    "        name: Gadget",
+    "    - Bin 4",
+    "        sku: Q",
+    "        name: Gadget",
+  ].join("\n");
+  const docM = makeDoc("c:\\repo\\Dep.aot", stock);
+  vscode.workspace._open(docM);
+  const mDiags = published.get(docM.uri.toString()) || [];
+  const clashErr = mDiags.find((d) => /^clash:/.test(d.message));
+  const depWarn = mDiags.find((d) => /^dependency:/.test(d.message));
+  console.log(clashErr && clashErr.severity === vscode.DiagnosticSeverity.Error
+    && depWarn && depWarn.severity === vscode.DiagnosticSeverity.Warning
+    ? "PASS (clash publishes as error; dependency as warning)"
+    : "UNEXPECTED severity mapping " + JSON.stringify(mDiags.map((d) => [d.severity, d.message.slice(0, 30)])));
+}
 
 // 2) crosslinks: an attribute-is-a-Concept and a default-is-a-Example
 const sample = [
@@ -424,4 +458,93 @@ const listed = [
       ? "PASS (formula: Tab recomputes the value in place)"
       : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
   });
+}
+
+// 9) aliases are alternative names: an attribute typed by a Concept's alias
+// crosslinks to that Concept, a Concept's alias that names another Concept
+// links itself (alias-is-a-Concept), and hovering a Concept lists its
+// dependency chains — one per crosslinked attribute, one Concept per hop.
+{
+  const text = [
+    "Category (Type)",     // 'type' resolves to this Concept via its alias
+    "    label",
+    "Card",
+    "    type",            // attribute-is-a-Concept through the alias
+    "Auto (Car)",          // alias-is-a-Concept: 'Car' names the Concept below
+    "Car",
+    "    owner person",
+    "Person",
+    "    home address",
+    "Address",
+  ].join("\n");
+  const { lint } = require("../src/linter");
+  const { resolve } = require("../src/crosslinks");
+  const t9 = lint(text, "World");
+  const links9 = resolve(text, t9.root, t9.nodes);
+  const typeLink = links9.find((l) => l.connection === "attribute-is-a-Concept" && l.line === 4);
+  console.log(typeLink && typeLink.target.name === "Category"
+    ? "PASS (alias: attribute 'type' crosslinks to the Concept 'Category (Type)')"
+    : "UNEXPECTED alias typing " + JSON.stringify(typeLink));
+  const aliasLink9 = links9.find((l) => l.connection === "alias-is-a-Concept");
+  console.log(aliasLink9 && aliasLink9.line === 5 && aliasLink9.startCol === 6 && aliasLink9.text === "Car" && aliasLink9.target.line === 6
+    ? "PASS (alias: a Concept's alias links to the Concept it names, inside the parentheses)"
+    : "UNEXPECTED alias-is-a-Concept " + JSON.stringify(aliasLink9));
+
+  // hovering 'Car' (line 6): its crosslinked attribute reaches Person, whose
+  // attribute reaches Address — one chain of three Concepts
+  const doc9 = makeDoc("c:\\repo\\World.aot", text);
+  vscode.workspace._open(doc9);
+  const hover = hoverProvider.provideHover(doc9, new vscode.Position(5, 1));
+  const hoverOk = hover && hover.contents.value.includes("Car ─owner person→ Person ─home address→ Address")
+    && hover.contents.value.includes("3 Concepts");
+  console.log(hoverOk
+    ? "PASS (hover: 'Car' shows the chain Car → Person → Address, 3 Concepts)"
+    : "UNEXPECTED hover " + JSON.stringify(hover && hover.contents.value));
+
+  // hovering 'Auto': its alias adds a hop, so the same chain runs one longer
+  const hoverAuto = hoverProvider.provideHover(doc9, new vscode.Position(4, 1));
+  console.log(hoverAuto && hoverAuto.contents.value.includes("Auto ─alias→ Car ─owner person→ Person ─home address→ Address")
+    && hoverAuto.contents.value.includes("4 Concepts")
+    ? "PASS (hover: 'Auto (Car)' chains through its alias, 4 Concepts)"
+    : "UNEXPECTED alias hover " + JSON.stringify(hoverAuto && hoverAuto.contents.value));
+
+  // hovering the crosslink 'person' in 'owner person' (line 7) starts the
+  // chains from its target: Person ─home address→ Address
+  const hoverLink = hoverProvider.provideHover(doc9, new vscode.Position(6, 11));
+  console.log(hoverLink && hoverLink.contents.value.includes("'Person' dependency chains")
+    && hoverLink.contents.value.includes("Person ─home address→ Address")
+    ? "PASS (hover: a crosslink to a Concept shows the target's chains)"
+    : "UNEXPECTED crosslink hover " + JSON.stringify(hoverLink && hoverLink.contents.value));
+
+  // 'Address' declares no dependency, so it has no chains and no hover
+  const hoverLeaf = hoverProvider.provideHover(doc9, new vscode.Position(9, 1));
+  console.log(hoverLeaf === null
+    ? "PASS (hover: a Concept with no dependencies hovers nothing)"
+    : "UNEXPECTED leaf hover " + JSON.stringify(hoverLeaf));
+}
+
+// 10) spelling: a word longer than four characters that no English dialect
+// knows publishes a Hint diagnostic on exactly its span, with suggestions;
+// short words, code-shaped tokens and both dialects' spellings stay silent.
+{
+  const spelt = [
+    "Recieve Order",
+    "    note: the pakage arrived",
+    "    colour: gray",
+    "    url: https://example.com/blorptastic",
+  ].join("\n");
+  const docS = makeDoc("c:\\repo\\Spell.aot", spelt);
+  vscode.workspace._open(docS);
+  const sDiags = published.get(docS.uri.toString()) || [];
+  const sHints = sDiags.filter((d) => d.severity === vscode.DiagnosticSeverity.Hint);
+  const recieve = sHints.find((d) => d.message.includes("'Recieve'"));
+  const pakage = sHints.find((d) => d.message.includes("'pakage'"));
+  const recieveOk = recieve && recieve.range.a.join(",") === "0,0,0,7" && /did you mean 'Receive'/.test(recieve.message);
+  const pakageOk = pakage && pakage.range.a.join(",") === "1,14,1,20" && /did you mean 'package'/.test(pakage.message);
+  console.log(recieveOk && pakageOk
+    ? "PASS (spelling: misspelled words hint on their span with suggestions)"
+    : "UNEXPECTED spelling hints " + JSON.stringify(sHints.map((d) => [d.range.a, d.message])));
+  console.log(sHints.length === 2
+    ? "PASS (spelling: 'colour'/'gray' both dialects, short words and URLs stay silent)"
+    : "UNEXPECTED extra spelling hints " + JSON.stringify(sHints.map((d) => d.message)));
 }

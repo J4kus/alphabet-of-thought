@@ -372,7 +372,7 @@
                     thread
                         Concurrent (Single-Threading)
                             - Synchronise
-                            - Reentrant Lock
+                            - Re-entrant Lock
                             - Event
                             - Condition
                             - Barrier
@@ -388,13 +388,13 @@
                                         - free riding
                                         - unreliable channels sacrifice consistency or availability
                                 - externalise
-                                    - precompute
-                                    - parallelise
-                                    - asynchronise
+                                    - pre-computed
+                                    - parallelised
+                                    - asynchronised
                                     - defer
                                 - add cheaper resources
                                     - diversified copies
-                                        - multiversion concurrency
+                                        - multi-version concurrency
                                         - readers never block writers
                                         - (no lock at all)
                                         - validate on commit only
@@ -412,13 +412,13 @@
                                     - collapse the obligation graph
                                 - outsource dependency to whoever can handle it better
                                 - substitute collateral
-                        Asynchronous
+                        Async
                             wrapped concurrent
                             waiting for: external instrument
                             suspension event
                             awaiting event
-                            wrapped coroutine
-                        Parallel (Multithreading)
+                            wrapped co routine
+                        Parallel (Multi Threading)
                             maximum worker pool: many
                             is worker pool count known: no
                             processing rule

@@ -301,7 +301,10 @@ function number(root, nodes) {
 }
 
 // Run the arithmetic checks, reporting errors and warnings to the report.
-function verify(root, nodes, report) {
+// accepted is an optional Set of lowercased words the user has accepted: a
+// Concept whose last word is one of them is not read as plural (pluralize
+// guesses, and the editor's Quick Fix feeds this set via aot.acceptedWords).
+function verify(root, nodes, report, accepted) {
   const all = [root, ...nodes];
 
   // The file name is the root Concept; do not repeat it as a top-level line

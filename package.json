@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.1.74",
+  "version": "1.1.77",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -50,6 +50,19 @@
           "type": "boolean",
           "default": true,
           "description": "Mirror every table to a CSV file named after its parent Concept in a sibling '<file>.tables' folder when the .aot is saved, and fold edits made to those CSVs back into the .aot table."
+        },
+        "aot.spellingHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hint words longer than four characters that neither British nor American English knows, with suggestions. Hints show on their span and on hover, never in the Problems panel."
+        },
+        "aot.spellingWords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Your own vocabulary: words the spelling hints should accept in addition to the dictionaries (case-insensitive)."
         }
       }
     },
@@ -226,6 +239,9 @@
     "url": "https://github.com/Jakus23/alphabet-of-thought.git"
   },
   "dependencies": {
+    "dictionary-en": "^3.2.0",
+    "dictionary-en-gb": "^2.4.0",
+    "nspell": "^2.1.5",
     "pluralize": "^8.0.0"
   }
 }

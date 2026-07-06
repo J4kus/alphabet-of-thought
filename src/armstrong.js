@@ -23,7 +23,7 @@
 // depends only on ./linter, ./crosslinks and ./godel.
 
 const { KIND } = require("./linter");
-const { index, wordStarts } = require("./crosslinks");
+const { index, conceptType } = require("./crosslinks");
 const godel = require("./godel");
 
 const { CONCEPT, INDIVIDUAL, ATTRIBUTE, DEFAULT, MAP } = KIND;
@@ -52,16 +52,6 @@ const MIN_SUPPORT = 3;
 // never squiggles; it takes >= 4 Examples with a genuine repeat. Drop to 1 to
 // flag any witnessed repeat, or 0 to flag bare one-to-one covariation too.
 const MIN_CONFIDENCE = 2;
-
-// The longest trailing run of a node's name words that names a Concept
-// (attribute-is-a-Concept), as in crosslinks.js / godel.js.
-function conceptOf(node, concepts) {
-  for (const start of wordStarts(node.name)) {
-    const target = concepts.get(node.name.slice(start).toLowerCase());
-    if (target && target !== node) return target;
-  }
-  return null;
-}
 
 // The Concepts named inside a Concept's own name (concept-contains-Concept):
 // each longest, non-overlapping run of words that names another Concept.
@@ -201,23 +191,35 @@ function findings(root, nodes) {
 }
 
 // The declared Concept-dependency graph and its transitive closure. Edges come
-// from the crosslinks: an attribute on C whose trailing words name D, and a
-// Concept C whose name contains D, both read as "C depends on D".
+// from the crosslinks: an attribute on C whose trailing words (or alias) name
+// D, and a Concept C whose name contains D, both read as "C depends on D".
+// Each edge keeps the crosslink it came from as its label 'via' — the
+// attribute's name, or 'name' when the dependency sits in the Concept's own
+// name — and two attributes reaching the same Concept stay two edges, so a
+// chain can say which slot carries it.
 function dependencyGraph(root, nodes) {
   const { concepts } = index(root, nodes);
   const conceptNodes = [root, ...nodes].filter((n) => n.kind === CONCEPT);
-  const edges = new Map(); // node -> Set(node) direct dependencies
-  const add = (from, to) => {
+  const edges = new Map(); // node -> [{ to, via }] direct dependencies
+  const add = (from, to, via) => {
     if (from === to) return;
-    if (!edges.has(from)) edges.set(from, new Set());
-    edges.get(from).add(to);
+    if (!edges.has(from)) edges.set(from, []);
+    const list = edges.get(from);
+    if (!list.some((e) => e.to === to && e.via === via)) list.push({ to, via });
   };
   for (const c of conceptNodes) {
-    for (const d of containedConcepts(c, concepts)) add(c, d);
+    for (const d of containedConcepts(c, concepts)) add(c, d, "name");
+    // a parenthetical alias naming another Concept is a declared dependency
+    // too (alias-is-a-Concept): "for a dependency or a more general context
+    // name", as the reference file has it
+    if (c.alias) {
+      const t = concepts.get(c.alias.toLowerCase());
+      if (t) add(c, t, "alias");
+    }
     for (const child of c.children) {
       if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
-      const t = conceptOf(child, concepts);
-      if (t) add(c, t);
+      const t = conceptType(child, concepts);
+      if (t) add(c, t, child.name);
     }
   }
   return { edges, conceptNodes };
@@ -228,13 +230,13 @@ function dependencyGraph(root, nodes) {
 // is one witnessing path (Armstrong Transitivity / Pseudotransitivity).
 function dependsOf(root, nodes, concept) {
   const { edges } = dependencyGraph(root, nodes);
-  const direct = new Set(edges.get(concept) || []);
+  const direct = new Set((edges.get(concept) || []).map((e) => e.to));
   const pathTo = new Map(); // node -> path of intermediate nodes
   const queue = [...direct].map((d) => ({ node: d, path: [] }));
   const seen = new Set([concept, ...direct]);
   while (queue.length) {
     const { node, path } = queue.shift();
-    for (const next of edges.get(node) || []) {
+    for (const { to: next } of edges.get(node) || []) {
       if (seen.has(next)) continue;
       seen.add(next);
       const through = [...path, node];
@@ -246,4 +248,36 @@ function dependsOf(root, nodes, concept) {
   return { direct: [...direct], transitive };
 }
 
-module.exports = { inferFDs, findings, dependencyGraph, dependsOf, MIN_CONFIDENCE };
+// keep a hover readable: a Concept rarely needs more chains than this shown
+const MAX_CHAINS = 32;
+
+// Every declared dependency chain out of a Concept, depth-first: follow the
+// edges until a Concept with no dependencies ends the chain, or a hop that
+// would revisit a Concept already on the path marks it a cycle and stops. A
+// Concept with several crosslinked attributes has several chains — one per
+// edge — and a chain grows by one Concept for every dependency the previous
+// link declares. Returns [{ path: [node...], via: [label...], cycle }] with
+// via[i] naming the crosslink that carries the hop path[i] -> path[i+1].
+function chains(root, nodes, concept) {
+  const { edges } = dependencyGraph(root, nodes);
+  const out = [];
+  const walk = (node, path, via) => {
+    if (out.length >= MAX_CHAINS) return;
+    const next = edges.get(node) || [];
+    if (!next.length) {
+      if (path.length > 1) out.push({ path, via, cycle: false });
+      return;
+    }
+    for (const { to, via: label } of next) {
+      if (path.includes(to)) {
+        out.push({ path: [...path, to], via: [...via, label], cycle: true });
+        continue;
+      }
+      walk(to, [...path, to], [...via, label]);
+    }
+  };
+  walk(concept, [concept], []);
+  return out;
+}
+
+module.exports = { inferFDs, findings, dependencyGraph, dependsOf, chains, MIN_CONFIDENCE };

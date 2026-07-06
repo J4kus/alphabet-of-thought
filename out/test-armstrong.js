@@ -2,7 +2,7 @@
 // (src/armstrong.js): infer FDs from Example data via Gödel projections, and
 // walk the declared Concept-dependency closure.
 const { lint } = require("../src/linter");
-const { inferFDs, findings, dependsOf } = require("../src/armstrong");
+const { inferFDs, findings, dependsOf, chains } = require("../src/armstrong");
 
 let failures = 0;
 function check(name, ok) {
@@ -146,6 +146,43 @@ const deps = [
   const { direct, transitive } = dependsOf(root, nodes, Z);
   check("Z depends directly on Y", direct.some((d) => d.name === "Y"));
   check("Z depends transitively on X (through Y)", transitive.some((t) => t.node.name === "X" && t.through.some((n) => n.name === "Y")));
+}
+
+// 4) dependency chains: every maximal path out of a Concept, one per
+// crosslinked attribute (the hop labelled with the attribute), growing by one
+// Concept per dependency the previous link declares; an attribute's alias and
+// a Concept's alias both hop like a name; a revisited Concept marks a cycle.
+const chained = [
+  "Trip",
+  "    driver person",
+  "    vehicle (car)",
+  "Person",
+  "    home address",
+  "Address",
+  "    street",
+  "Car",
+  "    owner person",
+  "Auto (Car)",
+  "Loop A",
+  "    partner loop b",
+  "Loop B",
+  "    partner loop a",
+].join("\n");
+{
+  const { root, nodes } = lint(chained, "World");
+  const show = (c) => c.path.map((n) => n.name).join(">") + (c.cycle ? " cycle" : "");
+  const fromTrip = chains(root, nodes, node(root, nodes, "Trip")).map(show);
+  check("Trip has two chains, one per crosslinked attribute", fromTrip.length === 2);
+  check("chain via 'driver person': Trip > Person > Address (3 Concepts)", fromTrip.includes("Trip>Person>Address"));
+  check("chain via the 'vehicle (car)' alias runs a hop longer: 4 Concepts", fromTrip.includes("Trip>Car>Person>Address"));
+  const viaLabels = chains(root, nodes, node(root, nodes, "Trip")).map((c) => c.via.join(">"));
+  check("hops carry the attribute that declares them", viaLabels.includes("driver person>home address"));
+  const fromAuto = chains(root, nodes, node(root, nodes, "Auto")).map(show);
+  check("a Concept's alias is a dependency: Auto > Car > Person > Address", fromAuto.includes("Auto>Car>Person>Address"));
+  const fromLoop = chains(root, nodes, node(root, nodes, "Loop A"));
+  check("mutual dependency reports one chain, marked a cycle",
+    fromLoop.length === 1 && fromLoop[0].cycle && show(fromLoop[0]) === "Loop A>Loop B>Loop A cycle");
+  check("a Concept with no dependencies has no chains", chains(root, nodes, node(root, nodes, "Address")).length === 0);
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

@@ -1,8 +1,9 @@
 // VS Code entry point for .aot documents: publishes the arithmetic
 // linter's errors (including the FCA audit and content-identical Gödel clash)
 // and warnings (including the inferred functional dependencies) as diagnostics
-// (squiggles + Problems panel), paints the inline crosslinks as links, and
-// serves go-to-definition for them.
+// (squiggles + Problems panel), spelling as hints, paints the inline
+// crosslinks as links, serves go-to-definition for them, and shows a
+// Concept's dependency chains on hover.
 
 const vscode = require("vscode");
 const path = require("path");
@@ -13,19 +14,20 @@ const table = require("./table");
 const { suggest } = require("./fca");
 const { clashes } = require("./godel");
 const armstrong = require("./armstrong");
+const spelling = require("./spelling");
 
 const DEBOUNCE_MS = 300;
 // past this many Examples the lattice is no longer keystroke-cheap
 const MAX_FCA_OBJECTS = 200;
 
-// uri string -> crosslinks from the last analysis of that document
-const linksByDoc = new Map();
+// uri string -> { links, root, nodes } from the last analysis of that document
+const analysisByDoc = new Map();
 
 function analyse(doc) {
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   const { root, nodes, errors, warnings } = lint(doc.getText(), rootName);
   const links = resolve(doc.getText(), root, nodes);
-  linksByDoc.set(doc.uri.toString(), links);
+  analysisByDoc.set(doc.uri.toString(), { links, root, nodes });
   // a lattice over a broken tree means nothing, so suggest only on V = 0.
   // Gödel clash hints share the same advisory channel (no squiggle) and the
   // same V = 0 gate.
@@ -58,10 +60,21 @@ function analyse(doc) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
     else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
   }
+  // spelling is advisory prose-hygiene, independent of the tree's verdict:
+  // words longer than four characters that no English dialect (nor the
+  // user's own aot.spellingWords vocabulary) knows, off with aot.spellingHints
+  const config = vscode.workspace.getConfiguration("aot");
+  const hints = config.get("spellingHints", true)
+    ? spelling.check(doc.getText(),
+        new Set((config.get("spellingWords", []) || []).map((w) => String(w).toLowerCase())))
+    : [];
   return {
     errors: errors.concat(deepErrors, formulaErrors),
     warnings: warnings.concat(depWarnings, formulaWarnings),
+    hints,
     links,
+    root,
+    nodes,
   };
 }
 
@@ -71,7 +84,7 @@ function linkRange(link) {
 
 function decorate(editor, decorationTypes) {
   if (editor.document.languageId !== "aot") return;
-  const links = linksByDoc.get(editor.document.uri.toString()) || [];
+  const { links = [] } = analysisByDoc.get(editor.document.uri.toString()) || {};
   const concepts = [];
   const individuals = [];
   for (const link of links) {
@@ -89,7 +102,7 @@ function decorate(editor, decorationTypes) {
 
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
-  const { errors, warnings } = analyse(doc);
+  const { errors, warnings, hints } = analyse(doc);
   const toDiagnostic = (severity) => ({ line, message, startCol, endCol }) => {
     // lines are 1-based; a finding that carries columns (a table cell)
     // squiggles just that span, otherwise the whole line's content
@@ -105,9 +118,12 @@ function refresh(diagnostics, decorationTypes, doc) {
     // the linter's verdict is a problem: errors (V != 0) squiggle red and
     // warnings squiggle yellow, both reaching the Problems panel. The FCA audit
     // and the content-identical clash are folded into errors; the inferred
-    // functional dependencies into warnings (see analyse). Nothing maps to Hint.
+    // functional dependencies into warnings (see analyse). Spelling maps to
+    // Hint: visible on its exact span and on hover, never in the Problems
+    // panel — a word the dictionaries don't know is a nudge, not a verdict.
     ...errors.map(toDiagnostic(vscode.DiagnosticSeverity.Error)),
     ...warnings.map(toDiagnostic(vscode.DiagnosticSeverity.Warning)),
+    ...hints.map(toDiagnostic(vscode.DiagnosticSeverity.Hint)),
   ]);
   for (const editor of vscode.window.visibleTextEditors) {
     if (editor.document === doc) decorate(editor, decorationTypes);
@@ -117,7 +133,7 @@ function refresh(diagnostics, decorationTypes, doc) {
 // Ctrl+click on a crosslink jumps to the defining node's line.
 const definitionProvider = {
   provideDefinition(doc, position) {
-    const links = linksByDoc.get(doc.uri.toString()) || analyse(doc).links;
+    const { links } = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
     for (const link of links) {
       if (linkRange(link).contains(position)) {
         const at = Math.min(Math.max(link.target.line - 1, 0), doc.lineCount - 1);
@@ -125,6 +141,52 @@ const definitionProvider = {
       }
     }
     return null;
+  },
+};
+
+// Hovering a Concept shows its dependency chains. A crosslinked attribute
+// makes the Concept depend on the Concept it names; if that one's attributes
+// are crosslinked too the chain runs on, one Concept per hop — `Trip ─driver
+// person→ Person ─home address→ Address (3 Concepts)` — and a Concept with
+// several crosslinked attributes has several chains. Works on a Concept's
+// defining name and on any crosslink that lands on a Concept (there the
+// chains start from the target).
+const hoverProvider = {
+  provideHover(doc, position) {
+    const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+    let concept = null;
+    let range = null;
+    for (const link of analysis.links) {
+      if (link.target.kind !== KIND.INDIVIDUAL && linkRange(link).contains(position)) {
+        concept = link.target;
+        range = linkRange(link);
+        break;
+      }
+    }
+    if (!concept) {
+      for (const node of analysis.nodes) {
+        if (node.kind !== KIND.CONCEPT || node.line - 1 !== position.line) continue;
+        const raw = doc.lineAt(node.line - 1).text;
+        const start = raw.length - raw.trimStart().length;
+        if (position.character < start || position.character > start + node.name.length) continue;
+        concept = node;
+        range = new vscode.Range(node.line - 1, start, node.line - 1, start + node.name.length);
+        break;
+      }
+    }
+    if (!concept) return null;
+    const found = armstrong.chains(analysis.root, analysis.nodes, concept);
+    if (!found.length) return null;
+    const md = new vscode.MarkdownString();
+    md.appendMarkdown(`**'${concept.name}' dependency chains**\n\n`);
+    for (const chain of found) {
+      let s = chain.path[0].name;
+      for (let i = 1; i < chain.path.length; i++) {
+        s += ` ─${chain.via[i - 1]}→ ${chain.path[i].name}`;
+      }
+      md.appendMarkdown(`- ${s}${chain.cycle ? " ↩ (cycle)" : ""} — ${new Set(chain.path).size} Concepts\n`);
+    }
+    return new vscode.Hover(md, range);
   },
 };
 
@@ -330,12 +392,14 @@ function activate(context) {
       clearTimeout(timers.get(doc.uri.toString()));
       timers.delete(doc.uri.toString());
       diagnostics.delete(doc.uri);
-      linksByDoc.delete(doc.uri.toString());
+      analysisByDoc.delete(doc.uri.toString());
     }),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) decorate(editor, decorationTypes);
     }),
     vscode.languages.registerDefinitionProvider({ language: "aot" }, definitionProvider),
+    // hovering a Concept (or a crosslink to one) lists its dependency chains
+    vscode.languages.registerHoverProvider({ language: "aot" }, hoverProvider),
     // Format Document re-aligns every table's columns, as org-mode's TAB
     // does: each column padded to its widest cell, separators redrawn.
     vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {

@@ -4,6 +4,19 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.1.76] - 2026-07-06
+
+- Spelling hints (`src/spelling.js`): every plain word longer than four characters is checked against Hunspell English — `nspell` with the `dictionary-en` and `dictionary-en-gb` word lists, pure JS, so it runs inside the editor with no native binaries; a word either dialect accepts is correct (the language's own examples write `colour`). Each dialect keeps its own instance: merging the two `.dic` files under one `.aff` misreads affix flags and starts accepting misspellings
+  - surfaced as **Hint** diagnostics on exactly the word's span, with up to three suggestions (`'recieve' is not in the dictionary — did you mean 'receive'?`) — visible in place and on hover, never in the Problems panel, never counted in `V`
+  - only prose-shaped words are judged: ALLCAPS, CamelCase, digits, paths, URLs and cell formulas are names or code, not prose, and words of four characters or fewer are dense in abbreviations (`aot`, `vsix`, `utf`)
+  - `aot.spellingHints` (default on) turns them off; `aot.spellingWords` is your own vocabulary, checked case-insensitively; the language's own terms (`differentia`, `univocity`, `crosslink`, `arity`) are built in
+- Aliases crosslink as the alternative names they are:
+  - a Concept's parenthetical alias now *resolves* wherever its name would: `type: …` is typed by the Concept `Category (Type)` exactly as it would be by one named `Type` (a real name always outranks an alias), and the subsumption, FCA, Gödel and dependency reasoning all see the same resolution
+  - a new connection **alias-is-a-Concept**: a Concept's alias that names another Concept links inside the parentheses — `Auto (Car)` links its `Car` to the `Car` Concept — and counts as a declared dependency, the parenthetical being "for a dependency or a more general context name"
+- Hovering a Concept lists its **dependency chains**: a crosslinked attribute makes the Concept depend on the Concept it names, that Concept's own crosslinks extend the chain one Concept per hop, and every maximal path is one chain — `Trip ─driver→ Person ─home address→ Address — 3 Concepts`
+  - several crosslinked attributes mean several chains, one per edge; a hop that revisits a Concept already on the path marks the chain a cycle and stops; works on a Concept's defining name and on any crosslink that lands on a Concept (there the chains start from the target)
+  - built on the declared dependency graph behind `--depends` (`armstrong.dependencyGraph`), whose edges now carry the attribute (or `name` / `alias`) that declares them
+
 ## [1.1.68] - 2026-07-03
 
 - Org-mode plain-text spreadsheets (`src/table.js`): a pipe table is a grid of Examples, parsed by the linter into the exact tree that writing each row as `- Example` with `attribute: value` children would give

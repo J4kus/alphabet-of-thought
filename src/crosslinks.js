@@ -19,6 +19,17 @@
 //                            `Node` Concept. Longest, non-overlapping runs
 //                            win; the whole name never links (that is the
 //                            node itself, or a univocity duplicate).
+//   alias-is-a-Concept       a Concept's parenthetical alias names another
+//                            Concept, case-insensitively: `Auto (Car)` links
+//                            its `Car` to the `Car` Concept. An attribute's
+//                            alias links the same way, as part of
+//                            attribute-is-a-Concept.
+//
+// An alias is an explicit alternative name, so it also *resolves*: a
+// Concept's alias is indexed beside its name, and anything that would link
+// to the name links to the alias too — `type: ...` is typed by the Concept
+// `Category (Type)` just as it would be by a Concept named `Type`. A real
+// name always outranks an alias.
 //
 // Works from the tree the linter parses; shared by the VS Code extension
 // (link decorations + go-to-definition).
@@ -55,6 +66,12 @@ function index(root, nodes) {
       concepts.set(node.name.toLowerCase(), node);
     if (node.kind === KIND.INDIVIDUAL && !individuals.has(node.name))
       individuals.set(node.name, node);
+  }
+  // a Concept's alias is an alternative name for it, so it resolves wherever
+  // the name would; registered after the names so a real name always wins
+  for (const node of nodes) {
+    if (node.kind === KIND.CONCEPT && node.alias && !concepts.has(node.alias.toLowerCase()))
+      concepts.set(node.alias.toLowerCase(), node);
   }
   return { concepts, individuals };
 }
@@ -195,6 +212,26 @@ function resolve(text, root, nodes) {
         }
         if (!matched) i++;
       }
+      // a parenthetical alias that names another Concept links whole, with
+      // the underline inside the parentheses, exactly as an attribute's
+      // alias does: `Auto (Car)` links its `Car` to the `Car` Concept
+      if (node.alias) {
+        const target = concepts.get(node.alias.toLowerCase());
+        if (target && target !== node) {
+          const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
+          const open = region.lastIndexOf("(");
+          const inner = region.slice(open + 1);
+          const aliasStart = open + 1 + (inner.length - inner.trimStart().length);
+          links.push({
+            connection: "alias-is-a-Concept",
+            line: node.line,
+            startCol: aliasStart,
+            endCol: aliasStart + node.alias.length,
+            text: node.alias,
+            target,
+          });
+        }
+      }
     }
 
     if (node.kind === KIND.DEFAULT && node.value) {
@@ -265,4 +302,4 @@ function resolve(text, root, nodes) {
   return links;
 }
 
-module.exports = { resolve, index, wordStarts, instantiates };
+module.exports = { resolve, index, conceptType, wordStarts, instantiates };
