@@ -17,7 +17,7 @@
         indent
         encoding
         newline
-    Aristotlian Category
+    Aristotelian Category
         Said Of
             - Is Said Of
             - Not Said Of
@@ -48,7 +48,7 @@
                     example: Human
                 - Attribute (Universal Accident)
                     characters: lowercase
-                    ordering: Most Essenctial To Most Accidental
+                    ordering: Most Essential To Most Accidental
                     recognise: all lowercase
                     present in: True
                     example: full name
@@ -126,101 +126,6 @@
                 - default-is-a-example
                 indentation: exactly 4 spaces per level
                 type: Reference
-
-- Function
-    ...
-    Understand Foundation
-        - Alphabet of Human Thought
-            - every concept is reduced to primitive elements
-            - every complex idea expressible as a combination of those elements
-            - every argument is verifiable like arithmetic
-        - Pragmatic
-            - An idea becomes clear after the connections to other ideas are defined
-            - Knowledge holds its shape best as a tree of plain text, not prose or diagrams
-        - Aristotelian
-            - You never think from nothing; every new thought extends structures you already know
-            - Place each thing by its genus, then add the differentia that sets it apart
-    Iterate Over Extension
-        ...
-        Create New Language
-            ...
-            Install Dependency
-            Create Yo Code Extension
-                ...
-                Go To Terminal
-                Change Path To Where You Want To Save The File
-                Type `yo code` Into Terminal
-                Follow Prompt
-                    what type of extension do you want to create: New Language Support
-                    url or file to import, or none for new: ENTER
-                    extension name: alphabet of thought
-                    extension identifier: aot
-                    extension description: alphabet of thought
-                    language id: aot
-                    language name: alphabet of thought
-                    file extension: .aot
-                    scope name: source.aot
-                    initialise git repository: Yes
-            Create Grammar: TextMate
-                update file: aot.tmLanguage.json
-                update file: language-configuration.json
-        Make Change
-            Run `python install.py` Command
-                ...
-                Update Package Version
-                    Update Version Number
-                        file: package.json
-                        attribute: "version"
-                    Run `npx @vscode/vsce package` Command
-                Update Local Extension
-                    Run Command: code --install-extension .\alphabet-of-thought-1.1.2.vsix --force
-                    Reload VS Code For the new version to take effect: Ctrl+Shift+P → "Developer: Reload Window"
-                    Verify The New Version Loaded (Extensions panel shows the new version number)
-                Update Remote Extension
-            Make Changes To Marketplace
-                Go To Link: https://marketplace.visualstudio.com/manage/publishers/Jakus
-                Click `...` `More Actions` Button
-                Click DropDown: Update
-                Drag Vsix File Into Visual Studio Code Window
-                click button: Install
-                click button: Reload
-            Upload Changes To GitHub
-    Publish File
-        Create File
-            file extension: aot
-            - plain text, not prose
-            - a tree, not a diagram
-            - use full words, never abbreviate
-            - fix all misspellings
-        Setup Primitive
-            scaffold: Primitive
-            - Motivation
-            - Network
-            - Function
-            - Workflow
-        Code Token
-            encode: Token
-            - Ideas
-            - Connections
-                Inheritance
-                Polymorphism
-                One term, one definition
-        Share File
-
-... To-Do
-
-- Workflow
-
-    Work Out What You Mean
-        thread: Asynchronous
-        - Create File
-            interval
-            timeout: when file is published
-        - Iterate Over Extension
-            worker pool: 1
-    
-... what was under primitives
-- Graph
     - Example
         Repository
             path
@@ -242,7 +147,7 @@
                         Independent Node
                         Dependent Node
                             independent node
-                    Tree (Reoccuring Tree)
+                    Tree (Recurring Tree)
                         Parent
                         Child
                             tree
@@ -264,8 +169,8 @@
                         second node
                 Record
                     said of: Not Said Of
-            Motiviation
-                Beneficairy
+            Motivation
+                Beneficiary
                     said of
                     interest (How much the stakeholder cares about the outcome)
                     influence  (Their ability to affect decisions, resources, or outcomes)
@@ -408,6 +313,7 @@
                     updated time
                     updating author
             - Function
+                ...
                 - Example
                     Do Value Chain Activity
                     Primary
@@ -561,12 +467,95 @@
                     precision: up to minutes
                     displacement from greenwich meridian hours: +0
 
-
 - Function
+    ...
+    Understand Foundation
+        - Alphabet of Human Thought
+            - every concept is reduced to primitive elements
+            - every complex idea expressible as a combination of those elements
+            - every argument is verifiable like arithmetic
+        - Pragmatic
+            - An idea becomes clear after the connections to other ideas are defined
+            - Knowledge holds its shape best as a tree of plain text, not prose or diagrams
+        - Aristotelian
+            - You never think from nothing; every new thought extends structures you already know
+            - Place each thing by its genus, then add the differentia that sets it apart
+    Iterate Over Extension
+        ...
+        Create New Language
+            ...
+            Install Dependency
+            Create Yo Code Extension
+                ...
+                Go To Terminal
+                Change Path To Where You Want To Save The File
+                Type `yo code` Into Terminal
+                Follow Prompt
+                    what type of extension do you want to create: New Language Support
+                    url or file to import, or none for new: ENTER
+                    extension name: alphabet of thought
+                    extension identifier: aot
+                    extension description: alphabet of thought
+                    language id: aot
+                    language name: alphabet of thought
+                    file extension: .aot
+                    scope name: source.aot
+                    initialise git repository: Yes
+            Create Grammar: TextMate
+                update file: aot.tmLanguage.json
+                update file: language-configuration.json
+        Make Change
+            Run `python install.py` Command
+                ...
+                Update Package Version
+                    Update Version Number
+                        file: package.json
+                        attribute: "version"
+                    Run `npx @vscode/vsce package` Command
+                Update Local Extension
+                    Run Command: code --install-extension .\alphabet-of-thought-1.1.2.vsix --force
+                    Reload VS Code For the new version to take effect: Ctrl+Shift+P → "Developer: Reload Window"
+                    Verify The New Version Loaded (Extensions panel shows the new version number)
+                Update Remote Extension
+            Make Changes To Marketplace
+                Go To Link: https://marketplace.visualstudio.com/manage/publishers/Jakus
+                Click `...` `More Actions` Button
+                Click DropDown: Update
+                Drag Vsix File Into Visual Studio Code Window
+                click button: Install
+                click button: Reload
+            Upload Changes To GitHub
+    Publish File
+        Create File
+            file extension: aot
+            - plain text, not prose
+            - a tree, not a diagram
+            - use full words, never abbreviate
+            - fix all misspellings
+        Setup Primitive
+            scaffold: Primitive
+            - Motivation
+            - Network
+            - Function
+            - Workflow
+        Code Token
+            encode: Token
+            - Ideas
+            - Connections
+                Inheritance
+                Polymorphism
+                One term, one definition
+        Share File
     Write Primitive
-        - Motivation
-        - Graph
-        - Function
-        - Workflow
-    
+
+... To-Do
+
 - Workflow
+
+    Work Out What You Mean
+        thread: Asynchronous
+        - Create File
+            interval
+            timeout: when file is published
+        - Iterate Over Extension
+            worker pool: 1
