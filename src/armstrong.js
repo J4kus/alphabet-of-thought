@@ -1,32 +1,32 @@
 // Functional-dependency reasoning over a parsed .aot tree, after Armstrong
 // (1974), whose axioms — Reflexivity, Augmentation, Transitivity, Union,
 // Decomposition, Pseudotransitivity — are the inference rules for functional
-// dependencies. This module does NOT apply those rules: it works with
-// single-attribute dependencies only, where the composite-set rules
-// (Augmentation, Union, Decomposition, Pseudotransitivity) never arise and
-// Reflexivity is vacuous. What it does is INFER FDs from the Example data,
-// via Gödel numbers: two Examples that agree on attribute X agree on Y, for
-// every Example carrying both? Then X -> Y. The check is a projection of the
-// Gödel number: group the Examples by the exponent of X's prime and ask
-// whether Y's exponent is constant in each group. An attribute Y determined
-// by another X is derivable — a redundancy worth modelling once (3NF, the
-// normalisation reasoning the README ties to the Graph primitive). X <-> Y is
-// the same distinction written twice.
+// dependencies. This module makes them part of the linter in two ways:
 //
-// Transitivity was the one axiom ever mechanized here — the transitive
-// closure of DECLARED dependencies (attribute-is-a-Concept and
-// concept-contains-Concept edges), which answered the CLI's --depends. That
-// code (dependsOf, dependencyGraph, containedConcepts, conceptOf) was removed
-// with verify.js; see the restore item in TODO.md.
+//   1. INFERRED FDs (from the Example data, via Gödel numbers). Two Examples
+//      that agree on attribute X agree on Y, for every Example carrying both?
+//      Then X -> Y. The check is a projection of the Gödel number: group the
+//      Examples by the exponent of X's prime and ask whether Y's exponent is
+//      constant in each group. An attribute Y determined by another X is
+//      derivable — a redundancy worth modelling once (3NF, the normalisation
+//      reasoning the README ties to the Graph primitive). X <-> Y is the same
+//      distinction written twice.
+//
+//   2. DECLARED dependencies (from the Concept references). attribute-is-a-
+//      Concept and concept-contains-Concept are edges "C depends on D"; their
+//      transitive closure (Armstrong Transitivity) answers --depends: what a
+//      Concept rests on directly and what it inherits through a chain
+//      (Z depends on X through Y).
 //
 // Inferred-FD findings are advisory, like the FCA / Gödel-clash hints: surfaced
 // only over a tree that verifies (V = 0), never counted in V. Pure: no I/O,
 // depends only on ./linter, ./crosslinks and ./godel.
 
 const { KIND } = require("./linter");
+const { index, wordStarts } = require("./crosslinks");
 const godel = require("./godel");
 
-const { INDIVIDUAL, ATTRIBUTE, DEFAULT, MAP } = KIND;
+const { CONCEPT, INDIVIDUAL, ATTRIBUTE, DEFAULT, MAP } = KIND;
 
 // A node is declared intentionally incomplete by an ellipsis among its
 // children — either a `...` Map (the README's marker, which excuses the
@@ -46,12 +46,45 @@ const MIN_SUPPORT = 3;
 // rather than merely lining up with it. Zero means a pure bijection (every
 // Example distinct on both sides): the attributes covary one-to-one but no
 // collapse is ever witnessed, so it could be coincidence. The editor flags
-// only findings at or above this threshold; weaker ones are not surfaced.
-// At 2, a single confirming repeat is not enough — a
+// only findings at or above this threshold; weaker ones stay on demand via
+// `verify.js --fd`. At 2, a single confirming repeat is not enough — a
 // 3-Example case (where a varying attribute can muster at most one repeat)
 // never squiggles; it takes >= 4 Examples with a genuine repeat. Drop to 1 to
 // flag any witnessed repeat, or 0 to flag bare one-to-one covariation too.
 const MIN_CONFIDENCE = 2;
+
+// The longest trailing run of a node's name words that names a Concept
+// (attribute-is-a-Concept), as in crosslinks.js / godel.js.
+function conceptOf(node, concepts) {
+  for (const start of wordStarts(node.name)) {
+    const target = concepts.get(node.name.slice(start).toLowerCase());
+    if (target && target !== node) return target;
+  }
+  return null;
+}
+
+// The Concepts named inside a Concept's own name (concept-contains-Concept):
+// each longest, non-overlapping run of words that names another Concept.
+function containedConcepts(concept, concepts) {
+  const out = [];
+  const ws = [];
+  for (const m of concept.name.matchAll(/\S+/g)) ws.push({ start: m.index, end: m.index + m[0].length });
+  for (let i = 0; i < ws.length; ) {
+    let matched = false;
+    for (let j = ws.length - 1; j >= i; j--) {
+      if (i === 0 && j === ws.length - 1) continue; // the whole name is this Concept
+      const target = concepts.get(concept.name.slice(ws[i].start, ws[j].end).toLowerCase());
+      if (target && target !== concept) {
+        out.push(target);
+        i = j + 1;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) i++;
+  }
+  return out;
+}
 
 // Infer single-attribute functional dependencies from the Example data. Returns
 // { holds, label, lineOf, objects }: holds is [{ x, y, support }] for every
@@ -167,4 +200,50 @@ function findings(root, nodes) {
   return out;
 }
 
-module.exports = { inferFDs, findings, MIN_CONFIDENCE };
+// The declared Concept-dependency graph and its transitive closure. Edges come
+// from the crosslinks: an attribute on C whose trailing words name D, and a
+// Concept C whose name contains D, both read as "C depends on D".
+function dependencyGraph(root, nodes) {
+  const { concepts } = index(root, nodes);
+  const conceptNodes = [root, ...nodes].filter((n) => n.kind === CONCEPT);
+  const edges = new Map(); // node -> Set(node) direct dependencies
+  const add = (from, to) => {
+    if (from === to) return;
+    if (!edges.has(from)) edges.set(from, new Set());
+    edges.get(from).add(to);
+  };
+  for (const c of conceptNodes) {
+    for (const d of containedConcepts(c, concepts)) add(c, d);
+    for (const child of c.children) {
+      if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
+      const t = conceptOf(child, concepts);
+      if (t) add(c, t);
+    }
+  }
+  return { edges, conceptNodes };
+}
+
+// What a Concept depends on, direct and transitive. Returns
+// { direct: [node], transitive: [{ node, through: [node] }] } where 'through'
+// is one witnessing path (Armstrong Transitivity / Pseudotransitivity).
+function dependsOf(root, nodes, concept) {
+  const { edges } = dependencyGraph(root, nodes);
+  const direct = new Set(edges.get(concept) || []);
+  const pathTo = new Map(); // node -> path of intermediate nodes
+  const queue = [...direct].map((d) => ({ node: d, path: [] }));
+  const seen = new Set([concept, ...direct]);
+  while (queue.length) {
+    const { node, path } = queue.shift();
+    for (const next of edges.get(node) || []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      const through = [...path, node];
+      pathTo.set(next, through);
+      queue.push({ node: next, path: through });
+    }
+  }
+  const transitive = [...pathTo].map(([node, through]) => ({ node, through }));
+  return { direct: [...direct], transitive };
+}
+
+module.exports = { inferFDs, findings, dependencyGraph, dependsOf, MIN_CONFIDENCE };
