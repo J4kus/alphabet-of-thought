@@ -218,6 +218,8 @@ Parent
 
 ### Aliases and Maps
 
+Alpha is **not a word-explanation language**: a definition terminates in Examples and data, never in words explaining other words — a dictionary chain of synonyms proves nothing and checks nothing. What *is* possible is renaming: an alias gives the same idea a second name without pretending to define it.
+
 | Notation | Syntax | Purpose |
 |----------|--------|---------|
 | **Alias** (has-another-name) | Parentheses after a term: `Human (Natural Person)` | Provides an alternative or derived name for an idea. If some or all of an attribute's trailing words match a Concept, those words already act as an alias — no parentheses required. |
@@ -231,7 +233,7 @@ Single inheritance answers what an idea *is*; crosslinks answer what it *refers 
 |------------|-----------|-----------|---------|
 | **attribute-is-a-Concept** | An attribute or value whose **trailing** words name a Concept (case-insensitive); the longest trailing run wins. | solid | `age integer: 5` → the `Integer` Concept |
 | **concept-contains-Concept** | A Concept whose name contains a run of words naming another Concept (case-insensitive); each longest, non-overlapping run links, but the whole name never does. | solid | `Independent Node` → the `Node` Concept |
-| **value-is-an-Example** | A value that matches an Example name **exactly** (case-sensitive). | dotted | `human: Socrates` → `- Socrates` |
+| **value-is-an-Example** | A value that matches an Example name (case-insensitive, like every link). | dotted | `human: Socrates` → `- Socrates` |
 
 #### Composition
 
@@ -260,7 +262,7 @@ Alpha is aimed at knowledge workers — analysts, architects, anyone whose job i
 
 Each primitive's names are always modelled as Examples (not said of, not present in). The "Said of" column names the only Concepts allowed inside that primitive — Stakeholders, Entities, Objectives, and Worker Pools can never be Examples or Attribute Values, while measurements, records, classes, and times can only be Examples or Attribute Values.
 
-The primitives do not link to one another; each is a tree of its own, and no cause terminates in another. This is the general rule, not a special case. A complete explanation holds all four in balance, each cause answered with respect to the others and none reduced to a pointer into its neighbour.
+The primitives can — and are encouraged to — link to one another: a Motivation's measurement may name a Workflow's worker, a Graph's entity may type a Function's argument, and every such crosslink makes the model more connected and more checkable. What no primitive may do is *terminate* in another: each remains a complete tree of its own, its cause fully answered in its own terms, never reduced to a pointer into its neighbour. A complete explanation holds all four in balance — linked freely, each still standing on its own.
 
 See [`examples/example.aot`](examples/example.aot) for one subject — thinking itself — modelled through all four primitives.
 
@@ -330,18 +332,18 @@ Alpha recreates org-mode's plain-text spreadsheet: a pipe table the linter reads
 
 ```aot
 Order
-    | name             | country | currency | basket size |
-    |------------------+---------+----------+-------------|
-    | Acme March Order | France  | EUR      | $1,200      |
-    | Bolt March Order | Germany | EUR      | $3,100      |
-    | Kite March Order | Japan   | JPY      | $780        |
+    |name            |country|currency|basket size|
+    |----------------+-------+--------+-----------|
+    |Acme March Order|France |EUR     |$1,200     |
+    |Bolt March Order|Germany|EUR     |$3,100     |
+    |Kite March Order|Japan  |JPY     |$780       |
 ```
 
 - The header row's cells after the first declare the columns as **attributes** of the parent, exactly as bare lowercase lines would — so a capitalised column is an error. The first cell only labels the name column and asserts nothing.
 - As in org, the `|---+---|` separator row directly beneath a row is what marks that row as the header; the separator is layout, never a node. A single-cell row above a separator heads a one-column table (its rows are plain Examples). A **lone** multi-cell row — nothing tabular on the line after it — is a header being typed: it is assumed, the separator and data rows still to come, so a fresh table never squiggles mid-keystroke.
 - Every data row is an **Example** named by its first cell, and every further cell is that Example's **Attribute Value** for its column. An empty cell asserts nothing. Two or more rows with no header above them, a row with more cells than the header names, and an empty name cell are all errors.
 - A blank line, any non-pipe line, or a change of indent ends the table. A pipe row with a single cell stays a plain Example — the `- ` form written with `|`.
-- **Format Document** (`Shift+Alt+F`) re-aligns every table as org's `TAB` does: each column padded to its widest cell, separator rows redrawn to match. Lone pipe Examples are left exactly as written.
+- **Format Document** (`Shift+Alt+F`) re-aligns every table as org's `TAB` does: each column padded to its widest cell, separator rows redrawn to match. Columns carry **no gutter spaces** around the pipes — a file's width is precious — but stay vertically aligned. Lone pipe Examples are left exactly as written.
 
 ### The table editor
 
@@ -359,10 +361,19 @@ Org's table automations are built in. While the cursor is on a table row (any pi
 | `Alt+Shift+↓` | Insert an empty row above the cursor's |
 | `Alt+Shift+↑` | Delete the cursor's row |
 | `Alt+-` | Insert a separator line below the cursor's row |
+| `Tab` / `Shift+Tab` **in the leading indent** | Indent / unindent the whole table one level (4 spaces) — re-filing the table under a different parent is an indent edit, not cell travel. (A flush-left table has no indent to click into; give it a level first.) |
 
-Two more commands live in the Command Palette under **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — sorts the run of data rows around the cursor, header safe behind its separator; numeric when every key reads as a number, with `$`, `%`, and thousands commas ignored, alphabetic otherwise) and *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV, or multi-space-aligned lines and they become an aligned table, the first line lowercased into the header with the separator drawn beneath).
+Three more commands live in the Command Palette under **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — sorts the run of data rows around the cursor, header safe behind its separator; numeric when every key reads as a number, with `$`, `%`, and thousands commas ignored, alphabetic otherwise), *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV, or multi-space-aligned lines and they become an aligned table, the first line lowercased into the header with the separator drawn beneath), and *Copy Formula Down the Column* (see [Formulas](#formulas); also offered by the lightbulb on any formula cell).
 
-Creating a table is org's flow: type `| name | size |`, press `Enter` (a fresh empty row appears, aligned), type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row. A raw `|-` line expands the same way.
+**Creating a table takes one keystroke**: type `|` on an empty line and a skeleton grows in place — header, separator, and an empty data row, the cursor waiting in the data row — and one `Ctrl+Z` undoes the whole thing:
+
+```aot
+|name|
+|----|
+|    |     <- cursor lands here
+```
+
+A `|` typed beside an existing table, or mid-line, is just a pipe. The org flow still works too: type `|name|size|`, press `Enter`, type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row.
 
 ### Formulas
 
@@ -370,27 +381,52 @@ A cell may derive its value — org's spreadsheet folded into the cell itself, v
 
 ```aot
 Order
-    | name             | country | currency | basket size     |
-    |------------------+---------+----------+-----------------|
-    | Acme March Order | France  | EUR      | $1,200          |
-    | Bolt March Order | Germany | EUR      | $3,100          |
-    | Kite March Order | Japan   | JPY      | $780            |
-    | Total            |         |          | $5,080 =sum($4) |
+    |name            |country|currency|basket size    |
+    |----------------+-------+--------+---------------|
+    |Acme March Order|France |EUR     |$1,200         |
+    |Bolt March Order|Germany|EUR     |$3,100         |
+    |Kite March Order|Japan  |JPY     |$780           |
+    |Total           |       |        |$5,080 =sum($4)|
 ```
 
-- `$N` is the same row's column `N` (1 = the name column); `sum($N)`, `avg($N)`, `min($N)`, and `max($N)` range over the table's other data rows; `+ - * / ( )` and plain numbers complete the grammar. `$` signs, thousands commas, and `%` in referenced values are ignored, so a money column reads as its number.
-- **Every table keystroke recalculates** — Tab, Enter, any table command, Format Document, and a CSV arriving through the mirror. Type just `=$2*$3` in a cell, press Tab, and the value materialises in front of the formula. A computed value keeps the old value's `$` and thousands commas.
-- **The formula wears its own colour** — everything from the `=` to the cell's end is a distinct semantic token, so derivations read apart from data at a glance.
-- **The linter audits it**: a formula that cannot compute (bad syntax, a non-numeric reference) is an **error** on exactly its span; a value that no longer matches its formula — someone edited a referenced cell — is a **warning** naming the fresh result, fixed by the next Tab or Format Document. A cell showing `#ERR` kept its formula and is waiting to be fixed.
-- The model never sees the formula: the Attribute Value is the value part alone, so crosslinks, FCA, Gödel numbers, and dependency inference all work on clean data. (The Armstrong warnings will still tell you when a whole *column* is derivable — a formula column is exactly that, made explicit.)
+**References** work like a spreadsheet's, by position or by name:
+
+| Reference | Meaning |
+|-----------|---------|
+| `$2`, `$N` | The same row's column `N` (1 = the name column; tables only) |
+| `$price`, `$basket size` | The same row's column by **header name** — longest case-insensitive match, spaces allowed, a header's `(alias)` matches too |
+| `$price@Acme March Order` | The named row's cell — `@` plus the Example's name, Excel's cross-cell reference |
+
+**Functions and operators** — the full grammar:
+
+| Kind | What is allowed |
+|------|-----------------|
+| Arithmetic | `+ - * / ( )`, unary `-`, plain numbers |
+| Aggregates | `sum($c)` `avg($c)` `min($c)` `max($c)` over the column's *other* data rows; `count($c)` tallies its non-empty cells |
+| Numeric | `round(x)` `round(x,n)` `abs(x)` |
+| Strings | `` `literals in backticks` ``, `&` concatenates, `upper(x)` `lower(x)` `trim(x)` `len(x)` `left(x,n)` `right(x,n)` `mid(x,i,n)` (1-based) `replace(x,a,b)` (all occurrences) |
+| Comparisons | `== <= >= < >` yield `1` or `0`; `if(cond, then, else)` is lazy — only the taken branch is evaluated, so `if(count($2)>0, avg($2), 0)` works over an empty column |
+
+**Coercion is crisp**: a referenced cell is text at rest. Arithmetic and the numeric functions coerce their operands to numbers — `$` signs, thousands commas, and `%` are ignored, so a money column reads as its number, and a genuinely non-numeric operand is an error. `&` coerces to text. A comparison is numeric when **both** sides read as numbers, else an exact, case-sensitive text comparison. Equality *inside* a formula is `==`; a single `=` is the cell operator alone.
+
+**Constraints live on the attribute; formulas live on the value.** After a value, `=formula` derives it (auto-fills and rewrites). A **constraint** is schema, so it is declared once, on the attribute — a bare line (`age >=18`) or a table header cell (`|name|qty >=1|`) — and **every value the attribute takes is validated against it**: the Concept's Examples, its table's cells, and everything deeper in the subtree (a nearer declaration shadows an outer one). A violation is an **error** on the offending value, counted in `V`, naming the bound and its declaring line. The bound's references resolve *per value* against its own Example or row — `|price|margin >=$price*0.1|` holds each row's margin to that row's price. An empty value asserts nothing, so it is never checked; values themselves never carry `>= <= < > ==` (`age: 25 >=18` is just the value `25 >=18`). Prose terms are safe: `speed > none noted` stays a plain name, because a constraint is only believed when its right side actually reads as a formula.
+
+**Any attribute value can carry a derivation, not just cells** (`src/derive.js`). On a line-form value, `$attribute name` reads the same Example's sibling attribute, aggregates range over the *other* sibling Examples under the same parent, and `$attr@Example` reads the named sibling — `total: =sum($price)` on a Concept totals its Examples' prices. (`$N` by position is table-only.)
+
+- **Every table keystroke recalculates** — Tab, Enter, any table command, Format Document, and a CSV arriving through the mirror. Type just `=$2*$3` in a cell, press Tab, and the value materialises in front of the formula. **Line-form values fill themselves in too**: type `total: =sum($price)` and the moment the cursor leaves the line — or the file is saved — the computed value appears in front of the formula (never while a cursor still holds the line, so the fill never fights your typing). Format Document and **AOT: Recompute Formulas** still recompute everything on demand. A computed value keeps the old value's `$` and thousands commas.
+- **Copy a derivation down**: the lightbulb on a formula cell offers *Copy Formula Down the Column* (every other data row gets the formula, keeping its own value); on a line-form formula it offers *Copy Formula to Sibling Examples* (every sibling Example gains the same derivation, added where the attribute is absent) — both recompute as they go.
+- **The derivation wears its own colour** — everything from the operator to the cell's end is a distinct semantic token, so formulas and constraints read apart from data at a glance.
+- **The linter audits it**: a derivation that cannot compute, or a violated constraint, is an **error** on exactly its span (rule 12); a value that no longer matches its `=` formula is a **warning** naming the fresh result. A cell showing `#ERR` kept its formula and is waiting to be fixed.
+- The model never sees the derivation: the Attribute Value is the value part alone, so crosslinks, FCA, Gödel numbers, and dependency inference all work on clean data. (The Armstrong findings will still tell you when a whole *column* is derivable — a formula column is exactly that, made explicit.)
 
 ### The CSV mirror
 
-Every table lives twice: as the pipe grid in the `.aot`, and as a CSV file named after its parent Concept in a sibling `<file>.tables` folder — `spreadsheet.aot` with an `Order` table keeps `spreadsheet.tables/Order.csv`. The two stay in sync automatically:
+Every table lives twice: as the pipe grid in the `.aot`, and as a CSV file named after its parent Concept in a sibling `tables.<file>` folder — `spreadsheet.aot` with an `Order` table keeps `tables.spreadsheet/Order.csv`. The two stay in sync automatically:
 
 - **Saving the `.aot`** writes one CSV per complete table (header, separator, rows — an assumed lone header still being typed is left alone). Cells holding commas, quotes, or newlines are quoted per RFC 4180; a top-level table is named after the file's root Concept.
+- **Saving also tidies**: a CSV whose Concept no longer has a table is deleted (only `.csv` files, only in that folder — anything else you keep there survives), and a legacy `<file>.tables` folder from an earlier version is renamed to `tables.<file>` automatically.
 - **Editing a CSV** — in Excel, a script, anything — folds the grid back into the matching Concept's table, aligned, and saves the file. A new CSV dropped into the folder inserts a table under its Concept if one doesn't exist yet.
-- Both directions write only when the content genuinely differs, so the two mirrors never chase each other. Deleting a CSV never deletes the table. A pipe typed into a CSV cell is bent to a broken bar (`¦`), since it cannot survive inside a pipe grid.
+- Both directions write only when the content genuinely differs, so the two mirrors never chase each other. Deleting a CSV by hand never deletes the table. A pipe typed into a CSV cell is bent to a broken bar (`¦`), since it cannot survive inside a pipe grid.
 
 The mirror means the same knowledge is at once a checked Alpha model and an ordinary spreadsheet any tool can read. Turn it off with the `aot.tableCsvSync` setting.
 
@@ -411,7 +447,7 @@ That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreads
 The VS Code extension adds syntax colouring for `.aot` files and an arithmetic linter after Leibniz: every idea receives a prime and its ancestry is encoded as a product, so the linter can verify the tree as you type. The checks stack in layers:
 
 - **Syntax and arithmetic** (`src/linter.js`) — tabs, broken indentation, depth jumps, a Concept defined twice, and identical siblings all appear as squiggles in the Problems panel.
-- **Crosslinks** (`src/crosslinks.js`) — an attribute whose trailing words match a Concept, or an Attribute Value that names an Example, is underlined as a link; Ctrl+click jumps to the defining line.
+- **Crosslinks** (`src/crosslinks.js`) — an attribute whose trailing words match a Concept, or an Attribute Value that names an Example (case-insensitive, like every link), is underlined as a link; Ctrl+click jumps to the defining line, Shift+F12 lists every place a Concept or Example is referenced, hovering a linked Example shows its full details (owner, defining line, every value it carries), and hovering an Example's own `- ` line adds where it is used. A `https://` URL in a value is Ctrl+clickable too, and hovering it fetches its status, content type, and last-modified date (off with `aot.urlMetadata`).
 - **Subsumption** (`src/subsumption.js`) — a reasoner re-derives the Concept hierarchy from the facts each Concept declares and holds the written tree to it.
 - **Formal Concept Analysis** (`src/fca.js`) — the linter treats the Examples and their attributes as a formal context, computes the concept lattice, and flags groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
 - **Gödel numbering** (`src/godel.js`) — where a line's characteristic number encodes only *where* it sits, a second Gödel number encodes *what it says* — one prime per attribute, raised to a power that encodes the value — and the linter compares those numbers to catch content clashes (see [Gödel numbering](#gödel-numbering)).
@@ -420,6 +456,17 @@ The VS Code extension adds syntax colouring for `.aot` files and an arithmetic l
 The extension maps its findings to two severities: **errors** squiggle red and **warnings** squiggle yellow. Only errors count toward the violation total `V`; the file **verifies** when `V = 0`.
 
 The same referee runs headless: `node verify.js <file.aot>` performs the identical check from the terminal — same rules, same gates, same `V` — and exits `0` exactly when the file verifies, so it drops straight into CI or an agent loop. See [The command line](#the-command-line).
+
+### Settings
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| `aot.tableCsvSync` | `true` | Mirror every table to `tables.<file>/<Concept>.csv` on save and fold CSV edits back in; orphaned CSVs are deleted on save, a legacy `<file>.tables` folder is renamed. |
+| `aot.spellingHints` | `true` | Hint words no English dialect knows, on their span and on hover, never in the Problems panel. A lowercase word passes if its Capitalised form is known (`december` / `December`). |
+| `aot.acceptedWords` | `[]` | Your own vocabulary, case-insensitive — fed by the Quick Fix on a spelling hint or a plural warning. |
+| `aot.dependencyFindings` | `false` | Surface the inferred functional-dependency warnings (rules 10–11) as squiggles. Off by default: correlated attributes are allowed; `verify.js --fd` always prints the full set. |
+| `aot.chainHints` | `true` | Write the first dependency chain in small print (an inlay hint) at the end of each crosslinked line; the full chains stay on hover. |
+| `aot.urlMetadata` | `true` | Hovering a URL fetches its status, content type, and last-modified date (one cached HEAD request); Ctrl+click opens it regardless. |
 
 ### Errors — red squiggle, counted in `V` (the file does not verify)
 
@@ -435,26 +482,28 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | 8 | **No "and" in a Concept** | A Concept name containing the word `and` — that is two kinds under one prime. Split it. |
 | 9 | **Univocity** | The same Concept name defined more than once. One name, one prime; a recurrence needs a distinguishing qualifier prefix. |
 | 10 | **No identical siblings** | Two children of one parent with the same kind, name, **and** value. Siblings may share a slot only if their values differ. |
+| 11 | **One alias, one target** | Two Concepts declaring the same alias — an identifier must resolve to exactly one target — or an alias that merely repeats its own Concept's name. An alias naming *another* Concept stays legal: that is a declared dependency (`Auto (Car)`), and a real name always outranks an alias. |
+| 12 | **Sound derivations** | A formula that cannot compute (bad syntax, a non-numeric operand, an unknown reference), a constraint whose bound cannot compute, or a **value that violates its attribute's constraint** (`age: 15` under `age >=18`). A stale `=` value is only a warning; a broken or false derivation is a violation. |
 
-Rules 1–10 are the syntactic and arithmetic checks (`src/linter.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, values, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. Placements the derived order contradicts are errors, also counted in `V`:
+Rules 1–12 are the syntactic and arithmetic checks (`src/linter.js`, with the derivations audited by `src/table.js` and `src/derive.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, values, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. Placements the derived order contradicts are errors, also counted in `V`:
 
 | # | Rule | What triggers it |
 |---|------|------------------|
-| 11 | **Misfiling** | A Concept's one most-specific genus (the Concept whose full definition it satisfies) is filed somewhere other than where this Concept sits — its facts say it is a kind of a Concept it is not written under. |
-| 12 | **Multiple kinds** | A Concept's facts satisfy two genera, neither of which is under the other. A Concept must name one kind; file it under one and crosslink the other, or split it. This is the real single-inheritance check. |
-| 13 | **Equivalence** | Two Concepts, neither above the other, carry identical definitions — their facts cannot tell the two kinds apart. Give one a differentia, or merge them. |
-| 14 | **Cycle** | A loop of mutual is-a in the derived order (`A is-a B is-a … is-a A`), which no hierarchy can hold. Break it by giving one member a differentia the others lack. |
+| 13 | **Misfiling** | A Concept's one most-specific genus (the Concept whose full definition it satisfies) is filed somewhere other than where this Concept sits — its facts say it is a kind of a Concept it is not written under. |
+| 14 | **Multiple kinds** | A Concept's facts satisfy two genera, neither of which is under the other. A Concept must name one kind; file it under one and crosslink the other, or split it. This is the real single-inheritance check. |
+| 15 | **Equivalence** | Two Concepts, neither above the other, carry identical definitions — their facts cannot tell the two kinds apart. Give one a differentia, or merge them. |
+| 16 | **Cycle** | A loop of mutual is-a in the derived order (`A is-a B is-a … is-a A`), which no hierarchy can hold. Break it by giving one member a differentia the others lack. |
 
 A genus must rest on at least two declared attribute names — one shared word is coincidence, not a kind.
 
-On top of rules 1–14, a third tier of errors comes from the **Formal Concept Analysis audit** (`src/fca.js`) and the **Gödel numbering** (`src/godel.js`). A lattice or a content comparison over a broken tree means nothing, so these run **only once rules 1–14 are clean**; the FCA rules additionally need **between 2 and 200 Examples**. When they fire they are violations counted in `V` — the file does not verify until they are resolved:
+On top of rules 1–16, a third tier of errors comes from the **Formal Concept Analysis audit** (`src/fca.js`) and the **Gödel numbering** (`src/godel.js`). A lattice or a content comparison over a broken tree means nothing, so these run **only once rules 1–16 are clean**; the FCA rules additionally need **between 2 and 200 Examples**. When they fire they are violations counted in `V` — the file does not verify until they are resolved:
 
 | # | Rule | What triggers it |
 |---|------|------------------|
-| 15 | **Drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. |
-| 16 | **Exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
-| 17 | **Exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
-| 18 | **Clash** | Two unrelated Concepts or Examples with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. (The weaker same-name case — equal radicals, differing values — is not itself a violation.) |
+| 17 | **Drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. |
+| 18 | **Exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
+| 19 | **Exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
+| 20 | **Clash** | Two unrelated Concepts or Examples with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. (The weaker same-name case — equal radicals, differing values — is not itself a violation.) |
 
 A `...` Map child marks a node intentionally incomplete and excuses it from the drift and exhaustion checks (its missing siblings or attributes are declared, not forgotten). A Concept whose Examples share nothing beyond their ancestor's is skipped by drift, as is a Concept whose whole shared intent is inherited from above — when neither the Concept nor its Examples declare any of it, there is nothing of its own to drift toward.
 
@@ -469,19 +518,23 @@ A `...` Map child marks a node intentionally incomplete and excuses it from the 
 | 5 | **No lone sub-Concept** | A Concept with exactly one sub-Concept — a kind with one subtype *is* that subtype. Have zero, or more than one. |
 | 6 | **No lone sub-Example** | An Example with exactly one sub-Example, by the same reasoning. |
 | 7 | **Differentia** | Two or more sibling sub-Concepts with an identical attribute/value *slot signature* — they are told apart by position only. Give each a distinguishing attribute or value. A sub-Concept that asserts no slot at all is excused: with no attributes its `...` is implied, so its differentia is still to come. |
+| 8 | **Case-twin Examples** | Two Examples whose names differ only in case (`- Socrates` / `- socrates`). Example references resolve case-insensitively, so they are one name to every link and audit — align the spelling. |
+| 9 | **Stale derivation** | A `=` value that no longer matches its formula (someone edited a referenced value). Fixed by Tab in a table, Format Document, or the *AOT: Recompute Formulas* command. |
 
 A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten. A Map says *what is still missing, a todo, or uncertain* — it is never a description of the line above it (use a parenthetical alias to name or explain a term).
 
-Two more warnings come from the dependency inference in `src/armstrong.js`. Like the FCA audit they mean nothing over a broken tree, so they run **only once rules 1–14 are clean** and need **between 2 and 200 Examples**; they reuse the Gödel numbers. They are warnings, not errors — a derivable column is a modelling smell, not a contradiction — so they do **not** count toward `V`:
+Two more warnings come from the dependency inference in `src/armstrong.js`. They are **off by default** — correlated attributes are allowed; opt in with the `aot.dependencyFindings` setting (`node verify.js --fd` always prints the full set). Like the FCA audit they mean nothing over a broken tree, so they run **only once rules 1–16 are clean** and need **between 2 and 200 Examples**; they reuse the Gödel numbers. They are warnings, not errors — a derivable column is a modelling smell, not a contradiction — so they do **not** count toward `V`:
 
 | # | Rule | What triggers it |
 |---|------|------------------|
-| 8 | **Dependency (equivalence)** | Two attributes determine each other across the Examples — the same distinction written twice. Confirmed only when a value actually **repeats** (two Examples share it and still agree), so the collapse is witnessed, not coincidence. Model one and derive the other. |
-| 9 | **Dependency (determination)** | One attribute's value is always pinned down by another across the Examples — a derivable column. Model it once, against its determinant. |
+| 10 | **Dependency (equivalence)** | Two attributes determine each other across the Examples — the same distinction written twice. Confirmed only when a value actually **repeats** (two Examples share it and still agree), so the collapse is witnessed, not coincidence. Model one and derive the other. |
+| 11 | **Dependency (determination)** | One attribute's value is always pinned down by another across the Examples — a derivable column. Model it once, against its determinant. |
 
-Each finding carries a **confidence**: the number of *confirming repeats* (Examples beyond the first that share a value and still agree). A pure one-to-one **covariation** — every Example distinct on both sides, so no value ever repeats — has confidence 0: the attributes track each other but no collapse is witnessed, so it could be coincidence. The editor flags only findings at or above `MIN_CONFIDENCE` (2) — a single confirming repeat is not enough, so a 3-Example case never squiggles; weaker and covariation-only pairs stay off the squiggle channel. An ellipsis marker among the Examples — a `...` Map or a `- ...` Example — declares the sample intentionally incomplete (the same marker that excuses warnings 4–7), so any dependency read off those Examples is **provisional**: it is never flagged, however high its confidence, since more data is openly still to come.
+Each finding carries a **confidence**: the number of *confirming repeats* (Examples beyond the first that share a value and still agree). A pure one-to-one **covariation** — every Example distinct on both sides, so no value ever repeats — has confidence 0: the attributes track each other but no collapse is witnessed, so it could be coincidence. The editor (when `aot.dependencyFindings` is on) flags only findings at or above `MIN_CONFIDENCE` (2) — a single confirming repeat is not enough, so a 3-Example case never squiggles; weaker and covariation-only pairs stay off the squiggle channel. An ellipsis marker among the Examples — a `...` Map or a `- ...` Example — declares the sample intentionally incomplete (the same marker that excuses warnings 4–7), so any dependency read off those Examples is **provisional**: it is never flagged, however high its confidence, since more data is openly still to come.
 
-Earlier versions surfaced three advisory hint kinds with no squiggle: the FCA audit (after Wille, 1982), the content clash, and the dependency inference. The FCA audit and the content clash are now **errors** counted in `V` (rules 15–18); the dependencies are now **warnings** (rules 8–9). Nothing maps to the editor's Hint severity any more.
+**The nagging warnings wait a breath.** Every squiggle appears as soon as the linter settles — *except* the two lone-child warnings (`'X' has 1 sub-Concept` / `sub-Example`), which fire on the parent the instant its first child is typed, before the second can exist. Those wait until typing has been quiet for a moment (a little past the usual debounce), by which point the sibling either exists — so no warning was ever right — or you have genuinely paused. Pressing Enter to add the sibling never flashes them. A lone-child warning that was already on screen keeps showing; everything else, including real errors, is immediate.
+
+Earlier versions surfaced three advisory hint kinds with no squiggle: the FCA audit (after Wille, 1982), the content clash, and the dependency inference. The FCA audit and the content clash are now **errors** counted in `V` (rules 17–20); the dependencies are now opt-in **warnings** (rules 10–11). Spelling is the one finding that maps to the editor's Hint severity.
 
 ### Gödel numbering
 
@@ -493,15 +546,15 @@ The characteristic number `chi = prime × chi(parent)` is a squarefree product: 
 
 So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what*. Every question a model asks of its content is then plain arithmetic on `G`: whether idea *n* carries attribute *a* (`prime(a)` divides `G(n)`), whether two ideas carry the same attributes (equal radicals) or identical content (equal `G`), what value an attribute takes on a line (the exponent of its prime, decoded), which ideas override an inherited default (a prime dividing both `G(n)` and `G(ancestor)` with unequal exponents ≥ 2), and which attributes are present but not yet valued (primes with exponent exactly 1).
 
-The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V` (rule 18). Like the FCA findings, it is meaningless over a tree that does not yet verify, so it runs only once the syntactic and subsumption passes are clean — but when it fires, it is a violation, not an advisory.
+The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V` (rule 20). Like the FCA findings, it is meaningless over a tree that does not yet verify, so it runs only once the syntactic and subsumption passes are clean — but when it fires, it is a violation, not an advisory.
 
 ### Armstrong's axioms (dependency inference)
 
 A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong's axioms are the inference rules for such dependencies, and `src/armstrong.js` makes them part of the linter in two ways, both reusing the Gödel numbers above.
 
-**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`), the two attributes are the same distinction written twice. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as warnings (rules 8–9 above; they do not count toward `V`).
+**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`), the two attributes are the same distinction written twice. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The strongest of these surface as opt-in warnings (rules 10–11 above; off by default via `aot.dependencyFindings`, never counted toward `V`).
 
-**Declared by the Concept references.** An attribute whose name ends in a Concept, and a Concept whose name contains another, are both read as "depends on" edges; their transitive closure (Armstrong transitivity) gives what a Concept rests on directly and what it inherits through a chain — `node verify.js <file> --depends "X"` prints both, each transitive dependency with one witnessing path.
+**Declared by the crosslinks.** An attribute whose name ends in a Concept, a Concept whose name contains another, a Concept's parenthetical alias, and a **value that names another Concept's Example** (`person: Socrates` with Socrates under `Human`) are all read as "depends on" edges — the value edges matter, or linking through a value would hide the dependency it creates. Their transitive closure (Armstrong transitivity) gives what a Concept rests on directly and what it inherits through a chain — `node verify.js <file> --depends "X"` prints both, each transitive dependency with one witnessing path. In the editor the chains are visible twice over: **hovering** a Concept (or any crosslink) lists every chain in full (`Trip ─driver person→ Person ─home address→ Address — 3 Concepts`), and an **inlay hint** writes the first chain in small print at the end of each crosslinked line (`→Person→Address`, off with `aot.chainHints`).
 
 ### The command line
 
@@ -603,7 +656,7 @@ Concepts define essence: their attributes are inherited by all children. Example
 may override inherited values and add accidental attributes, never essential ones.
 Every idea has exactly one parent; model relationships as their own Concepts whose
 attributes name the linked Concepts (lowercase) and whose Example values name the
-linked Examples (exact case). No "and" in a Concept name. Never define the same
+linked Examples (case-insensitive). No "and" in a Concept name. Never define the same
 Concept name twice. Singular Concept names. 3–7 children per objective; at most 8
 sub-Concepts per node. Give every pair of sibling sub-Concepts a distinguishing
 attribute or value (a differentia). Mark anything intentionally incomplete with an
@@ -618,23 +671,26 @@ Alpha's discipline pays off most when more than one mind works the same model:
 - **Models are reviewed like code.** A `.aot` file diffs line by line, so a pull request shows exactly which idea changed, and a review comment lands on a specific parent, attribute, or value — the "disagreements become locatable" promise, operationalised.
 - **The linter is the first reviewer.** A contributor — human or LLM — cannot merge a structural contradiction past `V = 0`. The referee runs in the editor as you type and headless in CI: `node verify.js <file>` exits `0` exactly when the file verifies, so a one-line pipeline step blocks unverified models from merging.
 - **Univocity is governance.** One Concept name, one definition, one place to change it. When a team disputes a term, the dispute has an address, and the resolution is a single edit everyone inherits.
-- **Stakeholders who live in Excel still contribute.** The [CSV mirror](#the-csv-mirror) means a domain expert can edit `Sales.tables/Order.csv` in a spreadsheet; saving folds it back into the model, where the linter re-audits it like any other edit.
+- **Stakeholders who live in Excel still contribute.** The [CSV mirror](#the-csv-mirror) means a domain expert can edit `tables.Sales/Order.csv` in a spreadsheet; saving folds it back into the model, where the linter re-audits it like any other edit.
 
 ## Repository layout
 
 | Path | What it is |
 |------|------------|
 | [`verify.js`](verify.js) | [The command line](#the-command-line): whole-file check with exit code, plus the query flags |
-| [`src/linter.js`](src/linter.js) | Syntactic and arithmetic checks (error rules 1–10) |
-| [`src/subsumption.js`](src/subsumption.js) | Subsumption reasoner (error rules 11–14) |
-| [`src/fca.js`](src/fca.js) | Formal Concept Analysis audit (error rules 15–17) |
-| [`src/godel.js`](src/godel.js) | Gödel numbering and the content clash (error rule 18) |
-| [`src/armstrong.js`](src/armstrong.js) | Dependency inference (warning rules 8–9) |
-| [`src/crosslinks.js`](src/crosslinks.js) | Underlines, hover, and go-to-definition for crosslinks |
-| [`src/table.js`](src/table.js) | The table editor, formulas, and the CSV mirror |
+| [`src/linter.js`](src/linter.js) | Syntactic and arithmetic checks (error rules 1–12) |
+| [`src/subsumption.js`](src/subsumption.js) | Subsumption reasoner (error rules 13–16) |
+| [`src/fca.js`](src/fca.js) | Formal Concept Analysis audit (error rules 17–19) |
+| [`src/godel.js`](src/godel.js) | Gödel numbering and the content clash (error rule 20) |
+| [`src/armstrong.js`](src/armstrong.js) | Dependency inference (warning rules 10–11) and the declared dependency graph |
+| [`src/crosslinks.js`](src/crosslinks.js) | Underlines, hover, references, and go-to-definition for crosslinks |
+| [`src/table.js`](src/table.js) | The table editor, the formula/constraint engine, and the CSV mirror |
+| [`src/derive.js`](src/derive.js) | Formulas on line-form values; validates every value against its attribute's constraint |
+| [`src/urls.js`](src/urls.js) | URL spans and their hover metadata |
+| [`src/hold.js`](src/hold.js) | Hold-near-cursor: squiggles wait for the line to be finished |
 | [`examples/example.aot`](examples/example.aot), [`examples/spreadsheet.aot`](examples/spreadsheet.aot) | Worked models that verify at `V = 0` (all four primitives; tables and formulas) |
 | [`examples/lint.aot`](examples/lint.aot), [`examples/warning.aot`](examples/warning.aot) | The [conformance examples](#the-conformance-examples) — one planted violation per rule |
-| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`node out/test-linter.js`) |
+| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all nine) |
 | [`docs/`](docs/) | README assets (`edit-loop.svg` is the editable source of the header image) |
 | [`install.py`](install.py) | Build and install the extension locally (`python install.py`) |
 

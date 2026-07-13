@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.1.78",
+  "version": "1.2.6",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -22,6 +22,9 @@
     "Linters"
   ],
   "main": "./src/extension.js",
+  "scripts": {
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-urls.js && node out/test-hold.js"
+  },
   "contributes": {
     "languages": [
       {
@@ -49,7 +52,7 @@
         "aot.tableCsvSync": {
           "type": "boolean",
           "default": true,
-          "description": "Mirror every table to a CSV file named after its parent Concept in a sibling '<file>.tables' folder when the .aot is saved, and fold edits made to those CSVs back into the .aot table."
+          "description": "Mirror every table to a CSV file named after its parent Concept in a sibling 'tables.<file>' folder when the .aot is saved, and fold edits made to those CSVs back into the .aot table. A CSV whose Concept no longer has a table is deleted on save; a legacy '<file>.tables' folder is renamed automatically."
         },
         "aot.spellingHints": {
           "type": "boolean",
@@ -63,6 +66,21 @@
           },
           "default": [],
           "description": "Your own vocabulary, case-insensitive: the spelling hints accept these words, and a Concept whose last word is one of them is not flagged as plural. The Quick Fix on either finding adds the word here."
+        },
+        "aot.dependencyFindings": {
+          "type": "boolean",
+          "default": false,
+          "description": "Surface inferred functional-dependency warnings (derivable / equivalent attributes) as editor squiggles. Off by default \u2014 correlated attributes are allowed; 'node verify.js --fd' always shows the full set."
+        },
+        "aot.chainHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show an abbreviated dependency chain in faint inline text (an inlay hint) at the end of lines whose crosslink declares a dependency \u2014 the full chains stay on hover."
+        },
+        "aot.urlMetadata": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hovering a URL in a value fetches light metadata (status, content type, last modified) with a HEAD request, cached for a few minutes. Ctrl+click always opens the URL, metadata or not."
         }
       }
     },
@@ -168,6 +186,24 @@
         "command": "aot.table.fromSelection",
         "title": "Create Table from Selected Lines",
         "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyFormulaDown",
+        "title": "Copy Formula Down the Column",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.recomputeFormulas",
+        "title": "Recompute Formulas",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.copyFormulaToSiblings",
+        "title": "Copy Formula to Sibling Examples",
+        "category": "AOT",
         "enablement": "editorLangId == aot"
       }
     ],

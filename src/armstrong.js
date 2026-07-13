@@ -12,18 +12,21 @@
 //      reasoning the README ties to the Graph primitive). X <-> Y is the same
 //      distinction written twice.
 //
-//   2. DECLARED dependencies (from the Concept references). attribute-is-a-
-//      Concept and concept-contains-Concept are edges "C depends on D"; their
-//      transitive closure (Armstrong Transitivity) answers --depends: what a
-//      Concept rests on directly and what it inherits through a chain
-//      (Z depends on X through Y).
+//   2. DECLARED dependencies (from the crosslinks). attribute-is-a-Concept,
+//      concept-contains-Concept, a Concept's alias, and the value links
+//      (default-is-a-Example / example-is-a-Example, read as "the owner
+//      rests on the Concept whose Example the value names") are all edges
+//      "C depends on D"; their transitive closure (Armstrong Transitivity)
+//      answers --depends: what a Concept rests on directly and what it
+//      inherits through a chain (Z depends on X through Y). Without the
+//      value edges a link through a value would hide its dependency.
 //
 // Inferred-FD findings are advisory, like the FCA / Gödel-clash hints: surfaced
 // only over a tree that verifies (V = 0), never counted in V. Pure: no I/O,
 // depends only on ./linter, ./crosslinks and ./godel.
 
 const { KIND } = require("./linter");
-const { index, conceptType } = require("./crosslinks");
+const { index, conceptType, individualsIndex, valueTarget, listedTarget, owningConcept } = require("./crosslinks");
 const godel = require("./godel");
 
 const { CONCEPT, INDIVIDUAL, ATTRIBUTE, DEFAULT, MAP } = KIND;
@@ -221,6 +224,26 @@ function dependencyGraph(root, nodes) {
       const t = conceptType(child, concepts);
       if (t) add(c, t, child.name);
     }
+  }
+  // Value links declare dependencies too: a value (or listed Example) that
+  // names an Example of another Concept makes its owner rest on that
+  // Concept — `person: Socrates` with Socrates under Human is an edge
+  // "owner depends on Human" via 'person'. Without these edges, linking
+  // through a value would hide the dependency the link creates.
+  const byName = individualsIndex(nodes);
+  for (const d of nodes) {
+    let target = null, via = null;
+    if (d.kind === DEFAULT && d.value) {
+      target = valueTarget(d, concepts, byName);
+      via = d.name;
+    } else if (d.kind === INDIVIDUAL) {
+      target = listedTarget(d, concepts, byName);
+      via = target && d.parent.name;
+    }
+    if (!target) continue;
+    const from = owningConcept(d);
+    const to = owningConcept(target);
+    if (from && to) add(from, to, via);
   }
   return { edges, conceptNodes };
 }

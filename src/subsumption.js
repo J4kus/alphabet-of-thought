@@ -89,7 +89,7 @@ function attrFeatures(node, concepts, individuals, root, keyOf) {
     if (child.kind !== DEFAULT) continue;
     const vals = valuesByAttr.get(attrKey) || new Set();
     vals.add(keyOf(`${child.name}: ${child.value}`));
-    const target = individuals.get(child.value);
+    const target = individuals.get(child.value.toLowerCase());
     if (target && target !== child && instantiates(target, child.name)) {
       for (let a = target.parent; a && a !== root; a = a.parent) {
         if (a.name.toLowerCase() === child.name.toLowerCase()) break;

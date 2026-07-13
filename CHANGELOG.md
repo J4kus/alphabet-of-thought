@@ -4,6 +4,31 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.2.0] - 2026-07-12
+
+**Migration notes** (three things existing files will notice):
+
+- **Tables re-flow once**: the aligned style drops the gutter spaces — `|Ollie |5   |brown |`, columns still padded to their widest cell — because a file's width is precious. The next Format Document, table keystroke, or CSV fold-back rewrites each table into the new style; a pipe row no longer needs a space after its `|`.
+- **The CSV mirror folder is renamed**: `tables.<file>` instead of `<file>.tables` (`tables.spreadsheet/Order.csv`). A legacy folder is migrated automatically on the first save; a CSV whose Concept no longer has a table is deleted on save (only `.csv` files, only in that folder).
+- **Values that contain ` =` followed by something formula-shaped** are now read as computed values, and **attribute declarations with a trailing comparison** (`age >=18`, a header cell `qty >=1`) as constraints (see below). Prose is left alone — `wind: 10 < 20 knots` stays a plain value, `speed > none noted` a plain term — a derivation is only believed when its right side actually reads as a formula.
+
+The batch itself:
+
+- **The nagging warnings wait a breath** (`src/hold.js`): every squiggle appears as soon as the linter settles, except the two lone-child warnings (`'X' has 1 sub-Concept` / `sub-Example`) — they fire on the parent the instant its first child is typed, so they wait until typing has been quiet a moment past the debounce. By then the sibling exists (no warning) or you have paused; pressing Enter to add the sibling never flashes them, and a lone-child warning already on screen keeps showing.
+- **The formula language grew up** (`src/table.js`): named column references (`$price`, `$basket size`, header aliases included) beside `$N`; Excel-style cross-cell references `$price@Acme March Order`; `count round abs`; strings — backtick literals, `&` concatenation, `upper lower trim len left right mid replace`; comparisons `== <= >= < >` yielding 1/0 and a lazy `if(cond,then,else)`; crisp number/text coercion rules (README).
+- **Constraints are schema, declared on the attribute**: `age >=18` on a bare attribute line, or `|name|qty >=1|` in a table header, bounds **every value the attribute takes** — the Concept's Examples, the table's cells, everything deeper in the subtree (a nearer declaration shadows an outer one). A violation is an **error** on the offending value, counted in `V`, naming the bound and its declaring line; the bound's references resolve per value (`margin >=$price*0.1` holds each row's margin to its own price). Values themselves carry only `=` formulas, never constraints.
+- **Formulas on any attribute value** (`src/derive.js`), not just table cells: `$attribute name` reads the sibling attribute, aggregates range over the sibling Examples (`total: =sum($price)` on a Concept totals its Examples), `$attr@Example` reads the named sibling. **They fill themselves in**: the computed value materialises when the cursor leaves the line, and a save persists fresh values (the recompute rides the save itself); Format Document and **AOT: Recompute Formulas** still work on demand. Audited exactly like cells.
+- **Copy a derivation down**: *Copy Formula Down the Column* (table) and *Copy Formula to Sibling Examples* (line form), both on the lightbulb and in the Command Palette, both recomputing as they go.
+- **Type `|` on an empty line and a table grows** — header, separator, empty data row, cursor in the data row, one Ctrl+Z undoes it all. `Tab`/`Shift+Tab` **in the leading indent** indent/unindent the whole table one level; inside the cells they keep navigating.
+- **Dependency visibility**: value links now feed the dependency graph (`person: Socrates` with Socrates under `Human` is an edge to `Human` — a link through a value no longer hides the dependency it creates); an **inlay hint** writes the first chain in small print at the end of each crosslinked line (`→Person→Address`, off with `aot.chainHints`); hovering an Example — as a value or on its own `- ` line — shows its full details and where it is used; **Find All References** (Shift+F12) works on Concepts and Examples.
+- **URLs in values**: Ctrl+click opens them; hovering fetches status, content type, and last-modified (one cached HEAD request, off with `aot.urlMetadata`).
+- **Example matching is case-insensitive** everywhere a link resolves (`person: socrates` finds `- Socrates`), matching the Concept links; two Examples differing only in case warn. New errors: two Concepts sharing an alias, an alias repeating its own Concept's name — an identifier resolves to exactly one target, a real name always outranking an alias (`Auto (Car)` stays the declared dependency it always was).
+- **Dependency findings are off by default** (`aot.dependencyFindings`) — correlated attributes are allowed; `verify.js --fd` still prints the full set.
+- **Spelling knows proper nouns**: a lowercase word passes when its Capitalised form is in the dictionary (`december` / `December`).
+- **All table symbols share one quiet colour, upright** — `|`, `-`, `+` in every row scope as `punctuation` chrome (not `comment`, whose italics tilt a pipe); cell text keeps its semantic colours. Grammar `fileTypes` fixed to `aot`.
+- README: the primitives may (and should) crosslink to one another, but no cause terminates in another; Alpha is not a word-explanation language — definitions terminate in Examples and data, aliases rename; a Settings table; the full formula/constraint reference.
+- New smoke tests: `out/test-derive.js`, `out/test-urls.js`, `out/test-hold.js`; `npm test` runs all nine.
+
 ## [1.1.76] - 2026-07-06
 
 - Spelling hints (`src/spelling.js`): every plain word longer than four characters is checked against Hunspell English — `nspell` with the `dictionary-en` and `dictionary-en-gb` word lists, pure JS, so it runs inside the editor with no native binaries; a word either dialect accepts is correct (the language's own examples write `colour`). Each dialect keeps its own instance: merging the two `.dic` files under one `.aff` misreads affix flags and starts accepting misspellings

@@ -9,8 +9,8 @@
 - [ ] Epistemics via reserved attributes — make `confidence`, `status` (proposed / contested / accepted / deprecated), and `source` reserved attributes the tooling understands: `--ask` returns qualified answers ("yes, at confidence 0.6, contested"), confidence propagates down inheritance by multiplication, and `--list contested` becomes a meeting-agenda generator
 - [ ] Make all of Armstrong's Axioms part of the linter as far as pssible and not only a discussion — `src/armstrong.js`: `--fd` infers functional dependencies from the Examples via Gödel projections (with a derivability/redundancy hint),
 
-- [ ] Generalise table calculations and csv saving
-- [ ] make tabs better to use for tables
+- [x] Generalise table calculations and csv saving — **done 2026-07-12 (1.2.0)**: formulas/constraints on any attribute value (`src/derive.js`), named `$column` and `$col@Row` references, string functions, `count/round/abs/if`, comparisons; CSVs now live in `tables.<file>` with auto-migration and orphan cleanup on save
+- [x] make tabs better to use for tables — **done 2026-07-12 (1.2.0)**: Tab/Shift+Tab in the leading indent indent/unindent the whole table; typing `|` on an empty line scaffolds header+separator+data row with the cursor placed; tables render aligned with no gutter spaces
 
 - [ ] Explain in the readme how to write in Alpha
 - [ ] add a rule that there are not a many to many relationship. No many-to-many relations on attributes; use Event Associations
@@ -45,7 +45,7 @@ node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = ver
 
 ## Linter / diagnostics
 - [ ] Example linknig may only be to examples of concepts not exampels of attributes
-- [ ] Make example/value matching not capitalisation-specific 
+- [x] Make example/value matching not capitalisation-specific — **done 2026-07-12 (1.2.0)**: all Example links resolve case-insensitively (crosslinks, FCA, subsumption); case-only twin Examples warn
 - [ ] `default-is-a-Example` now requires the Example to instantiate the attribute being valued: some ancestor of the Example must carry the attribute's name (or a trailing run of its words, the alias rule). `exponent: 1` no longer links to an unrelated `- 1` filed under another attribute; the same guard applies to the FCA value-ancestry expansion... Example value matching should only be allowed if the example is one that is the same concept as the one defined (need to carry the highlighting in the file even if it is partial)
 - [ ] Reword the "Concept defined twice" diagnostic (say something more useful instead)
 - [ ] Have a javascript file that can highlight wording differences

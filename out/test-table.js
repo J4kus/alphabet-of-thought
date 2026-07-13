@@ -8,7 +8,7 @@ const {
   padRows, dataRow, nextCell, prevCell, nextRow, moveColumn, moveRow,
   insertColumn, deleteColumn, insertRow, deleteRow, insertSeparator,
   sortRows, fromRegion, cleanName, tablesOf, toCsv, fromCsv, updateTable,
-  splitCell, evalFormula, formatValue, recompute, formulas,
+  splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas, tableCtx,
 } = require("../src/table");
 
 let failures = 0;
@@ -40,12 +40,12 @@ const fresh = () => blockAt(doc, 3);
   check("blockAt: a non-pipe line is no block", blockAt(doc, 0) === null && blockAt(doc, 5) === null);
   const typing = blockAt(["| name | size |", "| -    |      |"], 1);
   check("blockAt: a lone '-' in the first cell reads as a separator being typed",
-    typing.rows[1].sep === true && render(typing)[1] === "|------+------|");
+    typing.rows[1].sep === true && render(typing)[1] === "|----+----|");
   check("blockAt: the lone Example is its own block", blockAt(doc, 6).start === 6 && blockAt(doc, 6).end === 6);
 
   check("widthsOf: widest cell per column", widthsOf(block).join(",") === "6,4,6");
-  check("render: redraws aligned", render(block)[2] === "    | Ollie  | 5    | brown  |");
-  check("cellStart: column offsets on the aligned line", cellStart(block, 0) === 6 && cellStart(block, 1) === 15 && cellStart(block, 2) === 22);
+  check("render: redraws aligned (no gutters)", render(block)[2] === "    |Ollie |5   |brown |");
+  check("cellStart: column offsets on the aligned line", cellStart(block, 0) === 5 && cellStart(block, 1) === 12 && cellStart(block, 2) === 17);
   check("colAt: the cell under a character", colAt(doc[3], 7) === 0 && colAt(doc[3], 16) === 1 && colAt(doc[3], 2) === 0);
 }
 
@@ -143,11 +143,11 @@ const fresh = () => blockAt(doc, 3);
 {
   const csv = fromRegion(["    Name,Size", "    Ollie,5", "    Pebble,3"]);
   check("fromRegion: CSV becomes an aligned table with a separator",
-    csv[0] === "    | name   | size |" && csv[1] === "    |--------+------|" && csv[2] === "    | Ollie  | 5    |");
+    csv[0] === "    |name  |size|" && csv[1] === "    |------+----|" && csv[2] === "    |Ollie |5   |");
   const tsv = fromRegion(["a\tb", "1\t2"]);
-  check("fromRegion: tabs win over commas", tsv[0] === "| a | b |");
+  check("fromRegion: tabs win over commas", tsv[0] === "|a|b|");
   const spaced = fromRegion(["name  size", "Ollie  5"]);
-  check("fromRegion: multi-space columns as a last resort", spaced[2] === "| Ollie | 5    |");
+  check("fromRegion: multi-space columns as a last resort", spaced[2] === "|Ollie|5   |");
   check("fromRegion: nothing from blank lines", fromRegion(["   ", ""]) === null);
 }
 
@@ -156,16 +156,58 @@ const fresh = () => blockAt(doc, 3);
 // ---------------------------------------------------------------------------
 {
   check("splitCell: value and formula part at the ' ='",
-    JSON.stringify(splitCell("10 =$1+10")) === '{"value":"10","eq":3}'
+    JSON.stringify(splitCell("10 =$1+10")) === '{"value":"10","eq":3,"op":"="}'
     && splitCell("=$2*2").value === "" && splitCell("=$2*2").eq === 0
-    && splitCell("plain text").eq === -1);
+    && splitCell("plain text").eq === -1 && splitCell("plain text").op === null);
+  check("splitCell: values never split on comparison operators (constraints live on attributes)",
+    splitCell("25 >=18").eq === -1 && splitCell("90 <=$2*1.5").eq === -1
+    && splitCell("active ==`active`").eq === -1);
+  check("splitCell: scans left to right, so an in-formula '==' never splits",
+    JSON.stringify(splitCell("10 =if($2 == 3,1,0)")) === '{"value":"10","eq":3,"op":"="}');
+  check("splitConstraint: an attribute's trailing bound is recognised",
+    JSON.stringify(splitConstraint("age >=18")) === '{"value":"age","eq":4,"op":">="}'
+    && splitConstraint("cap <=$price*1.5").op === "<="
+    && splitConstraint("status ==`active`").op === "=="
+    && splitConstraint("150 <= 200").op === "<=");
+  check("splitConstraint: prose comparisons stay plain terms",
+    splitConstraint("10 < 20 knots").eq === -1
+    && splitConstraint("wind speed > none noted").eq === -1
+    && splitConstraint("plain term").op === null);
 
-  const ctx = { cell: (c) => c * 10, column: () => [1, 2, 3] };
+  const ctx = {
+    matchColumn: () => null, matchRow: () => null,
+    cell: (c) => String(c * 10), cellAt: () => "7", column: () => ["1", "2", "3"],
+  };
   check("evalFormula: references and precedence", evalFormula("$2+3*4", ctx) === 32);
   check("evalFormula: parentheses and unary minus", evalFormula("-(2+3)*$1", ctx) === -50);
   check("evalFormula: sum/avg over a column", evalFormula("sum($3)", ctx) === 6 && evalFormula("avg($3)", ctx) === 2);
   check("evalFormula: bad syntax throws",
     (() => { try { evalFormula("$2+", ctx); return false; } catch { return true; } })());
+  check("evalFormula: count tallies non-empty cells",
+    evalFormula("count($3)", { ...ctx, column: () => ["a", "", " ", "4"] }) === 2);
+  check("evalFormula: round and abs",
+    evalFormula("round(1.256,2)", ctx) === 1.26 && evalFormula("round(1.6)", ctx) === 2 && evalFormula("abs(-(3))", ctx) === 3);
+  check("evalFormula: string literals, & concatenation and case helpers",
+    evalFormula("upper(`ab`)&`c`", ctx) === "ABc"
+    && evalFormula("lower(`AB`)", ctx) === "ab"
+    && evalFormula("`a`&1+1", ctx) === "a2");
+  check("evalFormula: trim/len/left/right/mid/replace",
+    evalFormula("len(trim(` xy `))", ctx) === 2
+    && evalFormula("left(`abcdef`,2)", ctx) === "ab"
+    && evalFormula("right(`abcdef`,2)", ctx) === "ef"
+    && evalFormula("mid(`abcdef`,2,3)", ctx) === "bcd"
+    && evalFormula("replace(`a-b-c`,`-`,`+`)", ctx) === "a+b+c");
+  check("evalFormula: comparisons yield 1 or 0, numeric when both sides read as numbers",
+    evalFormula("$2>=3", ctx) === 1 && evalFormula("$2<3", ctx) === 0
+    && evalFormula("`b`>`a`", ctx) === 1 && evalFormula("`10`==10", ctx) === 1);
+  check("evalFormula: if() is lazy — the untaken branch may not compute",
+    evalFormula("if(count($3)>0,avg($3),0)", { ...ctx, column: () => [] }) === 0
+    && evalFormula("if($1>5,`big`,`small`)", ctx) === "big");
+  check("evalFormula: named columns and @Row refs resolve through ctx",
+    evalFormula("$price*2", { ...ctx, matchColumn: (r) => (r.toLowerCase().startsWith("price") ? { id: 2, length: 5 } : null) }) === 40
+    && evalFormula("$2@Acme", { ...ctx, matchRow: (r) => (r.startsWith("Acme") ? { id: "row", length: 4 } : null) }) === "7");
+  check("evalFormula: arithmetic on a non-numeric operand throws",
+    (() => { try { evalFormula("`a`+1", ctx); return false; } catch { return true; } })());
 
   check("formatValue: keeps the $ and thousands commas of the old value",
     formatValue(1500, "$1,000") === "$1,500" && formatValue(20, "") === "20" && formatValue(1.256, "") === "1.26");
@@ -199,23 +241,67 @@ const fresh = () => blockAt(doc, 3);
 
   const sheet = [
     "Order",
-    "    | name | price | total    |",
-    "    |------+-------+----------|",
-    "    | A    | 10    | 20 =$2*2 |",
-    "    | B    | 10    | 5 =$2/   |",
-    "    | C    | 10    | 15 =$2*2 |",
+    "    |name|price|total   |",
+    "    |----+-----+--------|",
+    "    |A   |10   |20 =$2*2|",
+    "    |B   |10   |5 =$2/  |",
+    "    |C   |10   |15 =$2*2|",
   ];
   const found = formulas(sheet);
   check("formulas: audits every formula cell", found.length === 3);
   check("formulas: a true value raises nothing", !found[0].stale && !found[0].error);
   check("formulas: the span runs from the '=' to the cell's end",
-    found[0].line === 4 && found[0].startCol === 24 && sheet[3][found[0].startCol] === "=");
+    found[0].line === 4 && found[0].startCol === 19 && sheet[3][found[0].startCol] === "=");
   check("formulas: bad syntax is an error", found[1].error === true && /does not compute/.test(found[1].message));
   check("formulas: a stale value warns with the fresh result",
     found[2].stale === true && found[2].message.includes("= 20"));
 
   check("align: recomputes formulas before padding",
     align(["| name | b     |", "|------+-------|", "| 2    | =$1*2 |"].join("\n")).some((e) => e.text.includes("4 =$1*2")));
+
+  // named references resolve against the header (aliases included), @Row
+  // against the first column
+  const named = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["name", "price", "qty (amount)", "total"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["Acme", "10", "3", "=$price*$amount"] },
+      { sep: false, cells: ["Bolt", "5", "2", "=$total@Acme"] },
+    ],
+  };
+  recompute(named);
+  check("recompute: $name and alias references resolve through the header",
+    named.rows[2].cells[3] === "30 =$price*$amount");
+  check("recompute: $col@Row reads the named row's cell",
+    named.rows[3].cells[3] === "30 =$total@Acme");
+
+  // cells with comparison text are plain values: never split, never
+  // rewritten, never audited — the constraint lives on the header
+  const bound = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["name", "age >=18", "cap"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["A", "25", "90 <=99"] },
+      { sep: false, cells: ["B", "15", ""] },
+    ],
+  };
+  recompute(bound);
+  check("recompute: comparison text in a cell is a plain value, left alone",
+    bound.rows[2].cells[2] === "90 <=99" && bound.rows[2].cells[1] === "25");
+  check("formulas: only '=' cells are audited — header constraints are derive.js's",
+    formulas([
+      "|name|age >=18|",
+      "|----+--------|",
+      "|A   |15      |",
+    ]).length === 0);
+  check("tableCtx: a header's constraint is not part of the column's name",
+    (() => {
+      const rows = bound.rows.slice(2);
+      const ctx = tableCtx(rows, rows[0], bound.rows[0].cells);
+      return ctx.matchColumn("age)").id === 2 && ctx.cell(2) === "25";
+    })());
 }
 
 // ---------------------------------------------------------------------------
@@ -224,16 +310,16 @@ const fresh = () => blockAt(doc, 3);
 {
   const sheet = [
     "Order",
-    "    | name | country |",
-    "    |------+---------|",
-    "    | Acme | France  |",
-    "    | Bolt | Germany |",
+    "    |name|country|",
+    "    |----+-------|",
+    "    |Acme|France |",
+    "    |Bolt|Germany|",
     "Refund (Return)",
-    "    | name | reason  |",
-    "    |------+---------|",
-    "    | R1   | Damaged |",
+    "    |name|reason |",
+    "    |----+-------|",
+    "    |R1  |Damaged|",
     "Organisation",
-    "    | # | full name |",
+    "    |# |full name|",
   ];
   const ts = tablesOf(sheet, "spreadsheet");
   check("tablesOf: finds complete tables under their parent names",
@@ -260,8 +346,8 @@ const fresh = () => blockAt(doc, 3);
   const u = updateTable(sheet, "Order", ["name", "country", "currency"], [["Acme", "France", "EUR"]]);
   check("updateTable: replaces the Concept's block in place",
     u.changed && u.from === 1 && u.to === 4
-    && u.block[0] === "    | name | country | currency |"
-    && u.block[2] === "    | Acme | France  | EUR      |");
+    && u.block[0] === "    |name|country|currency|"
+    && u.block[2] === "    |Acme|France |EUR     |");
   const same = updateTable(sheet, "Refund", ["name", "reason"], [["R1", "Damaged"]]);
   check("updateTable: an identical grid changes nothing", same.changed === false);
   const lone = updateTable(sheet, "Organisation", ["#", "full name"], [["1", "Acme Ltd"]]);
@@ -270,7 +356,7 @@ const fresh = () => blockAt(doc, 3);
   const ins = updateTable(["Person"], "Person", ["name"], [["John"]]);
   check("updateTable: inserts beneath a table-less Concept",
     ins.changed && ins.to < ins.from && ins.from === 1
-    && ins.block.length === 3 && ins.block[0] === "    | name |" && ins.block[2] === "    | John |");
+    && ins.block.length === 3 && ins.block[0] === "    |name|" && ins.block[2] === "    |John|");
   check("updateTable: an unknown Concept is null",
     updateTable(["Order"], "Ghost", ["a"], [], "root") === null);
 }
@@ -282,7 +368,7 @@ const fresh = () => blockAt(doc, 3);
   const messy = ["Otter", "    | name | size |", "    |--+--|", "    | Ollie | 5 |"].join("\n");
   const edits = align(messy);
   check("align: still pads, redraws, and reports 1-based lines",
-    edits.length === 3 && edits[0].line === 2 && edits[1].text === "    |-------+------|");
+    edits.length === 3 && edits[0].line === 2 && edits[1].text === "    |-----+----|");
   check("align: still leaves lone pipe Examples alone", align("A\n    | gegeg").length === 0);
 }
 

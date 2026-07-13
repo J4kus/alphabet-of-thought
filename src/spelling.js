@@ -77,7 +77,13 @@ function check(text, extraWords) {
       if (BUILT_IN.has(low) || (extraWords && extraWords.has(low))) continue;
       let verdict = verdicts.get(word);
       if (verdict === undefined) {
-        verdict = gb.correct(word) || us.correct(word) ? null : suggestions(word);
+        // Hunspell accepts the Capitalised form of a lowercase entry but not
+        // the reverse, so 'december' would fail while 'December' passes; try
+        // the Capitalised variant too before calling a lowercase word wrong.
+        const cap = word[0] >= "a" && word[0] <= "z" ? word[0].toUpperCase() + word.slice(1) : null;
+        verdict = gb.correct(word) || us.correct(word) || (cap && (gb.correct(cap) || us.correct(cap)))
+          ? null
+          : suggestions(word);
         verdicts.set(word, verdict);
       }
       if (verdict === null) continue;

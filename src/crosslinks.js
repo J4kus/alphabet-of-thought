@@ -3,9 +3,9 @@
 //   attribute-is-a-Concept   an attribute's (or default's) trailing words
 //                            match a Concept name, case-insensitively:
 //                            `age integer: 5` links to the `Integer` Concept
-//   default-is-a-Example  a default value matches an Example name
-//                            exactly, case-sensitively:
-//                            `person: Socrates` links to `- Socrates`
+//   default-is-a-Example  a default value matches an Example name,
+//                            case-insensitively:
+//                            `person: socrates` links to `- Socrates`
 //   example-is-a-Example  an Example listed under an attribute that names
 //                            a Concept (attribute-is-a-Concept) matches an
 //                            Example of that Concept: `shade hue` typed by
@@ -54,18 +54,18 @@ function words(name) {
   return out;
 }
 
-// The defining node for every linkable name: Concepts by lowercased
-// name (attribute-is-a-Concept is case-insensitive), Examples by
-// exact name (default-is-a-Example is case-sensitive).
+// The defining node for every linkable name, both by lowercased name —
+// every link kind resolves case-insensitively, so `person: socrates`
+// finds `- Socrates` just as `age integer` finds `Integer`.
 function index(root, nodes) {
   const concepts = new Map(); // lowercased name -> defining node
-  const individuals = new Map(); // exact name -> defining node
+  const individuals = new Map(); // lowercased name -> defining node
   concepts.set(root.name.toLowerCase(), root);
   for (const node of nodes) {
     if (node.kind === KIND.CONCEPT && !concepts.has(node.name.toLowerCase()))
       concepts.set(node.name.toLowerCase(), node);
-    if (node.kind === KIND.INDIVIDUAL && !individuals.has(node.name))
-      individuals.set(node.name, node);
+    if (node.kind === KIND.INDIVIDUAL && !individuals.has(node.name.toLowerCase()))
+      individuals.set(node.name.toLowerCase(), node);
   }
   // a Concept's alias is an alternative name for it, so it resolves wherever
   // the name would; registered after the names so a real name always wins
@@ -99,6 +99,46 @@ function descendsFrom(node, anc) {
   return false;
 }
 
+// The nearest Concept at or above a node — the Concept a fact belongs to.
+function owningConcept(node) {
+  for (let p = node; p; p = p.parent) if (p.kind === KIND.CONCEPT) return p;
+  return null;
+}
+
+// Every Example by lowercased name, in document order — a value may share a
+// name with several, so resolution picks the one in the attribute's scope.
+function individualsIndex(nodes) {
+  const byName = new Map();
+  for (const n of nodes) {
+    if (n.kind !== KIND.INDIVIDUAL) continue;
+    const list = byName.get(n.name.toLowerCase());
+    if (list) list.push(n); else byName.set(n.name.toLowerCase(), [n]);
+  }
+  return byName;
+}
+
+// The Example a default's value names (default-is-a-Example), or null: the
+// named Example must instantiate the attribute, or the Concept typing it.
+function valueTarget(node, concepts, byName) {
+  if (node.kind !== KIND.DEFAULT || !node.value) return null;
+  const type = conceptType(node, concepts);
+  return (byName.get(node.value.toLowerCase()) || []).find(
+    (cand) => cand !== node
+      && (instantiates(cand, node.name) || (type && instantiates(cand, type.name)))
+  ) || null;
+}
+
+// The defining Example a listed Example references (example-is-a-Example),
+// or null: the target must descend from the Concept typing the attribute.
+function listedTarget(node, concepts, byName) {
+  if (node.kind !== KIND.INDIVIDUAL || !node.parent) return null;
+  if (node.parent.kind !== KIND.ATTRIBUTE && node.parent.kind !== KIND.DEFAULT) return null;
+  const type = conceptType(node.parent, concepts);
+  return (type && (byName.get(node.name.toLowerCase()) || []).find(
+    (cand) => cand !== node && descendsFrom(cand, type)
+  )) || null;
+}
+
 // Whether an Example genuinely instantiates an attribute: true when one of
 // its ancestors is that attribute. A `default-is-a-Example` value only
 // carries meaningful ancestry when the Example it names lives under the
@@ -125,12 +165,7 @@ function resolve(text, root, nodes) {
   // share a name with several (`- 1` under both `Interval Count` and `maximum
   // number of elements`), so resolution picks the one in the attribute's
   // scope rather than the document's first.
-  const individualsByName = new Map();
-  for (const n of nodes) {
-    if (n.kind !== KIND.INDIVIDUAL) continue;
-    const list = individualsByName.get(n.name);
-    if (list) list.push(n); else individualsByName.set(n.name, [n]);
-  }
+  const individualsByName = individualsIndex(nodes);
 
   const links = [];
   for (const node of nodes) {
@@ -243,11 +278,7 @@ function resolve(text, root, nodes) {
       // `Interval Count` Concept). Among Examples of that name the in-scope one
       // is chosen, so a same-named Example filed under an unrelated attribute —
       // the `- 1` under `maximum number of elements` — is never picked.
-      const type = conceptType(node, concepts);
-      const target = (individualsByName.get(node.value) || []).find(
-        (cand) => cand !== node
-          && (instantiates(cand, node.name) || (type && instantiates(cand, type.name)))
-      );
+      const target = valueTarget(node, concepts, individualsByName);
       if (target) {
         // a table cell knows its exact offset; a 'name: value' line finds
         // its value after the colon
@@ -276,10 +307,7 @@ function resolve(text, root, nodes) {
     // from the attribute's Concept keeps it to genuine values of that type.
     if (node.kind === KIND.INDIVIDUAL && node.parent
         && (node.parent.kind === KIND.ATTRIBUTE || node.parent.kind === KIND.DEFAULT)) {
-      const type = conceptType(node.parent, concepts);
-      const target = type && (individualsByName.get(node.name) || []).find(
-        (cand) => cand !== node && descendsFrom(cand, type)
-      );
+      const target = listedTarget(node, concepts, individualsByName);
       if (target) {
         // a table row's Example knows its first cell's offset; otherwise the
         // marker ('-' or '|') is the line's first non-space character
@@ -302,4 +330,7 @@ function resolve(text, root, nodes) {
   return links;
 }
 
-module.exports = { resolve, index, conceptType, wordStarts, instantiates };
+module.exports = {
+  resolve, index, conceptType, wordStarts, instantiates,
+  individualsIndex, valueTarget, listedTarget, owningConcept,
+};

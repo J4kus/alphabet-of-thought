@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, splitCell } = require("./table");
+const { cells: tableCells, isSeparator, splitCell, splitConstraint } = require("./table");
 
 const INDENT = 4;
 
@@ -157,14 +157,19 @@ function parse(text, rootName, report) {
       depth = prevDepth + 1;
     }
     let trimmed = content.trim();
+    // set when a lone-cell pipe row is rewritten to '- ' form below, so the
+    // Example still knows where its cell text sits for the semantic colouring
+    let cellNameCol;
     // a '|---+---|' separator row is table layout, never a node: it marks
     // the row above it as the table's header
     if (isSeparator(trimmed)) return;
     const marker = trimmed[0];
     if (table && (marker !== "|" || depth !== table.depth)) table = null;
-    if ((marker === "-" || marker === "|") && !trimmed.startsWith(marker + " ")) {
-      report.error(line, `'${trimmed}' has 0 spaces after '${marker}', expected 1 — an Example begins with a dash or pipe then a space ('${marker} '); add the missing space`);
-      trimmed = marker + " " + trimmed.slice(1);
+    // a dash Example needs its space ('- '); pipe rows carry no gutter
+    // spaces, so a cell may start right after its '|'
+    if (marker === "-" && !trimmed.startsWith("- ")) {
+      report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example begins with a dash then a space ('- '); add the missing space`);
+      trimmed = "- " + trimmed.slice(1);
     }
     if (marker === "|") {
       const row = tableCells(content);
@@ -185,8 +190,16 @@ function parse(text, rootName, report) {
         let last = null;
         for (const cell of row.slice(1)) {
           // a header cell is an attribute term, so it may carry a trailing
-          // (alias) exactly as the bare line form does
-          let name = cell.text, alias = null, aliasCol;
+          // (alias) and a trailing constraint (`qty >=1`) exactly as the
+          // bare line form does — the constraint bounds the whole column
+          let name = cell.text, alias = null, aliasCol, op, formula, opCol;
+          const con = splitConstraint(name);
+          if (con.eq !== -1) {
+            op = con.op;
+            formula = name.slice(con.eq + con.op.length).trim();
+            opCol = cell.col + con.eq;
+            name = con.value;
+          }
           if (name.endsWith(")") && name.includes("(")) {
             const open = name.lastIndexOf("(");
             const inner = name.slice(open + 1, -1);
@@ -206,6 +219,7 @@ function parse(text, rootName, report) {
             line, depth, kind: ATTRIBUTE, name, value: null,
             alias, aliasCol, parent, children: [], nameCol: cell.col, cell: true,
           };
+          if (op) { attr.op = op; attr.formula = formula; attr.opCol = opCol; }
           parent.children.push(attr);
           nodes.push(attr);
           table.attrs.push(attr);
@@ -259,7 +273,25 @@ function parse(text, rootName, report) {
         report.error(line, `table row has ${row.length} cells but no header names its columns — add a header row of attribute names directly above the data rows, with a '|---|' separator row between them`);
       }
       // a lone-cell pipe row is a plain Example: rewrite it to the '- ' form
+      if (row.length) cellNameCol = row[0].col;
       trimmed = "- " + (row.length ? row[0].text : "");
+    }
+    // a bare attribute may carry a trailing constraint — `age >=18` bounds
+    // every value the attribute takes (checked by derive.js). The head must
+    // be a colon-less lowercase term, so `age: 25 >=18` (a value) and
+    // Concepts are left whole.
+    let constraint = null;
+    {
+      const con = splitConstraint(trimmed);
+      const head = con.eq === -1 ? "" : con.value;
+      if (head && !head.includes(":") && head[0] >= "a" && head[0] <= "z") {
+        constraint = {
+          op: con.op,
+          formula: trimmed.slice(con.eq + con.op.length).trim(),
+          opCol: spaces + con.eq,
+        };
+        trimmed = head;
+      }
     }
     const { kind, name, value, alias } = classify(trimmed);
     if (value === "") {
@@ -267,6 +299,24 @@ function parse(text, rootName, report) {
     }
     const parent = stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, alias: alias || null, parent, children: [] };
+    if (cellNameCol !== undefined && kind === INDIVIDUAL) node.nameCol = cellNameCol;
+    if (constraint && kind === ATTRIBUTE) {
+      node.op = constraint.op;
+      node.formula = constraint.formula;
+      node.opCol = constraint.opCol;
+    }
+    // a line-form value may carry an '=' formula exactly as a table cell
+    // does: `total: 30 =sum($price)` computes. Only the value part enters
+    // the model; the formula is presentation, audited and coloured by the
+    // editor (derive.js), invisible to the arithmetic.
+    if (kind === DEFAULT && value) {
+      const split = splitCell(value);
+      if (split.eq !== -1) {
+        node.formula = value.slice(split.eq + split.op.length).trim();
+        node.op = split.op;
+        node.value = split.value;
+      }
+    }
     parent.children.push(node);
     nodes.push(node);
     // A capitalised line with a colon is a Concept with one inline Example.
@@ -337,6 +387,35 @@ function verify(root, nodes, report, accepted) {
   eachDuplicate(groupBy(concepts, (n) => n.name), (dup, where, defs) => {
     report.error(dup.line, `Concept '${dup.name}' defined ${defs.length} times (lines ${where}) — one name must mean one kind, but this name labels ${defs.length} different ones; give all but one a distinguishing qualifier, or merge them (${defs.length} definitions for one term, expected 1)`);
   });
+
+  // An identifier resolves to exactly one target. Two Concepts sharing an
+  // alias make it ambiguous, and an alias that repeats its own Concept's
+  // name renames nothing — both errors. An alias that names *another*
+  // Concept stays legal: that is the declared dependency of
+  // alias-is-a-Concept (`Auto (Car)`), and a real name always outranks it.
+  const aliased = concepts.filter((n) => n.alias);
+  for (const node of aliased) {
+    if (node.alias.toLowerCase() === node.name.toLowerCase()) {
+      report.error(node.line, `alias '(${node.alias})' on '${node.name}' repeats the Concept's own name — an alias is a second name, so this one renames nothing; drop it, or make it a genuinely different name`);
+    }
+  }
+  eachDuplicate(groupBy(aliased, (n) => n.alias.toLowerCase()), (dup, where, group) => {
+    report.error(dup.line, `alias '(${dup.alias})' on '${dup.name}' is also the alias of '${group[0].name}' (lines ${where}) — an identifier must resolve to exactly one target; rename one alias`);
+  });
+
+  // Example references resolve case-insensitively, so two Examples whose
+  // names differ only in case are one name to every link and audit — align
+  // the spelling. A warning, not an error: same-named Examples in
+  // different scopes are legitimate.
+  const individualsByCase = groupBy(nodes.filter((n) => n.kind === INDIVIDUAL), (n) => n.name.toLowerCase());
+  for (const group of individualsByCase.values()) {
+    if (new Set(group.map((n) => n.name)).size < 2) continue;
+    const first = group[0];
+    for (const dup of group.slice(1)) {
+      if (dup.name === first.name) continue;
+      report.warn(dup.line, `Example '- ${dup.name}' differs only in case from '- ${first.name}' (line ${first.line}) — Example references resolve case-insensitively, so these are one name to every link; align the spelling`);
+    }
+  }
 
   // Ambiguity: identical siblings (same name AND same value) collapse meaning.
   // A differing alias sets them apart: `type (category)` and `type (Tag)` name

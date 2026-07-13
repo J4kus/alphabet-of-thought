@@ -104,7 +104,7 @@ function buildContext(root, nodes) {
         // the `Colour` Concept whose Examples are `- Red`, `- Crimson`, so
         // `shade colour: Crimson` yields `shade colour: Red`). The walk stops
         // at whichever anchor the Example sits under.
-        const target = individuals.get(child.value);
+        const target = individuals.get(child.value.toLowerCase());
         const anchor =
           target && target !== child
             ? instantiates(target, child.name)

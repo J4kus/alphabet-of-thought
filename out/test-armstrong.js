@@ -2,7 +2,7 @@
 // (src/armstrong.js): infer FDs from Example data via Gödel projections, and
 // walk the declared Concept-dependency closure.
 const { lint } = require("../src/linter");
-const { inferFDs, findings, dependsOf, chains } = require("../src/armstrong");
+const { inferFDs, findings, dependsOf, chains, dependencyGraph } = require("../src/armstrong");
 
 let failures = 0;
 function check(name, ok) {
@@ -183,6 +183,30 @@ const chained = [
   check("mutual dependency reports one chain, marked a cycle",
     fromLoop.length === 1 && fromLoop[0].cycle && show(fromLoop[0]) === "Loop A>Loop B>Loop A cycle");
   check("a Concept with no dependencies has no chains", chains(root, nodes, node(root, nodes, "Address")).length === 0);
+}
+
+// 5) value links declare dependencies too: a value naming an Example of
+// another Concept is an edge to that Concept — no Concept name appears in
+// the text, yet the dependency is real (linking must not hide it).
+const valued = [
+  "Human",
+  "    - Socrates",
+  "        home address: Athens",
+  "Address",
+  "    - Athens",
+  "Census",
+  "    human: Socrates",
+].join("\n");
+{
+  const { root, nodes } = lint(valued, "World");
+  const { edges } = dependencyGraph(root, nodes);
+  const census = node(root, nodes, "Census");
+  const out = edges.get(census) || [];
+  check("a value naming an Example is an edge to its owning Concept, via the attribute",
+    out.some((e) => e.to.name === "Human" && e.via === "human"));
+  const fromCensus = chains(root, nodes, census).map((c) => c.path.map((n) => n.name).join(">"));
+  check("chains run on through value links: Census > Human > Address",
+    fromCensus.includes("Census>Human>Address"));
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

@@ -151,7 +151,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   {
     const report = makeReport();
     const p = parse(aot("Thing", "    |Pear"), "Root", report);
-    check("parse: '|Pear' (no space after pipe) is an error", hasError(report, /0 spaces after '\|'/));
+    check("parse: '|Pear' (no gutter after pipe) is not an error", !hasError(report, /0 spaces after/));
     check("parse: '|Pear' still becomes the INDIVIDUAL 'Pear'", node(p.root, p.nodes, "Pear").kind === INDIVIDUAL);
   }
   // blank lines are skipped, not numbered
@@ -271,6 +271,50 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     check("table: a not-yet-computed formula cell asserts nothing",
       !b.children.some((c) => c.name === "total") && r.errors.length === 0);
   }
+  // line-form values carry '=' formulas the same way; only the value part
+  // enters the model, the formula rides on the node. Constraints belong to
+  // the attribute declaration, never to a value.
+  {
+    const r = makeReport();
+    const p = parse(aot(
+      "Order",
+      "    - A",
+      "        total: 30 =sum($price)",
+      "        speed: 5 >=3",
+      "        note: 10 < 20 knots",
+    ), "Zoo", r);
+    const a = node(p.root, p.nodes, "A");
+    const total = a.children.find((c) => c.name === "total");
+    const speed = a.children.find((c) => c.name === "speed");
+    const note = a.children.find((c) => c.name === "note");
+    check("line form: a value's '=' formula is stripped onto the node",
+      total && total.value === "30" && total.op === "=" && total.formula === "sum($price)");
+    check("line form: a comparison in a value stays a plain value (constraints live on attributes)",
+      speed && speed.value === "5 >=3" && speed.op === undefined);
+    check("line form: prose comparisons stay whole values",
+      note && note.value === "10 < 20 knots" && note.op === undefined && r.errors.length === 0);
+  }
+  // an attribute declaration may carry a constraint, bare line and table
+  // header cell alike; the term (and its alias) parse off cleanly
+  {
+    const r = makeReport();
+    const p = parse(aot(
+      "Person",
+      "    age (years) >=18",
+      "    Metric",
+      "        |name|qty >=1|",
+      "        |----+-------|",
+      "        |A   |2      |",
+    ), "Zoo", r);
+    const age = node(p.root, p.nodes, "age");
+    const qty = node(p.root, p.nodes, "qty");
+    check("attribute: a bare line's trailing constraint rides on the node",
+      age && age.kind === ATTRIBUTE && age.op === ">=" && age.formula === "18"
+      && age.alias === "years" && age.opCol === 4 + "age (years) ".length);
+    check("attribute: a header cell's constraint bounds the column",
+      qty && qty.kind === ATTRIBUTE && qty.op === ">=" && qty.formula === "1" && qty.cell === true);
+    check("attribute: constrained declarations parse without errors", r.errors.length === 0);
+  }
   // table findings pin the offending cell, not the whole line
   {
     const r = makeReport();
@@ -324,14 +368,14 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   );
   const edits = align(messy);
   check("align: rows are padded to the widest cell",
-    edits.some((e) => e.text === "    | name  | size |")
-    && edits.some((e) => e.text === "    | Ollie | 5    |"));
+    edits.some((e) => e.text === "    |name |size|")
+    && edits.some((e) => e.text === "    |Ollie|5   |"));
   check("align: the separator is redrawn to match",
-    edits.some((e) => e.text === "    |-------+------|"));
+    edits.some((e) => e.text === "    |-----+----|"));
   check("align: a lone pipe Example is left exactly as written",
     align(aot("A", "    | gegeg")).length === 0);
   check("align: an already aligned table needs no edits",
-    align(aot("Otter", "    | name  | size |", "    |-------+------|", "    | Ollie | 5    |")).length === 0);
+    align(aot("Otter", "    |name |size|", "    |-----+----|", "    |Ollie|5   |")).length === 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +415,28 @@ check("verify: the same Concept name defined twice is an error",
 // ambiguity: identical siblings (same name AND value)
 check("verify: identical sibling defaults are an error",
   hasError(lintTree(aot("Box", "    colour: red", "    colour: red")).report, /repeated under 'Box' with the same value/));
+
+// an identifier resolves to exactly one target: shared aliases and
+// self-aliases are errors, an alias naming another Concept stays legal
+check("verify: two Concepts sharing an alias is an error",
+  hasError(lintTree(aot("Automobile (Car)", "Vehicle (Car)"), "Fleet").report, /also the alias of 'Automobile'/));
+check("verify: an alias repeating its own Concept's name is an error",
+  hasError(lintTree(aot("Car (car)"), "Fleet").report, /repeats the Concept's own name/));
+{
+  const legal = lintTree(aot("Car", "Auto (Car)"), "Fleet").report;
+  check("verify: an alias naming another Concept stays legal (alias-is-a-Concept)",
+    !legal.errors.some((e) => /alias/.test(e.message)));
+}
+
+// Example references resolve case-insensitively, so case-only twins warn
+{
+  const twins = lintTree(aot("Person", "    - Socrates", "Note", "    person: value", "        - socrates"), "World").report;
+  check("verify: Examples differing only in case warn",
+    twins.warnings.some((w) => /differs only in case from '- Socrates'/.test(w.message)));
+  const same = lintTree(aot("Person", "    - Socrates", "Crowd", "    - Socrates"), "World").report;
+  check("verify: same-spelling Examples in different scopes stay quiet",
+    !same.warnings.some((w) => /differs only in case/.test(w.message)));
+}
 
 // plural Concept (warning)
 check("verify: a plural Concept name warns",

@@ -19,6 +19,7 @@ const { suggest } = require("./src/fca");
 const godel = require("./src/godel");
 const armstrong = require("./src/armstrong");
 const table = require("./src/table");
+const derive = require("./src/derive");
 
 // past this many Examples the lattice is no longer cheap; matches the extension
 const MAX_FCA_OBJECTS = 200;
@@ -240,10 +241,12 @@ function main() {
     }
     deepErrors = deepErrors.concat(godel.clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
-  // cell formulas, exactly as the editor: one that cannot compute is an error
-  // (counted in V), a value the next recompute would change is a warning
+  // formulas and constraints — table cells and line-form values — exactly as
+  // the editor: one that cannot compute (or a violated constraint) is an
+  // error (counted in V), a value the next recompute would change is a warning
   const formulaErrors = [], formulaWarnings = [];
-  for (const f of table.formulas(text.split(/\r?\n/))) {
+  const textLines = text.split(/\r?\n/);
+  for (const f of [...table.formulas(textLines), ...derive.auditValues(root, nodes, textLines)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message });
     else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message });
   }

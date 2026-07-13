@@ -12,6 +12,9 @@ let formattingProvider = null;
 let semanticProvider = null;
 let hoverProvider = null;
 let codeActionsProvider = null;
+let referenceProvider = null;
+let inlayProvider = null;
+let documentLinkProvider = null;
 const plainCommands = new Map();
 const configStore = {};
 const vscode = {
@@ -24,6 +27,9 @@ const vscode = {
   ConfigurationTarget: { Global: 1, Workspace: 2 },
   Range: class {
     constructor(...a) { this.a = a; }
+    get start() { return { line: this.a[0], character: this.a[1] }; }
+    get end() { return { line: this.a[2], character: this.a[3] }; }
+    get isEmpty() { return this.a[0] === this.a[2] && this.a[1] === this.a[3]; }
     contains(p) {
       const [startLine, startCol, endLine, endCol] = this.a;
       return p.line >= startLine && p.line <= endLine && p.character >= startCol && p.character <= endCol;
@@ -35,6 +41,7 @@ const vscode = {
   languages: {
     createDiagnosticCollection: () => ({
       set: (uri, diags) => published.set(uri.toString(), diags),
+      get: (uri) => published.get(uri.toString()),
       delete: (uri) => published.delete(uri.toString()),
       dispose: () => {},
     }),
@@ -43,7 +50,18 @@ const vscode = {
     registerCodeActionsProvider: (selector, provider) => { codeActionsProvider = provider; return { dispose() {} }; },
     registerDocumentFormattingEditProvider: (selector, provider) => { formattingProvider = provider; return { dispose() {} }; },
     registerDocumentSemanticTokensProvider: (selector, provider) => { semanticProvider = provider; return { dispose() {} }; },
+    registerReferenceProvider: (selector, provider) => { referenceProvider = provider; return { dispose() {} }; },
+    registerInlayHintsProvider: (selector, provider) => { inlayProvider = provider; return { dispose() {} }; },
+    registerDocumentLinkProvider: (selector, provider) => { documentLinkProvider = provider; return { dispose() {} }; },
   },
+  DocumentLink: class { constructor(range, target) { Object.assign(this, { range, target }); } },
+  Uri: { parse: (s) => ({ toString: () => s }) },
+  EventEmitter: class {
+    constructor() { this.listeners = []; }
+    get event() { return (fn) => { this.listeners.push(fn); return { dispose() {} }; }; }
+    fire(x) { for (const fn of this.listeners) fn(x); }
+  },
+  InlayHint: class { constructor(position, label) { Object.assign(this, { position, label }); } },
   SemanticTokensLegend: class { constructor(types, modifiers) { Object.assign(this, { types, modifiers }); } },
   SemanticTokensBuilder: class {
     constructor(legend) { this.legend = legend; this.tokens = []; }
@@ -63,7 +81,7 @@ const vscode = {
     activeTextEditor: undefined,
     createTextEditorDecorationType: (style) => ({ style, dispose() {} }),
     onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
-    onDidChangeTextEditorSelection: () => ({ dispose() {} }),
+    onDidChangeTextEditorSelection: (fn) => { vscode.window._selectionChanged = fn; return { dispose() {} }; },
     onDidChangeActiveTextEditor: () => ({ dispose() {} }),
   },
   WorkspaceEdit: class {
@@ -74,9 +92,10 @@ const vscode = {
   workspace: {
     textDocuments: [],
     onDidOpenTextDocument: (fn) => { vscode.workspace._open = fn; return { dispose() {} }; },
-    onDidChangeTextDocument: () => ({ dispose() {} }),
+    onDidChangeTextDocument: (fn) => { vscode.workspace._changed = fn; return { dispose() {} }; },
     onDidCloseTextDocument: () => ({ dispose() {} }),
     onDidSaveTextDocument: (fn) => { vscode.workspace._save = fn; return { dispose() {} }; },
+    onWillSaveTextDocument: (fn) => { vscode.workspace._willSave = fn; return { dispose() {} }; },
     onDidChangeConfiguration: (fn) => { vscode.workspace._configChanged = fn; return { dispose() {} }; },
     createFileSystemWatcher: () => ({
       onDidChange: (fn) => { vscode.workspace._csvChanged = fn; },
@@ -181,15 +200,29 @@ console.log(errorsD.length === 0 && spellingOnly
     "        sku: Q",
     "        name: Gadget",
   ].join("\n");
+  // dependency squiggles are opt-in since 1.2.0 (correlated attributes are
+  // allowed), so the on-case flips the setting first
+  configStore.dependencyFindings = true;
   const docM = makeDoc("c:\\repo\\Dep.aot", stock);
+  vscode.workspace.textDocuments.push(docM); // so the config-change re-lint reaches it
   vscode.workspace._open(docM);
   const mDiags = published.get(docM.uri.toString()) || [];
   const clashErr = mDiags.find((d) => /^clash:/.test(d.message));
   const depWarn = mDiags.find((d) => /^dependency:/.test(d.message));
   console.log(clashErr && clashErr.severity === vscode.DiagnosticSeverity.Error
     && depWarn && depWarn.severity === vscode.DiagnosticSeverity.Warning
-    ? "PASS (clash publishes as error; dependency as warning)"
+    ? "PASS (clash publishes as error; dependency as warning when aot.dependencyFindings is on)"
     : "UNEXPECTED severity mapping " + JSON.stringify(mDiags.map((d) => [d.severity, d.message.slice(0, 30)])));
+
+  // off by default: with the setting cleared the dependency warning goes,
+  // while the clash error (a verified content problem) remains
+  delete configStore.dependencyFindings;
+  vscode.workspace._configChanged({ affectsConfiguration: (section) => section === "aot" });
+  const offDiags = published.get(docM.uri.toString()) || [];
+  console.log(offDiags.some((d) => /^clash:/.test(d.message))
+    && !offDiags.some((d) => /^dependency:/.test(d.message))
+    ? "PASS (dependency findings are off by default; the clash error remains)"
+    : "UNEXPECTED default-off mapping " + JSON.stringify(offDiags.map((d) => [d.severity, d.message.slice(0, 30)])));
 }
 
 // 2) crosslinks: an attribute-is-a-Concept and a default-is-a-Example
@@ -306,6 +339,22 @@ const listed = [
     : "UNEXPECTED concept-typed duplicate resolution");
 }
 
+// 3c) Example links resolve case-insensitively: `person: socrates` still
+// finds `- Socrates`, exactly as attribute-is-a-Concept always has.
+{
+  const text = [
+    "Person",
+    "    - Socrates",
+    "Note",
+    "    person: socrates",
+  ].join("\n");
+  const t = lint(text, "World");
+  const link = resolve(text, t.root, t.nodes).find((l) => l.connection === "default-is-a-Example");
+  console.log(link && link.text === "socrates" && link.target.name === "Socrates" && link.target.line === 2
+    ? "PASS (default-is-a-Example: value matching is case-insensitive)"
+    : "UNEXPECTED case-insensitive link " + JSON.stringify(link));
+}
+
 // 4) tables: a value cell crosslinks to the Example it names, the header
 // cell to the Concept its attribute is typed by, and Format Document
 // aligns the columns as org-mode's TAB does.
@@ -330,7 +379,7 @@ const listed = [
 
   const doc3 = makeDoc("c:\repo\World.aot", table);
   const edits = formattingProvider.provideDocumentFormattingEdits(doc3);
-  const aligned = edits.some((e) => e.text === "    | Speed | Ratio                 |");
+  const aligned = edits.some((e) => e.text === "    |Speed|Ratio                |");
   console.log(aligned && edits.length === 3
     ? "PASS (table: Format Document aligns the columns)"
     : "UNEXPECTED table formatting " + JSON.stringify(edits));
@@ -358,13 +407,103 @@ const listed = [
   registeredCommands.get("aot.table.nextCell")(editor);
   Promise.resolve().then(() => {
     const ok = applied
-      && applied.t.split("\n")[2] === "    | Ollie | 5    |"
-      && editor.selection.active.line === 3 && editor.selection.active.character === 14;
-    console.log(ok && registeredCommands.size === 14
-      ? "PASS (table editor: 14 commands; Tab aligns and moves to the next cell)"
+      && applied.t.split("\n")[2] === "    |Ollie|5   |"
+      && editor.selection.active.line === 3 && editor.selection.active.character === 11;
+    console.log(ok && registeredCommands.size === 17
+      ? "PASS (table editor: 17 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
+
+// 5b) Tab pressed in the leading indent shifts the whole table one level;
+// Shift+Tab shifts it back. Inside the cells the keys keep navigating.
+(async () => {
+  const lines = [
+    "Otter",
+    "    |name |size|",
+    "    |-----+----|",
+    "    |Ollie|5   |",
+  ];
+  const doc = {
+    languageId: "aot", fileName: "c:\\repo\\World.aot", eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///indent" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(3, 1, 3, 1), // inside the 4-space indent
+    edit: (cb) => {
+      cb({ replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); } });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {},
+    setDecorations: () => {},
+  };
+  registeredCommands.get("aot.table.nextCell")(editor);
+  await new Promise((r) => setImmediate(r));
+  const indented = lines[1] === "        |name |size|" && lines[3] === "        |Ollie|5   |";
+  const selOk = editor.selection.active.line === 3 && editor.selection.active.character === 5;
+  registeredCommands.get("aot.table.prevCell")(editor);
+  await new Promise((r) => setImmediate(r));
+  const back = lines[1] === "    |name |size|" && lines[3] === "    |Ollie|5   |";
+  console.log(indented && selOk && back
+    ? "PASS (table editor: Tab in the leading indent shifts the table a level; Shift+Tab back)"
+    : "UNEXPECTED table indent " + JSON.stringify({ lines, sel: editor.selection.a }));
+})();
+
+// 5c) a first '|' typed on an otherwise empty line scaffolds a fresh table —
+// header, separator, empty data row — cursor in the data row; a '|' beside
+// an existing table, or mid-line, scaffolds nothing.
+(async () => {
+  const makeLive = (lines, name) => {
+    const doc = {
+      languageId: "aot", fileName: name, eol: vscode.EndOfLine.LF,
+      uri: { toString: () => "file:///" + name },
+      get lineCount() { return lines.length; },
+      getText: () => lines.join("\n"),
+      lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+    };
+    const editor = {
+      document: doc,
+      selection: new vscode.Selection(0, 0, 0, 0),
+      edit: (cb) => {
+        cb({ replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); } });
+        return Promise.resolve(true);
+      },
+      revealRange: () => {},
+      setDecorations: () => {},
+    };
+    vscode.window.visibleTextEditors.push(editor);
+    return { doc, editor };
+  };
+  const typedPipe = (doc, line) => vscode.workspace._changed({
+    document: doc,
+    contentChanges: [{ text: "|", range: new vscode.Range(line, 0, line, 0) }],
+  });
+
+  const grow = ["Otter", "|"];
+  const { doc: docG, editor: edG } = makeLive(grow, "Grow.aot");
+  typedPipe(docG, 1);
+  await new Promise((r) => setImmediate(r));
+  const grown = grow.join("\n") === ["Otter", "|name|", "|----|", "|    |"].join("\n");
+  const cursorOk = edG.selection.active.line === 3 && edG.selection.active.character === 1;
+  console.log(grown && cursorOk
+    ? "PASS (scaffold: a first '|' grows header, separator and data row, cursor in the data row)"
+    : "UNEXPECTED scaffold " + JSON.stringify({ grow, sel: edG.selection.a }));
+
+  const beside = ["|a|b|", "|"];
+  const { doc: docB } = makeLive(beside, "Beside.aot");
+  typedPipe(docB, 1);
+  const midline = ["Otter", "note |"];
+  const { doc: docM2 } = makeLive(midline, "Midline.aot");
+  typedPipe(docM2, 1);
+  await new Promise((r) => setImmediate(r));
+  console.log(beside.length === 2 && midline.length === 2
+    ? "PASS (scaffold: a '|' beside a table, or mid-line, scaffolds nothing)"
+    : "UNEXPECTED scaffold guard " + JSON.stringify({ beside, midline }));
+})();
 
 // 6) table cells carry Alpha's colouring and crosslinks: semantic tokens
 // paint header cells as attributes (aliases included), name cells as
@@ -377,6 +516,8 @@ const listed = [
     "    | name | size (length) | colour |",
     "    |------+----------------+--------|",
     "    | Ollie | 5 | brown |",
+    "",
+    "    | Loner",
   ].join("\n");
   const doc5 = makeDoc("c:\repo\World.aot", text);
   const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc5);
@@ -386,9 +527,10 @@ const listed = [
     && has([2, 29, 6, 0])               // header 'colour' as attribute
     && has([4, 6, 5, 1])                // name cell 'Ollie' as Example
     && has([4, 14, 1, 2])               // value cell '5' as value
-    && has([4, 18, 5, 2]);              // value cell 'brown' as value
+    && has([4, 18, 5, 2])               // value cell 'brown' as value
+    && has([6, 6, 5, 1]);               // lone-cell '| Loner' as Example too
   console.log(tokensOk
-    ? "PASS (table: cells coloured as attribute / Example / value)"
+    ? "PASS (table: cells coloured as attribute / Example / value; lone cell as Example)"
     : "UNEXPECTED semantic tokens " + JSON.stringify(tokens));
 
   const t6 = lint(text, "World");
@@ -400,8 +542,9 @@ const listed = [
 }
 
 // 7) the CSV mirror, end to end on real files: saving the .aot writes one
-// CSV per table into '<file>.tables', named after the parent Concept; a
-// CSV edit folds back into the .aot table, aligned, and saves it.
+// CSV per table into 'tables.<file>', named after the parent Concept; a
+// CSV edit folds back into the .aot table, aligned, and saves it; a legacy
+// '<file>.tables' folder migrates; orphaned CSVs are deleted on save.
 (async () => {
   const tmp = path.join(__dirname, "tmp-sync");
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -415,19 +558,31 @@ const listed = [
   ].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
-  // save the .aot -> Otter.csv appears
+  // a legacy folder from a pre-1.2 install, holding a stale CSV and a note
+  const legacyDir = path.join(tmp, "World.tables");
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyDir, "Ghost.csv"), "name\nBoo\n");
+  fs.writeFileSync(path.join(legacyDir, "notes.txt"), "keep me");
+
+  // save the .aot -> the legacy folder migrates, Otter.csv appears, the
+  // orphaned Ghost.csv goes, the stray notes.txt survives
   vscode.workspace._save(makeDoc(aotPath, aotText));
-  const csvPath = path.join(tmp, "World.tables", "Otter.csv");
+  const dir = path.join(tmp, "tables.World");
+  const csvPath = path.join(dir, "Otter.csv");
   const written = fs.existsSync(csvPath) && fs.readFileSync(csvPath, "utf8");
   console.log(written === "name,size\nOllie,5\n"
-    ? "PASS (csv mirror: saving the .aot writes <Concept>.csv)"
+    ? "PASS (csv mirror: saving the .aot writes tables.<file>/<Concept>.csv)"
     : "UNEXPECTED csv written: " + JSON.stringify(written));
+  console.log(!fs.existsSync(legacyDir) && !fs.existsSync(path.join(dir, "Ghost.csv"))
+    && fs.existsSync(path.join(dir, "notes.txt"))
+    ? "PASS (csv mirror: the legacy folder migrates; orphans go, strays survive)"
+    : "UNEXPECTED migration state " + JSON.stringify(fs.existsSync(dir) && fs.readdirSync(dir)));
 
   // edit the CSV -> the .aot table gains the row, aligned, and is saved
   fs.writeFileSync(csvPath, "name,size\nOllie,5\nPebble,3\n");
   await vscode.workspace._csvChanged({ fsPath: csvPath });
   const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
-  console.log(after[3] === "    | Ollie  | 5    |" && after[4] === "    | Pebble | 3    |"
+  console.log(after[3] === "    |Ollie |5   |" && after[4] === "    |Pebble|3   |"
     ? "PASS (csv mirror: a CSV edit folds back into the .aot table)"
     : "UNEXPECTED aot after csv edit: " + JSON.stringify(after));
 
@@ -437,6 +592,15 @@ const listed = [
   console.log(fs.readFileSync(aotPath, "utf8") === before
     ? "PASS (csv mirror: no self-chase — an unchanged grid edits nothing)"
     : "UNEXPECTED csv loop");
+
+  // renaming the Concept: the fresh save writes Beaver.csv and deletes the
+  // now-orphaned Otter.csv
+  const renamed = aotText.replace("Otter", "Beaver");
+  fs.writeFileSync(aotPath, renamed);
+  vscode.workspace._save(makeDoc(aotPath, renamed));
+  console.log(fs.existsSync(path.join(dir, "Beaver.csv")) && !fs.existsSync(csvPath)
+    ? "PASS (csv mirror: a renamed Concept's old CSV is cleaned up on save)"
+    : "UNEXPECTED rename cleanup " + JSON.stringify(fs.readdirSync(dir)));
   fs.rmSync(tmp, { recursive: true, force: true });
 })();
 
@@ -473,7 +637,7 @@ const listed = [
   };
   registeredCommands.get("aot.table.nextCell")(editor8);
   Promise.resolve().then(() => {
-    console.log(applied8 && applied8.includes("| 20 =$2*2 |")
+    console.log(applied8 && applied8.includes("|20 =$2*2|")
       ? "PASS (formula: Tab recomputes the value in place)"
       : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
   });
@@ -535,12 +699,162 @@ const listed = [
     ? "PASS (hover: a crosslink to a Concept shows the target's chains)"
     : "UNEXPECTED crosslink hover " + JSON.stringify(hoverLink && hoverLink.contents.value));
 
-  // 'Address' declares no dependency, so it has no chains and no hover
+  // 'Address' declares no dependency, so no chains — but it is referenced
+  // by 'home address', so the hover shows where it is used instead
   const hoverLeaf = hoverProvider.provideHover(doc9, new vscode.Position(9, 1));
-  console.log(hoverLeaf === null
-    ? "PASS (hover: a Concept with no dependencies hovers nothing)"
+  console.log(hoverLeaf && !/dependency chains/.test(hoverLeaf.contents.value)
+    && /used at/.test(hoverLeaf.contents.value) && /home address/.test(hoverLeaf.contents.value)
+    ? "PASS (hover: a chain-less Concept still shows where it is used)"
     : "UNEXPECTED leaf hover " + JSON.stringify(hoverLeaf));
 }
+
+// 9b) dependency visibility: an Example used as a value hovers its full
+// details; Find All References lists declaration + usages; inlay hints
+// write the chain in small print at the end of crosslinked lines.
+{
+  const text = [
+    "Person",
+    "    home address",
+    "    - Socrates",
+    "        wisdom: high",
+    "Address",
+    "    - Athens",
+    "Note",
+    "    person: Socrates",
+  ].join("\n");
+  const docV = makeDoc("c:\\repo\\Visible.aot", text);
+  vscode.workspace._open(docV); // caches the analysis for the inlay provider
+
+  // hovering the value 'Socrates' (line 8) shows the Example's details
+  const hoverEx = hoverProvider.provideHover(docV, new vscode.Position(7, 14));
+  console.log(hoverEx && /'- Socrates'/.test(hoverEx.contents.value)
+    && /Example of 'Person'/.test(hoverEx.contents.value)
+    && /wisdom: high/.test(hoverEx.contents.value)
+    ? "PASS (hover: an Example used as a value shows its full details)"
+    : "UNEXPECTED example hover " + JSON.stringify(hoverEx && hoverEx.contents.value));
+
+  // hovering the defining '- Socrates' (line 3) shows details plus usages
+  const hoverDef = hoverProvider.provideHover(docV, new vscode.Position(2, 8));
+  console.log(hoverDef && /wisdom: high/.test(hoverDef.contents.value)
+    && /used at/.test(hoverDef.contents.value) && /person: Socrates/.test(hoverDef.contents.value)
+    ? "PASS (hover: an Example's defining line lists where it is used)"
+    : "UNEXPECTED defining hover " + JSON.stringify(hoverDef && hoverDef.contents.value));
+
+  // references on the value: declaration first, then the usage
+  const refs = referenceProvider.provideReferences(docV, new vscode.Position(7, 14), { includeDeclaration: true });
+  console.log(refs && refs.length === 2 && refs[0].range.a[0] === 2 && refs[1].range.a[0] === 7
+    ? "PASS (references: declaration + usages for the Example under the cursor)"
+    : "UNEXPECTED references " + JSON.stringify(refs && refs.map((r) => r.range.a)));
+
+  // the inlay hint sits at the end of the crosslinked line, naming the chain
+  const hints = inlayProvider.provideInlayHints(docV, new vscode.Range(0, 0, 7, 99));
+  const hint = hints.find((h) => (h.position.a ? h.position.a[0] : h.position.line) === 7);
+  console.log(hint && /→Person→Address/.test(hint.label)
+    ? "PASS (inlay: the dependency chain appears in small print at the line's end)"
+    : "UNEXPECTED inlay hints " + JSON.stringify(hints));
+
+  // and the setting turns them off
+  configStore.chainHints = false;
+  const none = inlayProvider.provideInlayHints(docV, new vscode.Range(0, 0, 7, 99));
+  delete configStore.chainHints;
+  console.log(none.length === 0
+    ? "PASS (inlay: aot.chainHints=false silences the small print)"
+    : "UNEXPECTED inlay setting " + JSON.stringify(none));
+}
+
+// 9b2) line-form formulas fill themselves in: once no cursor holds the
+// line, the computed value materialises in front of the formula, exactly
+// as a table cell's would on Tab.
+(async () => {
+  const lines = [
+    "Order",
+    "    total: =sum($price)",
+    "    - A",
+    "        price: 2",
+    "    - B",
+    "        price: 3",
+  ];
+  const doc = {
+    lines,
+    languageId: "aot", fileName: "c:\\repo\\Fill.aot", eol: vscode.EndOfLine.LF,
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  doc.uri = { toString: () => "file:///fill", __doc: doc };
+  vscode.workspace._open(doc);
+  await new Promise((r) => setImmediate(r));
+  console.log(lines[1] === "    total: 5 =sum($price)"
+    ? "PASS (fill: a line formula computes itself once no cursor holds the line)"
+    : "UNEXPECTED auto fill " + JSON.stringify(lines));
+
+  // pressing Enter starts an edit burst, yet the formula on the line just
+  // left still fills at once (force bypasses the hold, busy spares the new
+  // line). Simulate: reset the value, fire the change then the selection.
+  lines[1] = "    total: =sum($price)";
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(1, 24, 1, 24),
+    selections: [new vscode.Selection(2, 0, 2, 0)],
+    edit: (cb) => { cb({ replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); } }); return Promise.resolve(true); },
+    revealRange: () => {}, setDecorations: () => {},
+  };
+  vscode.window.visibleTextEditors.push(editor);
+  lines.splice(2, 0, ""); // Enter inserted a blank line under the formula
+  vscode.workspace._changed({ document: doc, contentChanges: [{ text: "\n", range: new vscode.Range(1, 24, 1, 24) }] });
+  vscode.window._selectionChanged({ textEditor: editor, selections: [new vscode.Selection(2, 0, 2, 0)] });
+  await new Promise((r) => setImmediate(r));
+  console.log(lines[1] === "    total: 5 =sum($price)"
+    ? "PASS (fill: pressing Enter fills the formula on the line just left, mid edit-burst)"
+    : "UNEXPECTED enter fill " + JSON.stringify(lines));
+  vscode.window.visibleTextEditors.pop();
+})();
+
+// 9c) a URL in a value is Ctrl+clickable on exactly its span
+{
+  const docU = makeDoc("c:\\repo\\Links.aot", ["Doc", "    spec: https://example.com/spec"].join("\n"));
+  const links = documentLinkProvider.provideDocumentLinks(docU);
+  console.log(links.length === 1 && links[0].range.a.join(",") === "1,10,1,34"
+    && links[0].target.toString() === "https://example.com/spec"
+    ? "PASS (links: a URL in a value is Ctrl+clickable on its exact span)"
+    : "UNEXPECTED document links " + JSON.stringify(links));
+}
+
+// 9d) the lone-sub grace: only the "1 sub-Concept" warning waits — every
+// other squiggle (a plural name) shows at the debounce. The warning lands
+// once typing has been quiet past the grace, without the cursor moving.
+(async () => {
+  const lines = ["Animals", "Parent"];
+  const doc = {
+    languageId: "aot", fileName: "c:\\repo\\Hold.aot", eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///hold" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  vscode.workspace._open(doc);
+  const diagsOf = () => published.get(doc.uri.toString()) || [];
+  const plural = () => diagsOf().some((d) => /appears plural/.test(d.message));
+  const lone = () => diagsOf().some((d) => /has 1 sub-Concept/.test(d.message));
+  const before = plural() && !lone();
+
+  // the user types '    Child' under Parent, creating the lone-sub warning
+  // on the parent line the moment the child exists
+  lines.push("    Child");
+  vscode.workspace._changed({
+    document: doc,
+    contentChanges: [{ text: "\n    Child", range: new vscode.Range(1, 6, 1, 6) }],
+  });
+  await new Promise((r) => setTimeout(r, 400)); // past the 300ms debounce, before the 600ms grace
+  const during = plural() && !lone(); // plural shows at once, the lone warning still waits
+  const duringDiags = diagsOf().map((d) => d.message.slice(0, 40));
+
+  await new Promise((r) => setTimeout(r, 400)); // now past the grace, typing stayed quiet
+  const after = plural() && lone();
+  console.log(before && during && after
+    ? "PASS (hold: only the lone-sub warning waits a grace; other squiggles are immediate)"
+    : "UNEXPECTED hold behaviour " + JSON.stringify({ before, during, after, duringDiags, diags: diagsOf().map((d) => d.message.slice(0, 40)) }));
+})();
 
 // 10) spelling: a word longer than four characters that no English dialect
 // knows publishes a Hint diagnostic on exactly its span, with suggestions;
@@ -551,6 +865,7 @@ const listed = [
     "    note: the pakage arrived",
     "    colour: gray",
     "    url: https://example.com/blorptastic",
+    "    month: december deadline",
   ].join("\n");
   const docS = makeDoc("c:\\repo\\Spell.aot", spelt);
   vscode.workspace._open(docS);
@@ -564,7 +879,7 @@ const listed = [
     ? "PASS (spelling: misspelled words hint on their span with suggestions)"
     : "UNEXPECTED spelling hints " + JSON.stringify(sHints.map((d) => [d.range.a, d.message])));
   console.log(sHints.length === 2
-    ? "PASS (spelling: 'colour'/'gray' both dialects, short words and URLs stay silent)"
+    ? "PASS (spelling: 'colour'/'gray' both dialects, 'december' via 'December', short words and URLs stay silent)"
     : "UNEXPECTED extra spelling hints " + JSON.stringify(sHints.map((d) => d.message)));
 }
 
