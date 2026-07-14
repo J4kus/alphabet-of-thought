@@ -79,13 +79,12 @@ Editor Feature
 
 Working Demonstration
     Worked Ledger
-        |name |price|qty >=1|total           |
+        |name |price|qty >=0|total           |
         |-----+-----+-------+----------------|
         |Alpha|10   |2      |20 =$2*$3       |
         |Beta |5    |4      |20 =$price*$qty |
         |Echo |8    |0      |20 =$total@Alpha|
         |Total|     |       |60 =sum($4)     |
-        |     |     |25 =25 |                |
     Basket Summary
         subtotal <=$item count*$unit price*2
         - March Basket
