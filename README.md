@@ -32,23 +32,24 @@ Yes, the world sometimes feels like a tangled lattice: Socrates is an example of
         is alive
         - Socrates
             is alive: No
-    Participation
-        human
-        City of Residence
-            city
-            - Socrates' Residence
-                human: Socrates
-                city: Athens
-        Employment
-            occupation
-            - Socrates' Job
-                human: Socrates
-                occupation: Philosopher
+    Occupation
+        - Philosopher    
     City
         - Athens
             resident known as: Athenian
-    Occupation
-        - Philosopher
+    City of Residence
+        human
+        city
+        - Socrates' Residence
+            human: Socrates
+            city: Athens
+    Employment
+        human
+        occupation
+        - Socrates' Job
+            human: Socrates
+            occupation: Philosopher
+    
 ```
 
 Read it like this:
@@ -79,25 +80,23 @@ Fifteen minutes of Alpha later, the same claim is `Sales.aot`, written with the 
 ```aot
 - Motivation
     measurement interval: quarterly
-    Sales Stakeholder
-        - Mike
-            role: Head of Sales
-    - revenue growth
-        owner: Mike
-        actual: 11%
-        target: 15%
-        influence: Amber
-        - new client count
-            actual: 46
-            target: 60
-            influence: Red
-        - average basket size
-            actual: $2,510
-            target: $2,400
-            influence: Green
-        - churn
-            actual: 3.1%
+    Mike
+        role: Head of Sales
+        - revenue growth
+            actual: 11%
+            target: 15%
             influence: Amber
+            - new client count
+                actual: 46
+                target: 60
+                influence: Red
+            - average basket size
+                actual: $2,510
+                target: $2,400
+                influence: Green
+            - churn
+                actual: 3.1%
+                influence: Amber
 ```
 
 What the linter caught before the meeting could:
