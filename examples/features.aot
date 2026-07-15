@@ -9,6 +9,9 @@ Language Feature
         - Cross Cell
             syntax: @price@Alpha
             note: either order works, @price@Alpha or @Alpha@price
+        - Cross Table
+            syntax: @Sales Ledger@total@Alpha
+            note: name the other table first, the Concept, Example or Attribute it sits under; it may live in any file in the repo
     Type Constraint
         - Date Type
             keyword: date
@@ -34,6 +37,11 @@ Working Demonstration
         |Alpha|10           |2      |20 =@price*@qty|
         |Beta |2 =@Alpha@qty|4      |5              |
         |Total|             |       |25 =sum(@4)    |
+    Ledger Check
+        |name       |from the ledger              |
+        |-----------+-----------------------------|
+        |alpha total|20 =@Sales Ledger@total@Alpha|
+        |price sum  |12 =sum(@Sales Ledger@price) |
     Person Record
         birth date is date
         age is number >=0

@@ -39,6 +39,40 @@ function pathOf(node) {
   return parts.join(" < ");
 }
 
+// Every .aot under `dir`, skipping the noise directories — shared by the
+// --workspace duplicate scan and the cross-table registry.
+function walkAot(dir) {
+  const files = [];
+  const skip = new Set(["node_modules", ".git", "aot.files", "out"]);
+  const walk = (d) => {
+    let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (!skip.has(e.name) && !e.name.endsWith(".tables") && !e.name.startsWith("tables.")) walk(p); }
+      else if (/\.aot$/i.test(e.name)) files.push(p);
+    }
+  };
+  walk(dir);
+  return files;
+}
+
+// The cross-table registry a formula resolves against, mirroring the
+// editor's workspace scope: every .aot under the current directory (the
+// repo), with the file being checked overlaid last so its own tables win a
+// shared name. Unreadable siblings are skipped rather than fatal.
+function buildFormulaRegistry(targetFile, targetText, targetRoot) {
+  const maps = [];
+  for (const p of walkAot(".")) {
+    if (path.resolve(p) === path.resolve(targetFile)) continue;
+    try {
+      const name = path.basename(p).replace(/\.[^.]*$/, "");
+      maps.push(table.tableRegistry(fs.readFileSync(p, "utf8").split(/\r?\n/), name));
+    } catch { /* skip unreadable */ }
+  }
+  maps.push(table.tableRegistry(targetText.split(/\r?\n/), targetRoot));
+  return table.mergeRegistries(...maps);
+}
+
 // Read a file or exit with a message instead of a stack trace.
 function readFile(f) {
   try {
@@ -64,17 +98,7 @@ function main() {
   let w;
   if ((w = args.indexOf("--workspace")) !== -1) {
     const root = args[w + 1] && !args[w + 1].startsWith("-") ? args[w + 1] : ".";
-    const files = [];
-    const skip = new Set(["node_modules", ".git", "aot.files", "out"]);
-    const walk = (dir) => {
-      let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-      for (const e of entries) {
-        const p = path.join(dir, e.name);
-        if (e.isDirectory()) { if (!skip.has(e.name) && !e.name.endsWith(".tables") && !e.name.startsWith("tables.")) walk(p); }
-        else if (/\.aot$/i.test(e.name)) files.push(p);
-      }
-    };
-    walk(root);
+    const files = walkAot(root);
     const byName = new Map(); // lowercased Concept -> [{ file, line, name }]
     for (const f of files) {
       const name = path.basename(f).replace(/\.[^.]*$/, "");
@@ -285,7 +309,8 @@ function main() {
   // error (counted in V), a value the next recompute would change is a warning
   const formulaErrors = [], formulaWarnings = [];
   const textLines = text.split(/\r?\n/);
-  for (const f of [...table.formulas(textLines), ...derive.auditValues(root, nodes, textLines)]) {
+  const registry = buildFormulaRegistry(file, text, rootName);
+  for (const f of [...table.formulas(textLines, registry), ...derive.auditValues(root, nodes, textLines, registry)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message });
     else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message });
   }

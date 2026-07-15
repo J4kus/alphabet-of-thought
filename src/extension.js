@@ -54,9 +54,27 @@ function reindexAot(fsPath, text) {
   try {
     const rootName = path.basename(fsPath).replace(/\.[^.]*$/, "");
     const { root, nodes } = lint(text, rootName);
-    workspaceIndex.set(path.normalize(fsPath), { root, nodes });
+    const tables = table.tableRegistry(text.split(/\r?\n/), rootName);
+    workspaceIndex.set(path.normalize(fsPath), { root, nodes, tables });
   } catch { workspaceIndex.delete(path.normalize(fsPath)); }
   workspaceExternal = null; // invalidate; rebuilt lazily
+}
+
+// The table registry a formula in `doc` resolves its cross-table references
+// against: every table in the repo (the workspace index) with the current
+// document's own tables — parsed from its live, possibly-unsaved text —
+// overlaid last, so a same-named table here shadows one elsewhere. A lone
+// file (no workspace) simply sees its own tables.
+function formulaRegistry(doc) {
+  const here = path.normalize(doc.fileName || "");
+  const maps = [];
+  for (const [fsPath, v] of workspaceIndex) {
+    if (fsPath === here || !v.tables) continue;
+    maps.push(v.tables);
+  }
+  const rootName = path.basename(doc.fileName || "").replace(/\.[^.]*$/, "");
+  maps.push(table.tableRegistry(doc.getText().split(/\r?\n/), rootName));
+  return table.mergeRegistries(...maps);
 }
 
 function externalFor() {
@@ -104,7 +122,11 @@ function analyse(doc) {
   const { root, nodes, errors, warnings } = lint(doc.getText(), rootName, accepted);
   const inWs = underWorkspace(doc);
   // keep this file's entry current so other files resolve against its edits
-  if (inWs) { workspaceIndex.set(path.normalize(doc.fileName), { root, nodes }); workspaceExternal = null; }
+  if (inWs) {
+    const tables = table.tableRegistry(doc.getText().split(/\r?\n/), rootName);
+    workspaceIndex.set(path.normalize(doc.fileName), { root, nodes, tables });
+    workspaceExternal = null;
+  }
   const links = resolve(doc.getText(), root, nodes, inWs ? externalFor() : undefined);
   const repoWarnings = inWs ? duplicateConceptWarnings(doc, nodes) : [];
   // the links reversed: every place a node is referenced, for the "used at"
@@ -149,7 +171,8 @@ function analyse(doc) {
   // next recompute would change is a warning — pinned to the exact span
   const formulaErrors = [], formulaWarnings = [];
   const docLines = doc.getText().split(/\r?\n/);
-  for (const f of [...table.formulas(docLines), ...derive.auditValues(root, nodes, docLines)]) {
+  const registry = formulaRegistry(doc);
+  for (const f of [...table.formulas(docLines, registry), ...derive.auditValues(root, nodes, docLines, registry)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
     else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
   }
@@ -214,7 +237,7 @@ async function autoComputeValues(doc, analysis, force) {
     analysis = lint(doc.getText(), rootName);
   }
   const lines = doc.getText().split(/\r?\n/);
-  let edits = derive.recomputeValues(analysis.root, analysis.nodes, lines);
+  let edits = derive.recomputeValues(analysis.root, analysis.nodes, lines, formulaRegistry(doc));
   if (!edits.length) return;
   const busy = new Set();
   for (const editor of vscode.window.visibleTextEditors) {
@@ -335,39 +358,84 @@ function exampleMarkdown(doc, analysis, ex, withUsages) {
   return md;
 }
 
+// The '@'-separated parts of the reference ending at the cursor. A part may
+// hold spaces but never an operator or paren, so the reference is the
+// trailing run of `@part`s. Returns the parts after each '@' (the last is
+// the fragment being typed), or null when the cursor is not in a reference.
+function refSegments(before) {
+  const m = /(?:@[^@()+\-*/&,`]*)+$/.exec(before);
+  if (!m) return null;
+  return m[0].split("@").slice(1); // drop the empty piece before the first '@'
+}
+
 // Typing '@' in a formula (a table cell or a line-form value) offers the
-// references you can name: the columns/attributes first (best practice is
-// @column), then the Examples/rows. In a table the names come from the
-// block's header and first column; on a line-form value, from the sibling
+// references you can name: this table's columns/attributes first (best
+// practice is @column), then its Examples/rows, then — last — the repo's
+// tables by the Concept/Example/Attribute each sits under. A table always
+// leads a reference (`@Order@…`), so its columns/Examples are offered once
+// one has been picked. In a table the local names come from the block's
+// header and first column; on a line-form value, from the sibling
 // attributes and Examples.
 const referenceCompletion = {
   provideCompletionItems(doc, position) {
     const before = doc.lineAt(position.line).text.slice(0, position.character);
     // only when an '@' reference is being typed (the trigger, or continuing one)
     if (!/@[^@]*$/.test(before)) return [];
+    const segs = refSegments(before) || [""];
     const lines = doc.getText().split(/\r?\n/);
-    let columns = [], rows = [];
-    const block = table.blockAt(lines, position.line);
-    if (block) {
-      ({ columns, rows } = table.referenceNames(block));
-    } else {
-      const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-      const { nodes } = lint(doc.getText(), rootName);
-      const refs = derive.referencesAt(nodes, position.line + 1);
-      if (!refs) return [];
-      columns = refs.columns; rows = refs.rows;
-    }
+    const registry = formulaRegistry(doc);
     const items = [];
-    columns.forEach((c, i) => {
+    const pushCols = (cols) => cols.forEach((c, i) => {
       const it = new vscode.CompletionItem(c, vscode.CompletionItemKind.Field);
       it.detail = "column"; it.sortText = "0" + String(i).padStart(3, "0");
       items.push(it);
     });
-    rows.forEach((r, i) => {
+    const pushRows = (rs) => rs.forEach((r, i) => {
       const it = new vscode.CompletionItem(r, vscode.CompletionItemKind.EnumMember);
       it.detail = "Example"; it.sortText = "1" + String(i).padStart(3, "0");
       items.push(it);
     });
+
+    // a part after a foreign table selector (@Table@…): offer that table's
+    // own columns and Examples, nothing else
+    if (segs.length >= 2) {
+      const foreign = registry.scopes.get(segs[0].toLowerCase());
+      if (foreign) { pushCols(foreign.columns); pushRows(foreign.rows); return items; }
+    }
+
+    // the first part (or a local column paired with an Example): the current
+    // table's columns and Examples, exactly as before
+    let columns = [], rows = [], hasContext = false;
+    const block = table.blockAt(lines, position.line);
+    if (block) {
+      ({ columns, rows } = table.referenceNames(block));
+      hasContext = true;
+    } else {
+      const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
+      const { nodes } = lint(doc.getText(), rootName);
+      const refs = derive.referencesAt(nodes, position.line + 1);
+      if (refs) { columns = refs.columns; rows = refs.rows; hasContext = true; }
+    }
+    if (!hasContext) return items; // not on a formula-bearing line
+    pushCols(columns); pushRows(rows);
+
+    // the tables come last, and only while the very first part is typed — a
+    // table selector always leads. Picking one inserts `Name@` and reopens
+    // the suggestions on its columns.
+    if (segs.length <= 1) {
+      const seen = new Set();
+      let i = 0;
+      for (const s of registry.scopes.values()) {
+        const name = s.name;
+        if (!name || seen.has(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
+        const it = new vscode.CompletionItem(name, vscode.CompletionItemKind.Struct);
+        it.detail = "table"; it.sortText = "2" + String(i++).padStart(3, "0");
+        it.insertText = name + "@";
+        it.command = { command: "editor.action.triggerSuggest", title: "" };
+        items.push(it);
+      }
+    }
     return items;
   },
 };
@@ -648,7 +716,8 @@ function recomputeFormulas(editor) {
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   const { root, nodes } = lint(doc.getText(), rootName);
   const lines = doc.getText().split(/\r?\n/);
-  const edits = [...table.align(doc.getText()), ...derive.recomputeValues(root, nodes, lines)];
+  const reg = formulaRegistry(doc);
+  const edits = [...table.align(doc.getText(), reg), ...derive.recomputeValues(root, nodes, lines, reg)];
   if (!edits.length) return;
   return editor.edit((b) => {
     for (const { line, text } of edits) b.replace(doc.lineAt(line - 1).range, text);
@@ -681,7 +750,7 @@ async function copyFormulaToSiblings(editor) {
   });
   // the fresh copies start unvalued; recompute them in place
   const again = lint(doc.getText(), rootName);
-  const editsNow = derive.recomputeValues(again.root, again.nodes, doc.getText().split(/\r?\n/));
+  const editsNow = derive.recomputeValues(again.root, again.nodes, doc.getText().split(/\r?\n/), formulaRegistry(doc));
   if (editsNow.length) {
     await editor.edit((b) => {
       for (const { line, text } of editsNow) b.replace(doc.lineAt(line - 1).range, text);
@@ -868,7 +937,7 @@ async function syncCsvIntoAot(uri) {
   const doc = await vscode.workspace.openTextDocument(aotPath);
   const rootName = path.basename(aotPath).replace(/\.[^.]*$/, "");
   const result = table.updateTable(
-    doc.getText().split(/\r?\n/), name, grid[0], grid.slice(1), rootName);
+    doc.getText().split(/\r?\n/), name, grid[0], grid.slice(1), rootName, formulaRegistry(doc));
   if (!result || !result.changed) return;
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const edit = new vscode.WorkspaceEdit();
@@ -921,7 +990,8 @@ const semanticProvider = {
     // value's span is diagnostic-only (paint: false): the value itself is
     // plain data, not derivation text.
     const docLines = doc.getText().split(/\r?\n/);
-    for (const f of [...table.formulas(docLines), ...derive.auditValues(root, nodes, docLines)]) {
+    const registry = formulaRegistry(doc);
+    for (const f of [...table.formulas(docLines, registry), ...derive.auditValues(root, nodes, docLines, registry)]) {
       if (f.paint === false) continue;
       builder.push(f.line - 1, f.startCol, f.endCol - f.startCol, FORMULA_TOKEN);
     }
@@ -944,7 +1014,7 @@ function runTableOp(editor, op) {
   if (!block) return;
   const target = op(block, pos.line - block.start, table.colAt(lines[pos.line], pos.character));
   if (!target) return;
-  table.recompute(block); // every table keystroke recalculates, as org's TAB does
+  table.recompute(block, formulaRegistry(doc)); // every table keystroke recalculates, as org's TAB does
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
@@ -1012,7 +1082,7 @@ function shiftTableIndent(editor, dir) {
     : block.indent.slice(0, Math.max(0, block.indent.length - INDENT));
   if (next === block.indent) return;
   block.indent = next;
-  table.recompute(block);
+  table.recompute(block, formulaRegistry(doc));
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
@@ -1198,7 +1268,8 @@ function activate(context) {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
         const { root, nodes } = lint(doc.getText(), rootName);
         const lines = doc.getText().split(/\r?\n/);
-        return [...table.align(doc.getText()), ...derive.recomputeValues(root, nodes, lines)]
+        const reg = formulaRegistry(doc);
+        return [...table.align(doc.getText(), reg), ...derive.recomputeValues(root, nodes, lines, reg)]
           .map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
       },
     }),
@@ -1242,7 +1313,7 @@ function activate(context) {
       event.waitUntil(Promise.resolve().then(() => {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
         const { root, nodes } = lint(doc.getText(), rootName);
-        return derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/))
+        return derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), formulaRegistry(doc))
           .map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
       }));
     }),

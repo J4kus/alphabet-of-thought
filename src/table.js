@@ -484,32 +484,81 @@ function evalFormula(src, ctx) {
   };
   const toStr = (v) => (typeof v === "number" ? String(v) : v);
 
-  // one part after an '@': a number is always a column; a name is resolved
-  // against the columns and the Examples, the longer match winning and a
-  // tie going to the column. Returns { col, row } with exactly one set.
-  const refPart = () => {
+  // one part after an '@', resolved against `scope` (the current table, or
+  // a foreign one once a table has been named): a number is always a
+  // column; a name is resolved against the columns and the Examples, the
+  // longer match winning and a tie going to the column. Returns { col, row }
+  // with exactly one set.
+  const refPart = (scope) => {
     if (/[0-9]/.test(src[i])) {
       let digits = "";
       while (/[0-9]/.test(src[i])) digits += src[i++];
       return { col: +digits, row: null };
     }
     const rest = src.slice(i);
-    const colM = ctx.matchColumn(rest);
-    const rowM = ctx.matchRow(rest);
+    const colM = scope.matchColumn(rest);
+    const rowM = scope.matchRow(rest);
     if (!colM && !rowM) err("unknown column or Example after '@'");
     const asCol = colM && (!rowM || colM.length >= rowM.length);
     const m = asCol ? colM : rowM;
     i += m.length;
     return asCol ? { col: m.id, row: null } : { col: null, row: m.id };
   };
-  // a cell reference: @col or @N for this row's cell, or a column paired
-  // with an Example in either order for that Example's cell in the column
+  // The leading part of a reference: a current-table column/Example (as
+  // ever), or — only when it names neither, so no formula that resolved
+  // before changes meaning — a foreign TABLE, written as the Concept/
+  // Example/Attribute it sits under, followed by another '@' to name its
+  // column (`@Order@…`). Returns { scope, part }: when a table was named,
+  // scope is that foreign table and part is null (the caller reads the
+  // cell/column from it); otherwise scope is the current table and part is
+  // the col/Example already read.
+  const leadPart = () => {
+    if (/[0-9]/.test(src[i])) return { scope: ctx, part: refPart(ctx) };
+    const rest = src.slice(i);
+    const colM = ctx.matchColumn(rest);
+    const rowM = ctx.matchRow(rest);
+    if (colM || rowM) {
+      const asCol = colM && (!rowM || colM.length >= rowM.length);
+      const m = asCol ? colM : rowM;
+      i += m.length;
+      return { scope: ctx, part: asCol ? { col: m.id, row: null } : { col: null, row: m.id } };
+    }
+    // neither a column nor an Example here: a foreign table, when the name
+    // matches one and a '@' follows to name its column
+    const tm = ctx.matchTable && ctx.matchTable(rest);
+    if (tm && src[i + tm.length] === "@") {
+      const foreign = ctx.table(tm.id);
+      if (!foreign) err(`the table '${rest.slice(0, tm.length)}' has no data`);
+      i += tm.length + 1; // the table name and its '@'
+      return { scope: foreign, part: null };
+    }
+    err(tm
+      ? "a foreign table reference names a cell — write @Table@column@Example"
+      : "unknown column, Example or table after '@'");
+  };
+  // a cell reference: @col or @N for this row's cell; a column paired with
+  // an Example (either order) for that Example's cell; or a foreign table's
+  // cell, @Table@column@Example — the table first, then a column and an
+  // Example in either order.
   const ref = () => {
     i++; // the '@'
-    const a = refPart();
+    const { scope, part } = leadPart();
+    if (part === null) {
+      // a foreign table was named: its column and Example follow, in either order
+      const b = refPart(scope);
+      if (src[i] !== "@") err("a foreign table cell needs both a column and an Example — write @Table@column@Example");
+      i++;
+      const c = refPart(scope);
+      let col, row;
+      if (b.col != null && c.row != null) { col = b.col; row = c.row; }
+      else if (b.row != null && c.col != null) { col = c.col; row = b.row; }
+      else err("@Table pairs a column with an Example — one of each, in either order");
+      return dead ? "" : scope.cellAt(col, row);
+    }
+    const a = part;
     if (src[i] === "@") {
       i++;
-      const b = refPart();
+      const b = refPart(ctx);
       let col, row;
       if (a.col != null && b.row != null) { col = a.col; row = b.row; }
       else if (a.row != null && b.col != null) { col = b.col; row = a.row; }
@@ -519,12 +568,19 @@ function evalFormula(src, ctx) {
     if (a.col == null) err("@ names a column; pair a lone Example as @column@Example");
     return dead ? "" : ctx.cell(a.col);
   };
-  // a bare column, for the aggregates: @N or @name, never an @Example cell
+  // a bare column, for the aggregates: @N or @name of this table, or a
+  // foreign column @Table@column; never an @Example cell. Returns { scope,
+  // col } so the aggregate ranges over the right table's column.
   const colRef = () => {
     i++; // the '@'
-    const a = refPart();
-    if (a.col == null) err("expected a column here, like @2 or @price");
-    return a.col;
+    const { scope, part } = leadPart();
+    if (part === null) {
+      const b = refPart(scope);
+      if (b.col == null) err("expected a column after the table, like @Order@price");
+      return { scope, col: b.col };
+    }
+    if (part.col == null) err("expected a column here, like @2 or @price");
+    return { scope: ctx, col: part.col };
   };
 
   const AGG = {
@@ -539,11 +595,11 @@ function evalFormula(src, ctx) {
     if (name in AGG || name === "count") {
       ws();
       if (src[i] !== "@") err(`${name}() takes a column reference like @2 or @price`);
-      const col = colRef();
+      const { scope, col } = colRef();
       if (src[i] === "@") err(`${name}() ranges over a column, not one row's cell`);
       expect(")");
       if (dead) return 0;
-      const raw = ctx.column(col);
+      const raw = scope.column(col);
       if (name === "count") return raw.filter((v) => String(v).trim() !== "").length;
       const values = raw.map((v) => numericValue(v)).filter((n) => !isNaN(n));
       if (!values.length) err(`column @${col} has no numeric values`);
@@ -675,30 +731,11 @@ function dataRowsOf(block) {
   return block.rows.length >= 2 && !block.rows[0].sep && block.rows[1].sep ? rows.slice(1) : [];
 }
 
-// The @-reference names a table block offers, for completion: the header's
-// column names (constraint/alias stripped) and each data row's Example name.
-// Returns { columns: [name], rows: [name] } — columns come first, the
-// best-practice reference being @column.
-function referenceNames(block) {
-  const header = block.rows.length && !block.rows[0].sep ? block.rows[0].cells : [];
-  const columns = [];
-  header.slice(1).forEach((cell) => {
-    let name = splitConstraint(cell).value;
-    if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
-    if (name) columns.push(name);
-  });
-  const rows = dataRowsOf(block)
-    .map((r) => splitCell(r.cells[0] || "").value)
-    .filter((n) => n);
-  return { columns, rows };
-}
-
-// The table's evaluation context: header cells (and their aliases) resolve
-// $name references, first-column values resolve @Row references, and every
-// reference reads the raw value part of its cell. A header's trailing
-// constraint (`qty >=1`) is not part of the column's name.
-function tableCtx(rows, row, header) {
-  const names = [];
+// The name→column candidates a header offers, for longest-match reference
+// resolution: each column's cleaned name and its `(alias)` both point at the
+// column (1-based). A trailing constraint (`qty >=1`) is not part of the name.
+function headerNameCands(header) {
+  const cands = [];
   (header || []).forEach((cell, k) => {
     let name = splitConstraint(cell).value, alias = null;
     if (name.endsWith(")") && name.includes("(")) {
@@ -706,9 +743,91 @@ function tableCtx(rows, row, header) {
       alias = name.slice(open + 1, -1).trim() || null;
       name = name.slice(0, open).trim();
     }
-    if (name) names.push({ key: name.toLowerCase(), id: k + 1 });
-    if (alias) names.push({ key: alias.toLowerCase(), id: k + 1 });
+    if (name) cands.push({ key: name.toLowerCase(), id: k + 1 });
+    if (alias) cands.push({ key: alias.toLowerCase(), id: k + 1 });
   });
+  return cands;
+}
+
+// The reference names a grid offers for completion, from raw cell arrays:
+// the header's column names (constraint/alias stripped, the name column
+// aside) and each data row's Example name. Columns come first, the
+// best-practice reference being @column.
+function referenceNamesFrom(header, rows) {
+  const columns = [];
+  (header || []).slice(1).forEach((cell) => {
+    let name = splitConstraint(cell).value;
+    if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
+    if (name) columns.push(name);
+  });
+  const rowNames = rows.map((cells) => splitCell(cells[0] || "").value).filter((n) => n);
+  return { columns, rows: rowNames };
+}
+
+// The @-reference names a table block offers, for completion. Returns
+// { columns: [name], rows: [name] } — columns first.
+function referenceNames(block) {
+  const header = block.rows.length && !block.rows[0].sep ? block.rows[0].cells : [];
+  return referenceNamesFrom(header, dataRowsOf(block).map((r) => r.cells));
+}
+
+// A read-only evaluation scope over a foreign table's grid — a table named
+// by another formula through the registry. Like tableCtx but with no
+// current row: `column` ranges over every data row (there is none to skip),
+// and `matchRow`/`cellAt` address a row by its index. Also carries the
+// `columns`/`rows` name lists so the completion can offer them.
+function foreignScope(header, rows) {
+  const names = headerNameCands(header);
+  const rowCands = rows.map((cells, r) => ({ key: splitCell(cells[0] || "").value.toLowerCase(), id: r }));
+  const numCols = Math.max(header ? header.length : 0, ...rows.map((r) => r.length), 0);
+  const raw = (r, c) => {
+    if (c < 1 || c > numCols) throw new Error(`there is no column @${c}`);
+    return splitCell((rows[r] || [])[c - 1] || "").value;
+  };
+  const display = referenceNamesFrom(header, rows);
+  return {
+    columns: display.columns,
+    rows: display.rows,
+    matchColumn: (rest) => longestMatch(rest, names),
+    matchRow: (rest) => longestMatch(rest, rowCands),
+    cellAt: (c, r) => raw(r, c),
+    column: (c) => rows.map((_, r) => raw(r, c)),
+  };
+}
+
+// The tables one text offers to cross-table references: a Map from each
+// table's parent name (lowercased — the Concept/Example/Attribute it sits
+// under, as tablesOf files it) to a foreignScope over its grid. The first
+// table wins a shared name. Pure; the I/O layer (extension.js, verify.js)
+// builds one per file and merges them.
+function tableRegistry(lines, rootName) {
+  const map = new Map();
+  for (const t of tablesOf(lines, rootName)) {
+    const key = t.name.toLowerCase();
+    if (map.has(key)) continue;
+    const scope = foreignScope(t.header, t.rows);
+    scope.name = t.name; // the parent name, original case, for completion
+    map.set(key, scope);
+  }
+  return map;
+}
+
+// Merge per-file table maps into the registry the evaluator reads: later
+// maps win a shared name (so the current file's own tables shadow the
+// repo's), and the table-name candidates are precomputed once. Pass the
+// result as the trailing `registry` argument to the recompute/audit calls.
+function mergeRegistries(...maps) {
+  const scopes = new Map();
+  for (const m of maps) if (m) for (const [k, v] of m) scopes.set(k, v);
+  return { scopes, cands: [...scopes.keys()].map((k) => ({ key: k, id: k })) };
+}
+
+// The table's evaluation context: header cells (and their aliases) resolve
+// $name references, first-column values resolve @Row references, and every
+// reference reads the raw value part of its cell. A header's trailing
+// constraint (`qty >=1`) is not part of the column's name.
+function tableCtx(rows, row, header, registry) {
+  const names = headerNameCands(header);
   const rowNames = rows.map((r) => ({ key: splitCell(r.cells[0] || "").value.toLowerCase(), id: r }));
   const numCols = Math.max(header ? header.length : 0, ...rows.map((r) => r.cells.length));
   const raw = (r, c) => {
@@ -721,15 +840,17 @@ function tableCtx(rows, row, header) {
     cell: (c) => raw(row, c),
     cellAt: (c, r) => raw(r, c),
     column: (c) => rows.filter((r) => r !== row).map((r) => raw(r, c)),
+    matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
+    table: registry ? (id) => registry.scopes.get(id) : undefined,
   };
 }
 
 // Evaluate one cell's '=' formula in its row and table. Returns the value
 // it should carry; throws with a reason when it cannot compute.
-function computeCell(rows, row, text, header) {
+function computeCell(rows, row, text, header, registry) {
   const { value, eq, op } = splitCell(text);
   const formula = text.slice(eq + op.length);
-  return formatValue(evalFormula(formula.trim(), tableCtx(rows, row, header)), value);
+  return formatValue(evalFormula(formula.trim(), tableCtx(rows, row, header, registry)), value);
 }
 
 // Recompute every '=' formula cell in the block, top-down and
@@ -737,7 +858,7 @@ function computeCell(rows, row, text, header) {
 // passes let a reference to a later formula converge. A cell that cannot
 // compute shows #ERR and keeps its formula. Constraint cells ('>=' and
 // kin) are never rewritten — they are checked by the audit, not computed.
-function recompute(block) {
+function recompute(block, registry) {
   const rows = dataRowsOf(block);
   const header = rows.length ? block.rows[0].cells : [];
   let changedAtAll = false;
@@ -748,7 +869,7 @@ function recompute(block) {
         const { value, eq, op } = splitCell(text);
         if (eq === -1 || op !== "=") return;
         let out;
-        try { out = computeCell(rows, row, text, header); } catch { out = "#ERR"; }
+        try { out = computeCell(rows, row, text, header, registry); } catch { out = "#ERR"; }
         if (out !== value) {
           row.cells[k] = out + " =" + text.slice(eq + 1).trim();
           changed = true;
@@ -767,7 +888,7 @@ function recompute(block) {
 // fixes. Fresh spans are still returned so the colouring covers them.
 // (Constraints live on attribute declarations and are audited by
 // derive.js against the parsed tree.)
-function formulas(lines) {
+function formulas(lines, registry) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     const block = blockAt(lines, i);
@@ -790,7 +911,7 @@ function formulas(lines) {
           formula: cell.text.slice(eq + op.length).trim(),
         };
         try {
-          const computed = computeCell(rows, row, cell.text, header);
+          const computed = computeCell(rows, row, cell.text, header, registry);
           if (computed !== value) {
             span.stale = true;
             span.message = value === ""
@@ -884,7 +1005,7 @@ function fromCsv(text) {
 // Concept when it has none yet. Returns { changed, from, to, block } —
 // lines from..to (inclusive) become the block; to < from is a pure insert
 // before `from`. null when no line defines the named Concept.
-function updateTable(lines, name, header, rows, rootName) {
+function updateTable(lines, name, header, rows, rootName, registry) {
   let conceptLine = -1, conceptIndent = -1;
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].trim();
@@ -921,7 +1042,7 @@ function updateTable(lines, name, header, rows, rootName) {
       ...rows.map((cells) => ({ sep: false, cells })),
     ],
   };
-  recompute(tableBlock); // formulas arriving from the CSV compute too
+  recompute(tableBlock, registry); // formulas arriving from the CSV compute too
   const block = render(tableBlock);
   const changed = lines.slice(from, to + 1).join("\n") !== block.join("\n");
   return { changed, from, to, block };
@@ -931,7 +1052,7 @@ function updateTable(lines, name, header, rows, rootName) {
 // unbroken run of pipe rows sharing one indent that contains a separator
 // row — lone pipe Examples are left exactly as written.
 // Returns the changed lines as { line, text } with 1-based line numbers.
-function align(text) {
+function align(text, registry) {
   const lines = text.split(/\r?\n/);
   const edits = [];
   for (let i = 0; i < lines.length; i++) {
@@ -939,7 +1060,7 @@ function align(text) {
     if (!block) continue;
     i = block.end; // one visit per block
     if (!block.rows.some((r) => r.sep)) continue;
-    recompute(block); // formulas first, so the widths fit the fresh values
+    recompute(block, registry); // formulas first, so the widths fit the fresh values
     render(block).forEach((aligned, k) => {
       if (aligned !== lines[block.start + k]) edits.push({ line: block.start + k + 1, text: aligned });
     });
@@ -954,5 +1075,6 @@ module.exports = {
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas,
   compareValues, longestMatch, numericValue, tableCtx,
-  valueType, satisfiesTypes, isDateValue, referenceNames, dataRowsOf,
+  valueType, satisfiesTypes, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
+  foreignScope, tableRegistry, mergeRegistries,
 };

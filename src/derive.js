@@ -64,7 +64,9 @@ function referencesAt(nodes, line) {
 
 // The evaluation context for one host. `current` maps a DEFAULT node to
 // its value-in-progress, so the recompute fixpoint sees fresh values.
-function makeCtx(d, current) {
+// `registry` (optional) lets a line-form formula reach a foreign table's
+// cell/column by name, exactly as a table cell can — `@Order@price@Acme`.
+function makeCtx(d, current, registry) {
   const { host, examples } = scopeOf(d);
   const names = new Map(); // lowercased key -> canonical attribute id
   const addName = (n) => {
@@ -110,6 +112,8 @@ function makeCtx(d, current) {
         .map((ex) => valueOn(ex, id))
         .filter((v) => v !== undefined);
     },
+    matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
+    table: registry ? (id) => registry.scopes.get(id) : undefined,
   };
 }
 
@@ -180,7 +184,7 @@ function valueSpanOf(lines, d) {
 // each value the attribute takes is validated in its own context, a
 // violation pinned to the value itself (paint: false — a plain value is
 // not derivation text).
-function auditValues(root, nodes, lines) {
+function auditValues(root, nodes, lines, registry) {
   const out = [];
   const current = (n) => n.value || "";
   for (const d of hostsOf(nodes)) {
@@ -188,7 +192,7 @@ function auditValues(root, nodes, lines) {
     if (!s) continue;
     const span = { line: d.line, startCol: s.startCol, endCol: s.endCol, op: s.op, formula: s.formula };
     try {
-      const computed = formatValue(evalFormula(s.formula, makeCtx(d, current)), s.value);
+      const computed = formatValue(evalFormula(s.formula, makeCtx(d, current, registry)), s.value);
       if (computed !== s.value) {
         span.stale = true;
         span.message = s.value === ""
@@ -229,7 +233,7 @@ function auditValues(root, nodes, lines) {
     if (!a.op) continue;
     let bound;
     try {
-      bound = evalFormula(a.formula, makeCtx(d, current));
+      bound = evalFormula(a.formula, makeCtx(d, current, registry));
     } catch (e) {
       // an uncomputable bound is the declaration's problem, reported once
       const span = declared.get(a);
@@ -249,7 +253,7 @@ function auditValues(root, nodes, lines) {
 // Recompute every '=' line-form formula, five fixpoint passes so a formula
 // may reference another formula's value; constraints are never rewritten.
 // Returns whole-line replacements as { line, text } (1-based lines).
-function recomputeValues(root, nodes, lines) {
+function recomputeValues(root, nodes, lines, registry) {
   const hosts = hostsOf(nodes).filter((n) => n.op === "=");
   const values = new Map();
   const current = (n) => (values.has(n) ? values.get(n) : n.value || "");
@@ -257,7 +261,7 @@ function recomputeValues(root, nodes, lines) {
     let changed = false;
     for (const d of hosts) {
       let out;
-      try { out = formatValue(evalFormula(d.formula, makeCtx(d, current)), current(d)); }
+      try { out = formatValue(evalFormula(d.formula, makeCtx(d, current, registry)), current(d)); }
       catch { out = "#ERR"; }
       if (out !== current(d)) { values.set(d, out); changed = true; }
     }

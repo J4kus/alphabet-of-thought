@@ -4,6 +4,11 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.4.1] - 2026-07-15
+
+- **Cross-table formula references.** A formula anywhere — a table cell or a line-form `attribute: =…` value — can now reach another table's cell by naming the table **first**: `@Order@price@Acme` (the column and Example follow in either order). The table is named by the Concept/Example/Attribute it sits under, exactly as the CSV mirror files it, and it may live in **any `.aot` in the workspace**; the current file's own tables win a shared name. Aggregates range over a foreign column too — `sum(@Order@price)`, `avg`/`min`/`max`/`count`. A leading name is read as a table only when it matches neither a current column nor Example, so **every existing formula keeps its meaning**; when no table is named the reference stays in the current table (or, off a table, the current line's sibling scope), as before. The editor recomputes and audits these live (Tab, Enter, Format Document, save), and `node verify.js` resolves them the same way, walking the repo so the CLI verdict still mirrors the editor's.
+- **`@` completion lists the tables last.** Typing `@` offers this table's columns first, then its Examples, then the repo's tables by the name each sits under; pick a table and the suggestions reopen on its own columns.
+
 ## [1.3.0] - 2026-07-13
 
 **Three breaking changes** (all auto-handled where possible):

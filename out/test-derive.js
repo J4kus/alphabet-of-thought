@@ -5,6 +5,7 @@
 // Plain Node script, no framework — run with: node out/test-derive.js
 const { lint } = require("../src/linter");
 const { auditValues, recomputeValues, copyToSiblings } = require("../src/derive");
+const { tableRegistry, mergeRegistries } = require("../src/table");
 
 let failures = 0;
 function check(name, ok) {
@@ -44,6 +45,40 @@ const parsed = (text) => {
     bad && bad.error === true && /table-only/.test(bad.message));
   check("audit: spans run from the operator to the value's end",
     vat.startCol === lines[3].indexOf("=") && vat.endCol === lines[3].length);
+}
+
+// ---------------------------------------------------------------------------
+// a line-form value reaching a foreign table by its parent name, through
+// the registry — @Table@col@Example and sum(@Table@col)
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Prices",
+    "    |name |price|",
+    "    |-----+-----|",
+    "    |Acme |10   |",
+    "    |Bolt |20   |",
+    "Order",
+    "    - A",
+    "        cost: =@Prices@price@Acme",
+    "        allcost: =sum(@Prices@price)",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const reg = mergeRegistries(tableRegistry(lines, "Sheet"));
+  const edits = recomputeValues(root, nodes, lines, reg);
+  check("cross-table (line-form): @Table@col@Example reads the foreign cell",
+    edits.some((e) => e.text.includes("cost: 10 =@Prices@price@Acme")));
+  check("cross-table (line-form): sum(@Table@col) totals the foreign column",
+    edits.some((e) => e.text.includes("allcost: 30 =sum(@Prices@price)")));
+  check("cross-table (line-form): the audit is quiet once the foreign values are filled",
+    (() => {
+      const filled = lines.slice();
+      for (const e of edits) filled[e.line - 1] = e.text;
+      const re = lint(filled.join("\n"), "Sheet");
+      return auditValues(re.root, re.nodes, filled, reg).every((f) => !f.error && !f.stale);
+    })());
+  check("cross-table (line-form): without a registry the foreign reference is #ERR",
+    recomputeValues(root, nodes, lines).some((e) => e.text.includes("cost: #ERR")));
 }
 
 // ---------------------------------------------------------------------------

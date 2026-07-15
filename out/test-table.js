@@ -10,6 +10,7 @@ const {
   sortRows, fromRegion, cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas, tableCtx,
   valueType, satisfiesTypes, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
+  tableRegistry, mergeRegistries, foreignScope,
 } = require("../src/table");
 
 let failures = 0;
@@ -312,6 +313,68 @@ const fresh = () => blockAt(doc, 3);
       const rows = bound.rows.slice(2);
       const ctx = tableCtx(rows, rows[0], bound.rows[0].cells);
       return ctx.matchColumn("age)").id === 2 && ctx.cell(2) === "25";
+    })());
+}
+
+// ---------------------------------------------------------------------------
+// cross-table references: a formula reaching a table named by its parent
+// (@Table@column@Example, sum(@Table@column)) through the registry
+// ---------------------------------------------------------------------------
+{
+  const lines = [
+    "Order",
+    "    |name |price|qty|",
+    "    |-----+-----+---|",
+    "    |Acme |10   |2  |",
+    "    |Bolt |20   |3  |",
+    "Summary",
+    "    |name    |val|",
+    "    |--------+---|",
+    "    |acmeTot |   |",
+    "    |allPrice|   |",
+  ];
+  const reg = mergeRegistries(tableRegistry(lines, "cross"));
+
+  // through a mock ctx: the foreign table wins the leading @ only when the
+  // name matches no local column/Example and a '@' follows
+  const foreign = foreignScope(
+    ["name", "price", "qty"],
+    [["Acme", "10", "2"], ["Bolt", "20", "3"]]);
+  const ctx = {
+    matchColumn: (r) => (r.toLowerCase().startsWith("total") ? { id: 2, length: 5 } : null),
+    matchRow: () => null,
+    cell: () => "99", cellAt: () => "99", column: () => ["99"],
+    matchTable: (r) => (r.toLowerCase().startsWith("order") ? { id: "order", length: 5 } : null),
+    table: (id) => (id === "order" ? foreign : undefined),
+  };
+  check("cross-table: @Table@column@Example reads the foreign cell (either order)",
+    evalFormula("@Order@price@Bolt", ctx) === "20"
+    && evalFormula("@Order@Bolt@price", ctx) === "20");
+  check("cross-table: sum() ranges over the foreign column (all its rows)",
+    evalFormula("sum(@Order@price)", ctx) === 30 && evalFormula("count(@Order@qty)", ctx) === 2);
+  check("cross-table: a foreign cell composes in arithmetic",
+    evalFormula("@Order@price@Acme*@total+1", ctx) === 991);
+  check("cross-table: current table wins — a local column shadows a same-named table",
+    evalFormula("@total", ctx) === "99");
+  check("cross-table: a table name alone (no trailing column) is not a table reference",
+    (() => { try { evalFormula("@Order", ctx); return false; } catch { return true; } })());
+  check("cross-table: a foreign column needs an Example outside an aggregate",
+    (() => { try { evalFormula("@Order@price", ctx); return false; } catch { return true; } })());
+
+  // end to end: recompute a table that references another, via the registry
+  const summary = blockAt(lines, 8);
+  summary.rows[2].cells[1] = "=@Order@price@Acme";       // -> 10
+  summary.rows[3].cells[1] = "=sum(@Order@price)";        // -> 30
+  recompute(summary, reg);
+  check("cross-table: recompute fills cells from a foreign table",
+    summary.rows[2].cells[1] === "10 =@Order@price@Acme"
+    && summary.rows[3].cells[1] === "30 =sum(@Order@price)");
+  check("cross-table: without a registry the same formula cannot resolve (#ERR)",
+    (() => {
+      const s = blockAt(lines, 8);
+      s.rows[2].cells[1] = "=@Order@price@Acme";
+      recompute(s); // no registry
+      return s.rows[2].cells[1] === "#ERR =@Order@price@Acme";
     })());
 }
 
