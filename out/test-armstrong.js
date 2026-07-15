@@ -149,9 +149,11 @@ const deps = [
 }
 
 // 4) dependency chains: every maximal path out of a Concept, one per
-// crosslinked attribute (the hop labelled with the attribute), growing by one
-// Concept per dependency the previous link declares; an attribute's alias and
-// a Concept's alias both hop like a name; a revisited Concept marks a cycle.
+// crosslinked *attribute* (the hop labelled with the attribute), growing by
+// one Concept per dependency the previous link declares. An attribute's
+// alias types it (`vehicle (car)` → Car), but a Concept that merely contains
+// or is aliased to another is a kind of it, not a dependency, so it is no
+// chain edge. A revisited Concept marks a cycle.
 const chained = [
   "Trip",
   "    driver person",
@@ -162,7 +164,6 @@ const chained = [
   "    street",
   "Car",
   "    owner person",
-  "Auto (Car)",
   "Loop A",
   "    partner loop b",
   "Loop B",
@@ -174,15 +175,28 @@ const chained = [
   const fromTrip = chains(root, nodes, node(root, nodes, "Trip")).map(show);
   check("Trip has two chains, one per crosslinked attribute", fromTrip.length === 2);
   check("chain via 'driver person': Trip > Person > Address (3 Concepts)", fromTrip.includes("Trip>Person>Address"));
-  check("chain via the 'vehicle (car)' alias runs a hop longer: 4 Concepts", fromTrip.includes("Trip>Car>Person>Address"));
+  check("chain via the 'vehicle (car)' attribute alias: Trip > Car > Person > Address", fromTrip.includes("Trip>Car>Person>Address"));
   const viaLabels = chains(root, nodes, node(root, nodes, "Trip")).map((c) => c.via.join(">"));
   check("hops carry the attribute that declares them", viaLabels.includes("driver person>home address"));
-  const fromAuto = chains(root, nodes, node(root, nodes, "Auto")).map(show);
-  check("a Concept's alias is a dependency: Auto > Car > Person > Address", fromAuto.includes("Auto>Car>Person>Address"));
   const fromLoop = chains(root, nodes, node(root, nodes, "Loop A"));
   check("mutual dependency reports one chain, marked a cycle",
     fromLoop.length === 1 && fromLoop[0].cycle && show(fromLoop[0]) === "Loop A>Loop B>Loop A cycle");
   check("a Concept with no dependencies has no chains", chains(root, nodes, node(root, nodes, "Address")).length === 0);
+}
+
+// 4b) a Concept that contains or is aliased to another is a *kind* of it,
+// not a dependency: those crosslinks navigate but are not chain edges.
+{
+  const kinds = lint([
+    "Tree",
+    "Recurring Tree",   // name contains 'Tree' — a kind of Tree, not a dependency
+    "Auto (Vehicle)",   // aliased to a general context — still not a dependency
+    "Vehicle",
+  ].join("\n"), "World");
+  check("a name-contained Concept declares no dependency",
+    chains(kinds.root, kinds.nodes, node(kinds.root, kinds.nodes, "Recurring Tree")).length === 0);
+  check("a Concept alias declares no dependency",
+    chains(kinds.root, kinds.nodes, node(kinds.root, kinds.nodes, "Auto")).length === 0);
 }
 
 // 5) value links declare dependencies too: a value naming an Example of

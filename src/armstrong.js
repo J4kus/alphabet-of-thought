@@ -193,13 +193,13 @@ function findings(root, nodes) {
   return out;
 }
 
-// The declared Concept-dependency graph and its transitive closure. Edges come
-// from the crosslinks: an attribute on C whose trailing words (or alias) name
-// D, and a Concept C whose name contains D, both read as "C depends on D".
-// Each edge keeps the crosslink it came from as its label 'via' — the
-// attribute's name, or 'name' when the dependency sits in the Concept's own
-// name — and two attributes reaching the same Concept stay two edges, so a
-// chain can say which slot carries it.
+// The declared Concept-dependency graph and its transitive closure. An edge
+// "C depends on D" comes only from an **attribute** of C that names D — the
+// attribute-is-a-Concept crosslink, or a value whose Example belongs to D.
+// A Concept that merely contains or is-aliased-to another names a *kind*,
+// not a dependency, so those crosslinks are excluded. Each edge keeps the
+// attribute's name as its label 'via', and two attributes reaching the same
+// Concept stay two edges, so a chain can say which slot carries it.
 function dependencyGraph(root, nodes) {
   const { concepts } = index(root, nodes);
   const conceptNodes = [root, ...nodes].filter((n) => n.kind === CONCEPT);
@@ -210,15 +210,12 @@ function dependencyGraph(root, nodes) {
     const list = edges.get(from);
     if (!list.some((e) => e.to === to && e.via === via)) list.push({ to, via });
   };
+  // A dependency is a Concept resting on another through an **attribute** —
+  // a `human` slot makes a Concept depend on `Human`. A Concept whose name
+  // merely contains another (`Recurring Tree`), or whose alias names another
+  // (`Auto (Car)`), is a differentia of that kind, not a dependency on it:
+  // those crosslinks still navigate, but they are not edges here.
   for (const c of conceptNodes) {
-    for (const d of containedConcepts(c, concepts)) add(c, d, "name");
-    // a parenthetical alias naming another Concept is a declared dependency
-    // too (alias-is-a-Concept): "for a dependency or a more general context
-    // name", as the reference file has it
-    if (c.alias) {
-      const t = concepts.get(c.alias.toLowerCase());
-      if (t) add(c, t, "alias");
-    }
     for (const child of c.children) {
       if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
       const t = conceptType(child, concepts);

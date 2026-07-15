@@ -192,11 +192,12 @@ function parse(text, rootName, report) {
           // a header cell is an attribute term, so it may carry a trailing
           // (alias) and a trailing constraint (`qty >=1`) exactly as the
           // bare line form does — the constraint bounds the whole column
-          let name = cell.text, alias = null, aliasCol, op, formula, opCol;
+          let name = cell.text, alias = null, aliasCol, op, formula, opCol, types;
           const con = splitConstraint(name);
           if (con.eq !== -1) {
             op = con.op;
-            formula = name.slice(con.eq + con.op.length).trim();
+            formula = con.formula;
+            types = con.types;
             opCol = cell.col + con.eq;
             name = con.value;
           }
@@ -219,7 +220,7 @@ function parse(text, rootName, report) {
             line, depth, kind: ATTRIBUTE, name, value: null,
             alias, aliasCol, parent, children: [], nameCol: cell.col, cell: true,
           };
-          if (op) { attr.op = op; attr.formula = formula; attr.opCol = opCol; }
+          if (op || types) { attr.op = op || null; attr.formula = formula; attr.opCol = opCol; attr.types = types || null; }
           parent.children.push(attr);
           nodes.push(attr);
           table.attrs.push(attr);
@@ -287,7 +288,8 @@ function parse(text, rootName, report) {
       if (head && !head.includes(":") && head[0] >= "a" && head[0] <= "z") {
         constraint = {
           op: con.op,
-          formula: trimmed.slice(con.eq + con.op.length).trim(),
+          formula: con.formula,
+          types: con.types,
           opCol: spaces + con.eq,
         };
         trimmed = head;
@@ -304,6 +306,7 @@ function parse(text, rootName, report) {
       node.op = constraint.op;
       node.formula = constraint.formula;
       node.opCol = constraint.opCol;
+      node.types = constraint.types;
     }
     // a line-form value may carry an '=' formula exactly as a table cell
     // does: `total: 30 =sum($price)` computes. Only the value part enters
@@ -388,15 +391,23 @@ function verify(root, nodes, report, accepted) {
     report.error(dup.line, `Concept '${dup.name}' defined ${defs.length} times (lines ${where}) — one name must mean one kind, but this name labels ${defs.length} different ones; give all but one a distinguishing qualifier, or merge them (${defs.length} definitions for one term, expected 1)`);
   });
 
-  // An identifier resolves to exactly one target. Two Concepts sharing an
-  // alias make it ambiguous, and an alias that repeats its own Concept's
-  // name renames nothing — both errors. An alias that names *another*
-  // Concept stays legal: that is the declared dependency of
-  // alias-is-a-Concept (`Auto (Car)`), and a real name always outranks it.
+  // An identifier resolves to exactly one target. A Concept's alias must be
+  // a genuinely new name: repeating its own name renames nothing, sharing an
+  // alias with another Concept is ambiguous, and naming *another* Concept
+  // makes the two a single duplicated identity — all errors. (A Concept that
+  // is a kind of another belongs *under* it in the tree, not aliased to it.)
+  const conceptByName = new Map();
+  for (const n of concepts) if (!conceptByName.has(n.name.toLowerCase())) conceptByName.set(n.name.toLowerCase(), n);
   const aliased = concepts.filter((n) => n.alias);
   for (const node of aliased) {
-    if (node.alias.toLowerCase() === node.name.toLowerCase()) {
+    const low = node.alias.toLowerCase();
+    if (low === node.name.toLowerCase()) {
       report.error(node.line, `alias '(${node.alias})' on '${node.name}' repeats the Concept's own name — an alias is a second name, so this one renames nothing; drop it, or make it a genuinely different name`);
+      continue;
+    }
+    const other = conceptByName.get(low);
+    if (other && other !== node) {
+      report.error(node.line, `alias '(${node.alias})' on '${node.name}' is the name of another Concept (line ${other.line}) — an alias is a second name for the *same* idea, so this makes '${node.name}' and '${node.alias}' one duplicated identity; merge them, or if '${node.name}' is a kind of '${node.alias}' file it under '${node.alias}' instead`);
     }
   }
   eachDuplicate(groupBy(aliased, (n) => n.alias.toLowerCase()), (dup, where, group) => {

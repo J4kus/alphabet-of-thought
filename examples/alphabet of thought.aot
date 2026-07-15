@@ -40,7 +40,7 @@
             said of
             present in
             example
-            Schema (Acting On)
+            Schema Line (Acting On)
                 said of: Is Said Of
                 - Concept (Universal Substance)
                     recognise: first letter is capitalised
@@ -52,7 +52,7 @@
                     recognise: all lowercase
                     present in: True
                     example: full name
-            Content (Being Acted Upon)
+            Content Line (Being Acted Upon)
                 said of: Not Said Of
                 - Example (Individual Substance)
                     recognise: must start with dash and space

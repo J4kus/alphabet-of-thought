@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.2.6",
+  "version": "1.3.1",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -52,7 +52,7 @@
         "aot.tableCsvSync": {
           "type": "boolean",
           "default": true,
-          "description": "Mirror every table to a CSV file named after its parent Concept in a sibling 'tables.<file>' folder when the .aot is saved, and fold edits made to those CSVs back into the .aot table. A CSV whose Concept no longer has a table is deleted on save; a legacy '<file>.tables' folder is renamed automatically."
+          "description": "Mirror every table to a CSV named after its parent Concept in a single 'aot.files' folder at the workspace root (shared by every .aot in the repo), and fold edits made to those CSVs back into the matching table. A CSV whose Concept no table anywhere still has is archived with a '_' prefix, never deleted; legacy 'tables.<file>' / '<file>.tables' folders are folded in automatically."
         },
         "aot.spellingHints": {
           "type": "boolean",
@@ -84,20 +84,38 @@
         }
       }
     },
+    "semanticTokenTypes": [
+      {
+        "id": "aotAttribute",
+        "description": "A table cell's attribute"
+      },
+      {
+        "id": "aotExample",
+        "description": "A table cell's Example name"
+      },
+      {
+        "id": "aotValue",
+        "description": "A table cell's Attribute Value"
+      },
+      {
+        "id": "aotFormula",
+        "description": "A formula or constraint"
+      }
+    ],
     "semanticTokenScopes": [
       {
         "language": "aot",
         "scopes": {
-          "property": [
+          "aotAttribute": [
             "variable.other.property.aot"
           ],
-          "enumMember": [
+          "aotExample": [
             "constant.language.individual.aot"
           ],
-          "string": [
+          "aotValue": [
             "string.unquoted.value.aot"
           ],
-          "macro": [
+          "aotFormula": [
             "keyword.control.formula.aot"
           ]
         }
@@ -191,6 +209,12 @@
       {
         "command": "aot.table.copyFormulaDown",
         "title": "Copy Formula Down the Column",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyFormulaAcross",
+        "title": "Copy Formula Across the Row",
         "category": "AOT Table",
         "enablement": "editorLangId == aot"
       },

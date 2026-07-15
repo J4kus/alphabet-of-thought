@@ -1,113 +1,56 @@
 Language Feature
-    Derivation Kind
-        - Computed Value
-            operator: `=`
-            test value: 13 =13
-            test: 4
-            home: after a value
-            behaviour: fills the value from its formula
-        - Constrained Attribute
-            operator: `>=`
-            test value: 5
-            home: after an attribute declaration
-            behaviour: bounds every value the attribute takes
-    Reference Kind
+    Reference
         - Numbered Column
-            syntax: $2
+            syntax: @2
             reach: tables only
         - Named Column
-            syntax: $price
-            reach: tables plus line values
+            syntax: @price
+            reach: tables and line values
         - Cross Cell
-            syntax: $price@Alpha
-            reach: another row of the table
-    Function Kind
-        - sum
-            argument: a column
-            answer: the column total
-        - count
-            argument: a column
-            answer: the non empty cells
+            syntax: @price@Alpha
+            note: either order works, @price@Alpha or @Alpha@price
+    Type Constraint
+        - Date Type
+            keyword: date
+            example: 1815-12-10
+        - Number Type
+            keyword: number
+            example: 42
+        - Text Type
+            keyword: text
+            example: hello
+    String Function
         - upper
-            test: match =(`match`)
-            argument: text
-            answer: the same text capitalised
-        - if
-            argument: a condition with two branches
-            answer: only the taken branch computes
-
-Editor Feature
-    Comfort Feature
-        - Squiggle Hold
-            trigger: typing on a line
-            relief: fresh problems wait for the cursor to move on
-        - Table Scaffold
-            trigger: a lone pipe on an empty line
-            relief: header separator row grow at once
-        - Table Indent Shift
-            trigger: tab pressed in the leading indent
-            relief: the whole table moves one level
-        - Quiet Table Chrome
-            trigger: any table symbol
-            relief: pipes dashes crosses share one calm colour
-        - Proper Noun Spelling
-            trigger: december written in lowercase
-            relief: the capitalised dictionary form vouches for it
-
-    Insight Feature
-        comfort feature
-
-        - Chain Inlay
-            surface: small print at the end of the line
-            setting: aot.chainHints
-        - Example Hover
-            surface: the owner plus every value it carries
-            setting: always on
-        - Reference Search
-            surface: declaration plus every usage
-            setting: always on
-    Data Feature
-        - Csv Mirror
-            folder: tables.features
-            cleanup: orphaned files go on save
-        - Url Metadata
-            probe: one cached head request
-            reference: https://github.com/Jakus23/alphabet-of-thought
-        - Dependency Finding
-            default: off
-            setting: aot.dependencyFindings
+            turns: widget into WIDGET
+        - lower
+            turns: WIDGET into widget
+        - trim
+            turns: padded text into a tight one
 
 Working Demonstration
-    Worked Ledger
-        |name |price|qty >=0|total           |
-        |-----+-----+-------+----------------|
-        |Alpha|10   |2      |20 =$2*$3       |
-        |Beta |5    |4      |20 =$price*$qty |
-        |Echo |8    |0      |20 =$total@Alpha|
-        |Total|     |       |60 =sum($4)     |
-    Basket Summary
-        subtotal <=$item count*$unit price*2
-        - March Basket
-            item count: 3
-            unit price: 40
-            subtotal: 120 =$item count*$unit price
-            code: MARCH =upper(`march`)
-    Purchase Record
-        total spend: 60 =sum($amount)
-        - First Purchase
-            amount: 25
-        - Second Purchase
-            amount: 35
-    City
-        - Athens
-        - Sparta
-    Home Address (Location)
-        city: athens
-    Location
-        - headquarters
-        - branch office
+    Sales Ledger
+        |name |price        |qty >=1|total          |
+        |-----+-------------+-------+---------------|
+        |Alpha|10           |2      |20 =@price*@qty|
+        |Beta |2 =@Alpha@qty|4      |5              |
+        |Total|             |       |25 =sum(@4)    |
+    Person Record
+        birth date is date
+        age is number >=0
+        - Ada Lovelace
+            birth date: 1815-12-10
+            age: 36
+        - Alan Turing
+            birth date: 1912-06-23
+            age: 41
+    Label Builder
+        - Widget Label
+            base: widget
+            code: WIDGET =upper(@base)
+        - Gadget Label
+            base: gadget
+            code: GADGET =upper(@base)
     Documentation
         repository page: https://github.com/Jakus23/alphabet-of-thought
-        file explorer page: C:\Users\jakus\OneDrive\PNA\Reporting\pna-alpha\1B. Value Added Tax
-
-        change log entry: 1.2.0
+        readme file: README.md
+        change log entry: 1.3.0

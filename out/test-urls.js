@@ -3,7 +3,7 @@
 // nothing touches the network.
 //
 // Plain Node script, no framework — run with: node out/test-urls.js
-const { findUrls, metadata } = require("../src/urls");
+const { findUrls, findFiles, metadata, isImage, looksLikePath } = require("../src/urls");
 
 let failures = 0;
 function check(name, ok) {
@@ -32,6 +32,42 @@ function check(name, ok) {
     found.some((u) => u.line === 5 && u.url === "http://example.org/a"));
   check("findUrls: lines without URLs yield nothing",
     !found.some((u) => u.line === 6) && found.length === 2);
+}
+
+// ---------------------------------------------------------------------------
+// findFiles: path-shaped values that a resolver maps to an existing file
+// ---------------------------------------------------------------------------
+{
+  const win = "C:" + String.fromCharCode(92) + "reports" + String.fromCharCode(92) + "q2.pdf";
+  const lines = [
+    "Doc",
+    "    spec: https://example.com/x.png",  // a URL, not a file
+    "    diagram: ./assets/flow.svg",
+    "    report: " + win,
+    "    note: just some prose here",        // not path-shaped
+    "    |name|file        |",
+    "    |----+------------|",
+    "    |A   |./data/a.csv|",
+  ];
+  const known = new Set(["./assets/flow.svg", win, "./data/a.csv"]);
+  const files = findFiles(lines, (t) => (known.has(t) ? "/abs/" + t : null));
+  check("findFiles: a relative path value resolves and is spanned",
+    files.some((f) => f.line === 3 && f.path === "./assets/flow.svg" && f.fsPath === "/abs/./assets/flow.svg"));
+  check("findFiles: an absolute Windows path resolves", files.some((f) => f.line === 4 && f.path === win));
+  check("findFiles: a path inside a table cell resolves", files.some((f) => f.line === 8 && f.path === "./data/a.csv"));
+  check("findFiles: a URL is not a file, prose is not a path",
+    !files.some((f) => f.line === 2) && !files.some((f) => f.line === 5) && files.length === 3);
+}
+
+// ---------------------------------------------------------------------------
+// isImage / looksLikePath
+// ---------------------------------------------------------------------------
+{
+  check("isImage: image extensions, not others",
+    isImage("a.png") && isImage("b.JPG") && isImage("c.svg") && isImage("http://x/y.gif?v=1") && !isImage("d.pdf") && !isImage("e.txt"));
+  check("looksLikePath: paths yes, prose no",
+    looksLikePath("./a/b.csv") && looksLikePath("/etc/hosts") && looksLikePath("report.pdf")
+    && !looksLikePath("just some words") && !looksLikePath("https://x.com/y"));
 }
 
 // ---------------------------------------------------------------------------

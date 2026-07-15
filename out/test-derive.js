@@ -1,5 +1,5 @@
 // Unit tests for line-form formulas and constraints (src/derive.js): the
-// reference semantics ($attr, aggregates over sibling Examples, @Example),
+// reference semantics (@attr, aggregates over sibling Examples, @Example),
 // the audit spans, the recompute fixpoint, and the copy-to-siblings edit.
 //
 // Plain Node script, no framework — run with: node out/test-derive.js
@@ -19,16 +19,16 @@ const parsed = (text) => {
 };
 
 // ---------------------------------------------------------------------------
-// references: $attr on the same Example, @Example across siblings, $N rejected
+// references: @attr on the same Example, @Example across siblings, @N rejected
 // ---------------------------------------------------------------------------
 {
   const text = aot(
     "Order",
     "    - A",
     "        price: 10",
-    "        vat: 2 =$price*0.2",
-    "        copy: =$price@B",
-    "        bad: =$2*2",
+    "        vat: 2 =@price*0.2",
+    "        copy: =@price@B",
+    "        bad: =@2*2",
     "    - B",
     "        price: 20",
   );
@@ -37,10 +37,10 @@ const parsed = (text) => {
   const vat = audit.find((f) => f.line === 4);
   const copy = audit.find((f) => f.line === 5);
   const bad = audit.find((f) => f.line === 6);
-  check("audit: $attr reads the sibling attribute (2 = 10*0.2 is true)", vat && !vat.stale && !vat.error);
-  check("audit: $attr@Example reads the named sibling Example",
+  check("audit: @attr reads the sibling attribute (2 = 10*0.2 is true)", vat && !vat.stale && !vat.error);
+  check("audit: @attr@Example reads the named sibling Example",
     copy && copy.stale === true && /is not yet computed \(= 20\)/.test(copy.message));
-  check("audit: numeric $N references are table-only",
+  check("audit: numeric @N references are table-only",
     bad && bad.error === true && /table-only/.test(bad.message));
   check("audit: spans run from the operator to the value's end",
     vat.startCol === lines[3].indexOf("=") && vat.endCol === lines[3].length);
@@ -52,7 +52,7 @@ const parsed = (text) => {
 {
   const text = aot(
     "Order",
-    "    total: =sum($price)",
+    "    total: =sum(@price)",
     "    - A",
     "        price: 10",
     "    - B",
@@ -66,7 +66,7 @@ const parsed = (text) => {
 
   const edits = recomputeValues(root, nodes, lines);
   check("recompute: fills the value and keeps the formula",
-    edits.length === 1 && edits[0].line === 2 && edits[0].text === "    total: 30 =sum($price)");
+    edits.length === 1 && edits[0].line === 2 && edits[0].text === "    total: 30 =sum(@price)");
 }
 
 // ---------------------------------------------------------------------------
@@ -77,14 +77,14 @@ const parsed = (text) => {
     "Order",
     "    - A",
     "        price: 10",
-    "        vat: =$price*0.2",
-    "        gross: =$price+$vat",
+    "        vat: =@price*0.2",
+    "        gross: =@price+@vat",
   );
   const { root, nodes, lines } = parsed(text);
   const edits = recomputeValues(root, nodes, lines);
   const gross = edits.find((e) => e.line === 5);
   check("recompute: a formula may build on another formula's fresh value",
-    gross && gross.text.includes("gross: 12 =$price+$vat"));
+    gross && gross.text.includes("gross: 12 =@price+@vat"));
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ const parsed = (text) => {
 {
   const text = aot(
     "Order",
-    "    |name|price|margin >=$price*0.1|",
+    "    |name|price|margin >=@price*0.1|",
     "    |----+-----+-------------------|",
     "    |A   |100  |20                 |",
     "    |B   |100  |5                  |",
@@ -155,7 +155,7 @@ const parsed = (text) => {
 {
   const text = aot(
     "Ledger",
-    "    |name|qty >=1|cap <=$9|",
+    "    |name|qty >=1|cap <=@9|",
     "    |----+-------+--------|",
     "    |A   |0      |1       |",
     "    |B   |2      |2       |",
@@ -174,6 +174,42 @@ const parsed = (text) => {
 }
 
 // ---------------------------------------------------------------------------
+// type constraints: `is date / number / text`, alone and with a bound
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Record",
+    "    birth date is date",
+    "    amount is number",
+    "    tag is text",
+    "    due is date >=`2025-01-01`",
+    "    - Good",
+    "        birth date: 1990-05-01",
+    "        amount: 42",
+    "        tag: hello",
+    "        due: 2026-01-01",
+    "    - Bad",
+    "        birth date: yesterday",
+    "        amount: lots",
+    "        tag: 99",
+    "        due: 2024-06-01",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const audit = auditValues(root, nodes, lines);
+  const err = (re) => audit.find((f) => f.error && re.test(f.message));
+  check("audit: a non-date value fails 'is date'",
+    err(/value 'yesterday' must be date/) && err(/value 'yesterday' must be date/).paint === false);
+  check("audit: a non-number value fails 'is number'", !!err(/value 'lots' must be number/));
+  check("audit: a numeric value fails 'is text'", !!err(/value '99' must be text .*reads as number/));
+  check("audit: a date bound compares chronologically (2024-06-01 < 2025-01-01)",
+    !!err(/value '2024-06-01' violates 'due >= `2025-01-01`'/));
+  check("audit: values of the right type and within the bound raise nothing",
+    !audit.some((f) => f.error && f.line >= 7 && f.line <= 10));
+  check("audit: a type clause without a bound still colours its declaration",
+    audit.some((f) => f.line === 2 && !f.error && f.startCol === lines[1].indexOf("is date")));
+}
+
+// ---------------------------------------------------------------------------
 // copyToSiblings: replace an existing derivation, insert a missing attribute
 // ---------------------------------------------------------------------------
 {
@@ -181,7 +217,7 @@ const parsed = (text) => {
     "Order",
     "    - A",
     "        price: 10",
-    "        vat: 2 =$price*0.2",
+    "        vat: 2 =@price*0.2",
     "    - B",
     "        price: 20",
     "        vat: 9",
@@ -189,13 +225,13 @@ const parsed = (text) => {
     "        price: 30",
   );
   const { root, nodes, lines } = parsed(text);
-  const ops = copyToSiblings(root, nodes, lines, 3); // the 'vat: 2 =$price*0.2' line
+  const ops = copyToSiblings(root, nodes, lines, 3); // the 'vat: 2 =@price*0.2' line
   const replaced = ops && ops.find((o) => o.type === "replace");
   const inserted = ops && ops.find((o) => o.type === "insert");
   check("copy: a peer's existing attribute keeps its value, gains the formula",
-    replaced && replaced.line === 7 && replaced.text === "        vat: 9 =$price*0.2");
+    replaced && replaced.line === 7 && replaced.text === "        vat: 9 =@price*0.2");
   check("copy: a peer without the attribute gains a fresh line after its block",
-    inserted && inserted.afterLine === 9 && inserted.text === "        vat: =$price*0.2");
+    inserted && inserted.afterLine === 9 && inserted.text === "        vat: =@price*0.2");
   check("copy: a non-formula line copies nothing", copyToSiblings(root, nodes, lines, 2) === null);
 }
 

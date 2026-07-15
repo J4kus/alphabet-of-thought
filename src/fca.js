@@ -59,9 +59,14 @@ function buildContext(root, nodes) {
     if (!display.has(k)) display.set(k, text.trim());
     return k;
   };
-  // the longest trailing run of words that names a Concept, as in
-  // crosslinks.js
+  // the Concept an attribute names, as in crosslinks.js: an alias is
+  // exclusive (only it types the attribute when present), else the longest
+  // trailing run of the name wins
   const conceptOf = (node) => {
+    if (node.alias) {
+      const target = concepts.get(node.alias.toLowerCase());
+      return target && target !== node ? target : null;
+    }
     for (const start of wordStarts(node.name)) {
       const target = concepts.get(node.name.slice(start).toLowerCase());
       if (target && target !== node) return target;

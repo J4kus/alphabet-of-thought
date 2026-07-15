@@ -4,6 +4,27 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.3.0] - 2026-07-13
+
+**Three breaking changes** (all auto-handled where possible):
+
+- **Formula references are `@`, not `$`.** `@price`, `@2`, and cell references in either order (`@price@Alpha` / `@Alpha@price`; a name that is both a column and an Example resolves as the longer match, a tie to the column). A `$` in a formula now errors with a hint. Rewrite existing formulas.
+- **A Concept alias that names another Concept is now an error** (a duplicated identity): `Home Address (Location)` where `Location` is also a Concept. If one is a *kind* of the other, file it under it; otherwise merge or rename. Attribute aliases (`duration (time)`) are unaffected.
+- **The CSV mirror moved to one `aot.files/` folder at the workspace root** (shared by every .aot in the repo), plain `<Concept>.csv` names. Legacy `tables.<file>/` and `<file>.tables/` folders fold in automatically on save.
+
+The batch:
+
+- **Type constraints on attributes**: `birth date is date`, `field is number or date`, `note is text`, chainable with a bound (`age is number >=18`, `due is date >=\`2025-01-01\``). Types are disjoint (so `is text` genuinely excludes numbers/dates); comparisons are date-aware (two ISO dates compare chronologically). Every value the attribute takes is checked — the violation pins to the value.
+- **Cross-file linting**: every `.aot` in the workspace is indexed, so crosslinks, hover, and go-to-definition resolve across files (Ctrl+click opens the other file; the local file wins ties). A Concept defined in two files is a repo-wide **warning** (not counted in V); `node verify.js --workspace [dir]` reports the same headless.
+- **Attribute aliases are now the *only* crosslink when present** — `duration (time)` links `time`, never a run of `duration`; the reasoners (subsumption, FCA, dependencies) follow the same rule, and a value instantiates through an ancestor's alias too.
+- **Dependency chains come only from attributes** (and values that name another Concept's Example). A Concept that merely contains another in its name, or is aliased to it, is a *kind* of it — those crosslinks still navigate, but no longer show as a dependency (hover, inlay, `--depends`).
+- **Table Examples colour exactly like `- ` Examples** — the semantic tokens use custom types a theme cannot override, so a cell always falls through to the grammar colour.
+- **File paths and images**: a value that resolves to a real file (absolute, relative to the .aot, or to the workspace root) is Ctrl+clickable; hovering a `.png`/image URL or file shows the picture.
+- **`@` completion**: typing `@` in a formula pops the columns first, then the Examples (in a table, from the block; on a line-form value, from the sibling attributes and Examples).
+- **Copy a formula across the row** (beside copy-down): both on the lightbulb and in the Command Palette.
+- **Orphaned CSVs are archived, not deleted**: a CSV whose Concept no table anywhere still has is renamed `_<name>.csv` and skipped by the fold-back watcher; a CSV open with unsaved edits is never clobbered (a warning tells you to save or revert it first).
+- README: the parent–child relationship **is** a type system (you can build the type system you want as a tree in Alpha); the `@` reference table; type constraints; the `aot.files` mirror; cross-file resolution.
+
 ## [1.2.0] - 2026-07-12
 
 **Migration notes** (three things existing files will notice):

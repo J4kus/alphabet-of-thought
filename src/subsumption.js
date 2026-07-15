@@ -60,9 +60,13 @@ function isSuperset(sup, sub) {
 
 const setKey = (s) => [...s].sort().join("\0");
 
-// The longest trailing run of a node's name words that names a Concept,
-// as in crosslinks.js (attribute-is-a-Concept).
+// The Concept a node's name (or exclusive alias) names, as in crosslinks.js
+// (attribute-is-a-Concept): an alias, when present, is the only type.
 const conceptOf = (node, concepts) => {
+  if (node.alias) {
+    const target = concepts.get(node.alias.toLowerCase());
+    return target && target !== node ? target : null;
+  }
   for (const start of wordStarts(node.name)) {
     const target = concepts.get(node.name.slice(start).toLowerCase());
     if (target && target !== node) return target;

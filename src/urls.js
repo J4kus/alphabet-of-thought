@@ -25,6 +25,64 @@ function findUrls(lines) {
   return out;
 }
 
+// A path-shaped value: an absolute Windows (`C:\...`) or POSIX (`/...`) path,
+// a `~`-home path, a relative path with a slash, or a bare `name.ext`. Taken
+// from after the colon of a `attribute: value` line, or a whole table cell —
+// the value must look like a path, not merely contain a dotted word.
+const WIN_ABS = /^[A-Za-z]:[\\/]/;
+const looksLikePath = (v) => {
+  const s = v.trim();
+  if (!s || /^https?:\/\//.test(s)) return false;
+  return WIN_ABS.test(s) || s.startsWith("/") || s.startsWith("~/") || s.startsWith("./") || s.startsWith("../")
+    || s.includes("/") || s.includes("\\") || /^[^\s]+\.[A-Za-z0-9]{1,8}$/.test(s);
+};
+
+// Every file-path value in the lines that `resolve(pathText)` maps to an
+// existing file. `resolve` returns an absolute fsPath or null (the extension
+// tries: absolute, then relative to the .aot's folder, then the workspace
+// root, and fs.existsSync). Returns { line, startCol, endCol, path (raw),
+// fsPath (resolved) }. Value region: after the first ': ' on a line, or a
+// whole table cell (handled by the caller passing cell spans). Here we take
+// the after-colon value and each pipe cell's trimmed content.
+function findFiles(lines, resolve) {
+  const out = [];
+  lines.forEach((raw, i) => {
+    const spans = [];
+    const t = raw.trimStart();
+    if (t.startsWith("|")) {
+      // table row: each cell's trimmed content is a candidate
+      let start = raw.indexOf("|") + 1;
+      for (let k = start; k <= raw.length; k++) {
+        if (k === raw.length || raw[k] === "|") {
+          const seg = raw.slice(start, k);
+          const lead = seg.length - seg.trimStart().length;
+          const text = seg.trim();
+          if (text) spans.push({ startCol: start + lead, text });
+          start = k + 1;
+        }
+      }
+    } else {
+      const colon = raw.indexOf(":");
+      if (colon !== -1) {
+        const after = raw.slice(colon + 1);
+        const lead = after.length - after.trimStart().length;
+        const text = after.trim();
+        if (text) spans.push({ startCol: colon + 1 + lead, text });
+      }
+    }
+    for (const s of spans) {
+      if (!looksLikePath(s.text)) continue;
+      const fsPath = resolve(s.text);
+      if (!fsPath) continue;
+      out.push({ line: i + 1, startCol: s.startCol, endCol: s.startCol + s.text.length, path: s.text, fsPath });
+    }
+  });
+  return out;
+}
+
+// Whether a link (URL or file path) points at an image, by extension.
+const isImage = (s) => /\.(png|jpe?g|gif|svg|webp|bmp|ico)(\?|#|$)/i.test(String(s));
+
 const TIMEOUT_MS = 3000;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -80,4 +138,4 @@ function metadata(url, request) {
   return promise;
 }
 
-module.exports = { findUrls, metadata, URL_RE };
+module.exports = { findUrls, findFiles, metadata, isImage, looksLikePath, URL_RE };

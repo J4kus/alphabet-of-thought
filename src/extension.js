@@ -9,7 +9,7 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const { lint, KIND, INDENT } = require("./linter");
-const { resolve, owningConcept } = require("./crosslinks");
+const { resolve, owningConcept, externalIndex } = require("./crosslinks");
 const table = require("./table");
 const { suggest } = require("./fca");
 const { clashes } = require("./godel");
@@ -42,11 +42,71 @@ function acceptedWords() {
   return new Set((config.get("acceptedWords", []) || []).map((w) => String(w).toLowerCase()));
 }
 
+// --- the workspace index ----------------------------------------------------
+// Every .aot file in the repo, parsed, so crosslinks resolve across files
+// and the same Concept defined in two files can be flagged. Built at
+// activation, refreshed per-file on save and by a watcher; the current
+// document's own live edits are re-linted in analyse, so it stays fresh.
+const workspaceIndex = new Map(); // fsPath -> { root, nodes }
+let workspaceExternal = null;     // cached externalIndex over the whole repo
+
+function reindexAot(fsPath, text) {
+  try {
+    const rootName = path.basename(fsPath).replace(/\.[^.]*$/, "");
+    const { root, nodes } = lint(text, rootName);
+    workspaceIndex.set(path.normalize(fsPath), { root, nodes });
+  } catch { workspaceIndex.delete(path.normalize(fsPath)); }
+  workspaceExternal = null; // invalidate; rebuilt lazily
+}
+
+function externalFor() {
+  if (!workspaceExternal) {
+    workspaceExternal = externalIndex(
+      [...workspaceIndex.entries()].map(([file, v]) => ({ file, root: v.root, nodes: v.nodes })));
+  }
+  return workspaceExternal;
+}
+
+// Whether a document lives inside an open workspace folder — cross-file
+// resolution and repo-wide duplicates apply only there.
+function underWorkspace(doc) {
+  const folders = vscode.workspace.workspaceFolders || [];
+  if (!folders.length || !doc.fileName) return false;
+  const f = path.normalize(doc.fileName);
+  return folders.some((w) => f.startsWith(path.normalize(w.uri.fsPath)));
+}
+
+// A Concept the current file defines that another file also defines (ci):
+// a warning, not a violation — one name should mean one thing across a repo.
+function duplicateConceptWarnings(doc, nodes) {
+  const here = path.normalize(doc.fileName || "");
+  const elsewhere = new Map(); // lowercased name -> { file, line }
+  for (const [fsPath, v] of workspaceIndex) {
+    if (fsPath === here) continue;
+    for (const n of v.nodes) {
+      if (n.kind !== KIND.CONCEPT) continue;
+      const k = n.name.toLowerCase();
+      if (!elsewhere.has(k)) elsewhere.set(k, { file: path.basename(fsPath), line: n.line });
+    }
+  }
+  const out = [];
+  for (const n of nodes) {
+    if (n.kind !== KIND.CONCEPT) continue;
+    const dup = elsewhere.get(n.name.toLowerCase());
+    if (dup) out.push({ line: n.line, message: `Concept '${n.name}' is also defined in ${dup.file}:${dup.line} — one name should mean one thing across the repo; qualify one, or make them the same idea in a shared file` });
+  }
+  return out;
+}
+
 function analyse(doc) {
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   const accepted = acceptedWords();
   const { root, nodes, errors, warnings } = lint(doc.getText(), rootName, accepted);
-  const links = resolve(doc.getText(), root, nodes);
+  const inWs = underWorkspace(doc);
+  // keep this file's entry current so other files resolve against its edits
+  if (inWs) { workspaceIndex.set(path.normalize(doc.fileName), { root, nodes }); workspaceExternal = null; }
+  const links = resolve(doc.getText(), root, nodes, inWs ? externalFor() : undefined);
+  const repoWarnings = inWs ? duplicateConceptWarnings(doc, nodes) : [];
   // the links reversed: every place a node is referenced, for the "used at"
   // hover sections and Find All References
   const usagesOf = new Map();
@@ -101,7 +161,7 @@ function analyse(doc) {
     : [];
   return {
     errors: errors.concat(deepErrors, formulaErrors),
-    warnings: warnings.concat(depWarnings, formulaWarnings),
+    warnings: warnings.concat(depWarnings, formulaWarnings, repoWarnings),
     hints,
     links,
     root,
@@ -217,10 +277,14 @@ const definitionProvider = {
   provideDefinition(doc, position) {
     const { links } = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
     for (const link of links) {
-      if (linkRange(link).contains(position)) {
-        const at = Math.min(Math.max(link.target.line - 1, 0), doc.lineCount - 1);
-        return new vscode.Location(doc.uri, doc.lineAt(at).range);
+      if (!linkRange(link).contains(position)) continue;
+      const line = Math.max(link.target.line - 1, 0);
+      // a cross-file target opens the other file at the target's line
+      if (link.file) {
+        return new vscode.Location(vscode.Uri.file(link.file), new vscode.Range(line, 0, line, 0));
       }
+      const at = Math.min(line, doc.lineCount - 1);
+      return new vscode.Location(doc.uri, doc.lineAt(at).range);
     }
     return null;
   },
@@ -271,17 +335,109 @@ function exampleMarkdown(doc, analysis, ex, withUsages) {
   return md;
 }
 
-// A URL under the cursor answers with light metadata — status, content
-// type, last modified — fetched by a HEAD request only when hovered,
-// cached for a few minutes (urls.js). Off with aot.urlMetadata; Ctrl+click
-// (the DocumentLinkProvider) works regardless.
-function urlHoverAt(doc, position) {
+// Typing '@' in a formula (a table cell or a line-form value) offers the
+// references you can name: the columns/attributes first (best practice is
+// @column), then the Examples/rows. In a table the names come from the
+// block's header and first column; on a line-form value, from the sibling
+// attributes and Examples.
+const referenceCompletion = {
+  provideCompletionItems(doc, position) {
+    const before = doc.lineAt(position.line).text.slice(0, position.character);
+    // only when an '@' reference is being typed (the trigger, or continuing one)
+    if (!/@[^@]*$/.test(before)) return [];
+    const lines = doc.getText().split(/\r?\n/);
+    let columns = [], rows = [];
+    const block = table.blockAt(lines, position.line);
+    if (block) {
+      ({ columns, rows } = table.referenceNames(block));
+    } else {
+      const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
+      const { nodes } = lint(doc.getText(), rootName);
+      const refs = derive.referencesAt(nodes, position.line + 1);
+      if (!refs) return [];
+      columns = refs.columns; rows = refs.rows;
+    }
+    const items = [];
+    columns.forEach((c, i) => {
+      const it = new vscode.CompletionItem(c, vscode.CompletionItemKind.Field);
+      it.detail = "column"; it.sortText = "0" + String(i).padStart(3, "0");
+      items.push(it);
+    });
+    rows.forEach((r, i) => {
+      const it = new vscode.CompletionItem(r, vscode.CompletionItemKind.EnumMember);
+      it.detail = "Example"; it.sortText = "1" + String(i).padStart(3, "0");
+      items.push(it);
+    });
+    return items;
+  },
+};
+
+// Resolve a path-shaped value to an existing file's absolute path, or null:
+// an absolute path as written, else relative to the .aot's folder, else to
+// the workspace root; `~/` expands to the home directory.
+function resolveFilePath(doc, text) {
+  let raw = text.trim();
+  if (raw.startsWith("~/") || raw === "~") {
+    raw = path.join(process.env.USERPROFILE || process.env.HOME || "", raw.slice(1));
+  }
+  const candidates = [];
+  if (path.isAbsolute(raw) || /^[A-Za-z]:[\\/]/.test(raw)) candidates.push(raw);
+  else {
+    if (doc.fileName) candidates.push(path.join(path.dirname(doc.fileName), raw));
+    const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    if (ws) candidates.push(path.join(ws.uri.fsPath, raw));
+  }
+  for (const c of candidates) {
+    try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch { /* keep trying */ }
+  }
+  return null;
+}
+
+// Every file-path value in the document that resolves to a real file.
+function fileLinksIn(doc) {
+  return urls.findFiles(doc.getText().split(/\r?\n/), (t) => resolveFilePath(doc, t));
+}
+
+// A URL or file path under the cursor answers on hover: a URL with light
+// metadata (a HEAD request, cached, off with aot.urlMetadata), and an image
+// URL or image file with the picture itself. A non-image file just confirms
+// the resolved path. Ctrl+click (the DocumentLinkProvider) opens either.
+function linkHoverAt(doc, position) {
   if (position.line >= doc.lineCount) return null;
-  const span = urls.findUrls([doc.lineAt(position.line).text])
-    .find((u) => position.character >= u.startCol && position.character <= u.endCol);
+  const lineText = doc.lineAt(position.line).text;
+  const at = (s) => position.character >= s.startCol && position.character <= s.endCol;
+  const rangeOf = (s) => new vscode.Range(position.line, s.startCol, position.line, s.endCol);
+
+  // a file path: show the picture for an image, else the resolved path
+  const file = fileLinksIn(doc).find((f) => f.line === position.line + 1 && at(f));
+  if (file) {
+    const md = new vscode.MarkdownString();
+    md.supportHtml = true;
+    const uri = vscode.Uri.file(file.fsPath);
+    if (urls.isImage(file.fsPath)) md.appendMarkdown(`![](${uri.toString()}|width=320)\n\n`);
+    md.appendMarkdown(`\`${file.fsPath}\``);
+    return new vscode.Hover(md, rangeOf(file));
+  }
+
+  const span = urls.findUrls([lineText]).find(at);
   if (!span) return null;
-  if (!vscode.workspace.getConfiguration("aot").get("urlMetadata", true)) return null;
-  const range = new vscode.Range(position.line, span.startCol, position.line, span.endCol);
+  const range = rangeOf(span);
+  const wantMeta = vscode.workspace.getConfiguration("aot").get("urlMetadata", true);
+  if (urls.isImage(span.url)) {
+    // an image URL: show the picture (plus metadata beneath when enabled)
+    if (!wantMeta) {
+      const md = new vscode.MarkdownString();
+      md.appendMarkdown(`![](${span.url})`);
+      return new vscode.Hover(md, range);
+    }
+    return urls.metadata(span.url).then((m) => {
+      const md = new vscode.MarkdownString();
+      md.appendMarkdown(`![](${span.url})\n\n` + (m.error ? `unreachable: ${m.error}`
+        : [`status ${m.status}`, m.contentType && `type ${m.contentType}`, m.lastModified && `last modified ${m.lastModified}`].filter(Boolean).join(" · ")));
+      return new vscode.Hover(md, range);
+    });
+  }
+  if (!wantMeta) return null;
   return urls.metadata(span.url).then((m) => {
     const md = new vscode.MarkdownString();
     md.appendMarkdown(m.error
@@ -307,9 +463,9 @@ function urlHoverAt(doc, position) {
 //     value.
 const hoverProvider = {
   provideHover(doc, position) {
-    // a URL answers with its metadata before anything else is consulted
-    const url = urlHoverAt(doc, position);
-    if (url) return url;
+    // a URL or file path answers (metadata / picture) before anything else
+    const link = linkHoverAt(doc, position);
+    if (link) return link;
     const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
     // a link to an Example: show the Example itself
     for (const link of analysis.links) {
@@ -465,9 +621,12 @@ const codeActionProvider = {
       const cs = table.cells(lineText);
       const cell = cs.find((c) => at.character >= c.col && at.character <= c.col + Math.max(c.text.length, 1));
       if (cell && table.splitCell(cell.text).eq !== -1) {
-        const action = new vscode.CodeAction("Copy formula down the column", vscode.CodeActionKind.QuickFix);
-        action.command = { command: "aot.table.copyFormulaDown", title: "Copy formula down the column" };
-        actions.push(action);
+        const down = new vscode.CodeAction("Copy formula down the column", vscode.CodeActionKind.QuickFix);
+        down.command = { command: "aot.table.copyFormulaDown", title: "Copy formula down the column" };
+        actions.push(down);
+        const across = new vscode.CodeAction("Copy formula across the row", vscode.CodeActionKind.QuickFix);
+        across.command = { command: "aot.table.copyFormulaAcross", title: "Copy formula across the row" };
+        actions.push(across);
       }
     } else {
       const colon = lineText.indexOf(":");
@@ -555,82 +714,134 @@ const lastWritten = new Map(); // csv path -> the content this extension wrote
 
 const csvName = (name) => name.replace(/[\\/:*?"<>|]/g, "-") + ".csv";
 
-const tablesDirOf = (fileName) => path.join(
-  path.dirname(fileName), "tables." + path.basename(fileName).replace(/\.aot$/i, ""));
-const legacyDirOf = (fileName) => fileName.replace(/\.aot$/i, ".tables");
+// The workspace root a document belongs to (or its own folder, standalone).
+function workspaceRoot(doc) {
+  const folder = vscode.workspace.getWorkspaceFolder && vscode.workspace.getWorkspaceFolder(doc.uri);
+  const ws = folder || (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]);
+  return ws ? ws.uri.fsPath : path.dirname(doc.fileName);
+}
 
-// One-time migration of the pre-1.2 '<file>.tables' folder: rename it to
-// 'tables.<file>' (copy-and-delete when rename is refused — OneDrive and
-// friends hold locks), or fold its CSVs in when both folders exist. The
-// anti-echo memory is re-keyed so a migrated write is not read back.
-function migrateLegacyDir(fileName) {
-  const legacy = legacyDirOf(fileName);
-  const dir = tablesDirOf(fileName);
-  let stat;
-  try { stat = fs.statSync(legacy); } catch { return; }
-  if (!stat.isDirectory()) return;
-  try {
-    if (!fs.existsSync(dir)) {
-      try {
-        fs.renameSync(legacy, dir);
-      } catch {
-        fs.mkdirSync(dir, { recursive: true });
-        for (const entry of fs.readdirSync(legacy)) {
-          fs.copyFileSync(path.join(legacy, entry), path.join(dir, entry));
-          fs.unlinkSync(path.join(legacy, entry));
-        }
-        fs.rmdirSync(legacy);
-      }
-    } else {
+// One 'aot.files' folder holds every table's CSV, at the workspace root (or
+// the .aot's own folder, standalone). CSVs are named plainly after their
+// Concept, so every .aot in the repo shares one folder; two files with a
+// same-named table share one CSV (the repo-wide duplicate-Concept warning
+// makes that visible).
+const aotFilesDir = (doc) => path.join(workspaceRoot(doc), "aot.files");
+
+// Every .aot file under a root, skipping heavy and generated folders.
+function scanAotFiles(root) {
+  const out = [];
+  const skip = new Set(["node_modules", ".git", "aot.files", "out"]);
+  const walk = (d) => {
+    let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) {
+        if (!skip.has(e.name) && !e.name.endsWith(".tables") && !e.name.startsWith("tables.")) walk(p);
+      } else if (e.isFile() && /\.aot$/i.test(e.name)) out.push(p);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+// The text of a workspace .aot, preferring the live document when it is the
+// one being saved (so its unsaved edits count).
+function aotText(fsPath, currentDoc) {
+  if (currentDoc && path.normalize(fsPath) === path.normalize(currentDoc.fileName)) return currentDoc.getText();
+  try { return fs.readFileSync(fsPath, "utf8"); } catch { return null; }
+}
+
+// Every CSV name any .aot in the repo would write — the shared folder means
+// a CSV is an orphan only when *no* file has a table for it.
+function globalCsvNames(root, currentDoc) {
+  const names = new Set();
+  for (const f of scanAotFiles(root)) {
+    const text = aotText(f, currentDoc);
+    if (text === null) continue;
+    const rootName = path.basename(f).replace(/\.[^.]*$/, "");
+    for (const t of table.tablesOf(text.split(/\r?\n/), rootName)) names.add(csvName(t.name).toLowerCase());
+  }
+  return names;
+}
+
+// The .aot files whose tables include a Concept named `name`.
+function findOwningAots(root, name) {
+  const low = name.toLowerCase();
+  const out = [];
+  for (const f of scanAotFiles(root)) {
+    let text; try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
+    const rootName = path.basename(f).replace(/\.[^.]*$/, "");
+    if (table.tablesOf(text.split(/\r?\n/), rootName).some((t) => t.name.toLowerCase() === low)) out.push(f);
+  }
+  return out;
+}
+
+// Fold a document's pre-1.3 per-file folders (`tables.<file>` and
+// `<file>.tables`) into the shared aot.files, then remove them. A CSV whose
+// name is already present is left (the fresh write below is authoritative).
+function migrateLegacyDirs(doc, dir) {
+  const legacies = [
+    path.join(path.dirname(doc.fileName), "tables." + path.basename(doc.fileName).replace(/\.aot$/i, "")),
+    doc.fileName.replace(/\.aot$/i, ".tables"),
+  ];
+  for (const legacy of legacies) {
+    let stat; try { stat = fs.statSync(legacy); } catch { continue; }
+    if (!stat.isDirectory()) continue;
+    try {
+      fs.mkdirSync(dir, { recursive: true });
       for (const entry of fs.readdirSync(legacy)) {
-        if (!fs.existsSync(path.join(dir, entry))) {
-          fs.copyFileSync(path.join(legacy, entry), path.join(dir, entry));
-        }
-        fs.unlinkSync(path.join(legacy, entry));
+        const from = path.join(legacy, entry), to = path.join(dir, entry);
+        if (/\.csv$/i.test(entry) && !fs.existsSync(to)) fs.copyFileSync(from, to);
+        fs.unlinkSync(from);
       }
       fs.rmdirSync(legacy);
-    }
-  } catch { return; } // a held lock loses this round; the next save retries
-  for (const [file, content] of [...lastWritten]) {
-    if (file.startsWith(legacy + path.sep)) {
-      lastWritten.delete(file);
-      lastWritten.set(path.join(dir, path.basename(file)), content);
+    } catch { continue; } // a held lock loses this round; the next save retries
+    for (const [file, content] of [...lastWritten]) {
+      if (file.startsWith(legacy + path.sep)) {
+        lastWritten.delete(file);
+        lastWritten.set(path.join(dir, path.basename(file)), content);
+      }
     }
   }
 }
 
-// Delete every CSV in the tables folder whose Concept no longer has a
-// table — only .csv files, only in this folder, never recursive; the
-// folder itself goes when it ends empty.
+// A CSV whose Concept no table anywhere still has is not deleted — it is
+// prefixed with '_' so it is kept as an archive and skipped by the fold-back
+// watcher. Only .csv files, only in this folder, never recursive.
 function cleanupOrphans(dir, expected) {
   let entries;
   try { entries = fs.readdirSync(dir); } catch { return; }
   for (const entry of entries) {
-    if (!/\.csv$/i.test(entry)) continue;
+    if (!/\.csv$/i.test(entry) || entry.startsWith("_")) continue;
     if (expected.has(entry.toLowerCase())) continue;
-    try { fs.unlinkSync(path.join(dir, entry)); } catch { continue; }
-    lastWritten.delete(path.join(dir, entry));
+    const from = path.join(dir, entry), to = path.join(dir, "_" + entry);
+    try { fs.renameSync(from, to); } catch { continue; }
+    lastWritten.delete(from);
   }
-  try {
-    if (!fs.readdirSync(dir).length) fs.rmdirSync(dir);
-  } catch { /* the folder stays; nothing depends on its removal */ }
 }
 
 function syncAotToCsv(doc) {
   if (doc.languageId !== "aot" || !syncEnabled()) return;
   if (!/\.aot$/i.test(doc.fileName)) return;
+  const dir = aotFilesDir(doc);
+  migrateLegacyDirs(doc, dir);
+  if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(workspaceRoot(doc), doc));
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   const found = table.tablesOf(doc.getText().split(/\r?\n/), rootName);
-  migrateLegacyDir(doc.fileName);
-  const dir = tablesDirOf(doc.fileName);
-  const expected = new Set(found.map((t) => csvName(t.name).toLowerCase()));
-  if (fs.existsSync(dir)) cleanupOrphans(dir, expected);
   if (!found.length) return;
   fs.mkdirSync(dir, { recursive: true });
   for (const t of found) {
     const file = path.join(dir, csvName(t.name));
     const csv = table.toCsv([t.header, ...t.rows]);
     if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === csv) continue;
+    // never clobber a CSV the user has open with unsaved edits
+    const openDirty = (vscode.workspace.textDocuments || []).find(
+      (d) => d.fileName && path.normalize(d.fileName) === path.normalize(file) && d.isDirty);
+    if (openDirty) {
+      vscode.window.showWarningMessage(`'${path.basename(file)}' has unsaved edits — save or revert it, then save the .aot again to re-mirror.`);
+      continue;
+    }
     lastWritten.set(file, csv);
     fs.writeFileSync(file, csv);
   }
@@ -640,18 +851,22 @@ async function syncCsvIntoAot(uri) {
   if (!syncEnabled()) return;
   const csvPath = uri.fsPath;
   const dir = path.dirname(csvPath);
-  const dirName = path.basename(dir);
-  if (!dirName.startsWith("tables.")) return;
+  if (path.basename(dir) !== "aot.files") return;
+  if (path.basename(csvPath).startsWith("_")) return; // an archived orphan, not synced
   let csv;
   try { csv = fs.readFileSync(csvPath, "utf8"); } catch { return; }
   if (lastWritten.get(csvPath) === csv) return; // our own write echoing back
-  const aotPath = path.join(path.dirname(dir), dirName.slice("tables.".length) + ".aot");
-  if (!fs.existsSync(aotPath)) return;
+  const name = path.basename(csvPath, ".csv");
+  const owners = findOwningAots(path.dirname(dir), name);
+  if (!owners.length) return;
+  if (owners.length > 1) {
+    vscode.window.showWarningMessage(`'${name}.csv' matches a table in ${owners.length} files; folding into '${path.basename(owners[0])}'.`);
+  }
+  const aotPath = owners[0];
   const grid = table.fromCsv(csv);
   if (!grid.length) return;
   const doc = await vscode.workspace.openTextDocument(aotPath);
   const rootName = path.basename(aotPath).replace(/\.[^.]*$/, "");
-  const name = path.basename(csvPath, ".csv");
   const result = table.updateTable(
     doc.getText().split(/\r?\n/), name, grid[0], grid.slice(1), rootName);
   if (!result || !result.changed) return;
@@ -675,7 +890,12 @@ async function syncCsvIntoAot(uri) {
 // written-out form would be: header cells as attributes, name cells as
 // Examples, value cells as Attribute Values. package.json maps each token
 // type back to the grammar's own scopes, so themes use identical colours.
-const TOKEN_TYPES = ["property", "enumMember", "string", "macro"];
+// Custom token types, not the built-in property/enumMember/string/macro:
+// a theme colours those with its own palette, so a table Example would
+// differ from a '- ' Example. Custom types no theme defines fall through to
+// the grammar scope (semanticTokenScopes), so a cell colours identically to
+// its written-out line form.
+const TOKEN_TYPES = ["aotAttribute", "aotExample", "aotValue", "aotFormula"];
 const ATTR_TOKEN = 0, EXAMPLE_TOKEN = 1, VALUE_TOKEN = 2, FORMULA_TOKEN = 3;
 const semanticLegend = new vscode.SemanticTokensLegend(TOKEN_TYPES, []);
 const semanticProvider = {
@@ -750,6 +970,7 @@ const tableOps = {
   "aot.table.insertSeparator": table.insertSeparator,
   "aot.table.sortRows": table.sortRows,
   "aot.table.copyFormulaDown": table.copyFormulaDown,
+  "aot.table.copyFormulaAcross": table.copyFormulaAcross,
 };
 
 // Turn the selected delimited lines (CSV, TSV, or multi-space columns) into
@@ -943,11 +1164,19 @@ function activate(context) {
     vscode.languages.registerReferenceProvider({ language: "aot" }, referenceProvider),
     // dependency chains in small print at the end of crosslinked lines
     vscode.languages.registerInlayHintsProvider({ language: "aot" }, inlayProvider),
-    // URLs in values are Ctrl+clickable (hover fetches their metadata)
+    // typing '@' in a formula suggests the columns and Examples to reference
+    vscode.languages.registerCompletionItemProvider({ language: "aot" }, referenceCompletion, "@"),
+    // URLs and file-path values are Ctrl+clickable — a URL opens externally
+    // (hover fetches its metadata), a file opens in the editor
     vscode.languages.registerDocumentLinkProvider({ language: "aot" }, {
       provideDocumentLinks(doc) {
-        return urls.findUrls(doc.getText().split(/\r?\n/)).map((u) => new vscode.DocumentLink(
+        const links = urls.findUrls(doc.getText().split(/\r?\n/)).map((u) => new vscode.DocumentLink(
           new vscode.Range(u.line - 1, u.startCol, u.line - 1, u.endCol), vscode.Uri.parse(u.url)));
+        for (const f of fileLinksIn(doc)) {
+          links.push(new vscode.DocumentLink(
+            new vscode.Range(f.line - 1, f.startCol, f.line - 1, f.endCol), vscode.Uri.file(f.fsPath)));
+        }
+        return links;
       },
     }),
     // the Quick Fix that accepts a hinted word into aot.acceptedWords
@@ -1021,14 +1250,42 @@ function activate(context) {
     // a save also releases any live hold — saving says "I am done here"
     vscode.workspace.onDidSaveTextDocument((doc) => {
       releaseHold(doc);
+      if (doc.languageId === "aot" && doc.fileName) reindexAot(doc.fileName, doc.getText());
       syncAotToCsv(doc);
     }),
   );
-  const csvWatcher = vscode.workspace.createFileSystemWatcher("**/tables.*/*.csv");
+  const csvWatcher = vscode.workspace.createFileSystemWatcher("**/aot.files/*.csv");
   csvWatcher.onDidChange(syncCsvIntoAot);
   csvWatcher.onDidCreate(syncCsvIntoAot);
   context.subscriptions.push(csvWatcher);
+
+  // the workspace index: every .aot parsed, so crosslinks resolve across
+  // files and repo-wide duplicates surface. Built once, kept fresh by a
+  // watcher for files edited outside the editor.
+  buildWorkspaceIndex();
+  const aotWatcher = vscode.workspace.createFileSystemWatcher("**/*.aot");
+  const onAotFsEvent = (uri) => {
+    try { reindexAot(uri.fsPath, fs.readFileSync(uri.fsPath, "utf8")); } catch { /* gone */ }
+  };
+  aotWatcher.onDidChange(onAotFsEvent);
+  aotWatcher.onDidCreate(onAotFsEvent);
+  aotWatcher.onDidDelete((uri) => { workspaceIndex.delete(path.normalize(uri.fsPath)); workspaceExternal = null; });
+  context.subscriptions.push(aotWatcher);
+
   updateTableContext();
+}
+
+// Parse every .aot under the workspace root(s) into the index. Skipped when
+// there is no workspace (a lone file, or the smoke test) — cross-file then
+// simply does nothing.
+function buildWorkspaceIndex() {
+  const folders = vscode.workspace.workspaceFolders || [];
+  for (const folder of folders) {
+    const root = folder.uri.fsPath;
+    for (const fsPath of scanAotFiles(root)) {
+      try { reindexAot(fsPath, fs.readFileSync(fsPath, "utf8")); } catch { /* skip */ }
+    }
+  }
 }
 
 function deactivate() {}

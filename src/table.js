@@ -251,6 +251,26 @@ function copyFormulaDown(block, row, col) {
   return { row, col };
 }
 
+// Copy the cursor cell's derivation onto every other cell in the same ROW,
+// keeping each cell's own value part; the caller's recompute fills the
+// '=' copies. The name column (0) is left alone — it names the Example.
+function copyFormulaAcross(block, row, col) {
+  const r = block.rows[row];
+  if (!r || r.sep) return null;
+  const anchor = r.cells[col] || "";
+  const { eq, op } = splitCell(anchor);
+  if (eq === -1) return null;
+  const formula = anchor.slice(eq + op.length).trim();
+  const n = widthsOf(block).length;
+  padRows(block);
+  for (let k = 1; k < n; k++) {
+    if (k === col) continue;
+    const { value } = splitCell(r.cells[k] || "");
+    r.cells[k] = (value ? value + " " : "") + op + formula;
+  }
+  return { row, col };
+}
+
 // C-c |: turn plain delimited lines (tab-, comma- or multi-space-separated)
 // into a table — first line the header, lowercased since columns name
 // attributes, with the separator drawn beneath it.
@@ -280,11 +300,14 @@ function fromRegion(lines) {
 // takes is validated against the bound (derive.js); values themselves
 // carry formulas only, never constraints.
 //
-//   $N / $name / $name@Row     the same row's column (1 = the name column),
-//                              by number or by header name; @Row reads the
-//                              named row's cell instead (Excel-like)
-//   sum avg min max count      over the table's other data rows: sum($N),
-//                              count($price) — count tallies non-empty cells
+//   @N / @name                 the same row's column (1 = the name column),
+//                              by number or by header name
+//   @col@Example / @Example@col   the named Example's cell in that column —
+//                              either order; a name that is both a column
+//                              and an Example resolves as the longer match
+//                              (a tie goes to the column)
+//   sum avg min max count      over the table's other data rows: sum(@N),
+//                              count(@price) — count tallies non-empty cells
 //   round(x,n) abs(x)          numeric helpers
 //   upper lower trim len       string helpers; left(x,n) right(x,n)
 //   left right mid replace     mid(x,i,n) is 1-based, replace(x,a,b) is all
@@ -297,6 +320,7 @@ function fromRegion(lines) {
 // money column reads as its number. Arithmetic coerces its operands to
 // numbers (a non-numeric operand is an error); & coerces to strings; a
 // comparison is numeric when both sides read as numbers, else string.
+// (References used to be '$'; since 1.3 they are '@'.)
 
 // Split a cell (or line-form value) into its value and its '=' formula:
 // eq is the index of the '=' (the cell's start, or following a space), -1
@@ -317,30 +341,84 @@ function splitCell(text) {
 // The constraint operators an attribute declaration may carry.
 const CONSTRAINT_OPS = ["==", "<=", ">=", "<", ">"]; // longest first
 
-// Split an attribute declaration into its term and its constraint:
-// `age >=18` bounds every value the attribute takes, on a bare attribute
-// line or a table header cell alike. op is the operator, eq the index of
-// its first character, -1 when there is no constraint. A constraint is
-// only believed when its right side looks like a formula, so a prose
-// term such as 'speed > none noted' stays a plain name.
+// The value types a `... is ...` clause may name.
+const TYPE_WORDS = ["date", "number", "text"];
+
+// Parse a ' is <type>[ or <type>]*' clause at position k (k points at the
+// space before 'is'). Returns { types, end } (end past the last type word)
+// or null when there is no such clause there.
+function parseTypeClause(text, k) {
+  if (text.slice(k, k + 4).toLowerCase() !== " is ") return null;
+  let i = k + 4;
+  const types = [];
+  for (;;) {
+    const m = /^[a-z]+/i.exec(text.slice(i));
+    if (!m || !TYPE_WORDS.includes(m[0].toLowerCase())) break;
+    types.push(m[0].toLowerCase());
+    i += m[0].length;
+    if (text.slice(i, i + 4).toLowerCase() === " or ") { i += 4; continue; }
+    break;
+  }
+  return types.length ? { types, end: i } : null;
+}
+
+// Split an attribute declaration into its term and its constraint. A
+// constraint is a **type clause**, a **comparison bound**, or both:
+//   `age >=18`                 the value must be at least 18
+//   `birth date is date`       the value must be a date
+//   `field is number or date`  either type is allowed
+//   `due is date >=`2025-01-01`  a date, and no earlier than that one
+// Returns { value (the term), eq (index the clause starts, -1 for none),
+// op, formula, types }. A bound is only believed when its right side looks
+// like a formula, so a prose term such as 'speed > none noted' stays a
+// plain name; a type clause needs a real type word, so 'car is red' does too.
 function splitConstraint(text) {
-  if (!text) return { value: text || "", eq: -1, op: null };
+  if (!text) return { value: text || "", eq: -1, op: null, formula: "", types: null };
+  // a type clause, optionally followed by a bound
+  for (let k = 1; k < text.length; k++) {
+    if (text[k] !== " ") continue;
+    const tc = parseTypeClause(text, k);
+    if (!tc) continue;
+    const term = text.slice(0, k).trim();
+    if (!term) continue;
+    let op = null, formula = "";
+    let j = tc.end;
+    while (text[j] === " ") j++;
+    const bop = CONSTRAINT_OPS.find((o) => text.startsWith(o, j));
+    if (bop) { op = bop; formula = text.slice(j + bop.length).trim(); }
+    return { value: term, eq: k + 1, op, formula, types: tc.types };
+  }
+  // a bound only
   for (let i = 0; i < text.length; i++) {
     if (i > 0 && text[i - 1] !== " ") continue;
     const op = CONSTRAINT_OPS.find((o) => text.startsWith(o, i));
     if (!op) continue;
     const rest = text.slice(i + op.length);
-    if (rest.trim() && (rest.includes("$") || triesAsFormula(rest))) {
-      return { value: text.slice(0, i).trim(), eq: i, op };
+    if (rest.trim() && (rest.includes("@") || triesAsFormula(rest))) {
+      return { value: text.slice(0, i).trim(), eq: i, op, formula: rest.trim(), types: null };
     }
     i += op.length - 1; // an unaccepted candidate is skipped whole
   }
-  return { value: text, eq: -1, op: null };
+  return { value: text, eq: -1, op: null, formula: "", types: null };
 }
+
+// A value's type: a date (ISO `YYYY-MM-DD`, optionally with a time) reads
+// as a date, a `$`/comma/%-tolerant number reads as a number, anything
+// else is text. Disjoint, so `is text` genuinely excludes numbers and dates.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
+const isDateValue = (v) => { const s = String(v).trim(); return DATE_RE.test(s) && !isNaN(Date.parse(s)); };
+const isNumberValue = (v) => !isNaN(numericValue(v));
+function valueType(v) {
+  if (isDateValue(v)) return "date";
+  if (isNumberValue(v)) return "number";
+  return "text";
+}
+// Whether a value's type is among those a `is ...` clause allows.
+const satisfiesTypes = (v, types) => types.includes(valueType(v));
 
 // A dry run of the evaluator, used to tell a literal constraint formula
 // ('>=18', '<=100*1.5') from prose. Reference-bearing formulas never get
-// here — a '$' already vouches for them in splitCell.
+// here — an '@' already vouches for them in splitConstraint.
 const DRY_CTX = {
   matchColumn: () => null, matchRow: () => null,
   cell: () => "0", cellAt: () => "0", column: () => ["0"],
@@ -353,8 +431,8 @@ const numericValue = (text) => parseFloat(String(text).replace(/[$,%\s]/g, ""));
 
 // The longest case-insensitive name match at the head of `rest`, over
 // [{ key, id }] candidates (keys lowercased). The character after the
-// match must not continue a word, so `$price2` never half-matches `price`;
-// names may hold spaces, so `$basket size+1` matches 'basket size' whole.
+// match must not continue a word, so `@price2` never half-matches `price`;
+// names may hold spaces, so `@basket size+1` matches 'basket size' whole.
 function longestMatch(rest, candidates) {
   const low = rest.toLowerCase();
   let best = null;
@@ -367,12 +445,18 @@ function longestMatch(rest, candidates) {
 }
 
 // One comparison, shared by the in-formula operators and the constraint
-// audit: numeric when both sides read as numbers, else string, exact case.
+// audit: two dates compare chronologically, two numbers numerically, else
+// as strings (exact case).
 function compareValues(op, a, b) {
-  const na = typeof a === "number" ? a : numericValue(a);
-  const nb = typeof b === "number" ? b : numericValue(b);
-  const both = !isNaN(na) && !isNaN(nb);
-  const x = both ? na : String(a), y = both ? nb : String(b);
+  let x, y;
+  if (isDateValue(a) && isDateValue(b)) {
+    x = Date.parse(String(a).trim()); y = Date.parse(String(b).trim());
+  } else {
+    const na = typeof a === "number" ? a : numericValue(a);
+    const nb = typeof b === "number" ? b : numericValue(b);
+    const both = !isNaN(na) && !isNaN(nb);
+    x = both ? na : String(a); y = both ? nb : String(b);
+  }
   if (op === "==") return x === y;
   if (op === "<=") return x <= y;
   if (op === ">=") return x >= y;
@@ -400,30 +484,47 @@ function evalFormula(src, ctx) {
   };
   const toStr = (v) => (typeof v === "number" ? String(v) : v);
 
-  // a column: $N by number, $name by header/attribute name (longest match)
-  const colRef = () => {
-    i++; // the '$'
+  // one part after an '@': a number is always a column; a name is resolved
+  // against the columns and the Examples, the longer match winning and a
+  // tie going to the column. Returns { col, row } with exactly one set.
+  const refPart = () => {
     if (/[0-9]/.test(src[i])) {
       let digits = "";
       while (/[0-9]/.test(src[i])) digits += src[i++];
-      return +digits;
+      return { col: +digits, row: null };
     }
-    const m = ctx.matchColumn(src.slice(i));
-    if (!m) err("unknown column after '$' — use $2 or the column's name");
+    const rest = src.slice(i);
+    const colM = ctx.matchColumn(rest);
+    const rowM = ctx.matchRow(rest);
+    if (!colM && !rowM) err("unknown column or Example after '@'");
+    const asCol = colM && (!rowM || colM.length >= rowM.length);
+    const m = asCol ? colM : rowM;
     i += m.length;
-    return m.id;
+    return asCol ? { col: m.id, row: null } : { col: null, row: m.id };
   };
-  // a cell: the current row's, or @Row the named row's (Excel-like)
+  // a cell reference: @col or @N for this row's cell, or a column paired
+  // with an Example in either order for that Example's cell in the column
   const ref = () => {
-    const col = colRef();
+    i++; // the '@'
+    const a = refPart();
     if (src[i] === "@") {
       i++;
-      const m = ctx.matchRow(src.slice(i));
-      if (!m) err("unknown Example after '@'");
-      i += m.length;
-      return dead ? "" : ctx.cellAt(col, m.id);
+      const b = refPart();
+      let col, row;
+      if (a.col != null && b.row != null) { col = a.col; row = b.row; }
+      else if (a.row != null && b.col != null) { col = b.col; row = a.row; }
+      else err("@ pairs a column with an Example — one of each, in either order");
+      return dead ? "" : ctx.cellAt(col, row);
     }
-    return dead ? "" : ctx.cell(col);
+    if (a.col == null) err("@ names a column; pair a lone Example as @column@Example");
+    return dead ? "" : ctx.cell(a.col);
+  };
+  // a bare column, for the aggregates: @N or @name, never an @Example cell
+  const colRef = () => {
+    i++; // the '@'
+    const a = refPart();
+    if (a.col == null) err("expected a column here, like @2 or @price");
+    return a.col;
   };
 
   const AGG = {
@@ -437,7 +538,7 @@ function evalFormula(src, ctx) {
     i += skip; // the name and its '('
     if (name in AGG || name === "count") {
       ws();
-      if (src[i] !== "$") err(`${name}() takes a column reference like $2 or $price`);
+      if (src[i] !== "@") err(`${name}() takes a column reference like @2 or @price`);
       const col = colRef();
       if (src[i] === "@") err(`${name}() ranges over a column, not one row's cell`);
       expect(")");
@@ -445,7 +546,7 @@ function evalFormula(src, ctx) {
       const raw = ctx.column(col);
       if (name === "count") return raw.filter((v) => String(v).trim() !== "").length;
       const values = raw.map((v) => numericValue(v)).filter((n) => !isNaN(n));
-      if (!values.length) err(`column $${col} has no numeric values`);
+      if (!values.length) err(`column @${col} has no numeric values`);
       return AGG[name](values);
     }
     if (name === "if") {
@@ -496,7 +597,8 @@ function evalFormula(src, ctx) {
     ws();
     if (src[i] === "-") { i++; return -toNum(factor(), "after unary '-'"); }
     if (src[i] === "(") { i++; const v = cmp(); expect(")"); return v; }
-    if (src[i] === "$") return ref();
+    if (src[i] === "@") return ref();
+    if (src[i] === "$") err("references use '@', not '$' — write @price or @2 (changed in 1.3)");
     if (src[i] === "`") {
       const close = src.indexOf("`", i + 1);
       if (close === -1) err("unclosed '`' string");
@@ -571,6 +673,24 @@ function formatValue(v, old) {
 function dataRowsOf(block) {
   const rows = block.rows.filter((r) => !r.sep);
   return block.rows.length >= 2 && !block.rows[0].sep && block.rows[1].sep ? rows.slice(1) : [];
+}
+
+// The @-reference names a table block offers, for completion: the header's
+// column names (constraint/alias stripped) and each data row's Example name.
+// Returns { columns: [name], rows: [name] } — columns come first, the
+// best-practice reference being @column.
+function referenceNames(block) {
+  const header = block.rows.length && !block.rows[0].sep ? block.rows[0].cells : [];
+  const columns = [];
+  header.slice(1).forEach((cell) => {
+    let name = splitConstraint(cell).value;
+    if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
+    if (name) columns.push(name);
+  });
+  const rows = dataRowsOf(block)
+    .map((r) => splitCell(r.cells[0] || "").value)
+    .filter((n) => n);
+  return { columns, rows };
 }
 
 // The table's evaluation context: header cells (and their aliases) resolve
@@ -830,8 +950,9 @@ function align(text) {
 module.exports = {
   cells, isSeparator, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
-  insertRow, deleteRow, insertSeparator, sortRows, fromRegion, copyFormulaDown,
+  insertRow, deleteRow, insertSeparator, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas,
   compareValues, longestMatch, numericValue, tableCtx,
+  valueType, satisfiesTypes, isDateValue, referenceNames, dataRowsOf,
 };

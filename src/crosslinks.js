@@ -76,18 +76,18 @@ function index(root, nodes) {
   return { concepts, individuals };
 }
 
-// The Concept an attribute (or default) names by its trailing words — the
-// attribute-is-a-Concept target, longest trailing run wins, as in resolve().
-// Its "type": `shade hue` names `Hue`. A parenthetical alias is an explicit
-// alternative name, so it is matched whole: `type (category)` is typed by
-// `Category`. null when neither the name nor the alias is a Concept.
+// The Concept an attribute (or default) names — the attribute-is-a-Concept
+// target. An alias is exclusive: when the attribute carries one, only the
+// alias types it (`type (category)` is typed by `Category`, never by any
+// run of 'type'). Otherwise the longest trailing run of the name wins:
+// `shade hue` names `Hue`. null when nothing names a Concept.
 function conceptType(node, concepts) {
-  for (const start of wordStarts(node.name)) {
-    const target = concepts.get(node.name.slice(start).toLowerCase());
-    if (target && target !== node) return target;
-  }
   if (node.alias) {
     const target = concepts.get(node.alias.toLowerCase());
+    return target && target !== node ? target : null;
+  }
+  for (const start of wordStarts(node.name)) {
+    const target = concepts.get(node.name.slice(start).toLowerCase());
     if (target && target !== node) return target;
   }
   return null;
@@ -140,24 +140,52 @@ function listedTarget(node, concepts, byName) {
 }
 
 // Whether an Example genuinely instantiates an attribute: true when one of
-// its ancestors is that attribute. A `default-is-a-Example` value only
-// carries meaningful ancestry when the Example it names lives under the
-// attribute it is given to — `operation: Ratio` with Ratio filed under the
-// `operation` attribute instantiates `operation`, so `operation: Formula`
-// and `operation: Arithmetic` follow; a value naming an unrelated Example
-// does not. Names are matched case-insensitively, as attribute-is-a-Concept.
+// its ancestors is that attribute, by name OR by alias. A
+// `default-is-a-Example` value only carries meaningful ancestry when the
+// Example it names lives under the attribute it is given to — `operation:
+// Ratio` with Ratio filed under the `operation` attribute instantiates
+// `operation`, so `operation: Formula` follows; an ancestor named through
+// its alias counts too, so a value of `type (category)` links against an
+// Example filed under `category`. Names are matched case-insensitively.
 function instantiates(node, attrName) {
   const want = attrName.toLowerCase();
   for (let a = node.parent; a; a = a.parent) {
-    if (a.name.toLowerCase() === want) return true;
+    if (a.name.toLowerCase() === want || (a.alias && a.alias.toLowerCase() === want)) return true;
   }
   return false;
 }
 
+// A merged index of Concepts and Examples across other files, for cross-file
+// resolution. entries is [{ file, root, nodes }] (the current file excluded);
+// the first file to define a name wins. Values carry their file so a link
+// can point at it.
+function externalIndex(entries) {
+  const concepts = new Map();    // lowercased name -> { node, file }
+  const individuals = new Map(); // lowercased name -> [{ node, file }]
+  for (const { file, root, nodes } of entries) {
+    if (root && !concepts.has(root.name.toLowerCase())) concepts.set(root.name.toLowerCase(), { node: root, file });
+    for (const n of nodes) {
+      if (n.kind === KIND.CONCEPT && !concepts.has(n.name.toLowerCase())) concepts.set(n.name.toLowerCase(), { node: n, file });
+      if (n.kind === KIND.INDIVIDUAL) {
+        const k = n.name.toLowerCase();
+        if (individuals.has(k)) individuals.get(k).push({ node: n, file });
+        else individuals.set(k, [{ node: n, file }]);
+      }
+    }
+    for (const n of nodes) {
+      if (n.kind === KIND.CONCEPT && n.alias && !concepts.has(n.alias.toLowerCase())) concepts.set(n.alias.toLowerCase(), { node: n, file });
+    }
+  }
+  return { concepts, individuals };
+}
+
 // Resolve all crosslinks in a parsed document. Returns
-// { connection, line, startCol, endCol, text, target } with 1-based
-// lines and 0-based columns; target is the defining node.
-function resolve(text, root, nodes) {
+// { connection, line, startCol, endCol, text, target, file } with 1-based
+// lines and 0-based columns; target is the defining node, file its source
+// path when the target lives in another file (null for the same file).
+// `external` (optional, from externalIndex) fills references the current
+// file does not define — the local definition always wins.
+function resolve(text, root, nodes, external) {
   const lines = text.split(/\r?\n/);
   const { concepts } = index(root, nodes);
 
@@ -166,6 +194,21 @@ function resolve(text, root, nodes) {
   // number of elements`), so resolution picks the one in the attribute's
   // scope rather than the document's first.
   const individualsByName = individualsIndex(nodes);
+
+  // fold in the other files' definitions for names this one doesn't define,
+  // remembering each external node's file so its link can point there
+  const fileOf = new Map();
+  if (external) {
+    for (const [key, ent] of external.concepts) {
+      if (!concepts.has(key)) { concepts.set(key, ent.node); fileOf.set(ent.node, ent.file); }
+    }
+    for (const [key, list] of external.individuals) {
+      if (!individualsByName.has(key)) {
+        individualsByName.set(key, list.map((e) => e.node));
+        for (const e of list) fileOf.set(e.node, e.file);
+      }
+    }
+  }
 
   const links = [];
   for (const node of nodes) {
@@ -176,27 +219,31 @@ function resolve(text, root, nodes) {
     // but that name is written on the header line, not here — the header's
     // own ATTRIBUTE node links it, so the name link is skipped for cells.
     if ((node.kind === KIND.ATTRIBUTE || node.kind === KIND.DEFAULT) && node.valueCol === undefined) {
-      // the longest trailing run of words that names a Concept wins; a
+      // the longest trailing run of words that names a Concept wins — but an
+      // alias is exclusive: when the attribute carries one, only the alias
+      // types it, so `duration (time)` links 'time', never 'duration'. A
       // table header cell knows its exact column offset, other lines start
-      // at the first non-space character
+      // at the first non-space character.
       const base = node.nameCol !== undefined ? node.nameCol : nameStart;
-      for (const start of wordStarts(node.name)) {
-        const suffix = node.name.slice(start);
-        const target = concepts.get(suffix.toLowerCase());
-        if (target && target !== node) {
-          links.push({
-            connection: "attribute-is-a-Concept",
-            line: node.line,
-            startCol: base + start,
-            endCol: base + node.name.length,
-            text: suffix,
-            target,
-          });
-          break;
+      if (!node.alias) {
+        for (const start of wordStarts(node.name)) {
+          const suffix = node.name.slice(start);
+          const target = concepts.get(suffix.toLowerCase());
+          if (target && target !== node) {
+            links.push({
+              connection: "attribute-is-a-Concept",
+              line: node.line,
+              startCol: base + start,
+              endCol: base + node.name.length,
+              text: suffix,
+              target,
+            });
+            break;
+          }
         }
       }
-      // a parenthetical alias is an explicit alternative name: link it whole
-      // when it names a Concept, so `type (category)` links `category` to the
+      // a parenthetical alias is an explicit alternative name and the only
+      // crosslink when present: `type (category)` links `category` to the
       // `Category` Concept, with the underline falling inside the parentheses
       if (node.alias) {
         const target = concepts.get(node.alias.toLowerCase());
@@ -327,10 +374,12 @@ function resolve(text, root, nodes) {
       }
     }
   }
+  // tag each link with the file its target lives in (null = the same file)
+  for (const l of links) l.file = fileOf.get(l.target) || null;
   return links;
 }
 
 module.exports = {
-  resolve, index, conceptType, wordStarts, instantiates,
+  resolve, index, externalIndex, conceptType, wordStarts, instantiates,
   individualsIndex, valueTarget, listedTarget, owningConcept,
 };

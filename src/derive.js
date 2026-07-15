@@ -4,30 +4,30 @@
 // declaration and every value the attribute takes is held to it:
 //
 //     Order
-//         total: 30 =sum($price)      <- ranges over Order's Examples
+//         total: 30 =sum(@price)      <- ranges over Order's Examples
 //         cap <=100                   <- bounds every 'cap' value beneath
 //         - A
 //             price: 10
-//             vat: 2 =$price*0.2      <- $name is a sibling attribute
+//             vat: 2 =@price*0.2      <- @name is a sibling attribute
 //             cap: 2                  <- validated against 'cap <=100'
 //         - B
 //             price: 20
-//             copy: 10 =$price@A      <- @Example reads the named sibling
+//             copy: 10 =@price@A      <- @Example reads the named sibling
 //
-// Reference semantics: `$attribute name` is the same owner's attribute
+// Reference semantics: `@attribute name` is the same owner's attribute
 // (longest case-insensitive match, aliases included); aggregates and
 // count() range over the *other* sibling Examples under the same parent;
-// `$attr@Example` reads the named sibling Example's value. Numeric `$N`
+// `@attr@Example` reads the named sibling Example's value. Numeric `@N`
 // references are table-only and error here. A constraint's references
 // resolve per value, against that value's own Example or row — so
-// `total >=$price` holds each row's total to its own price.
+// `total >=@price` holds each row's total to its own price.
 //
 // Pure: parse once (linter.js), audit or recompute over the shared tree.
 // Used by the VS Code extension (extension.js). table.js provides the
 // evaluator; requiring linter.js here is safe (linter never requires this).
 
 const { KIND, INDENT } = require("./linter");
-const { splitCell, evalFormula, formatValue, compareValues, longestMatch } = require("./table");
+const { splitCell, evalFormula, formatValue, compareValues, longestMatch, satisfiesTypes, valueType } = require("./table");
 
 // The line-form derivation hosts: DEFAULT nodes whose parsed value carried
 // an operator (linter.js strips it onto node.formula / node.op).
@@ -44,6 +44,22 @@ function scopeOf(d) {
   }
   const pool = d.parent ? d.parent.children : [];
   return { host: null, examples: pool.filter((c) => c.kind === KIND.INDIVIDUAL) };
+}
+
+// The @-reference names available to a line-form value on `line` (1-based):
+// the sibling attribute names (columns) and the sibling Example names
+// (rows), for completion. null when the line is not a line-form attribute.
+function referencesAt(nodes, line) {
+  const d = nodes.find((n) => n.line === line && (n.kind === KIND.DEFAULT || n.kind === KIND.ATTRIBUTE) && !n.cell);
+  if (!d || !d.parent) return null;
+  const { examples } = scopeOf(d);
+  const columns = new Set();
+  const addAttrs = (owner) => owner.children.forEach((c) => {
+    if ((c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE) && c.name && c !== d) columns.add(c.name);
+  });
+  addAttrs(d.parent);
+  for (const ex of examples) addAttrs(ex);
+  return { columns: [...columns], rows: examples.map((e) => e.name) };
 }
 
 // The evaluation context for one host. `current` maps a DEFAULT node to
@@ -65,7 +81,7 @@ function makeCtx(d, current) {
   const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
   const rowCands = examples.map((ex) => ({ key: ex.name.toLowerCase(), id: ex }));
   const tableOnly = (c) => {
-    if (typeof c === "number") throw new Error("numeric $N references are table-only — use $attribute name");
+    if (typeof c === "number") throw new Error("numeric @N references are table-only — use @attribute name");
     return c;
   };
   // an owner's value for the attribute; undefined when the owner never
@@ -129,7 +145,7 @@ function constraintOf(d) {
   if (d.alias) keys.push(d.alias.toLowerCase());
   for (let p = d.parent; p; p = p.parent) {
     for (const c of p.children) {
-      if (c.kind !== KIND.ATTRIBUTE || c.op === undefined) continue;
+      if (c.kind !== KIND.ATTRIBUTE || (c.op === undefined && !c.types)) continue;
       if (keys.includes(c.name.toLowerCase()) || (c.alias && keys.includes(c.alias.toLowerCase()))) return c;
     }
   }
@@ -185,20 +201,32 @@ function auditValues(root, nodes, lines) {
     }
     out.push(span);
   }
-  // the constraints: one coloured span per declaration, one check per value
-  const constrained = nodes.filter((n) => n.kind === KIND.ATTRIBUTE && n.op !== undefined);
+  // the constraints: one coloured span per declaration (type clause and/or
+  // bound), one check per value — types first, then the bound
+  const constrained = nodes.filter((n) => n.kind === KIND.ATTRIBUTE && (n.op !== undefined || n.types));
   if (!constrained.length) return out;
   const declared = new Map(); // attribute node -> its pushed span
   for (const a of constrained) {
     const s = constraintSpanOf(lines, a);
-    const span = { line: a.line, startCol: s.startCol, endCol: s.endCol, op: a.op, formula: a.formula };
+    const span = { line: a.line, startCol: s.startCol, endCol: s.endCol, op: a.op || null, formula: a.formula };
     declared.set(a, span);
     out.push(span);
   }
+  const violation = (d, message) => {
+    const at = valueSpanOf(lines, d) || { startCol: 0, endCol: (lines[d.line - 1] || "").length };
+    out.push({ line: d.line, startCol: at.startCol, endCol: at.endCol, paint: false, error: true, message });
+  };
   for (const d of nodes) {
     if (d.kind !== KIND.DEFAULT || !d.value) continue;
     const a = constraintOf(d);
     if (!a) continue;
+    // the type clause: the value must be one of the allowed types
+    if (a.types && !satisfiesTypes(d.value, a.types)) {
+      violation(d, `value '${d.value}' must be ${a.types.join(" or ")} ('${a.name} is ${a.types.join(" or ")}', line ${a.line}) — it reads as ${valueType(d.value)}`);
+      continue;
+    }
+    // the bound: the value must satisfy the comparison
+    if (!a.op) continue;
     let bound;
     try {
       bound = evalFormula(a.formula, makeCtx(d, current));
@@ -212,12 +240,7 @@ function auditValues(root, nodes, lines) {
       continue;
     }
     if (!compareValues(a.op, d.value, bound)) {
-      const at = valueSpanOf(lines, d) || { startCol: 0, endCol: (lines[d.line - 1] || "").length };
-      out.push({
-        line: d.line, startCol: at.startCol, endCol: at.endCol,
-        paint: false, error: true,
-        message: `value '${d.value}' violates '${a.name} ${a.op} ${typeof bound === "number" ? bound : `\`${bound}\``}' (line ${a.line}) — change the value, or the constraint`,
-      });
+      violation(d, `value '${d.value}' violates '${a.name} ${a.op} ${typeof bound === "number" ? bound : `\`${bound}\``}' (line ${a.line}) — change the value, or the constraint`);
     }
   }
   return out;
@@ -294,4 +317,4 @@ function copyToSiblings(root, nodes, lines, lineIdx) {
   return ops.length ? ops : null;
 }
 
-module.exports = { auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf };
+module.exports = { auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf, referencesAt };

@@ -9,6 +9,7 @@ const {
   insertColumn, deleteColumn, insertRow, deleteRow, insertSeparator,
   sortRows, fromRegion, cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas, tableCtx,
+  valueType, satisfiesTypes, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
 } = require("../src/table");
 
 let failures = 0;
@@ -152,39 +153,49 @@ const fresh = () => blockAt(doc, 3);
 }
 
 // ---------------------------------------------------------------------------
-// formulas: `10 =$1+10` — the value first, its derivation after it
+// formulas: `10 =@1+10` — the value first, its derivation after it
 // ---------------------------------------------------------------------------
 {
   check("splitCell: value and formula part at the ' ='",
-    JSON.stringify(splitCell("10 =$1+10")) === '{"value":"10","eq":3,"op":"="}'
-    && splitCell("=$2*2").value === "" && splitCell("=$2*2").eq === 0
+    JSON.stringify(splitCell("10 =@1+10")) === '{"value":"10","eq":3,"op":"="}'
+    && splitCell("=@2*2").value === "" && splitCell("=@2*2").eq === 0
     && splitCell("plain text").eq === -1 && splitCell("plain text").op === null);
   check("splitCell: values never split on comparison operators (constraints live on attributes)",
-    splitCell("25 >=18").eq === -1 && splitCell("90 <=$2*1.5").eq === -1
+    splitCell("25 >=18").eq === -1 && splitCell("90 <=@2*1.5").eq === -1
     && splitCell("active ==`active`").eq === -1);
   check("splitCell: scans left to right, so an in-formula '==' never splits",
-    JSON.stringify(splitCell("10 =if($2 == 3,1,0)")) === '{"value":"10","eq":3,"op":"="}');
+    JSON.stringify(splitCell("10 =if(@2 == 3,1,0)")) === '{"value":"10","eq":3,"op":"="}');
   check("splitConstraint: an attribute's trailing bound is recognised",
-    JSON.stringify(splitConstraint("age >=18")) === '{"value":"age","eq":4,"op":">="}'
-    && splitConstraint("cap <=$price*1.5").op === "<="
+    (() => { const c = splitConstraint("age >=18"); return c.value === "age" && c.eq === 4 && c.op === ">=" && c.formula === "18" && c.types === null; })()
+    && splitConstraint("cap <=@price*1.5").op === "<="
     && splitConstraint("status ==`active`").op === "=="
     && splitConstraint("150 <= 200").op === "<=");
   check("splitConstraint: prose comparisons stay plain terms",
     splitConstraint("10 < 20 knots").eq === -1
     && splitConstraint("wind speed > none noted").eq === -1
     && splitConstraint("plain term").op === null);
+  check("splitConstraint: a type clause, alone or with a bound",
+    (() => { const c = splitConstraint("birth date is date"); return c.value === "birth date" && c.op === null && JSON.stringify(c.types) === '["date"]'; })()
+    && JSON.stringify(splitConstraint("field is number or date").types) === '["number","date"]'
+    && (() => { const c = splitConstraint("age is number >=18"); return c.value === "age" && c.op === ">=" && c.formula === "18" && JSON.stringify(c.types) === '["number"]'; })()
+    && splitConstraint("car is red").eq === -1);
+  check("valueType / date-aware compare",
+    valueType("2025-01-01") === "date" && valueType("$1,200") === "number" && valueType("hello") === "text"
+    && satisfiesTypes("2025-01-01", ["date", "number"]) && !satisfiesTypes("hello", ["number"])
+    && compareValues(">=", "2026-01-01", "2025-06-01") === true
+    && compareValues("<", "2024-01-01", "2025-01-01") === true);
 
   const ctx = {
     matchColumn: () => null, matchRow: () => null,
     cell: (c) => String(c * 10), cellAt: () => "7", column: () => ["1", "2", "3"],
   };
-  check("evalFormula: references and precedence", evalFormula("$2+3*4", ctx) === 32);
-  check("evalFormula: parentheses and unary minus", evalFormula("-(2+3)*$1", ctx) === -50);
-  check("evalFormula: sum/avg over a column", evalFormula("sum($3)", ctx) === 6 && evalFormula("avg($3)", ctx) === 2);
+  check("evalFormula: references and precedence", evalFormula("@2+3*4", ctx) === 32);
+  check("evalFormula: parentheses and unary minus", evalFormula("-(2+3)*@1", ctx) === -50);
+  check("evalFormula: sum/avg over a column", evalFormula("sum(@3)", ctx) === 6 && evalFormula("avg(@3)", ctx) === 2);
   check("evalFormula: bad syntax throws",
-    (() => { try { evalFormula("$2+", ctx); return false; } catch { return true; } })());
+    (() => { try { evalFormula("@2+", ctx); return false; } catch { return true; } })());
   check("evalFormula: count tallies non-empty cells",
-    evalFormula("count($3)", { ...ctx, column: () => ["a", "", " ", "4"] }) === 2);
+    evalFormula("count(@3)", { ...ctx, column: () => ["a", "", " ", "4"] }) === 2);
   check("evalFormula: round and abs",
     evalFormula("round(1.256,2)", ctx) === 1.26 && evalFormula("round(1.6)", ctx) === 2 && evalFormula("abs(-(3))", ctx) === 3);
   check("evalFormula: string literals, & concatenation and case helpers",
@@ -198,14 +209,14 @@ const fresh = () => blockAt(doc, 3);
     && evalFormula("mid(`abcdef`,2,3)", ctx) === "bcd"
     && evalFormula("replace(`a-b-c`,`-`,`+`)", ctx) === "a+b+c");
   check("evalFormula: comparisons yield 1 or 0, numeric when both sides read as numbers",
-    evalFormula("$2>=3", ctx) === 1 && evalFormula("$2<3", ctx) === 0
+    evalFormula("@2>=3", ctx) === 1 && evalFormula("@2<3", ctx) === 0
     && evalFormula("`b`>`a`", ctx) === 1 && evalFormula("`10`==10", ctx) === 1);
   check("evalFormula: if() is lazy — the untaken branch may not compute",
-    evalFormula("if(count($3)>0,avg($3),0)", { ...ctx, column: () => [] }) === 0
-    && evalFormula("if($1>5,`big`,`small`)", ctx) === "big");
+    evalFormula("if(count(@3)>0,avg(@3),0)", { ...ctx, column: () => [] }) === 0
+    && evalFormula("if(@1>5,`big`,`small`)", ctx) === "big");
   check("evalFormula: named columns and @Row refs resolve through ctx",
-    evalFormula("$price*2", { ...ctx, matchColumn: (r) => (r.toLowerCase().startsWith("price") ? { id: 2, length: 5 } : null) }) === 40
-    && evalFormula("$2@Acme", { ...ctx, matchRow: (r) => (r.startsWith("Acme") ? { id: "row", length: 4 } : null) }) === "7");
+    evalFormula("@price*2", { ...ctx, matchColumn: (r) => (r.toLowerCase().startsWith("price") ? { id: 2, length: 5 } : null) }) === 40
+    && evalFormula("@2@Acme", { ...ctx, matchRow: (r) => (r.startsWith("Acme") ? { id: "row", length: 4 } : null) }) === "7");
   check("evalFormula: arithmetic on a non-numeric operand throws",
     (() => { try { evalFormula("`a`+1", ctx); return false; } catch { return true; } })());
 
@@ -217,35 +228,35 @@ const fresh = () => blockAt(doc, 3);
     rows: [
       { sep: false, cells: ["name", "price", "qty", "total"] },
       { sep: true, cells: [] },
-      { sep: false, cells: ["A", "$1,200", "2", "=$2*$3"] },
-      { sep: false, cells: ["B", "$100", "1", "100 =$2*$3"] },
-      { sep: false, cells: ["Total", "", "", "=sum($4)"] },
+      { sep: false, cells: ["A", "$1,200", "2", "=@2*@3"] },
+      { sep: false, cells: ["B", "$100", "1", "100 =@2*@3"] },
+      { sep: false, cells: ["Total", "", "", "=sum(@4)"] },
     ],
   };
   recompute(b);
-  check("recompute: fills an empty value from its formula", b.rows[2].cells[3] === "2400 =$2*$3");
-  check("recompute: an already true value stays put", b.rows[3].cells[3] === "100 =$2*$3");
-  check("recompute: sum() totals the other rows, fresh values included", b.rows[4].cells[3] === "2500 =sum($4)");
+  check("recompute: fills an empty value from its formula", b.rows[2].cells[3] === "2400 =@2*@3");
+  check("recompute: an already true value stays put", b.rows[3].cells[3] === "100 =@2*@3");
+  check("recompute: sum() totals the other rows, fresh values included", b.rows[4].cells[3] === "2500 =sum(@4)");
 
   const broken = {
     indent: "",
     rows: [
       { sep: false, cells: ["name", "x"] },
       { sep: true, cells: [] },
-      { sep: false, cells: ["A", "=$1*2"] },
+      { sep: false, cells: ["A", "=@1*2"] },
     ],
   };
   recompute(broken);
   check("recompute: a formula that cannot compute shows #ERR and keeps the formula",
-    broken.rows[2].cells[1] === "#ERR =$1*2");
+    broken.rows[2].cells[1] === "#ERR =@1*2");
 
   const sheet = [
     "Order",
     "    |name|price|total   |",
     "    |----+-----+--------|",
-    "    |A   |10   |20 =$2*2|",
-    "    |B   |10   |5 =$2/  |",
-    "    |C   |10   |15 =$2*2|",
+    "    |A   |10   |20 =@2*2|",
+    "    |B   |10   |5 =@2/  |",
+    "    |C   |10   |15 =@2*2|",
   ];
   const found = formulas(sheet);
   check("formulas: audits every formula cell", found.length === 3);
@@ -257,7 +268,7 @@ const fresh = () => blockAt(doc, 3);
     found[2].stale === true && found[2].message.includes("= 20"));
 
   check("align: recomputes formulas before padding",
-    align(["| name | b     |", "|------+-------|", "| 2    | =$1*2 |"].join("\n")).some((e) => e.text.includes("4 =$1*2")));
+    align(["| name | b     |", "|------+-------|", "| 2    | =@1*2 |"].join("\n")).some((e) => e.text.includes("4 =@1*2")));
 
   // named references resolve against the header (aliases included), @Row
   // against the first column
@@ -266,15 +277,15 @@ const fresh = () => blockAt(doc, 3);
     rows: [
       { sep: false, cells: ["name", "price", "qty (amount)", "total"] },
       { sep: true, cells: [] },
-      { sep: false, cells: ["Acme", "10", "3", "=$price*$amount"] },
-      { sep: false, cells: ["Bolt", "5", "2", "=$total@Acme"] },
+      { sep: false, cells: ["Acme", "10", "3", "=@price*@amount"] },
+      { sep: false, cells: ["Bolt", "5", "2", "=@total@Acme"] },
     ],
   };
   recompute(named);
-  check("recompute: $name and alias references resolve through the header",
-    named.rows[2].cells[3] === "30 =$price*$amount");
-  check("recompute: $col@Row reads the named row's cell",
-    named.rows[3].cells[3] === "30 =$total@Acme");
+  check("recompute: @name and alias references resolve through the header",
+    named.rows[2].cells[3] === "30 =@price*@amount");
+  check("recompute: @col@Row reads the named row's cell",
+    named.rows[3].cells[3] === "30 =@total@Acme");
 
   // cells with comparison text are plain values: never split, never
   // rewritten, never audited — the constraint lives on the header
@@ -302,6 +313,37 @@ const fresh = () => blockAt(doc, 3);
       const ctx = tableCtx(rows, rows[0], bound.rows[0].cells);
       return ctx.matchColumn("age)").id === 2 && ctx.cell(2) === "25";
     })());
+}
+
+// ---------------------------------------------------------------------------
+// copyFormulaDown / copyFormulaAcross / referenceNames
+// ---------------------------------------------------------------------------
+{
+  const grid = () => ({
+    indent: "",
+    rows: [
+      { sep: false, cells: ["name", "a", "b", "c"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["R1", "10", "20", "=@a*2"] },
+      { sep: false, cells: ["R2", "5", "8", ""] },
+    ],
+  });
+  let b = grid();
+  copyFormulaDown(b, 2, 3);
+  recompute(b);
+  check("copyFormulaDown: the column's other rows gain the formula, recomputed",
+    b.rows[2].cells[3] === "20 =@a*2" && b.rows[3].cells[3] === "10 =@a*2");
+
+  b = grid();
+  copyFormulaAcross(b, 2, 3);
+  check("copyFormulaAcross: the row's other cells gain the formula, keeping their values (name column spared)",
+    b.rows[2].cells[0] === "R1" && b.rows[2].cells[1] === "10 =@a*2" && b.rows[2].cells[2] === "20 =@a*2" && b.rows[2].cells[3] === "=@a*2");
+  check("copyFormulaAcross: a cell without a formula copies nothing",
+    copyFormulaAcross(grid(), 3, 3) === null);
+
+  const names = referenceNames(grid());
+  check("referenceNames: columns (header, minus name) then rows (first column)",
+    names.columns.join(",") === "a,b,c" && names.rows.join(",") === "R1,R2");
 }
 
 // ---------------------------------------------------------------------------

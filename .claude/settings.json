@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node out/test-table.js)",
+      "Bash(node out/test-linter.js)",
+      "Bash(node out/test-extension.js)",
+      "Bash(node out/test-derive.js)",
+      "Bash(node out/test-armstrong.js)",
+      "Bash(node out/test-fca.js)",
+      "Bash(node out/test-godel.js)",
+      "Bash(node out/test-urls.js)",
+      "Bash(node out/test-hold.js)",
+      "Bash(npm test)",
+      "Bash(node verify.js *)"
+    ]
+  }
+}

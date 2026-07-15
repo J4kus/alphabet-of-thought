@@ -59,6 +59,45 @@ function main() {
     process.exit(2);
   }
 
+  // --workspace [dir]: the repo-wide check — every Concept defined in more
+  // than one .aot under dir (default: the current directory) is reported.
+  let w;
+  if ((w = args.indexOf("--workspace")) !== -1) {
+    const root = args[w + 1] && !args[w + 1].startsWith("-") ? args[w + 1] : ".";
+    const files = [];
+    const skip = new Set(["node_modules", ".git", "aot.files", "out"]);
+    const walk = (dir) => {
+      let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (!skip.has(e.name) && !e.name.endsWith(".tables") && !e.name.startsWith("tables.")) walk(p); }
+        else if (/\.aot$/i.test(e.name)) files.push(p);
+      }
+    };
+    walk(root);
+    const byName = new Map(); // lowercased Concept -> [{ file, line, name }]
+    for (const f of files) {
+      const name = path.basename(f).replace(/\.[^.]*$/, "");
+      const { nodes } = lint(readFile(f), name);
+      for (const n of nodes) {
+        if (n.kind !== KIND.CONCEPT) continue;
+        const k = n.name.toLowerCase();
+        if (!byName.has(k)) byName.set(k, []);
+        byName.get(k).push({ file: f, line: n.line, name: n.name });
+      }
+    }
+    let dups = 0;
+    for (const defs of byName.values()) {
+      const files2 = new Set(defs.map((d2) => d2.file));
+      if (files2.size < 2) continue;
+      dups++;
+      console.log(`Concept '${defs[0].name}' is defined in ${files2.size} files:`);
+      for (const d2 of defs) console.log(`  ${d2.file}:${d2.line}`);
+    }
+    console.log(`\n${files.length} file${files.length === 1 ? "" : "s"} scanned, ${dups} name${dups === 1 ? "" : "s"} defined across more than one`);
+    return;
+  }
+
   let d;
   if ((d = args.indexOf("--diff")) !== -1) {
     const lintFile = (f) => {

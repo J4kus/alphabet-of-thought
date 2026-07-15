@@ -15,6 +15,7 @@ let codeActionsProvider = null;
 let referenceProvider = null;
 let inlayProvider = null;
 let documentLinkProvider = null;
+let completionProvider = null;
 const plainCommands = new Map();
 const configStore = {};
 const vscode = {
@@ -53,9 +54,12 @@ const vscode = {
     registerReferenceProvider: (selector, provider) => { referenceProvider = provider; return { dispose() {} }; },
     registerInlayHintsProvider: (selector, provider) => { inlayProvider = provider; return { dispose() {} }; },
     registerDocumentLinkProvider: (selector, provider) => { documentLinkProvider = provider; return { dispose() {} }; },
+    registerCompletionItemProvider: (selector, provider) => { completionProvider = provider; return { dispose() {} }; },
   },
+  CompletionItem: class { constructor(label, kind) { Object.assign(this, { label, kind }); } },
+  CompletionItemKind: { Field: 4, EnumMember: 19 },
   DocumentLink: class { constructor(range, target) { Object.assign(this, { range, target }); } },
-  Uri: { parse: (s) => ({ toString: () => s }) },
+  Uri: { parse: (s) => ({ toString: () => s }), file: (p) => ({ fsPath: p, scheme: "file", toString: () => "file:///" + p.replace(/\\/g, "/") }) },
   EventEmitter: class {
     constructor() { this.listeners = []; }
     get event() { return (fn) => { this.listeners.push(fn); return { dispose() {} }; }; }
@@ -79,10 +83,12 @@ const vscode = {
   window: {
     visibleTextEditors: [],
     activeTextEditor: undefined,
+    _warnings: [],
     createTextEditorDecorationType: (style) => ({ style, dispose() {} }),
     onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
     onDidChangeTextEditorSelection: (fn) => { vscode.window._selectionChanged = fn; return { dispose() {} }; },
     onDidChangeActiveTextEditor: () => ({ dispose() {} }),
+    showWarningMessage: (m) => { vscode.window._warnings.push(m); return Promise.resolve(); },
   },
   WorkspaceEdit: class {
     constructor() { this.ops = []; }
@@ -91,17 +97,23 @@ const vscode = {
   },
   workspace: {
     textDocuments: [],
+    workspaceFolders: undefined, // set per-test when a workspace root is needed
+    getWorkspaceFolder: () => (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]) || null,
     onDidOpenTextDocument: (fn) => { vscode.workspace._open = fn; return { dispose() {} }; },
     onDidChangeTextDocument: (fn) => { vscode.workspace._changed = fn; return { dispose() {} }; },
     onDidCloseTextDocument: () => ({ dispose() {} }),
     onDidSaveTextDocument: (fn) => { vscode.workspace._save = fn; return { dispose() {} }; },
     onWillSaveTextDocument: (fn) => { vscode.workspace._willSave = fn; return { dispose() {} }; },
     onDidChangeConfiguration: (fn) => { vscode.workspace._configChanged = fn; return { dispose() {} }; },
-    createFileSystemWatcher: () => ({
-      onDidChange: (fn) => { vscode.workspace._csvChanged = fn; },
-      onDidCreate: (fn) => { vscode.workspace._csvCreated = fn; },
-      dispose() {},
-    }),
+    createFileSystemWatcher: (glob) => {
+      const csv = /aot\.files/.test(glob || "");
+      return {
+        onDidChange: (fn) => { if (csv) vscode.workspace._csvChanged = fn; else vscode.workspace._aotChanged = fn; },
+        onDidCreate: (fn) => { if (csv) vscode.workspace._csvCreated = fn; else vscode.workspace._aotCreated = fn; },
+        onDidDelete: (fn) => { if (!csv) vscode.workspace._aotDeleted = fn; },
+        dispose() {},
+      };
+    },
     // a store-backed configuration, so a Quick Fix's update round-trips:
     // writing fires onDidChangeConfiguration exactly as the real one does
     getConfiguration: () => ({
@@ -409,8 +421,8 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[2] === "    |Ollie|5   |"
       && editor.selection.active.line === 3 && editor.selection.active.character === 11;
-    console.log(ok && registeredCommands.size === 17
-      ? "PASS (table editor: 17 commands; Tab aligns and moves to the next cell)"
+    console.log(ok && registeredCommands.size === 18
+      ? "PASS (table editor: 18 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -541,14 +553,15 @@ const listed = [
     : "UNEXPECTED header alias link " + JSON.stringify(aliasLink));
 }
 
-// 7) the CSV mirror, end to end on real files: saving the .aot writes one
-// CSV per table into 'tables.<file>', named after the parent Concept; a
-// CSV edit folds back into the .aot table, aligned, and saves it; a legacy
-// '<file>.tables' folder migrates; orphaned CSVs are deleted on save.
+// 7) the CSV mirror, end to end: saving the .aot writes each table's CSV
+// into one 'aot.files' folder at the workspace root, named after the
+// Concept; a CSV edit folds back; legacy per-file folders migrate; an
+// orphaned CSV is archived with '_' (never deleted).
 (async () => {
   const tmp = path.join(__dirname, "tmp-sync");
   fs.rmSync(tmp, { recursive: true, force: true });
   fs.mkdirSync(tmp, { recursive: true });
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
   const aotPath = path.join(tmp, "World.aot");
   const aotText = [
     "Otter",
@@ -558,32 +571,32 @@ const listed = [
   ].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
-  // a legacy folder from a pre-1.2 install, holding a stale CSV and a note
-  const legacyDir = path.join(tmp, "World.tables");
+  // a legacy per-file folder from a pre-1.3 install, with a stale CSV + note
+  const legacyDir = path.join(tmp, "tables.World");
   fs.mkdirSync(legacyDir, { recursive: true });
   fs.writeFileSync(path.join(legacyDir, "Ghost.csv"), "name\nBoo\n");
   fs.writeFileSync(path.join(legacyDir, "notes.txt"), "keep me");
 
-  // save the .aot -> the legacy folder migrates, Otter.csv appears, the
-  // orphaned Ghost.csv goes, the stray notes.txt survives
+  // save the .aot -> aot.files/Otter.csv appears; the legacy folder folds in
+  // and is removed; the orphaned Ghost.csv is archived as _Ghost.csv
   vscode.workspace._save(makeDoc(aotPath, aotText));
-  const dir = path.join(tmp, "tables.World");
+  const dir = path.join(tmp, "aot.files");
   const csvPath = path.join(dir, "Otter.csv");
   const written = fs.existsSync(csvPath) && fs.readFileSync(csvPath, "utf8");
   console.log(written === "name,size\nOllie,5\n"
-    ? "PASS (csv mirror: saving the .aot writes tables.<file>/<Concept>.csv)"
+    ? "PASS (csv mirror: saving writes aot.files/<Concept>.csv at the workspace root)"
     : "UNEXPECTED csv written: " + JSON.stringify(written));
   console.log(!fs.existsSync(legacyDir) && !fs.existsSync(path.join(dir, "Ghost.csv"))
-    && fs.existsSync(path.join(dir, "notes.txt"))
-    ? "PASS (csv mirror: the legacy folder migrates; orphans go, strays survive)"
+    && fs.existsSync(path.join(dir, "_Ghost.csv"))
+    ? "PASS (csv mirror: the legacy folder folds in; an orphan is archived _Ghost.csv, not deleted)"
     : "UNEXPECTED migration state " + JSON.stringify(fs.existsSync(dir) && fs.readdirSync(dir)));
 
-  // edit the CSV -> the .aot table gains the row, aligned, and is saved
+  // edit the CSV -> the owning .aot's table gains the row, aligned, and saves
   fs.writeFileSync(csvPath, "name,size\nOllie,5\nPebble,3\n");
   await vscode.workspace._csvChanged({ fsPath: csvPath });
   const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
   console.log(after[3] === "    |Ollie |5   |" && after[4] === "    |Pebble|3   |"
-    ? "PASS (csv mirror: a CSV edit folds back into the .aot table)"
+    ? "PASS (csv mirror: a CSV edit folds back into the owning .aot table)"
     : "UNEXPECTED aot after csv edit: " + JSON.stringify(after));
 
   // our own write echoing back does nothing
@@ -593,16 +606,60 @@ const listed = [
     ? "PASS (csv mirror: no self-chase — an unchanged grid edits nothing)"
     : "UNEXPECTED csv loop");
 
-  // renaming the Concept: the fresh save writes Beaver.csv and deletes the
-  // now-orphaned Otter.csv
+  // an archived _CSV is ignored by the fold-back watcher
+  fs.writeFileSync(path.join(dir, "_Ghost.csv"), "name\nZzz\n");
+  await vscode.workspace._csvChanged({ fsPath: path.join(dir, "_Ghost.csv") });
+  console.log(fs.readFileSync(aotPath, "utf8") === before
+    ? "PASS (csv mirror: an archived _CSV is not folded back)"
+    : "UNEXPECTED archived csv folded");
+
+  // renaming the Concept: the fresh save writes Beaver.csv and archives the
+  // now-orphaned Otter.csv as _Otter.csv (never deleted)
   const renamed = aotText.replace("Otter", "Beaver");
   fs.writeFileSync(aotPath, renamed);
   vscode.workspace._save(makeDoc(aotPath, renamed));
-  console.log(fs.existsSync(path.join(dir, "Beaver.csv")) && !fs.existsSync(csvPath)
-    ? "PASS (csv mirror: a renamed Concept's old CSV is cleaned up on save)"
+  console.log(fs.existsSync(path.join(dir, "Beaver.csv")) && !fs.existsSync(csvPath) && fs.existsSync(path.join(dir, "_Otter.csv"))
+    ? "PASS (csv mirror: a renamed Concept's old CSV is archived _Otter.csv on save)"
     : "UNEXPECTED rename cleanup " + JSON.stringify(fs.readdirSync(dir)));
+  vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(tmp, { recursive: true, force: true });
 })();
+
+// 7b) cross-file: a crosslink whose target lives in another repo file
+// resolves and its go-to-definition opens that file; a Concept defined in
+// two files warns (repo-wide), without counting in V.
+{
+  const tmp = path.join(__dirname, "tmp-xfile");
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  const aPath = path.join(tmp, "People.aot");
+  const bPath = path.join(tmp, "Census.aot");
+  fs.writeFileSync(aPath, ["Human", "    - Socrates"].join("\n"));
+  fs.writeFileSync(bPath, ["Record", "    human: Socrates", "Human"].join("\n")); // B also defines Human
+
+  // index both files as the workspace watcher would
+  vscode.workspace._aotCreated({ fsPath: aPath });
+  vscode.workspace._aotCreated({ fsPath: bPath });
+
+  const docB = makeDoc(bPath, fs.readFileSync(bPath, "utf8"));
+  vscode.workspace._open(docB);
+
+  // the value 'Socrates' in B resolves to '- Socrates' defined in People.aot
+  const defB = definitionProvider.provideDefinition(docB, new vscode.Position(1, 15));
+  console.log(defB && /People\.aot/.test(defB.uri.toString())
+    ? "PASS (cross-file: a value resolves to an Example in another file; go-to-definition opens it)"
+    : "UNEXPECTED cross-file definition " + JSON.stringify(defB && defB.uri.toString()));
+
+  // 'Human' is defined in both People.aot and Census.aot -> a repo warning
+  const bDiags = published.get(docB.uri.toString()) || [];
+  console.log(bDiags.some((d) => d.severity === vscode.DiagnosticSeverity.Warning && /also defined in People\.aot/.test(d.message))
+    ? "PASS (cross-file: a Concept defined in two files warns repo-wide, not counted in V)"
+    : "UNEXPECTED repo duplicate " + JSON.stringify(bDiags.map((d) => d.message)));
+
+  vscode.workspace.workspaceFolders = undefined;
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
 
 // 8) formulas: the span after the '=' is coloured as its own token, a
 // stale value publishes a pinned warning, and Tab recomputes it.
@@ -611,13 +668,13 @@ const listed = [
     "Order",
     "    | name | price | total    |",
     "    |------+-------+----------|",
-    "    | A    | 10    | 15 =$2*2 |",
+    "    | A    | 10    | 15 =@2*2 |",
   ].join("\n");
   const doc8 = makeDoc("c:\repo\Calc.aot", calc);
   const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc8);
   const formulaTok = tokens.find((t) => t[3] === 3);
   console.log(formulaTok && formulaTok[0] === 3 && formulaTok[1] === 24 && formulaTok[2] === 5
-    ? "PASS (formula: '=$2*2' carries its own colour token)"
+    ? "PASS (formula: '=@2*2' carries its own colour token)"
     : "UNEXPECTED formula token " + JSON.stringify(tokens.filter((t) => t[3] === 3)));
 
   vscode.workspace._open(doc8);
@@ -637,7 +694,7 @@ const listed = [
   };
   registeredCommands.get("aot.table.nextCell")(editor8);
   Promise.resolve().then(() => {
-    console.log(applied8 && applied8.includes("|20 =$2*2|")
+    console.log(applied8 && applied8.includes("|20 =@2*2|")
       ? "PASS (formula: Tab recomputes the value in place)"
       : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
   });
@@ -684,11 +741,11 @@ const listed = [
     ? "PASS (hover: 'Car' shows the chain Car → Person → Address, 3 Concepts)"
     : "UNEXPECTED hover " + JSON.stringify(hover && hover.contents.value));
 
-  // hovering 'Auto': its alias adds a hop, so the same chain runs one longer
+  // hovering 'Auto': a Concept alias names a *kind*, not a dependency, so
+  // 'Auto' has no dependency chain (the alias link still navigates)
   const hoverAuto = hoverProvider.provideHover(doc9, new vscode.Position(4, 1));
-  console.log(hoverAuto && hoverAuto.contents.value.includes("Auto ─alias→ Car ─owner person→ Person ─home address→ Address")
-    && hoverAuto.contents.value.includes("4 Concepts")
-    ? "PASS (hover: 'Auto (Car)' chains through its alias, 4 Concepts)"
+  console.log(!hoverAuto || !/dependency chains/.test(hoverAuto.contents.value)
+    ? "PASS (hover: a Concept alias is a kind, not a dependency — 'Auto' shows no chain)"
     : "UNEXPECTED alias hover " + JSON.stringify(hoverAuto && hoverAuto.contents.value));
 
   // hovering the crosslink 'person' in 'owner person' (line 7) starts the
@@ -706,6 +763,27 @@ const listed = [
     && /used at/.test(hoverLeaf.contents.value) && /home address/.test(hoverLeaf.contents.value)
     ? "PASS (hover: a chain-less Concept still shows where it is used)"
     : "UNEXPECTED leaf hover " + JSON.stringify(hoverLeaf));
+}
+
+// 9a2) an attribute alias is exclusive: only the alias crosslinks, never a
+// run of the attribute's own name.
+{
+  const text = [
+    "Time",
+    "Duration",
+    "    span (time)",   // alias 'time' -> Time; the run 'duration'... has no Concept anyway
+    "Journey",
+    "    duration (time)",  // alias wins; 'duration' (the Concept) must NOT link
+  ].join("\n");
+  const { lint } = require("../src/linter");
+  const { resolve } = require("../src/crosslinks");
+  const tE = lint(text, "World");
+  const linksE = resolve(text, tE.root, tE.nodes).filter((l) => l.line === 5);
+  const toTime = linksE.find((l) => l.target.name === "Time");
+  const toDuration = linksE.find((l) => l.target.name === "Duration");
+  console.log(toTime && toTime.text === "time" && !toDuration && linksE.length === 1
+    ? "PASS (alias exclusivity: only 'duration (time)'s alias links, to Time — never to Duration)"
+    : "UNEXPECTED alias exclusivity " + JSON.stringify(linksE.map((l) => [l.text, l.target.name])));
 }
 
 // 9b) dependency visibility: an Example used as a value hovers its full
@@ -768,7 +846,7 @@ const listed = [
 (async () => {
   const lines = [
     "Order",
-    "    total: =sum($price)",
+    "    total: =sum(@price)",
     "    - A",
     "        price: 2",
     "    - B",
@@ -784,14 +862,14 @@ const listed = [
   doc.uri = { toString: () => "file:///fill", __doc: doc };
   vscode.workspace._open(doc);
   await new Promise((r) => setImmediate(r));
-  console.log(lines[1] === "    total: 5 =sum($price)"
+  console.log(lines[1] === "    total: 5 =sum(@price)"
     ? "PASS (fill: a line formula computes itself once no cursor holds the line)"
     : "UNEXPECTED auto fill " + JSON.stringify(lines));
 
   // pressing Enter starts an edit burst, yet the formula on the line just
   // left still fills at once (force bypasses the hold, busy spares the new
   // line). Simulate: reset the value, fire the change then the selection.
-  lines[1] = "    total: =sum($price)";
+  lines[1] = "    total: =sum(@price)";
   const editor = {
     document: doc,
     selection: new vscode.Selection(1, 24, 1, 24),
@@ -804,7 +882,7 @@ const listed = [
   vscode.workspace._changed({ document: doc, contentChanges: [{ text: "\n", range: new vscode.Range(1, 24, 1, 24) }] });
   vscode.window._selectionChanged({ textEditor: editor, selections: [new vscode.Selection(2, 0, 2, 0)] });
   await new Promise((r) => setImmediate(r));
-  console.log(lines[1] === "    total: 5 =sum($price)"
+  console.log(lines[1] === "    total: 5 =sum(@price)"
     ? "PASS (fill: pressing Enter fills the formula on the line just left, mid edit-burst)"
     : "UNEXPECTED enter fill " + JSON.stringify(lines));
   vscode.window.visibleTextEditors.pop();
@@ -818,6 +896,84 @@ const listed = [
     && links[0].target.toString() === "https://example.com/spec"
     ? "PASS (links: a URL in a value is Ctrl+clickable on its exact span)"
     : "UNEXPECTED document links " + JSON.stringify(links));
+}
+
+// 9c2) a file-path value that resolves to a real file is Ctrl+clickable, and
+// an image (URL or file) hovers as a picture.
+(async () => {
+  const dir = path.join(__dirname, "tmp-files");
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const png = path.join(dir, "chart.png");
+  fs.writeFileSync(png, "x");
+  const aot = path.join(dir, "Doc.aot");
+  const text = ["Doc", "    chart: ./chart.png", "    missing: ./nope.png", "    logo: https://example.com/logo.png"].join("\n");
+  fs.writeFileSync(aot, text);
+  const docF = {
+    languageId: "aot", fileName: aot, eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///" + aot },
+    get lineCount() { return text.split("\n").length; },
+    getText: () => text,
+    lineAt: (i) => { const l = text.split("\n")[i]; return { range: new vscode.Range(i, 0, i, l.length), text: l }; },
+  };
+  const links = documentLinkProvider.provideDocumentLinks(docF);
+  const fileLink = links.find((l) => l.target.scheme === "file");
+  console.log(fileLink && fileLink.target.fsPath === png && !links.some((l) => l.range.a[0] === 2)
+    ? "PASS (links: a resolvable file path is Ctrl+clickable; a missing one is not)"
+    : "UNEXPECTED file links " + JSON.stringify(links.map((l) => [l.range.a[0], l.target.toString()])));
+
+  // hovering the local png shows the picture
+  const hoverImg = await hoverProvider.provideHover(docF, new vscode.Position(1, 13));
+  console.log(hoverImg && /!\[\]\(file:/.test(hoverImg.contents.value)
+    ? "PASS (hover: a local image file shows the picture)"
+    : "UNEXPECTED image hover " + JSON.stringify(hoverImg && hoverImg.contents.value));
+
+  // hovering the image URL shows the picture too (metadata off to skip the network)
+  configStore.urlMetadata = false;
+  const hoverUrlImg = await hoverProvider.provideHover(docF, new vscode.Position(3, 12));
+  delete configStore.urlMetadata;
+  console.log(hoverUrlImg && /!\[\]\(https:\/\/example\.com\/logo\.png\)/.test(hoverUrlImg.contents.value)
+    ? "PASS (hover: an image URL shows the picture)"
+    : "UNEXPECTED image url hover " + JSON.stringify(hoverUrlImg && hoverUrlImg.contents.value));
+  fs.rmSync(dir, { recursive: true, force: true });
+})();
+
+// 9c3) typing '@' in a table formula suggests the columns first, then the
+// Examples; on a line-form value it suggests sibling attributes and Examples.
+{
+  const tbl = [
+    "Order",
+    "    |name |price|qty|total|",
+    "    |-----+-----+---+-----|",
+    "    |Alpha|10   |2  |=@|",
+    "    |Beta |5    |4  |     |",
+  ].join("\n");
+  const docC = makeDoc("c:\\repo\\Comp.aot", tbl);
+  const atCol = tbl.split("\n")[3].indexOf("@") + 1;
+  const items = completionProvider.provideCompletionItems(docC, new vscode.Position(3, atCol));
+  const cols = items.filter((i) => i.detail === "column").map((i) => i.label);
+  const exs = items.filter((i) => i.detail === "Example").map((i) => i.label);
+  console.log(cols.join(",") === "price,qty,total" && exs.includes("Alpha") && exs.includes("Beta")
+    && items[0].detail === "column"
+    ? "PASS (completion: '@' in a table cell offers columns first, then Examples)"
+    : "UNEXPECTED completion " + JSON.stringify({ cols, exs }));
+
+  const lineForm = [
+    "Order",
+    "    - A",
+    "        price: 10",
+    "        qty: 2",
+    "        total: =@",
+    "    - B",
+    "        price: 5",
+  ].join("\n");
+  const docL = makeDoc("c:\\repo\\Line.aot", lineForm);
+  const lCol = lineForm.split("\n")[4].indexOf("@") + 1;
+  const litems = completionProvider.provideCompletionItems(docL, new vscode.Position(4, lCol));
+  const lcols = litems.filter((i) => i.detail === "column").map((i) => i.label);
+  console.log(lcols.includes("price") && lcols.includes("qty") && litems.some((i) => i.detail === "Example")
+    ? "PASS (completion: '@' on a line-form value offers sibling attributes and Examples)"
+    : "UNEXPECTED line completion " + JSON.stringify(litems.map((i) => [i.label, i.detail])));
 }
 
 // 9d) the lone-sub grace: only the "1 sub-Concept" warning waits — every

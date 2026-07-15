@@ -255,15 +255,15 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
       node(p.root, p.nodes, "Ollie").children.some((c) => c.name === "size" && c.value === "5"));
     check("table: a header alias parses without errors", r.errors.length === 0);
   }
-  // a formula rides after the value ('20 =$2*2'); the model sees only the value
+  // a formula rides after the value ('20 =@2*2'); the model sees only the value
   {
     const r = makeReport();
     const p = parse(aot(
       "Order",
       "    | name | price | total    |",
       "    |------+-------+----------|",
-      "    | A    | 10    | 20 =$2*2 |",
-      "    | B    | 10    | =$2*2    |",
+      "    | A    | 10    | 20 =@2*2 |",
+      "    | B    | 10    | =@2*2    |",
     ), "Zoo", r);
     const a = node(p.root, p.nodes, "A"), b = node(p.root, p.nodes, "B");
     check("table: a cell's formula is stripped from its Attribute Value",
@@ -279,7 +279,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     const p = parse(aot(
       "Order",
       "    - A",
-      "        total: 30 =sum($price)",
+      "        total: 30 =sum(@price)",
       "        speed: 5 >=3",
       "        note: 10 < 20 knots",
     ), "Zoo", r);
@@ -288,7 +288,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     const speed = a.children.find((c) => c.name === "speed");
     const note = a.children.find((c) => c.name === "note");
     check("line form: a value's '=' formula is stripped onto the node",
-      total && total.value === "30" && total.op === "=" && total.formula === "sum($price)");
+      total && total.value === "30" && total.op === "=" && total.formula === "sum(@price)");
     check("line form: a comparison in a value stays a plain value (constraints live on attributes)",
       speed && speed.value === "5 >=3" && speed.op === undefined);
     check("line form: prose comparisons stay whole values",
@@ -416,17 +416,14 @@ check("verify: the same Concept name defined twice is an error",
 check("verify: identical sibling defaults are an error",
   hasError(lintTree(aot("Box", "    colour: red", "    colour: red")).report, /repeated under 'Box' with the same value/));
 
-// an identifier resolves to exactly one target: shared aliases and
-// self-aliases are errors, an alias naming another Concept stays legal
+// an identifier resolves to exactly one target: shared aliases, self-aliases
+// and an alias that names another Concept (a duplicate identity) are all errors
 check("verify: two Concepts sharing an alias is an error",
-  hasError(lintTree(aot("Automobile (Car)", "Vehicle (Car)"), "Fleet").report, /also the alias of 'Automobile'/));
+  hasError(lintTree(aot("Automobile (Auto)", "Vehicle (Auto)"), "Fleet").report, /also the alias of 'Automobile'/));
 check("verify: an alias repeating its own Concept's name is an error",
   hasError(lintTree(aot("Car (car)"), "Fleet").report, /repeats the Concept's own name/));
-{
-  const legal = lintTree(aot("Car", "Auto (Car)"), "Fleet").report;
-  check("verify: an alias naming another Concept stays legal (alias-is-a-Concept)",
-    !legal.errors.some((e) => /alias/.test(e.message)));
-}
+check("verify: an alias naming another Concept is a duplicate-identity error",
+  hasError(lintTree(aot("Car", "Auto (Car)"), "Fleet").report, /is the name of another Concept.*one duplicated identity/));
 
 // Example references resolve case-insensitively, so case-only twins warn
 {
