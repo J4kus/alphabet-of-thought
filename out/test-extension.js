@@ -1067,6 +1067,38 @@ if (process.platform === "win32" || process.platform === "darwin") {
     : "UNEXPECTED spreadsheet rename " + (failed || JSON.stringify(ops)));
 }
 
+// 8e) the F2 nudge: standing in a name that is used elsewhere shows ghost
+// text with the count F2 would edit; an unused name shows nothing
+{
+  const web = makeDoc("c:\\repo\\Nudge.aot", [
+    "Registry",
+    "    Person",
+    "        - Socrates",
+    "    - Emp",
+    "        person: Socrates",
+    "        boss: =@person",
+  ].join("\n"));
+  const shown = [];
+  const editor = {
+    document: web,
+    selections: [new vscode.Selection(1, 5, 1, 5)],
+    setDecorations: (type, opts) => shown.push(opts),
+  };
+  vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
+  const hint = shown.pop();
+  console.log(hint && hint.length === 1
+    && hint[0].renderOptions.after.contentText === "2 uses elsewhere — F2 renames them all"
+    && hint[0].range.a[0] === 1
+    ? "PASS (nudge: a used Concept shows the F2 ghost text with its count)"
+    : "UNEXPECTED nudge " + JSON.stringify(hint));
+  editor.selections = [new vscode.Selection(0, 2, 0, 2)];
+  vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
+  const cleared = shown.pop();
+  console.log(cleared && cleared.length === 0
+    ? "PASS (nudge: an unused name shows nothing)"
+    : "UNEXPECTED nudge clear " + JSON.stringify(cleared));
+}
+
 // 9) aliases are alternative names: an attribute typed by a Concept's alias
 // crosslinks to that Concept, a Concept's alias that names another Concept
 // links itself (alias-is-a-Concept), and hovering a Concept lists its

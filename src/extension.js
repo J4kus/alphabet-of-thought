@@ -820,13 +820,10 @@ function renameRecords(doc, analysis, registry) {
   ];
 }
 
-// The node a rename at `position` means, with the exact range under the
-// cursor: a crosslink names its target, a declaration itself, a formula
-// reference the declaration it resolves to.
-function renameContext(doc, position, analysis, registry, records) {
-  for (const link of analysis.links) {
-    if (!link.file && linkRange(link).contains(position)) return { node: link.target, range: linkRange(link) };
-  }
+// The declared name at `position`: its node and the exact range of the
+// name on its line — a Concept, an Example, an attribute, a header or
+// first-column cell; never a cell's value.
+function declarationAt(doc, position, analysis) {
   for (const node of analysis.nodes) {
     if (node.line - 1 !== position.line || !node.name || isValueCell(node)) continue;
     const start = nameStartOf(doc, node);
@@ -834,6 +831,18 @@ function renameContext(doc, position, analysis, registry, records) {
       return { node, range: new vscode.Range(node.line - 1, start, node.line - 1, start + node.name.length) };
     }
   }
+  return null;
+}
+
+// The node a rename at `position` means, with the exact range under the
+// cursor: a crosslink names its target, a declaration itself, a formula
+// reference the declaration it resolves to.
+function renameContext(doc, position, analysis, registry, records) {
+  for (const link of analysis.links) {
+    if (!link.file && linkRange(link).contains(position)) return { node: link.target, range: linkRange(link) };
+  }
+  const decl = declarationAt(doc, position, analysis);
+  if (decl) return decl;
   const site = (r) => nodeAtSite(analysis, doc, r.site, r.text);
   for (const r of records) {
     if (r.line - 1 !== position.line || position.character < r.startCol || position.character > r.endCol) continue;
@@ -863,6 +872,69 @@ function tableNode(analysis, doc, registry, r) {
   return sc.nameLine ? nodeAtSite(analysis, doc, { line: sc.nameLine, col: null }, r.text) : null;
 }
 
+// Every span a rename of `target` edits: `decl` — the declarations the
+// name means (the target, an attribute's same-named copies across its
+// host's Examples, and the ancestor constraint that governs it by name) —
+// and `uses` — the crosslinks and the formula references, exactly as
+// evaluation resolves them. One collection, shared by F2 and the ghost
+// nudge, so the nudge counts exactly what F2 would edit.
+function renameSpans(doc, analysis, registry, records, target) {
+  const lower = target.name.toLowerCase();
+  const set = new Set([target]);
+  if (isAttrDecl(target) || target.cell) {
+    const host = target.parent && target.parent.kind === KIND.INDIVIDUAL ? target.parent.parent : target.parent;
+    const owners = host ? [host, ...host.children.filter((c) => c.kind === KIND.INDIVIDUAL)] : [];
+    for (const o of owners) for (const c of o.children) {
+      if ((isAttrDecl(c) || (c.cell && c.kind === KIND.ATTRIBUTE)) && c.name.toLowerCase() === lower) set.add(c);
+    }
+    for (let p = target.parent; p; p = p.parent) {
+      for (const c of p.children) {
+        if (c.kind === KIND.ATTRIBUTE && c.name.toLowerCase() === lower && (c.op !== undefined || c.types)) set.add(c);
+      }
+    }
+  }
+
+  const decl = [], uses = [];
+  const seen = new Set();
+  const push = (list, line, startCol, endCol) => {
+    const key = line + ":" + startCol;
+    if (!seen.has(key)) { seen.add(key); list.push({ line, startCol, endCol }); }
+  };
+  for (const n of set) {
+    const start = nameStartOf(doc, n);
+    push(decl, n.line, start, start + n.name.length);
+  }
+  // crosslinks follow — and an attribute wearing the renamed name is
+  // renamed with it, so the formulas reading that attribute follow too
+  for (const n of [...set]) {
+    for (const link of analysis.usagesOf.get(n) || []) {
+      const raw = doc.lineAt(link.line - 1).text.slice(link.startCol, link.endCol);
+      if (raw.toLowerCase() !== lower) continue; // resolved by alias or plural: its text is its own
+      push(uses, link.line, link.startCol, link.endCol);
+      const wearer = analysis.nodes.find((nn) => nn.line === link.line && !isValueCell(nn) && nn.name
+        && (nn.kind === KIND.ATTRIBUTE || nn.kind === KIND.DEFAULT)
+        && nameStartOf(doc, nn) === link.startCol && nn.name.toLowerCase() === lower);
+      if (wearer) set.add(wearer);
+    }
+  }
+  // formula references, exactly as evaluation resolves them
+  const resolvesToSet = (r) => {
+    if (r.nodes) return r.nodes.some((n) => set.has(n));
+    if (r.conceptNode) return [...set].some((n) =>
+      (n.kind === KIND.ATTRIBUTE || n.kind === KIND.DEFAULT)
+      && n.name.toLowerCase() === r.attrKey && underConcept(n, r.conceptNode));
+    if (r.kind === "table") { const n = tableNode(analysis, doc, registry, r); return n ? set.has(n) : false; }
+    if (r.site) { const n = nodeAtSite(analysis, doc, r.site, r.text); return n ? set.has(n) : false; }
+    return false;
+  };
+  for (const r of records) {
+    if (r.text.toLowerCase() !== lower) continue;
+    if (!resolvesToSet(r)) continue;
+    push(uses, r.line, r.startCol, r.endCol);
+  }
+  return { decl, uses };
+}
+
 const renameProvider = {
   prepareRename(doc, position) {
     const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
@@ -881,64 +953,7 @@ const renameProvider = {
     const records = renameRecords(doc, analysis, registry);
     const found = renameContext(doc, position, analysis, registry, records);
     if (!found || !found.node.line) throw new Error("nothing renameable here — put the cursor on a Concept, Example or attribute name");
-    const target = found.node;
-    const lower = target.name.toLowerCase();
-
-    // the declarations the name means: the target; an attribute's
-    // same-named copies across its host's Examples, and the ancestor
-    // constraint that governs it by name
-    const set = new Set([target]);
-    if (isAttrDecl(target) || target.cell) {
-      const host = target.parent && target.parent.kind === KIND.INDIVIDUAL ? target.parent.parent : target.parent;
-      const owners = host ? [host, ...host.children.filter((c) => c.kind === KIND.INDIVIDUAL)] : [];
-      for (const o of owners) for (const c of o.children) {
-        if ((isAttrDecl(c) || (c.cell && c.kind === KIND.ATTRIBUTE)) && c.name.toLowerCase() === lower) set.add(c);
-      }
-      for (let p = target.parent; p; p = p.parent) {
-        for (const c of p.children) {
-          if (c.kind === KIND.ATTRIBUTE && c.name.toLowerCase() === lower && (c.op !== undefined || c.types)) set.add(c);
-        }
-      }
-    }
-
-    const spans = [];
-    const seen = new Set();
-    const push = (line, startCol, endCol) => {
-      const key = line + ":" + startCol;
-      if (!seen.has(key)) { seen.add(key); spans.push({ line, startCol, endCol }); }
-    };
-    for (const n of set) {
-      const start = nameStartOf(doc, n);
-      push(n.line, start, start + n.name.length);
-    }
-    // crosslinks follow — and an attribute wearing the renamed name is
-    // renamed with it, so the formulas reading that attribute follow too
-    for (const n of [...set]) {
-      for (const link of analysis.usagesOf.get(n) || []) {
-        const raw = doc.lineAt(link.line - 1).text.slice(link.startCol, link.endCol);
-        if (raw.toLowerCase() !== lower) continue; // resolved by alias or plural: its text is its own
-        push(link.line, link.startCol, link.endCol);
-        const wearer = analysis.nodes.find((nn) => nn.line === link.line && !isValueCell(nn) && nn.name
-          && (nn.kind === KIND.ATTRIBUTE || nn.kind === KIND.DEFAULT)
-          && nameStartOf(doc, nn) === link.startCol && nn.name.toLowerCase() === lower);
-        if (wearer) set.add(wearer);
-      }
-    }
-    // formula references, exactly as evaluation resolves them
-    const resolvesToSet = (r) => {
-      if (r.nodes) return r.nodes.some((n) => set.has(n));
-      if (r.conceptNode) return [...set].some((n) =>
-        (n.kind === KIND.ATTRIBUTE || n.kind === KIND.DEFAULT)
-        && n.name.toLowerCase() === r.attrKey && underConcept(n, r.conceptNode));
-      if (r.kind === "table") { const n = tableNode(analysis, doc, registry, r); return n ? set.has(n) : false; }
-      if (r.site) { const n = nodeAtSite(analysis, doc, r.site, r.text); return n ? set.has(n) : false; }
-      return false;
-    };
-    for (const r of records) {
-      if (r.text.toLowerCase() !== lower) continue;
-      if (!resolvesToSet(r)) continue;
-      push(r.line, r.startCol, r.endCol);
-    }
+    const { decl, uses } = renameSpans(doc, analysis, registry, records, found.node);
 
     // Case follows the span, not the typist: Concepts are capitalised and
     // attributes lowercase by convention, and every link resolves
@@ -946,7 +961,7 @@ const renameProvider = {
     // attribute name, its alias, a lowercase reference) takes the new name
     // lowercased, and every other span takes it exactly as typed.
     const edit = new vscode.WorkspaceEdit();
-    for (const s of spans) {
+    for (const s of [...decl, ...uses]) {
       const old = doc.lineAt(s.line - 1).text.slice(s.startCol, s.endCol);
       edit.replace(doc.uri, new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
         old === old.toLowerCase() ? name.toLowerCase() : name);
@@ -954,6 +969,46 @@ const renameProvider = {
     return edit;
   },
 };
+
+// A nudge toward F2: standing in a declared name that is used elsewhere
+// shows faint ghost text at the end of the line — how many places a hand
+// edit would strand, and the key that renames them all. It reuses the
+// rename's own span collection, so the count is exactly what F2 would
+// edit; a name nothing else uses shows nothing. Cached per cursor-name
+// and document version, so resting in a name costs one walk.
+let renameHintType = null; // created on activation
+let renameHintLast = null; // { key, count } for the name the cursor is in
+function renameHint(editor) {
+  if (!renameHintType) return;
+  const doc = editor.document;
+  const sel = editor.selections && editor.selections.length === 1 ? editor.selections[0] : null;
+  if (!sel || !sel.active) {
+    editor.setDecorations(renameHintType, []);
+    return;
+  }
+  const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+  const found = declarationAt(doc, sel.active, analysis);
+  if (!found) {
+    editor.setDecorations(renameHintType, []);
+    return;
+  }
+  const key = `${doc.uri.toString()}:${doc.version}:${found.node.line}:${found.range.start.character}:${found.node.name}`;
+  if (!renameHintLast || renameHintLast.key !== key) {
+    const registry = formulaRegistry(doc, analysis);
+    const { uses } = renameSpans(doc, analysis, registry, renameRecords(doc, analysis, registry), found.node);
+    renameHintLast = { key, count: uses.length };
+  }
+  const n = renameHintLast.count;
+  if (!n) {
+    editor.setDecorations(renameHintType, []);
+    return;
+  }
+  const end = doc.lineAt(found.node.line - 1).range.end;
+  editor.setDecorations(renameHintType, [{
+    range: new vscode.Range(end.line, end.character, end.line, end.character),
+    renderOptions: { after: { contentText: `${n} use${n === 1 ? "" : "s"} elsewhere — F2 renames them all` } },
+  }]);
+}
 
 // Dependency chains in small print: an inlay hint at the end of every line
 // that carries a dependency-forming crosslink shows the first chain from
@@ -1689,7 +1744,11 @@ function activate(context) {
       textDecoration: "underline dotted",
     }),
   };
-  context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual);
+  // the F2 nudge's ghost text, in the editor's native ghost-text colour
+  renameHintType = vscode.window.createTextEditorDecorationType({
+    after: { color: new vscode.ThemeColor("editorGhostText.foreground"), margin: "0 0 0 2em" },
+  });
+  context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual, renameHintType);
 
   const timers = new Map();
   const lastCursorLine = new Map(); // uri -> the cursor's last line, per doc
@@ -1834,6 +1893,8 @@ function activate(context) {
         lastCursorLine.set(key, active.line);
         autoComputeValues(doc, null, true);
       }
+      // standing in a used name shows the F2 nudge; leaving it clears it
+      renameHint(event.textEditor);
     }),
     vscode.window.onDidChangeActiveTextEditor(updateTableContext),
     // saving persists computed values: the recompute edits ride the save
