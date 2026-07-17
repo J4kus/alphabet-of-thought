@@ -27,7 +27,10 @@
 // evaluator; requiring linter.js here is safe (linter never requires this).
 
 const { KIND, INDENT } = require("./linter");
-const { splitCell, evalFormula, formatValue, compareValues, longestMatch, satisfiesTypes, valueType } = require("./table");
+const {
+  splitCell, evalFormula, formatValue, compareValues, longestMatch,
+  satisfiesTypes, valueType, tablesOf, updateTable, describeBound,
+} = require("./table");
 
 // The line-form derivation hosts: DEFAULT nodes whose parsed value carried
 // an operator (linter.js strips it onto node.formula / node.op).
@@ -96,6 +99,9 @@ function makeCtx(d, current, registry) {
     return hit.kind === KIND.DEFAULT ? current(hit) : "";
   };
   return {
+    // line form has no grid, so no column carries a number: `@1` can only
+    // name an Example, and tableOnly still rejects a number that names none
+    hasColumn: () => false,
     matchColumn: (rest) => longestMatch(rest, nameCands),
     matchRow: (rest) => longestMatch(rest, rowCands),
     cell: (c) => {
@@ -115,6 +121,103 @@ function makeCtx(d, current, registry) {
     matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
     table: registry ? (id) => registry.scopes.get(id) : undefined,
   };
+}
+
+// A read-only evaluation scope over a line-form Concept: its Examples are
+// the rows, and the attribute names beneath it — its own defaults and its
+// Examples' — are the columns. Exactly the shape table.js's foreignScope
+// gives a table's grid, so the evaluator needs no new case and
+// `@Integer@35@is prime` reads the way `@Order@price@Acme` does: a Concept
+// written line-form and one written as a table are the same idea, so they
+// are referenced the same way.
+//
+// An Example that is silent on an attribute answers the Concept's own
+// default — the inheritance the tree already means. A line-form Concept has
+// no columns to number, so `hasColumn` is false throughout and a numeric
+// part can only name an Example, which is what a Concept whose Examples are
+// numbers (`- 1`, `- 35`) needs.
+function conceptScope(concept) {
+  const examples = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+  const names = new Map();   // lowercased name or alias -> canonical id
+  const display = new Map(); // canonical id -> the name as written
+  const addAttrs = (owner) => {
+    for (const c of owner.children) {
+      if (c.kind !== KIND.DEFAULT && c.kind !== KIND.ATTRIBUTE) continue;
+      const key = c.name.toLowerCase();
+      if (!names.has(key)) { names.set(key, key); display.set(key, c.name); }
+      if (c.alias && !names.has(c.alias.toLowerCase())) names.set(c.alias.toLowerCase(), key);
+    }
+  };
+  addAttrs(concept);
+  for (const ex of examples) addAttrs(ex);
+  const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
+  const rowCands = examples.map((ex, r) => ({ key: ex.name.toLowerCase(), id: r }));
+  const valueOn = (owner, id) => {
+    const hit = owner.children.find((c) =>
+      (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
+      && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id)));
+    return hit && hit.kind === KIND.DEFAULT ? hit.value || "" : undefined;
+  };
+  const valueAt = (r, id) => {
+    const ex = examples[r];
+    if (!ex) throw new Error(`there is no Example @${r} on '${concept.name}'`);
+    const own = valueOn(ex, id);
+    if (own !== undefined) return own;
+    const inherited = valueOn(concept, id); // the Concept's default
+    return inherited === undefined ? "" : inherited;
+  };
+  return {
+    name: concept.name, // original case, for the completion
+    columns: [...display.values()],
+    rows: examples.map((ex) => ex.name),
+    hasColumn: () => false,
+    matchColumn: (rest) => longestMatch(rest, nameCands),
+    matchRow: (rest) => longestMatch(rest, rowCands),
+    cellAt: (c, r) => valueAt(r, c),
+    column: (c) => examples.map((_, r) => valueAt(r, c)),
+    // The Concept's *own* value for an attribute — the default it states on
+    // its own line — or undefined where it states none. A grid has no such
+    // reading (a table is rows and nothing else), which is why only a
+    // Concept offers it: `@Measurement@alias` means the value Measurement
+    // itself carries, the same one its Examples would inherit.
+    self: (c) => valueOn(concept, c),
+    // the same Examples as a grid — the first column names them, as the CSV
+    // mirror writes a table's, so a line-form Concept mirrors like any other
+    grid: () => [
+      ["name", ...display.values()],
+      ...examples.map((ex, r) => [ex.name, ...[...display.keys()].map((id) => valueAt(r, id))]),
+    ],
+  };
+}
+
+// The line-form Concepts one file offers to cross-Concept references: a Map
+// from each Concept's name (lowercased) to a conceptScope over it, keyed the
+// way table.js's tableRegistry keys a table. The first Concept wins a shared
+// name.
+//
+// A Concept is worth registering when it has something to answer with, which
+// is either of the two things a Concept can hold: **Examples** (the rows a
+// reference reaches with `@Integer@35@is prime`) or **values of its own**
+// (the defaults a reference reaches with `@Measurement@alias`). A Concept
+// with neither — a bare name, or one holding only sub-Concepts — answers
+// nothing, so it stays out.
+//
+// Merge it *beneath* the same file's tableRegistry (mergeRegistries — later
+// wins): a Concept written as a table keeps the table's own scope, which is
+// the sharper reading of the same rows.
+const answersSomething = (n) => n.children.some((c) =>
+  c.kind === KIND.INDIVIDUAL || (c.kind === KIND.DEFAULT && c.value));
+
+function conceptRegistry(root, nodes) {
+  const map = new Map();
+  const add = (n) => {
+    const key = n.name.toLowerCase();
+    if (map.has(key) || !answersSomething(n)) return;
+    map.set(key, conceptScope(n));
+  };
+  if (root) add(root);
+  for (const n of nodes) if (n.kind === KIND.CONCEPT) add(n);
+  return map;
 }
 
 // Locate a host's derivation on its raw line: the operator's column span,
@@ -244,7 +347,7 @@ function auditValues(root, nodes, lines, registry) {
       continue;
     }
     if (!compareValues(a.op, d.value, bound)) {
-      violation(d, `value '${d.value}' violates '${a.name} ${a.op} ${typeof bound === "number" ? bound : `\`${bound}\``}' (line ${a.line}) — change the value, or the constraint`);
+      violation(d, `value '${d.value}' violates '${a.name} ${a.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
     }
   }
   return out;
@@ -321,4 +424,119 @@ function copyToSiblings(root, nodes, lines, lineIdx) {
   return ops.length ? ops : null;
 }
 
-module.exports = { auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf, referencesAt };
+// The edit that lists `value` as an Example of `concept`: a row appended to
+// the Concept's table when it has one, otherwise a `- value` line after its
+// last Example. The Example lands in the shape the Concept is already
+// written in, so the writer never has to translate between the two forms —
+// the rest of a new row (and any attribute of a new `- Example`) is theirs
+// to fill in.
+//
+// Returns { changed, from, to, block } — lines from..to (inclusive, 0-based)
+// become `block`, and to < from is a pure insert before `from`: the shape
+// table.updateTable already returns. null when no line defines the Concept.
+function addExample(root, nodes, lines, concept, value, rootName, registry) {
+  const grid = tablesOf(lines, rootName)
+    .find((t) => t.name.toLowerCase() === concept.name.toLowerCase());
+  if (grid) {
+    const row = grid.header.map((_, k) => (k === 0 ? value : ""));
+    return updateTable(lines, grid.name, grid.header, [...grid.rows, row], rootName, registry);
+  }
+  const examples = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+  // after the last Example's whole subtree, so the new one is a sibling of
+  // the others and not a child of the last one's deepest attribute
+  const last = examples.length ? examples[examples.length - 1]
+    : concept.children[concept.children.length - 1];
+  const after = last ? lastLineOf(last) : concept.line;
+  if (!after) return null;
+  return {
+    changed: true,
+    from: after, to: after - 1, // a pure insert on the line below
+    block: [" ".repeat(INDENT * (concept.depth + 1)) + `- ${value}`],
+  };
+}
+
+// Fold a grid's rows into a Concept's line-form Examples, merging by name:
+// an Example already there is updated attribute by attribute, one that is
+// not is appended whole. The Concept keeps the form it was written in — a
+// CSV arriving is data, and data is no reason to restructure somebody's
+// tree into a table.
+//
+// The grid's first column names the Example and the rest are attribute
+// names, exactly as the CSV mirror writes a table's. Two things the grid is
+// never allowed to do: a blank cell says nothing (it does not erase — the
+// CSV simply has no way to distinguish "empty" from "unsaid"), and a value
+// that carries a formula is left to its formula, which owns it.
+//
+// Returns [{ type: "replace", line, text } | { type: "insert", afterLine,
+// text }] with 1-based lines, [] when the grid changes nothing. Apply them
+// in **descending line order**, so no edit shifts the lines under another.
+// At most one op ever targets a given line, so that order is all a caller
+// has to get right.
+function updateExamples(lines, concept, header, rows) {
+  const attrs = header.slice(1);
+  const indent = " ".repeat(INDENT * (concept.depth + 1));
+  const childIndent = " ".repeat(INDENT * (concept.depth + 2));
+  const examples = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+  const byName = new Map(examples.map((e) => [e.name.toLowerCase(), e]));
+  const ops = [];
+  const fresh = [];
+  for (const row of rows) {
+    const name = (row[0] || "").trim();
+    if (!name) continue;
+    const ex = byName.get(name.toLowerCase());
+    if (!ex) {
+      fresh.push(indent + `- ${name}`);
+      attrs.forEach((a, k) => {
+        const v = (row[k + 1] || "").trim();
+        if (v) fresh.push(childIndent + `${a}: ${v}`);
+      });
+      continue;
+    }
+    const missing = [];
+    attrs.forEach((a, k) => {
+      const v = (row[k + 1] || "").trim();
+      if (!v) return;
+      const key = a.toLowerCase();
+      const hit = ex.children.find((c) =>
+        (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
+        && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key)));
+      if (!hit) { missing.push(childIndent + `${a}: ${v}`); return; }
+      if (hit.formula !== undefined || hit.value === v) return;
+      const raw = lines[hit.line - 1] || "";
+      const colon = raw.indexOf(":");
+      if (colon === -1) return;
+      ops.push({ type: "replace", line: hit.line, text: raw.slice(0, colon + 1) + " " + v });
+    });
+    if (missing.length) ops.push({ type: "insert", afterLine: lastLineOf(ex), text: missing.join("\n") });
+  }
+  if (fresh.length) {
+    // after the last Example's whole subtree, so the new ones are siblings
+    // of the others and not children of the last one's deepest attribute
+    const last = examples.length ? examples[examples.length - 1]
+      : concept.children[concept.children.length - 1];
+    ops.push({ type: "insert", afterLine: last ? lastLineOf(last) : concept.line, text: fresh.join("\n") });
+  }
+  // Two inserts after the same line would fight. It happens whenever the
+  // *last* Example gains an attribute and a fresh Example is appended too:
+  // both land after that Example's last line, and applied bottom-up they
+  // arrive in the reverse of the order they were built — the attribute
+  // meant for the last Example would end up under the fresh one. Merge them
+  // into a single op instead, in build order, so no caller's sort can get
+  // this wrong.
+  const merged = [];
+  const insertAt = new Map(); // afterLine -> the op collecting that line's text
+  for (const op of ops) {
+    if (op.type !== "insert") { merged.push(op); continue; }
+    const collecting = insertAt.get(op.afterLine);
+    if (collecting) { collecting.text += "\n" + op.text; continue; }
+    const own = { ...op };
+    insertAt.set(op.afterLine, own);
+    merged.push(own);
+  }
+  return merged;
+}
+
+module.exports = {
+  auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf,
+  referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
+};

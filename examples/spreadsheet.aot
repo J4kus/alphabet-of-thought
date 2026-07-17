@@ -1,4 +1,26 @@
-Person
-    |name |nationality|
-    |-----+-----------|
-    |jakus|RSA        |
+Person (Natural Person)
+    |name    |nationality|alias|
+    |--------+-----------+-----|
+    |Socrates|RSA        |Paul |
+    |James   |           |     |
+Integer
+    is group on its own: No
+    is prime: No
+    - 1
+        is group on its own: No
+        is prime: Yes
+    - 35
+        is group on its own: No
+        is prime: No
+    - 5
+        
+Measurement
+    age (integer): 5
+    person: James
+    alias: Paul =@Person@alias@Socrates
+    age: No =@Integer@35@is prime
+    
+File
+    |name                |test (alias)|tester two              |
+    |--------------------+------------+------------------------|
+    |aot.files/Person.csv|5           |Paul =@Measurement@alias|

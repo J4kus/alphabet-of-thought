@@ -199,7 +199,7 @@
                         tax number
                 Measurement
                     said of: Not Said Of
-                    superordinate measurement: None
+                    parent measurement: None
                     name
                     expected value
                     actual value
@@ -302,7 +302,7 @@
                         minimum bit count: 0
                         maximum bit count: infinite
                         is constant value: No
-                    superordinate measurement influence
+                    parent measurement influence
                         - Red
                         - Amber
                         - Green

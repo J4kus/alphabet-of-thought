@@ -35,6 +35,7 @@
 // (link decorations + go-to-definition).
 
 const { KIND } = require("./linter");
+const { valueType } = require("./table"); // a leaf module; no cycle
 
 // Start offset of every word in a name, so a matched trailing run of
 // words maps back to the exact characters on the line.
@@ -153,6 +154,90 @@ function instantiates(node, attrName) {
     if (a.name.toLowerCase() === want || (a.alias && a.alias.toLowerCase() === want)) return true;
   }
   return false;
+}
+
+// The Examples a Concept enumerates — the `- Example` children it lists
+// directly, a table's rows among them (a row parses to exactly such a
+// child). These are the values the Concept vouches for.
+const listedExamples = (concept) => concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+
+// The truth values: a fact asserted *about* an Example, never the name of
+// one. They are the values the language already writes bare (`is prime: No`).
+const TRUTH_VALUES = new Set(["yes", "no", "true", "false"]);
+
+// Values that name no Example of the Concept typing their attribute: the
+// `default-is-a-Example` link that did not land. `person: James`, on an
+// attribute typed by `Person` whose only Example is Socrates, asserts that
+// James is a Person while the file never says who James is.
+//
+// Three things keep this to values that were genuinely *trying* to name an
+// Example, because an attribute may mention a Concept without being valued
+// by one:
+//
+//   the Concept must enumerate Examples — one listing none states an open
+//     vocabulary, where any value is fair (`name: Socrates` is prose, not a
+//     claim against a listed set);
+//   the value must be the same kind of value its Examples are — `maximum
+//     worker pool: 1` measures the pool, it does not name one of
+//     Role/Asset/Function, and a number never could, while `age integer: 5`
+//     is a number among the numbers 1 and 35 and genuinely misses;
+//   the value must not be a truth value — `present in: False` says a fact
+//     holds, it does not nominate an Example (and a Concept that really did
+//     enumerate `- Yes` would have linked the value already).
+//
+// A value that does link — through the attribute itself or through its
+// Concept — is already sound, and a derived value is its formula's business.
+//
+// Advisory, never counted in V: an unlisted value is a gap in the model, not
+// a contradiction in it. The extension publishes these as Hints and offers
+// the Quick Fix that lists the Example (derive.addExample). Returns
+// { line, startCol, endCol, value, concept, message }, 1-based lines.
+function unlistedValues(text, root, nodes, external) {
+  const lines = text.split(/\r?\n/);
+  const { concepts } = index(root, nodes);
+  const byName = individualsIndex(nodes);
+  // the repo's definitions fill in for names this file does not define, so a
+  // value is only ever called unlisted against the whole model
+  if (external) {
+    for (const [key, ent] of external.concepts) if (!concepts.has(key)) concepts.set(key, ent.node);
+    for (const [key, list] of external.individuals) {
+      if (!byName.has(key)) byName.set(key, list.map((e) => e.node));
+    }
+  }
+  const out = [];
+  for (const node of nodes) {
+    if (node.kind !== KIND.DEFAULT || !node.value || node.formula !== undefined) continue;
+    if (TRUTH_VALUES.has(node.value.trim().toLowerCase())) continue;
+    const type = conceptType(node, concepts);
+    if (!type) continue;
+    const listed = listedExamples(type);
+    if (!listed.length) continue;
+    const kinds = new Set(listed.map((c) => valueType(c.name)));
+    if (!kinds.has(valueType(node.value))) continue;
+    if (valueTarget(node, concepts, byName)) continue;
+    // a table cell knows its offset; a 'name: value' line finds its value
+    // after the colon, exactly as resolve() pins a default-is-a-Example
+    const raw = lines[node.line - 1] || "";
+    let startCol = node.valueCol;
+    if (startCol === undefined) {
+      const nameStart = raw.length - raw.trimStart().length;
+      const colon = raw.indexOf(":", nameStart);
+      if (colon === -1) continue;
+      const after = raw.slice(colon + 1);
+      startCol = colon + 1 + (after.length - after.trimStart().length);
+    }
+    const names = listed.map((c) => c.name);
+    const shown = names.length > 5 ? `${names.slice(0, 5).join(", ")}, …` : names.join(", ");
+    out.push({
+      line: node.line,
+      startCol,
+      endCol: startCol + node.value.length,
+      value: node.value,
+      concept: type,
+      message: `'${node.value}' is not an Example of Concept '${type.name}' — its Examples are ${shown}`,
+    });
+  }
+  return out;
 }
 
 // A merged index of Concepts and Examples across other files, for cross-file
@@ -382,4 +467,5 @@ function resolve(text, root, nodes, external) {
 module.exports = {
   resolve, index, externalIndex, conceptType, wordStarts, instantiates,
   individualsIndex, valueTarget, listedTarget, owningConcept,
+  unlistedValues, listedExamples,
 };

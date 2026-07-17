@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.4.2",
+  "version": "1.5.1",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -58,6 +58,11 @@
           "type": "boolean",
           "default": true,
           "description": "Hint words longer than four characters that neither British nor American English knows, with suggestions. Hints show on their span and on hover, never in the Problems panel."
+        },
+        "aot.exampleHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hint a value that names no Example of the Concept typing its attribute \u2014 'person: James' where Person's Examples are Socrates alone. Only Concepts that list Examples are held to, and only values of the same kind as those Examples (a truth value or a measurement never counts). Hints show on their span and on hover, never in the Problems panel; the Quick Fix lists the Example."
         },
         "aot.acceptedWords": {
           "type": "array",
@@ -227,6 +232,18 @@
       {
         "command": "aot.copyFormulaToSiblings",
         "title": "Copy Formula to Sibling Examples",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.addExample",
+        "title": "Add Example to Concept",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.copyFileIntoRepo",
+        "title": "Copy File at Cursor into aot.files",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       }

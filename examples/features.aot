@@ -12,6 +12,15 @@ Language Feature
         - Cross Table
             syntax: @Sales Ledger@total@Alpha
             note: name the other table first, the Concept, Example or Attribute it sits under; it may live in any file in the repo
+        - Cross Concept
+            syntax: @Integer@35@is prime
+            note: a Concept written line form is referenced like a table; its Examples are the rows, its attributes the columns
+        - Concept Own Value
+            syntax: @Measurement@alias
+            note: no Example named reads the value the Concept states on its own line, the default its Examples inherit; only a Concept has one, a table is rows and nothing else
+        - Past A Local Name
+            syntax: @Person@alias@Socrates
+            note: the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
     Type Constraint
         - Date Type
             keyword: date
@@ -22,6 +31,9 @@ Language Feature
         - Text Type
             keyword: text
             example: hello
+        - Listed Value
+            keyword: or
+            example: status ==or(`draft`, `sent`, `paid`)
     String Function
         - upper
             turns: widget into WIDGET
@@ -29,6 +41,26 @@ Language Feature
             turns: WIDGET into widget
         - trim
             turns: padded text into a tight one
+        - concat
+            turns: three pieces into one
+        - split
+            turns: a packed value into its fields
+        - find
+            turns: a part into its position, or zero when it is absent
+    Logical Operator
+        - and
+            true when: every argument is true
+        - or
+            true when: any argument is true
+        - not
+            true when: its argument is false
+        - xor
+            true when: an odd number of arguments are true
+    Escape
+        - Literal Equals
+            escapes: the equals sign
+            written: a \= b
+            reads as: a \= b
 
 Working Demonstration
     Sales Ledger

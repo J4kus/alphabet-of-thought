@@ -4,7 +4,7 @@
 //
 // Plain Node script, no framework — run with: node out/test-derive.js
 const { lint } = require("../src/linter");
-const { auditValues, recomputeValues, copyToSiblings } = require("../src/derive");
+const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples } = require("../src/derive");
 const { tableRegistry, mergeRegistries } = require("../src/table");
 
 let failures = 0;
@@ -268,6 +268,377 @@ const parsed = (text) => {
   check("copy: a peer without the attribute gains a fresh line after its block",
     inserted && inserted.afterLine === 9 && inserted.text === "        vat: =@price*0.2");
   check("copy: a non-formula line copies nothing", copyToSiblings(root, nodes, lines, 2) === null);
+}
+
+// ---------------------------------------------------------------------------
+// a local attribute named after the table it points at no longer shadows it:
+// the local reading is tried first and, when it cannot be completed, the
+// foreign table gets its turn
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Person",
+    "    |name    |nationality|alias|",
+    "    |--------+-----------+-----|",
+    "    |Socrates|RSA        |Paul |",
+    "Measurement",
+    "    person: Socrates",              // a sibling attribute named 'person'
+    "    alias: =@Person@alias@Socrates", // ... must not swallow this lead
+    "    where: =@Person@nationality@Socrates",
+    "    mine: =@person",                 // the local attribute still wins outright
+  );
+  const { root, nodes, lines } = parsed(text);
+  const reg = mergeRegistries(tableRegistry(lines, "Sheet"));
+  const edits = recomputeValues(root, nodes, lines, reg);
+  check("shadowing: @Person@alias@Socrates reaches the table past the local 'person'",
+    edits.some((e) => e.text.includes("alias: Paul =@Person@alias@Socrates")));
+  check("shadowing: the same holds for any of the table's columns",
+    edits.some((e) => e.text.includes("where: RSA =@Person@nationality@Socrates")));
+  check("shadowing: a lone @person still reads the local attribute, not the table",
+    edits.some((e) => e.text.includes("mine: Socrates =@person")));
+}
+
+// an aggregate's column reference is read the same way: the local attribute
+// gives way to the table when it cannot name a whole column
+{
+  const text = aot(
+    "Prices",
+    "    |name |price|",
+    "    |-----+-----|",
+    "    |Acme |10   |",
+    "    |Bolt |20   |",
+    "Order",
+    "    prices: some",                  // a sibling attribute named 'prices'
+    "    total: =sum(@Prices@price)",    // ... must not swallow this lead
+  );
+  const { root, nodes, lines } = parsed(text);
+  const edits = recomputeValues(root, nodes, lines, mergeRegistries(tableRegistry(lines, "Sheet")));
+  check("shadowing: sum(@Prices@price) reaches the table past the local 'prices'",
+    edits.some((e) => e.text.includes("total: 30 =sum(@Prices@price)")));
+}
+
+// ---------------------------------------------------------------------------
+// a line-form Concept is referenced exactly as a table is: its Examples are
+// the rows, its attributes the columns, and a numeric Example name is an
+// Example (line form has no columns to number)
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Integer",
+    "    is prime: No",
+    "    - 1",
+    "        is prime: Yes",
+    "        weight: 4",
+    "    - 35",
+    "        is prime: No",
+    "        weight: 6",
+    "    - 7",
+    "        weight: 2",                 // silent on 'is prime': inherits 'No'
+    "Measurement",
+    "    age: =@Integer@35@is prime",
+    "    first: =@Integer@is prime@1",   // column and Example in either order
+    "    heavy: =sum(@Integer@weight)",
+    "    quiet: =@Integer@is prime@7",   // the Concept's own default stands in
+  );
+  const { root, nodes, lines } = parsed(text);
+  const reg = mergeRegistries(conceptRegistry(root, nodes), tableRegistry(lines, "Sheet"));
+  const edits = recomputeValues(root, nodes, lines, reg);
+  check("line-form scope: @Concept@Example@attribute reads a numeric Example",
+    edits.some((e) => e.text.includes("age: No =@Integer@35@is prime")));
+  check("line-form scope: the column and the Example may come in either order",
+    edits.some((e) => e.text.includes("first: Yes =@Integer@is prime@1")));
+  check("line-form scope: an aggregate ranges over the Concept's column",
+    edits.some((e) => e.text.includes("heavy: 12 =sum(@Integer@weight)")));
+  check("line-form scope: an Example silent on an attribute inherits the default",
+    edits.some((e) => e.text.includes("quiet: No =@Integer@is prime@7")));
+  check("line-form scope: without the Concept registry the reference is #ERR",
+    recomputeValues(root, nodes, lines, mergeRegistries(tableRegistry(lines, "Sheet")))
+      .some((e) => e.text.includes("age: #ERR")));
+
+  const scope = conceptRegistry(root, nodes).get("integer");
+  check("line-form scope: the Concept offers its attributes as columns and Examples as rows",
+    scope && scope.columns.join(",") === "is prime,weight" && scope.rows.join(",") === "1,35,7");
+  check("line-form scope: a Concept listing no Examples has nothing to answer with",
+    !conceptRegistry(root, nodes).has("measurement"));
+}
+
+// ---------------------------------------------------------------------------
+// a Concept's own value: @Concept@attribute, with no Example named, reads
+// the value the Concept states on its own line
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Person",
+    "    |name    |alias|",
+    "    |--------+-----|",
+    "    |Socrates|Paul |",
+    "Integer",
+    "    is prime: No",              // a value the Concept states itself
+    "    - 1",
+    "        is prime: Yes",
+    "        weight: 4",             // an attribute only an Example carries
+    "Measurement",
+    "    age (integer): 5",
+    "    alias: Paul",
+    "File",
+    "    borrowed: =@Measurement@alias",
+    "    typed: =@Measurement@integer",   // the attribute's alias reaches it
+    "    default: =@Integer@is prime",    // the Concept's own, not an Example's
+    "    listed: =@Integer@is prime@1",   // the Example's still overrides
+  );
+  const { root, nodes, lines } = parsed(text);
+  const reg = mergeRegistries(conceptRegistry(root, nodes), tableRegistry(lines, "Sheet"));
+  const edits = recomputeValues(root, nodes, lines, reg);
+  check("own value: @Concept@attribute reads the value the Concept states itself",
+    edits.some((e) => e.text.includes("borrowed: Paul =@Measurement@alias")));
+  check("own value: an attribute's alias reaches the same value",
+    edits.some((e) => e.text.includes("typed: 5 =@Measurement@integer")));
+  check("own value: a Concept's default is read without naming an Example",
+    edits.some((e) => e.text.includes("default: No =@Integer@is prime")));
+  check("own value: naming an Example still reads the Example's own value",
+    edits.some((e) => e.text.includes("listed: Yes =@Integer@is prime@1")));
+
+  // a Concept in the registry only for its own values is registered too —
+  // it has something to answer with, even with no Examples at all
+  const scope = conceptRegistry(root, nodes).get("measurement");
+  check("own value: a Concept with no Examples is registered for its values",
+    scope && scope.rows.length === 0 && scope.self("alias") === "Paul");
+
+  const errs = (formula) => {
+    const t2 = aot(...text.split("\n").slice(0, -4), `    x: =${formula}`);
+    const p2 = parsed(t2);
+    const r2 = mergeRegistries(conceptRegistry(p2.root, p2.nodes), tableRegistry(p2.lines, "Sheet"));
+    return auditValues(p2.root, p2.nodes, p2.lines, r2).filter((f) => f.error);
+  };
+  check("own value: a grid has none, so a table still needs its Example named",
+    errs("@Person@alias").some((f) => /needs both a column and an Example/.test(f.message)));
+  check("own value: a Concept stating no value there says so, and points at its Examples",
+    errs("@Integer@weight").some((f) => /states no value of its own here/.test(f.message)));
+}
+
+// a table shadows the line-form Concept of the same name — the same rows,
+// read through the sharper grid
+{
+  const text = aot(
+    "Person",
+    "    |name    |alias|",
+    "    |--------+-----|",
+    "    |Socrates|Paul |",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const reg = mergeRegistries(conceptRegistry(root, nodes), tableRegistry(lines, "Sheet"));
+  check("line-form scope: a table wins its Concept's name in the merged registry",
+    reg.scopes.get("person").hasColumn(1) === true); // the grid's scope numbers columns
+}
+
+// ---------------------------------------------------------------------------
+// addExample: the edit that lists a value as an Example, in whichever form
+// the Concept is already written
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Integer",
+    "    - 1",
+    "        is prime: Yes",
+    "    - 35",
+    "        is prime: No",
+    "Person",
+    "    |name    |alias|",
+    "    |--------+-----|",
+    "    |Socrates|Paul |",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const integer = nodes.find((n) => n.name === "Integer");
+  const person = nodes.find((n) => n.name === "Person");
+
+  const line = addExample(root, nodes, lines, integer, "5", "Sheet");
+  check("addExample: a line-form Concept gains a '- value' after its last Example",
+    line && line.to < line.from && line.from === 5 && line.block[0] === "    - 5");
+
+  const row = addExample(root, nodes, lines, person, "James", "Sheet");
+  check("addExample: a Concept written as a table gains a row instead",
+    row && row.changed && row.block.some((l) => /\|James\s*\|\s*\|/.test(l)));
+  check("addExample: the new row keeps the table's own columns",
+    row && row.block[0].includes("name") && row.block[0].includes("alias"));
+}
+
+// ---------------------------------------------------------------------------
+// a constraint may list the allowed values with or(): `==or(...)` asks that
+// the value be one of them
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Order",
+    "    status ==or(`draft`,`sent`,`paid`)",
+    "    - A",
+    "        status: sent",
+    "    - B",
+    "        status: void",
+    "    - C",
+    "        status: paid",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const errors = auditValues(root, nodes, lines).filter((f) => f.error);
+  check("enumeration: a value outside the list is an error naming the alternatives",
+    errors.length === 1 && errors[0].line === 6
+    && /value 'void' violates 'status == `draft` or `sent` or `paid`'/.test(errors[0].message));
+  check("enumeration: a value on the list raises nothing",
+    !errors.some((f) => f.line === 4 || f.line === 8));
+}
+
+// the same over a table's header cell, and with numbers
+{
+  const text = aot(
+    "Order",
+    "    |name |grade ==or(1,2,3)|",
+    "    |-----+------------------|",
+    "    |Alpha|2                 |",
+    "    |Beta |9                 |",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const errors = auditValues(root, nodes, lines).filter((f) => f.error);
+  check("enumeration: a header cell lists its column's allowed values",
+    errors.length === 1 && errors[0].line === 5 && /value '9' violates/.test(errors[0].message));
+}
+
+// and the logic reads as logic in a value's own formula
+{
+  const text = aot(
+    "Order",
+    "    - A",
+    "        qty: 3",
+    "        price: 10",
+    "        ok: =if(and(@qty>0,@price>0),`yes`,`no`)",
+    "        any: =if(or(@qty>5,@price>5),`yes`,`no`)",
+    "        none: =if(or(@qty>5,@price>50),`yes`,`no`)",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const edits = recomputeValues(root, nodes, lines);
+  check("logic: and() over two true tests",
+    edits.some((e) => e.text.includes("ok: yes =")));
+  check("logic: or() is true when either test is",
+    edits.some((e) => e.text.includes("any: yes =")));
+  check("logic: or() is false when neither is",
+    edits.some((e) => e.text.includes("none: no =")));
+}
+
+// ---------------------------------------------------------------------------
+// an escaped '=' keeps its value plain, and survives a recompute of the
+// lines around it
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Note",
+    "    - A",
+    "        formula text: a \\= b",
+    "        computed: =2*2",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const escaped = nodes.find((n) => n.name === "formula text");
+  check("escape: the model reads the value with its '=', and no formula",
+    escaped && escaped.value === "a = b" && escaped.formula === undefined);
+  const edits = recomputeValues(root, nodes, lines);
+  check("escape: an escaped value is not a host, so a recompute leaves its line alone",
+    edits.length === 1 && edits[0].line === 4);
+  check("escape: the neighbouring formula still computes",
+    edits[0].text.includes("computed: 4 =2*2"));
+}
+
+// ---------------------------------------------------------------------------
+// updateExamples: a CSV's rows merge into a line-form Concept by name,
+// leaving the Concept in the form its author wrote it in
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Integer",
+    "    - 1",
+    "        is prime: Yes",
+    "        weight: 4",
+    "    - 35",
+    "        is prime: Maybe",       // the grid corrects this
+    "    - 9",
+    "        is prime: No",
+    "        weight: =1+1",          // derived: the formula owns it
+  );
+  const { root, nodes, lines } = parsed(text);
+  const integer = nodes.find((n) => n.name === "Integer");
+  const header = ["name", "is prime", "weight"];
+  const rows = [
+    ["1", "Yes", "4"],      // unchanged throughout
+    ["35", "No", "6"],      // one value corrected, one attribute missing
+    ["9", "No", "99"],      // the weight is derived: left alone
+    ["7", "Yes", "2"],      // a whole new Example
+  ];
+  const ops = updateExamples(lines, integer, header, rows);
+
+  check("updateExamples: a changed value replaces its own line, nothing else",
+    ops.filter((o) => o.type === "replace").length === 1
+    && ops.find((o) => o.type === "replace").line === 6
+    && ops.find((o) => o.type === "replace").text === "        is prime: No");
+  check("updateExamples: an attribute the Example lacks is added beneath it",
+    ops.some((o) => o.type === "insert" && o.afterLine === 6 && o.text === "        weight: 6"));
+  check("updateExamples: a derived value is left to its formula",
+    !ops.some((o) => /weight: 99/.test(o.text)));
+  check("updateExamples: a row with no Example is appended whole, as line form",
+    ops.some((o) => o.type === "insert" && o.afterLine === 9
+      && o.text === "    - 7\n        is prime: Yes\n        weight: 2"));
+  check("updateExamples: a grid that changes nothing edits nothing",
+    updateExamples(lines, integer, header, [["1", "Yes", "4"]]).length === 0);
+  check("updateExamples: a blank cell says nothing rather than erasing",
+    updateExamples(lines, integer, header, [["1", "", ""]]).length === 0);
+
+  // applied bottom-up, the ops land where they were measured
+  const applied = lines.slice();
+  const lineOf = (o) => (o.type === "replace" ? o.line : o.afterLine);
+  for (const op of [...ops].sort((a, b) => lineOf(b) - lineOf(a))) {
+    if (op.type === "replace") applied[op.line - 1] = op.text;
+    else applied.splice(op.afterLine, 0, ...op.text.split("\n"));
+  }
+  const re = lint(applied.join("\n"), "Sheet");
+  const scope = conceptRegistry(re.root, re.nodes).get("integer");
+  check("updateExamples: the folded file reads back as the grid that made it",
+    scope.rows.join(",") === "1,35,9,7"
+    && scope.cellAt("is prime", 1) === "No" && scope.cellAt("weight", 1) === "6"
+    && scope.cellAt("weight", 3) === "2");
+  check("updateExamples: the Concept is still line form, not a table",
+    !applied.some((l) => l.trim().startsWith("|")));
+}
+
+// the collision: when the *last* Example gains an attribute and a fresh
+// Example is appended too, both land after that Example's last line. Applied
+// bottom-up they would arrive reversed, putting the attribute meant for the
+// last Example under the fresh one — so they must merge into one op.
+{
+  const text = aot(
+    "Integer",
+    "    - 1",
+    "        is prime: Yes",
+    "    - 35",                // the last Example ...
+    "        is prime: No",    // ... and its last line
+  );
+  const { root, nodes, lines } = parsed(text);
+  const integer = nodes.find((n) => n.name === "Integer");
+  const ops = updateExamples(lines, integer, ["name", "is prime", "weight"], [
+    ["35", "No", "6"],   // an attribute for the last Example
+    ["7", "Yes", "2"],   // and a fresh Example after it
+  ]);
+  check("updateExamples: two inserts after one line merge into a single op",
+    ops.length === 1 && ops[0].type === "insert" && ops[0].afterLine === 5);
+
+  const applied = lines.slice();
+  const lineOf = (o) => (o.type === "replace" ? o.line : o.afterLine);
+  for (const op of [...ops].sort((a, b) => lineOf(b) - lineOf(a))) {
+    if (op.type === "replace") applied[op.line - 1] = op.text;
+    else applied.splice(op.afterLine, 0, ...op.text.split("\n"));
+  }
+  const re = lint(applied.join("\n"), "Sheet");
+  const ex35 = re.nodes.find((n) => n.name === "35");
+  const ex7 = re.nodes.find((n) => n.name === "7");
+  check("updateExamples: the last Example's own attribute stays under it",
+    ex35 && ex35.children.some((c) => c.name === "weight" && c.value === "6"));
+  check("updateExamples: the fresh Example keeps its own attributes, and only those",
+    ex7 && ex7.children.filter((c) => c.name === "weight").length === 1
+    && ex7.children.find((c) => c.name === "weight").value === "2");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

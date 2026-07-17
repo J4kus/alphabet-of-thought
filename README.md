@@ -248,6 +248,29 @@ A Concept such as `Employee` may be used inside another Concept's name — for e
 
 Every attribute the child adds must be a **differentia** — a fact that makes it a *narrower kind of the same genus*, answering "what kind of the parent is this?". A child may carry more attributes than its parent; what matters is not how many it adds but that they narrow the *same* kind. If the added facts instead describe a separate dimension the thing merely *has* — a format, a property on its own axis — then you have written a has-a as an is-a: the Concept now names two kinds at once, and the subsumption reasoner flags it (rule 12, Multiple kinds). Pull that has-a out into its own attribute or Concept and crosslink it, so the child's place in the tree stays purely about what it *is*.
 
+#### Values against their Concept
+
+When an attribute names a Concept and that Concept **lists its Examples**, the attribute's values are answerable to that list. `person: James`, on an attribute typed by a `Person` whose only Example is Socrates, says James is a Person while the file never says who James is. Alpha hints the value and offers the Quick Fix that closes the gap — **Add 'James' as an Example of 'Person'** — which lists James where Person is already written: a row on its table, or a `- James` line under its last Example, cursor left on the new Example so you can carry straight on.
+
+```
+Person
+    |name    |nationality|
+    |--------+-----------|
+    |Socrates|RSA        |
+Integer
+    - 1
+    - 35
+Measurement
+    person: James        <- hinted: not an Example of Person (Socrates)
+    age integer: 5       <- hinted: not an Example of Integer (1, 35)
+```
+
+This is a **gap in the model, not a contradiction in it**, so it hints exactly as spelling does — on its own span and on hover, never in the Problems panel, never in `V` — and turns off with `aot.exampleHints`. An attribute may mention a Concept without being valued by one, so three things keep the hint to values that were genuinely trying to name an Example:
+
+- **The Concept must list Examples.** One that lists none states an open vocabulary, where any value is fair — `name: Socrates` is prose, not a claim against a listed set.
+- **The value must be the same kind of value its Examples are.** `maximum worker pool: 1` measures the pool; it does not name one of Role/Asset/Function, and a number never could. `age integer: 5` *is* a number among the numbers 1 and 35, so it genuinely misses.
+- **The value must not be a truth value.** `present in: False` says a fact holds; it does not nominate an Example.
+
 ## The four primitives
 
 Alpha is aimed at knowledge workers — analysts, architects, anyone whose job is to think in structures. You can use it purely for your own thoughts, but Alpha ships four primitives for the four kinds of model knowledge work keeps producing anyway, usually scattered across slides and spreadsheets. They are built on Aristotle's four causes — his complete answer to *why a thing is and how it comes to be* (*Physics* II.3, 194b17–20) — combined with the *Categories*, the *Prior Analytics*, and Kipling's six serving-men. **The four causes complete every explanation**: final (motivation), material (graph), formal (function), efficient (workflow).
@@ -395,7 +418,9 @@ Order
 | `@2`, `@N` | The same row's column `N` (1 = the name column; tables only) |
 | `@price`, `@basket size` | The same row's column by **name** — longest case-insensitive match, spaces allowed, a header's `(alias)` matches too |
 | `@price@Acme` / `@Acme@price` | The named Example's cell in a column — a column paired with an Example, **in either order**. A name that is both a column and an Example resolves as the longer match (a tie goes to the column). |
-| `@Order@price@Acme` / `@Order@Acme@price` | A **cross-table** cell: another table's cell, the table named **first** by the Concept/Example/Attribute it sits under (as the CSV mirror files it), then a column and Example in either order. The table may live in any `.aot` in the workspace — the current file's own tables win a shared name. `sum(@Order@price)` (and `avg`/`min`/`max`/`count`) range over a foreign column. A leading name is read as a table only when it matches neither a current column nor Example, so no formula that resolved before changes meaning; with no table named, the reference stays in the current table (or, off a table, the current line's sibling scope). |
+| `@Order@price@Acme` / `@Order@Acme@price` | A **cross-Concept** cell: another Concept's cell, the Concept named **first** (by the Concept/Example/Attribute its table sits under, as the CSV mirror files it), then a column and Example in either order. It may live in any `.aot` in the workspace — the current file's own win a shared name. `sum(@Order@price)` (and `avg`/`min`/`max`/`count`) range over a foreign column. The **local** reading is always tried first, so no formula that resolved before changes meaning; the foreign Concept gets its turn when the local reading names nothing, **or when it cannot be completed** — so an owner with its own `person` attribute no longer swallows the lead of `@Person@alias@Socrates`. |
+| `@Measurement@alias` | A Concept's **own** value — the default it states on its own line, the same one its Examples inherit. Only a Concept has one: a table is rows and nothing else, so `@Order@price` still needs its Example named. When the Concept states no value for that attribute, the error says so and points at its Examples. |
+| `@Integer@35@is prime` | The same, on a Concept written in **line form** rather than as a table: its `- Example` children are the rows and the attribute names beneath it are the columns, so a Concept is referenced the same way whichever form it is written in. An Example silent on an attribute answers the Concept's own default (inheritance, as ever). Line form has no columns to number, so a number there names an **Example** — which is what a Concept whose Examples are numbers needs. A Concept written as a table keeps the table's reading of the same rows. |
 
 References changed from `$` to `@` in 1.3; a `$` in a formula is now an error.
 
@@ -405,15 +430,73 @@ References changed from `$` to `@` in 1.3; a `$` in a formula is now an error.
 |------|-----------------|
 | Arithmetic | `+ - * / ( )`, unary `-`, plain numbers |
 | Aggregates | `sum(@c)` `avg(@c)` `min(@c)` `max(@c)` over the column's *other* data rows; `count(@c)` tallies its non-empty cells |
-| Numeric | `round(x)` `round(x,n)` `abs(x)` |
-| Strings | `` `literals in backticks` ``, `&` concatenates, `upper(x)` `lower(x)` `trim(x)` `len(x)` `left(x,n)` `right(x,n)` `mid(x,i,n)` (1-based) `replace(x,a,b)` (all occurrences) |
+| Numeric | `round(x)` `round(x,n)` `abs(x)` `value(x)` (read text as its number) |
+| Strings | `` `literals in backticks` ``, `&` concatenates — see [Working with text](#working-with-text) for the full set |
 | Comparisons | `== <= >= < >` yield `1` or `0`; `if(cond, then, else)` is lazy — only the taken branch is evaluated, so `if(count(@2)>0, avg(@2), 0)` works over an empty column |
+| Logic | `and(a,b,…)` `or(a,b,…)` `not(a)` `xor(a,b,…)`. A value is **true** when it is a non-zero number, or `yes`/`true`, or any other non-empty text; **false** when it is `0`, or `no`/`false`, or empty. `or()` also lists the allowed values of a constraint — see below |
 
 **Coercion is crisp**: a referenced cell is text at rest. Arithmetic and the numeric functions coerce their operands to numbers — `$` signs, thousands commas, and `%` are ignored, so a money column reads as its number, and a genuinely non-numeric operand is an error. `&` coerces to text. A comparison is numeric when **both** sides read as numbers, chronological when both read as **dates** (ISO `YYYY-MM-DD`), else an exact, case-sensitive text comparison. Equality *inside* a formula is `==`; a single `=` is the cell operator alone. Typing `@` inside a formula pops a completion of the columns (first), then the Examples, then the repo's **tables** last (by the name each sits under); pick a table and the suggestions reopen on its own columns.
 
 **Constraints live on the attribute; formulas live on the value.** After a value, `=formula` derives it (auto-fills and rewrites). A **constraint** is schema, so it is declared once, on the attribute — a bare line (`age >=18`) or a table header cell (`|name|qty >=1|`) — and **every value the attribute takes is validated against it**: the Concept's Examples, its table's cells, and everything deeper in the subtree (a nearer declaration shadows an outer one). A violation is an **error** on the offending value, counted in `V`, naming the bound and its declaring line. The bound's references resolve *per value* against its own Example or row — `|price|margin >=@price*0.1|` holds each row's margin to that row's price. An empty value asserts nothing, so it is never checked; values themselves never carry `>= <= < > ==` (`age: 25 >=18` is just the value `25 >=18`). Prose terms are safe: `speed > none noted` stays a plain name, because a constraint is only believed when its right side actually reads as a formula.
 
 **A constraint can name a type**, alone or with a bound: `birth date is date`, `count is number`, `note is text`, `field is date or number`, `age is number >=0`, `due is date >=\`2025-01-01\``. The types are disjoint — a value is a **date** (ISO `YYYY-MM-DD`, optionally with a time), else a **number** (`$`/comma/%-tolerant), else **text** — so `is text` genuinely excludes numbers and dates. The value is checked against the types first, then the bound; a value of the wrong type is an error naming what it read as.
+
+**A constraint can list the allowed values** with `or()`:
+
+```
+Order
+    status ==or(`draft`, `sent`, `paid`)
+    grade ==or(1, 2, 3)
+    - A
+        status: sent          <- one of the three; nothing to report
+    - B
+        status: void          <- error: value 'void' violates
+                                 'status == `draft` or `sent` or `paid`'
+```
+
+This is the same `or()` the logic table names, not a second one. `or()` answers with its **alternatives held together**, and that one value reads as whichever the place asks for: as a **truth** in a formula — true when any alternative is true, which is exactly logical OR, so `=if(or(@qty>5, @price>5), \`yes\`, \`no\`)` means what it looks like — and as a **set** wherever `==` compares against it, where "equals one of these" is what listing allowed values means. An ordering works the same way, distributed: `>=or(1, 9)` holds when the value is at least one of them.
+
+**A value may hold a literal `=`** by escaping it — `note: a \= b` is the value `a = b`, not a derivation of `a`. The backslash belongs to the file, not to the model: the value is `a = b` everywhere it is read (crosslinks, Gödel numbers, a formula referencing it, a CSV export), while the line keeps its `\=` through every rewrite. Only an `=` that opens a derivation needs escaping — one *inside* a value's text (`a=b`, no space before it) was never a derivation and needs nothing.
+
+### Working with text
+
+Most of what a model holds is words, so the formula language treats text as a first-class thing rather than a numeric afterthought. A literal is written `` `in backticks` ``; `&` joins two values; every function below takes a reference, a literal, or another formula.
+
+| Function | What it answers | Example |
+|----------|-----------------|---------|
+| `concat(a, b, …)` | The pieces joined — `&` with a name, for when there are more than two | ``concat(@first, ` `, @last)`` → `Jane Doe` |
+| `upper(x)` / `lower(x)` | Case, forced | ``upper(`widget`)`` → `WIDGET` |
+| `proper(x)` | Each word capitalised, the rest lowered | ``proper(`jane DOE`)`` → `Jane Doe` |
+| `trim(x)` | The value without its outer spaces | ``trim(` xy `)`` → `xy` |
+| `len(x)` | How many characters | ``len(`abc`)`` → `3` |
+| `left(x, n)` / `right(x, n)` | The first / last `n` characters | ``right(`abcdef`, 2)`` → `ef` |
+| `mid(x, i, n)` | `n` characters from position `i` (**1-based**) — the substring | ``mid(`abcdef`, 2, 3)`` → `bcd` |
+| `find(x, part)` / `find(x, part, from)` | Where `part` starts (1-based), or `0` when it is absent — so it reads as a truth too | ``find(`hello world`, `world`)`` → `7` |
+| `contains(x, part)` | `1` when `part` is in `x`, else `0` | ``contains(`hello`, `ell`)`` → `1` |
+| `starts(x, part)` / `ends(x, part)` | `1` when `x` begins / ends with `part` | ``ends(`report.csv`, `.csv`)`` → `1` |
+| `replace(x, a, b)` | Every `a` becomes `b` | ``replace(`a-b-c`, `-`, `+`)`` → `a+b+c` |
+| `substitute(x, a, b, n)` | Only the **nth** `a` becomes `b` (drop `n` and it replaces all) | ``substitute(`a-a-a`, `a`, `X`, 2)`` → `a-X-a` |
+| `split(x, sep, n)` | The **nth** field (1-based; negative counts back from the end; default the first) | ``split(`Doe, Jane`, `, `, 2)`` → `Jane` |
+| `repeat(x, n)` | `x` written `n` times | ``repeat(`ab`, 3)`` → `ababab` |
+| `pad(x, width)` / `pad(x, width, `left`)` | `x` spaced out to `width` (never truncated) | ``pad(`x`, 4, `left`)`` → `   x` |
+| `text(x)` / `value(x)` | The coercion said out loud: a number as text, text as its number | ``value(`$1,200`)+1`` → `1201` |
+
+They compose with everything else — a label built from two columns, a code checked against a rule, a packed value taken apart:
+
+```
+Contact
+    - Ada
+        first: Ada
+        last: Lovelace
+        email:  ADA@Maths.org
+        display: Lovelace, Ada     =concat(@last, `, `, @first)
+        initials: AL               =left(@first,1)&left(@last,1)
+        tidy email: ada@maths.org  =lower(trim(@email))
+        domain: maths.org          =split(lower(trim(@email)), `@`, 2)
+        flag: ok                   =if(and(len(@last)>0, find(@email,`@`)), `ok`, `check`)
+```
+
+Two things worth knowing. **Positions are 1-based** (`mid`, `find`, `split`, and `find`'s `from`) — the first character is 1, matching how the rest of Alpha counts, though `find` still answers `0` for "not there" so it can be read as a truth. And **text comparison is exact and case-sensitive** (`` `a` == `A` `` is `0`), so fold the case yourself when you mean either: `` lower(@name) == `ada` ``.
 
 **Any attribute value can carry a derivation, not just cells** (`src/derive.js`). On a line-form value, `@attribute name` reads the same Example's sibling attribute, aggregates range over the *other* sibling Examples under the same parent, and `@attr@Example` reads the named sibling — `total: =sum(@price)` on a Concept totals its Examples' prices. (`@N` by position is table-only.)
 
@@ -430,7 +513,27 @@ Every table lives twice: as the pipe grid in the `.aot`, and as a CSV file named
 - **Saving the `.aot`** writes one CSV per complete table (header, separator, rows — an assumed lone header still being typed is left alone). Cells holding commas, quotes, or newlines are quoted per RFC 4180; a top-level table is named after the file's root Concept.
 - **Saving also tidies**: a CSV whose Concept no table *anywhere in the repo* still has is not deleted — it is archived with a `_` prefix (`_Order.csv`) and skipped by the fold-back watcher. Legacy `tables.<file>` / `<file>.tables` folders from earlier versions fold in automatically.
 - **Editing a CSV** — in Excel, a script, anything — folds the grid back into the matching Concept's table (in whichever `.aot` defines it), aligned, and saves that file.
-- Both directions write only when the content genuinely differs, so the two mirrors never chase each other. A CSV you have open with **unsaved edits** is never overwritten — you get a warning to save or revert it first. A pipe typed into a CSV cell is bent to a broken bar (`¦`), since it cannot survive inside a pipe grid. Two files with a same-named table share one CSV — the repo-wide duplicate-Concept warning makes that visible.
+- Both directions write only when the content genuinely differs, so the two mirrors never chase each other. Line endings are not a difference: a CSV that came back from Excel or git with CRLF is the same data, and is left alone. A CSV you have open with **unsaved edits** is never overwritten — you get a warning to save or revert it first. A pipe typed into a CSV cell is bent to a broken bar (`¦`), since it cannot survive inside a pipe grid. Two files with a same-named table share one CSV — the repo-wide duplicate-Concept warning makes that visible.
+
+**A Concept written line-form mirrors too.** A table and a `- Example` list are the same idea in two shapes, so both answer for the same CSV — but a line-form Concept only mirrors where a CSV of its name is **already in the folder**. That CSV is the opt-in: without the rule, the first save would rain a file into `aot.files` for every Concept that happens to list Examples.
+
+Put `Integer.csv` in `aot.files` and the Concept below keeps it up to date on every save; edit that CSV and the rows fold back **as Examples, not as a table** — merged by name, so an Example already there is updated attribute by attribute and one that is not is appended whole:
+
+```
+aot.files/Integer.csv          Integer
+    name,is prime                  - 1
+    1,Yes                              is prime: Yes
+    35,No                          - 35
+    7,Yes      <- added                is prime: No
+                                   - 7            <- folded in
+                                       is prime: Yes
+```
+
+A CSV arriving is data, and data is no reason to restructure a tree you wrote deliberately. Two things a CSV is never allowed to do: a **blank cell says nothing** rather than erasing (a CSV cannot tell "empty" from "unsaid"), and a value carrying a **formula** is left to its formula.
+
+**Archived CSVs are still worth reading.** A `_Person.csv` is never folded back — that would silently undo the archiving — but the values in it were real once, so they are offered as **completions** where a `person:` value is typed, listed after the Concept's live Examples and marked `archived in _Person.csv`.
+
+**A file you cite can be brought in.** Put the cursor on any file-path value pointing outside `aot.files` and the lightbulb offers **Copy '<name>' into aot.files**: the file is copied in and the value rewritten to `aot.files/<name>`, so the model travels with its evidence instead of pointing into somebody's Desktop. A file already there with the same bytes is simply relinked; one that differs asks before replacing, and offers to keep both. A CSV that any value points at counts as claimed, so the tidy-up never archives the very file a link names.
 
 The mirror means the same knowledge is at once a checked Alpha model and an ordinary spreadsheet any tool can read. Turn it off with the `aot.tableCsvSync` setting.
 
@@ -468,6 +571,7 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | `aot.tableCsvSync` | `true` | Mirror every table to `aot.files/<Concept>.csv` (one folder at the workspace root) on save and fold CSV edits back in; an orphaned CSV is archived `_<name>.csv`, never deleted. |
 | `aot.spellingHints` | `true` | Hint words no English dialect knows, on their span and on hover, never in the Problems panel. A lowercase word passes if its Capitalised form is known (`december` / `December`). |
 | `aot.acceptedWords` | `[]` | Your own vocabulary, case-insensitive — fed by the Quick Fix on a spelling hint or a plural warning. |
+| `aot.exampleHints` | `true` | Hint a value that names no Example of the Concept typing its attribute, with a Quick Fix that lists it. See [Values against their Concept](#values-against-their-concept). |
 | `aot.dependencyFindings` | `false` | Surface the inferred functional-dependency warnings (rules 10–11) as squiggles. Off by default: correlated attributes are allowed; `verify.js --fd` always prints the full set. |
 | `aot.chainHints` | `true` | Write the first dependency chain in small print (an inlay hint) at the end of each crosslinked line; the full chains stay on hover. |
 | `aot.urlMetadata` | `true` | Hovering a URL fetches its status, content type, and last-modified date (one cached HEAD request); Ctrl+click opens it regardless. |
@@ -641,6 +745,36 @@ The following principles govern how Alpha handles inheritance, incomplete models
 - **Truth shows in consequences**: a definition is good when it lets two actors work on with the same meaning and verify it.
 - **Content over structure**: prefer Examples, attributes, and values over new Concepts. Keep the Concept tree lean.
 
+## What it costs to think in Alpha
+
+Alpha is terser than prose, but the interesting question is *where* and *by how much* — so it was measured rather than asserted. [`out/token-experiment.js`](out/token-experiment.js) tokenises the same knowledge written both ways and prints the table below; run it yourself:
+
+```
+npm install --no-save gpt-tokenizer     # the extension itself needs no tokenizer
+node out/token-experiment.js
+```
+
+The prose it compares against is what a careful person would actually type — complete sentences, no padding, no repetition beyond the repetition prose itself forces. Counts are `o200k_base` (GPT-4o/4.1); Claude's tokenizer is not public and differs in detail, but the *ratio* between two English texts is stable across byte-pair encoders.
+
+**The saving is mostly in the tree, not the table.** These are the two shapes a model is made of, and they behave very differently:
+
+| Shape | Alpha | Prose | Alpha saves |
+|-------|-------|-------|-------------|
+| **Taxonomy**, 155 ideas (`- Bicycle` under `Land Vehicle` under `Vehicle`) | 666 | 1,565 | **57%** |
+| **Grid**, 100 Examples × 4 attributes (400 facts) | 2,330 | 3,007 | **23%** |
+| **Grid**, 5 Examples × 4 attributes (20 facts) | 151 | 163 | **7%** |
+| **Grid**, 1 Example × 4 attributes (4 facts) | 55 | 38 | **−45%** |
+
+Why the tree wins so much harder: an is-a edge costs Alpha **four spaces of indentation**, while prose has no way to write it but a whole sentence — "A Bicycle is a kind of Land Vehicle." That is 4.3 tokens per edge against 10.1, and it holds steady at every size. The reference model, [`examples/alphabet of thought.aot`](examples/alphabet%20of%20thought.aot), is 3,262 tokens for 555 ideas — **5.88 tokens per idea, with all 555 is-a edges included free**.
+
+The grid's saving is real but modest, and it **grows with size**: the header names each attribute once, so the more Examples you add the more prose's per-fact repetition ("Ada Lovelace was born on…, Alan Turing was born on…") costs it. Below about five Examples Alpha genuinely costs *more* than prose — the header and separator are overhead a single row cannot pay off. Alpha is not a compression trick for small facts; it earns its keep on structure and on scale.
+
+**Three places the tokens land:**
+
+- **Input** — the numbers above. For bulk data there is a cheaper form you already have: the [CSV mirror](#the-csv-mirror) writes every table to `aot.files/<Concept>.csv` unaligned, and that same 100-Example grid is **1,892 tokens as CSV against 2,330 as an aligned table** — the column padding is 19% of the table's cost. Hand a model the tree for structure and the CSV for rows.
+- **Processing** — the one that actually dominates, and the one Alpha changes in kind rather than degree. Ten questions over the 100-Example record cost prose 10 × 3,007 = **30,070 tokens**, because every question re-reads the text. In Alpha the questions a model is *for* — is-a, genus, dependencies, contradictions — are arithmetic over the tree, so `verify.js --ask X Y` answers by dividing two integers at **zero** tokens and with no chance of a plausible wrong answer. This is the real economy: not that the file is smaller, but that the questions never reach the model.
+- **Output** — one change to the 100-Example record is **21 tokens in Alpha (one row) against 30 in prose (one sentence)**, ~30% less. The deeper saving is that Alpha's unit of change is a line: a fact edited mid-paragraph takes the whole paragraph with it, and a line-sized diff is one git reviews and an agent can loop on.
+
 ## Using Alpha with an LLM
 
 Alpha was designed so that a language model can read, extend, and critique a model, with the linter as the objective referee. The workflow:
@@ -700,6 +834,8 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`examples/lint.aot`](examples/lint.aot), [`examples/warning.aot`](examples/warning.aot) | The [conformance examples](#the-conformance-examples) — one planted violation per rule |
 | [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all nine) |
 | [`docs/features-1.1-1.2.md`](docs/features-1.1-1.2.md) | Per-feature reference for the 1.1 → 1.2 line: what changed, a snippet to exercise it, and its edge cases |
+| [`docs/features-1.3-1.5.md`](docs/features-1.3-1.5.md) | The same for 1.3 → 1.5: how each feature worked *before*, a snippet for the case that works and the neighbouring one that does not, and the test that holds it |
+| [`out/token-experiment.js`](out/token-experiment.js) | The measurement behind [What it costs to think in Alpha](#what-it-costs-to-think-in-alpha) — re-derive the numbers rather than trust them |
 | [`docs/`](docs/) | README assets (`edit-loop.svg` is the editable source of the header image) |
 | [`install.py`](install.py) | Build and install the extension locally (`python install.py`) |
 

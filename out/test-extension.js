@@ -15,7 +15,8 @@ let codeActionsProvider = null;
 let referenceProvider = null;
 let inlayProvider = null;
 let documentLinkProvider = null;
-let completionProvider = null;
+let completionProvider = null;      // the '@' reference completion
+let valueCompletionProvider = null; // the value completion (no trigger char)
 const plainCommands = new Map();
 const configStore = {};
 const vscode = {
@@ -54,7 +55,13 @@ const vscode = {
     registerReferenceProvider: (selector, provider) => { referenceProvider = provider; return { dispose() {} }; },
     registerInlayHintsProvider: (selector, provider) => { inlayProvider = provider; return { dispose() {} }; },
     registerDocumentLinkProvider: (selector, provider) => { documentLinkProvider = provider; return { dispose() {} }; },
-    registerCompletionItemProvider: (selector, provider) => { completionProvider = provider; return { dispose() {} }; },
+    registerCompletionItemProvider: (selector, provider, ...triggers) => {
+      // two are registered: the '@' reference completion and, with no trigger
+      // character, the value completion
+      if (triggers.includes("@")) completionProvider = provider;
+      else valueCompletionProvider = provider;
+      return { dispose() {} };
+    },
   },
   CompletionItem: class { constructor(label, kind) { Object.assign(this, { label, kind }); } },
   CompletionItemKind: { Field: 4, EnumMember: 19 },
@@ -84,11 +91,15 @@ const vscode = {
     visibleTextEditors: [],
     activeTextEditor: undefined,
     _warnings: [],
+    _info: [],
+    _errors: [],
     createTextEditorDecorationType: (style) => ({ style, dispose() {} }),
     onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
     onDidChangeTextEditorSelection: (fn) => { vscode.window._selectionChanged = fn; return { dispose() {} }; },
     onDidChangeActiveTextEditor: () => ({ dispose() {} }),
     showWarningMessage: (m) => { vscode.window._warnings.push(m); return Promise.resolve(); },
+    showInformationMessage: (m) => { vscode.window._info.push(m); return Promise.resolve(); },
+    showErrorMessage: (m) => { vscode.window._errors.push(m); return Promise.resolve(); },
   },
   WorkspaceEdit: class {
     constructor() { this.ops = []; }
@@ -186,10 +197,12 @@ for (const d of diags.slice(0, 3)) {
   console.log(`  [${severityName[d.severity]}] line ${d.range.a[0] + 1}: ${d.message}`);
 }
 // The reference file verifies (V = 0), so no errors; whatever hints appear
-// must all be spelling (the only finding that maps to Hint).
-const spellingOnly = hintsD.every((d) => / is not in the dictionary/.test(d.message));
-console.log(errorsD.length === 0 && spellingOnly
-  ? "PASS (reference file verifies; hints are spelling only)"
+// must be advisory — a spelling nudge or an unlisted value. Both are gaps in
+// the prose or the model, never a verdict on it, so neither counts in V.
+const advisoryOnly = hintsD.every((d) =>
+  / is not in the dictionary/.test(d.message) || / is not an Example of Concept /.test(d.message));
+console.log(errorsD.length === 0 && advisoryOnly
+  ? "PASS (reference file verifies; hints are advisory only)"
   : "UNEXPECTED COUNT");
 
 // Severity mapping on a fixture that carries one of each deep finding: the
@@ -367,6 +380,51 @@ const listed = [
     : "UNEXPECTED case-insensitive link " + JSON.stringify(link));
 }
 
+// 3d) unlisted values: a value naming no Example of the Concept typing its
+// attribute is hinted, but only when it was genuinely trying to name one.
+{
+  const { unlistedValues } = require("../src/crosslinks");
+  const text = [
+    "Person",
+    "    |name    |alias|",
+    "    |--------+-----|",
+    "    |Socrates|Paul |",
+    "Integer",
+    "    - 1",
+    "    - 35",
+    "Worker Pool",
+    "    - Role",
+    "    - Asset",
+    "Open Name",                      // a Concept listing no Examples
+    "Note",
+    "    person: James",             // text among text Examples: a real miss
+    "    age integer: 5",            // a number among the numbers 1 and 35
+    "    person here: Socrates",     // links: no finding
+    "    maximum worker pool: 1",    // a measurement of the pool, not one of them
+    "    present open name: whatever", // an open vocabulary vouches for nothing
+    "    listed integer: =@Integer@1", // derived: the formula's business
+  ].join("\n");
+  const t = lint(text, "World");
+  const found = unlistedValues(text, t.root, t.nodes);
+  const at = (v) => found.find((f) => f.value === v);
+  const james = at("James");
+  const jamesOk = james && james.line === 13 && james.concept.name === "Person"
+    && james.startCol === text.split("\n")[12].indexOf("James")
+    && /is not an Example of Concept 'Person' — its Examples are Socrates/.test(james.message);
+  const fiveOk = at("5") && at("5").concept.name === "Integer"
+    && /its Examples are 1, 35/.test(at("5").message);
+  console.log(jamesOk && fiveOk && found.length === 2
+    ? "PASS (unlisted values: the misses hint; truth values, measurements, open vocabularies and derived values stay quiet)"
+    : "UNEXPECTED unlisted values " + JSON.stringify(found.map((f) => `${f.line}:${f.value}`)));
+
+  // a truth value asserts a fact about an Example, it never nominates one
+  const truth = ["Present In", "    - Is Present In", "Note", "    present in: False"].join("\n");
+  const tv = lint(truth, "World");
+  console.log(unlistedValues(truth, tv.root, tv.nodes).length === 0
+    ? "PASS (unlisted values: a truth value is not a nomination)"
+    : "UNEXPECTED truth-value hint");
+}
+
 // 4) tables: a value cell crosslinks to the Example it names, the header
 // cell to the Concept its attribute is typed by, and Format Document
 // aligns the columns as org-mode's TAB does.
@@ -396,6 +454,115 @@ const listed = [
     ? "PASS (table: Format Document aligns the columns)"
     : "UNEXPECTED table formatting " + JSON.stringify(edits));
 }
+
+// 4b) the aot.addExample command: the lightbulb on an unlisted value lists
+// it under its Concept, in the form that Concept is already written in, and
+// leaves the cursor on the new Example.
+(async () => {
+  const lines = [
+    "Integer",
+    "    - 1",
+    "    - 35",
+    "Note",
+    "    age integer: 5",
+  ];
+  const doc = {
+    languageId: "aot", fileName: "c:\\repo\\World.aot", eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///addexample" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(4, 0, 4, 0),
+    edit: (cb) => {
+      cb({
+        replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); },
+        insert: (pos, t) => { lines.splice(pos.line, 0, ...t.replace(/\n$/, "").split("\n")); },
+      });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {},
+  };
+  vscode.window.activeTextEditor = editor;
+  await plainCommands.get("aot.addExample")("5", "Integer");
+  vscode.window.activeTextEditor = undefined;
+  const landed = lines[3] === "    - 5"; // after the last Example, before 'Note'
+  const cursorOnIt = editor.selection.active.line === 3;
+  console.log(landed && cursorOnIt
+    ? "PASS (addExample command: the value is listed under its Concept, cursor on it)"
+    : "UNEXPECTED addExample " + JSON.stringify({ lines, sel: editor.selection.a }));
+})();
+
+// 4c) aot.copyFileIntoRepo: a cited file living outside the repo is copied
+// into aot.files and the value rewritten to name the copy.
+(async () => {
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-copy-"));
+  const outside = path.join(root, "elsewhere");
+  fs.mkdirSync(outside);
+  const source = path.join(outside, "report.txt");
+  fs.writeFileSync(source, "the evidence");
+  const wsRoot = path.join(root, "repo");
+  fs.mkdirSync(wsRoot);
+
+  const lines = ["Study", "    evidence: " + source.replace(/\\/g, "/")];
+  const aotPath = path.join(wsRoot, "World.aot");
+  fs.writeFileSync(aotPath, lines.join("\n"));
+  const doc = {
+    languageId: "aot", fileName: aotPath, eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///copyfile" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(1, 20, 1, 20), // inside the path
+    edit: (cb) => {
+      cb({ replace: (range, t) => {
+        const [sl, sc, , ec] = range.a;
+        lines[sl] = lines[sl].slice(0, sc) + t + lines[sl].slice(ec);
+      } });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {},
+  };
+  const folders = vscode.workspace.workspaceFolders;
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: wsRoot } }];
+  vscode.window.activeTextEditor = editor;
+  await plainCommands.get("aot.copyFileIntoRepo")();
+  vscode.window.activeTextEditor = undefined;
+  vscode.workspace.workspaceFolders = folders;
+
+  const copied = path.join(wsRoot, "aot.files", "report.txt");
+  const landed = fs.existsSync(copied) && fs.readFileSync(copied, "utf8") === "the evidence";
+  const relinked = lines[1] === "    evidence: aot.files/report.txt";
+  console.log(landed && relinked
+    ? "PASS (copy file: the file lands in aot.files and the value names the copy)"
+    : "UNEXPECTED copy file " + JSON.stringify({ landed, line: lines[1] }));
+
+  // a CSV a value points at is claimed, not an orphan: no table writes
+  // 'evidence.csv', but the model cites it, so the save must leave it be —
+  // archiving it would break the very link that names it. 'stray.csv',
+  // which nothing speaks for, is archived as before.
+  const filesDir = path.join(wsRoot, "aot.files");
+  fs.writeFileSync(path.join(filesDir, "evidence.csv"), "a,b\n1,2\n");
+  fs.writeFileSync(path.join(filesDir, "stray.csv"), "a,b\n3,4\n");
+  const citing = ["Study", "    source: aot.files/evidence.csv", "    Otter", "        |name |", "        |-----|", "        |Ollie|"].join("\n");
+  fs.writeFileSync(aotPath, citing);
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: wsRoot } }];
+  vscode.workspace._save(makeDoc(aotPath, citing));
+  vscode.workspace.workspaceFolders = folders;
+  const kept = fs.existsSync(path.join(filesDir, "evidence.csv"))
+    && !fs.existsSync(path.join(filesDir, "_evidence.csv"));
+  const archived = fs.existsSync(path.join(filesDir, "_stray.csv"));
+  console.log(kept && archived
+    ? "PASS (copy file: a CSV a value cites is claimed; one nothing speaks for is still archived)"
+    : "UNEXPECTED orphan claim " + JSON.stringify(fs.readdirSync(filesDir)));
+  fs.rmSync(root, { recursive: true, force: true });
+})();
 
 // 5) the org table editor: the commands are registered, and Tab re-aligns
 // the block then lands the cursor at the start of the next cell.
@@ -599,6 +766,23 @@ const listed = [
     ? "PASS (csv mirror: a CSV edit folds back into the owning .aot table)"
     : "UNEXPECTED aot after csv edit: " + JSON.stringify(after));
 
+  // the same CSV with Windows line endings is the same data: a clone that
+  // git handed CRLF ('* text=auto') must not be rewritten on every save,
+  // nor folded back as though somebody had edited it
+  {
+    const lf = fs.readFileSync(csvPath, "utf8");
+    fs.writeFileSync(csvPath, lf.replace(/\n/g, "\r\n"));
+    const aotBefore = fs.readFileSync(aotPath, "utf8");
+    await vscode.workspace._csvChanged({ fsPath: csvPath });
+    const foldedNothing = fs.readFileSync(aotPath, "utf8") === aotBefore;
+    vscode.workspace._save(makeDoc(aotPath, aotBefore));
+    const leftAlone = fs.readFileSync(csvPath, "utf8").includes("\r\n");
+    console.log(foldedNothing && leftAlone
+      ? "PASS (csv mirror: CRLF and LF are the same data — no rewrite, no fold-back)"
+      : "UNEXPECTED eol churn " + JSON.stringify({ foldedNothing, leftAlone }));
+    fs.writeFileSync(csvPath, lf);
+  }
+
   // our own write echoing back does nothing
   const before = fs.readFileSync(aotPath, "utf8");
   await vscode.workspace._csvChanged({ fsPath: csvPath });
@@ -623,6 +807,81 @@ const listed = [
     : "UNEXPECTED rename cleanup " + JSON.stringify(fs.readdirSync(dir)));
   vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(tmp, { recursive: true, force: true });
+})();
+
+// 6c) the mirror reaches line-form Concepts too: a CSV of a Concept's name
+// folds its rows in as Examples (keeping line form), and saving writes the
+// Concept back out — but only because a CSV of that name is already there.
+(async () => {
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-lineform-"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const dir = path.join(root, "aot.files");
+  fs.mkdirSync(dir);
+  const aotPath = path.join(root, "Numbers.aot");
+  const aotText = ["Integer", "    - 1", "        is prime: Yes", "    - 35", "        is prime: No"].join("\n");
+  fs.writeFileSync(aotPath, aotText);
+
+  // no CSV yet: saving must not rain a file into aot.files for every Concept
+  vscode.workspace._save(makeDoc(aotPath, aotText));
+  const restrained = !fs.existsSync(path.join(dir, "Integer.csv"));
+
+  // the CSV is the opt-in: put one there, and the Concept mirrors out to it
+  fs.writeFileSync(path.join(dir, "Integer.csv"), "name,is prime\n");
+  vscode.workspace._save(makeDoc(aotPath, aotText));
+  const written = fs.readFileSync(path.join(dir, "Integer.csv"), "utf8");
+  const mirrored = written === "name,is prime\n1,Yes\n35,No\n";
+  console.log(restrained && mirrored
+    ? "PASS (csv mirror: a line-form Concept mirrors out, but only where a CSV opted in)"
+    : "UNEXPECTED line-form mirror " + JSON.stringify({ restrained, written }));
+
+  // and back: a new row folds in as a '- Example', line form kept
+  fs.writeFileSync(path.join(dir, "Integer.csv"), "name,is prime\n1,Yes\n35,No\n7,Yes\n");
+  await vscode.workspace._csvChanged({ fsPath: path.join(dir, "Integer.csv") });
+  const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
+  const folded = after[5] === "    - 7" && after[6] === "        is prime: Yes";
+  const stillLineForm = !after.some((l) => l.trim().startsWith("|"));
+  console.log(folded && stillLineForm
+    ? "PASS (csv mirror: a CSV row folds into a line-form Concept as an Example, not a table)"
+    : "UNEXPECTED line-form fold " + JSON.stringify(after));
+
+  vscode.workspace.workspaceFolders = undefined;
+  fs.rmSync(root, { recursive: true, force: true });
+})();
+
+// 6d) value completion: an attribute typed by a Concept offers that
+// Concept's Examples, with its archived CSV's values beside them.
+(async () => {
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-values-"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  fs.mkdirSync(path.join(root, "aot.files"));
+  // an archive: Plato was a Person once, and no Concept claims this CSV now
+  fs.writeFileSync(path.join(root, "aot.files", "_Person.csv"), "name,nationality\nSocrates,RSA\nPlato,Greek\n");
+  const aotPath = path.join(root, "World.aot");
+  const text = ["Person", "    - Socrates", "Measurement", "    person: "].join("\n");
+  fs.writeFileSync(aotPath, text);
+  const doc = makeDoc(aotPath, text);
+
+  const at = new vscode.Position(3, 12); // after 'person: '
+  const items = valueCompletionProvider.provideCompletionItems(doc, at);
+  const labels = (items || []).map((i) => i.label);
+  const live = items.find((i) => i.label === "Socrates");
+  const archived = items.find((i) => i.label === "Plato");
+  console.log(labels.join(",") === "Socrates,Plato"
+    && /Example of Person/.test(live.detail) && /archived in _Person\.csv/.test(archived.detail)
+    ? "PASS (value completion: the Concept's Examples first, its archived values after, each marked)"
+    : "UNEXPECTED value completion " + JSON.stringify((items || []).map((i) => [i.label, i.detail])));
+
+  // a formula is not a value: nothing is offered inside one
+  const formulaDoc = makeDoc(aotPath, ["Person", "    - Socrates", "Measurement", "    person: =@x"].join("\n"));
+  const inFormula = valueCompletionProvider.provideCompletionItems(formulaDoc, new vscode.Position(3, 16));
+  console.log((inFormula || []).length === 0
+    ? "PASS (value completion: a formula is not a value, and is offered nothing)"
+    : "UNEXPECTED completion inside a formula");
+
+  vscode.workspace.workspaceFolders = undefined;
+  fs.rmSync(root, { recursive: true, force: true });
 })();
 
 // 7b) cross-file: a crosslink whose target lives in another repo file
@@ -656,6 +915,36 @@ const listed = [
   console.log(bDiags.some((d) => d.severity === vscode.DiagnosticSeverity.Warning && /also defined in People\.aot/.test(d.message))
     ? "PASS (cross-file: a Concept defined in two files warns repo-wide, not counted in V)"
     : "UNEXPECTED repo duplicate " + JSON.stringify(bDiags.map((d) => d.message)));
+
+  vscode.workspace.workspaceFolders = undefined;
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// 7c) the same file reaching the index in two different cases is one file.
+// On Windows and macOS a path arrives as 'C:\repo\A.aot' from VS Code's URIs
+// and 'c:\repo\A.aot' from a glob; keyed by raw case that is two entries, and
+// the file is then flagged as its own repo-wide duplicate. Linux holds names
+// case-sensitively, so there the two really are different files.
+if (process.platform === "win32" || process.platform === "darwin") {
+  const tmp = path.join(__dirname, "tmp-case");
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  // a Concept name no other fixture uses, so a stale index entry from an
+  // earlier block cannot be mistaken for this file's own duplicate
+  const real = path.join(tmp, "Kinfolk.aot");
+  fs.writeFileSync(real, ["Otterkin", "    - Ollie"].join("\n"));
+
+  // the watcher indexes it as written; the editor then opens the very same
+  // file under a differently-cased path
+  vscode.workspace._aotCreated({ fsPath: real });
+  const doc = makeDoc(path.join(tmp, "kinfolk.aot"), fs.readFileSync(real, "utf8"));
+  vscode.workspace._open(doc);
+  const diags = published.get(doc.uri.toString()) || [];
+  const selfDuplicate = diags.some((d) => /also defined in/i.test(d.message));
+  console.log(!selfDuplicate
+    ? "PASS (cross-platform: one file in two cases is one entry, never its own duplicate)"
+    : "UNEXPECTED self-duplicate " + JSON.stringify(diags.map((d) => d.message)));
 
   vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(tmp, { recursive: true, force: true });

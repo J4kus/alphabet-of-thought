@@ -56,21 +56,34 @@ function walkAot(dir) {
   return files;
 }
 
-// The cross-table registry a formula resolves against, mirroring the
-// editor's workspace scope: every .aot under the current directory (the
-// repo), with the file being checked overlaid last so its own tables win a
-// shared name. Unreadable siblings are skipped rather than fatal.
+// The cross-Concept registry a formula resolves against, mirroring the
+// editor's workspace scope (extension.js formulaRegistry): every table and
+// every line-form Concept in every .aot under the current directory (the
+// repo), with the file being checked overlaid last so its own win a shared
+// name, and a table shadowing the line-form Concept of the same name.
+// Unreadable siblings are skipped rather than fatal.
 function buildFormulaRegistry(targetFile, targetText, targetRoot) {
-  const maps = [];
+  const concepts = [], tables = [];
+  const scopesOf = (text, name) => {
+    tables.push(table.tableRegistry(text.split(/\r?\n/), name));
+    try {
+      const { root, nodes } = lint(text, name);
+      concepts.push(derive.conceptRegistry(root, nodes));
+    } catch { /* an unparseable file still offers its tables */ }
+  };
   for (const p of walkAot(".")) {
     if (path.resolve(p) === path.resolve(targetFile)) continue;
     try {
-      const name = path.basename(p).replace(/\.[^.]*$/, "");
-      maps.push(table.tableRegistry(fs.readFileSync(p, "utf8").split(/\r?\n/), name));
+      scopesOf(fs.readFileSync(p, "utf8"), path.basename(p).replace(/\.[^.]*$/, ""));
     } catch { /* skip unreadable */ }
   }
-  maps.push(table.tableRegistry(targetText.split(/\r?\n/), targetRoot));
-  return table.mergeRegistries(...maps);
+  const own = { concepts: [], tables: [] };
+  own.tables.push(table.tableRegistry(targetText.split(/\r?\n/), targetRoot));
+  try {
+    const { root, nodes } = lint(targetText, targetRoot);
+    own.concepts.push(derive.conceptRegistry(root, nodes));
+  } catch { /* as above */ }
+  return table.mergeRegistries(...concepts, ...tables, ...own.concepts, ...own.tables);
 }
 
 // Read a file or exit with a message instead of a stack trace.

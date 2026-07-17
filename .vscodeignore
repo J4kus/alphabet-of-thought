@@ -1,6 +1,9 @@
 .vscode/**
 .vscode-test/**
 .gitignore
+# the token experiment's tokenizer is installed on demand (--no-save) and is
+# large; it must never ride along in the vsix even when it is present
+node_modules/gpt-tokenizer/**
 vsc-extension-quickstart.md
 *.vsix
 __pycache__/**

@@ -221,7 +221,7 @@ function sortRows(block, row, col) {
   while (a > 0 && !block.rows[a - 1].sep) a--;
   while (b < block.rows.length - 1 && !block.rows[b + 1].sep) b++;
   if (a === b) return null;
-  const key = (r) => splitCell((r.cells[col] || "").trim()).value;
+  const key = (r) => readValue(splitCell((r.cells[col] || "").trim()).value);
   const num = (r) => parseFloat(key(r).replace(/[$,%\s]/g, ""));
   const run = block.rows.slice(a, b + 1);
   const numeric = run.every((r) => key(r) !== "" && !isNaN(num(r)));
@@ -322,12 +322,24 @@ function fromRegion(lines) {
 // comparison is numeric when both sides read as numbers, else string.
 // (References used to be '$'; since 1.3 they are '@'.)
 
+// A value may hold a literal '=' by escaping it: `note: a \= b` is the
+// value 'a = b', not a derivation of 'a'. splitCell needs no rule for it —
+// the character before an escaped '=' is the backslash, never a space, so
+// the scan below already walks past it — which leaves exactly one step:
+// take the backslash off when a value is read *as data* (the model, the
+// evaluator, a sort key) and leave it on in the text, which is what every
+// rewrite path copies verbatim. readValue is that step; call it wherever a
+// value becomes meaning rather than characters.
+const readValue = (text) => String(text).replace(/\\=/g, "=");
+
 // Split a cell (or line-form value) into its value and its '=' formula:
 // eq is the index of the '=' (the cell's start, or following a space), -1
 // when the cell is a plain value. The scan is left-to-right and skips
 // '==' so an operator inside a formula ('=if($2 == 3,1,0)') never splits
-// the cell. Values carry formulas only — constraints live on the
-// attribute declaration (splitConstraint) and validate the values.
+// the cell. The value comes back as written — escapes and all — because
+// most callers put it straight back on the line; read it with readValue.
+// Values carry formulas only — constraints live on the attribute
+// declaration (splitConstraint) and validate the values.
 function splitCell(text) {
   if (!text) return { value: text || "", eq: -1, op: null };
   for (let i = 0; i < text.length; i++) {
@@ -429,6 +441,45 @@ function triesAsFormula(src) {
 
 const numericValue = (text) => parseFloat(String(text).replace(/[$,%\s]/g, ""));
 
+// The value `or()` answers with: its alternatives, kept together rather than
+// collapsed to a truth on the spot. It then reads as whichever the place
+// wants —
+//
+//   as a truth (a formula, an if() condition, arithmetic): true when any
+//     alternative is true, which is exactly what logical OR means;
+//   as a set (a constraint's bound, where `==` compares against it): the
+//     value must equal one of the alternatives, which is what listing the
+//     allowed values means — `status ==or(`draft`,`sent`,`paid`)`.
+//
+// One object read in the two places a value can be read, so `or` needs no
+// second meaning and no context rule: `=if(or(@a,@b),…)` and the constraint
+// above are the same function. and/not/xor have only the truth reading, so
+// they answer 1 or 0 outright.
+class Choice {
+  constructor(values) { this.values = values; }
+  toString() { return this.values.map((v) => (typeof v === "number" ? v : `\`${v}\``)).join(" or "); }
+}
+
+// Whether a value counts as true: a number is true when it is not zero; the
+// truth words read as themselves; an empty value is false; any other text is
+// true — a filled-in value is something. A Choice is true when any of its
+// alternatives is.
+function truthOf(v) {
+  if (v instanceof Choice) return v.values.some(truthOf);
+  if (typeof v === "number") return v !== 0;
+  const s = String(v).trim().toLowerCase();
+  if (s === "") return false;
+  if (s === "yes" || s === "true") return true;
+  if (s === "no" || s === "false") return false;
+  const n = numericValue(s);
+  return isNaN(n) ? true : n !== 0;
+}
+
+// A bound as a constraint's message should show it: a Choice as its
+// alternatives, a number bare, anything else quoted.
+const describeBound = (v) =>
+  v instanceof Choice ? String(v) : typeof v === "number" ? String(v) : `\`${v}\``;
+
 // The longest case-insensitive name match at the head of `rest`, over
 // [{ key, id }] candidates (keys lowercased). The character after the
 // match must not continue a word, so `@price2` never half-matches `price`;
@@ -448,6 +499,10 @@ function longestMatch(rest, candidates) {
 // audit: two dates compare chronologically, two numbers numerically, else
 // as strings (exact case).
 function compareValues(op, a, b) {
+  // against a Choice the comparison is 'or' distributed over its
+  // alternatives — holding when it holds against any one of them. `==` is
+  // then membership, which is what a constraint listing allowed values asks.
+  if (b instanceof Choice) return b.values.some((v) => compareValues(op, a, v));
   let x, y;
   if (isDateValue(a) && isDateValue(b)) {
     x = Date.parse(String(a).trim()); y = Date.parse(String(b).trim());
@@ -477,22 +532,37 @@ function evalFormula(src, ctx) {
   const expect = (ch, m) => { ws(); if (src[i] !== ch) err(m || `missing '${ch}'`); i++; };
   const toNum = (v, what) => {
     if (typeof v === "number") return v;
+    // a Choice asked for a number is being asked for its truth
+    if (v instanceof Choice) return truthOf(v) ? 1 : 0;
     if (dead) return 0;
     const n = numericValue(v);
     if (isNaN(n)) err(`'${v}' is not numeric${what ? ` (${what})` : ""}`);
     return n;
   };
-  const toStr = (v) => (typeof v === "number" ? String(v) : v);
+  const toStr = (v) => {
+    if (typeof v === "number") return String(v);
+    if (v instanceof Choice) return String(truthOf(v) ? 1 : 0);
+    return v;
+  };
 
   // one part after an '@', resolved against `scope` (the current table, or
-  // a foreign one once a table has been named): a number is always a
-  // column; a name is resolved against the columns and the Examples, the
-  // longer match winning and a tie going to the column. Returns { col, row }
-  // with exactly one set.
+  // a foreign one once a table has been named): a number names a column; a
+  // name is resolved against the columns and the Examples, the longer match
+  // winning and a tie going to the column. Returns { col, row } with exactly
+  // one set.
   const refPart = (scope) => {
     if (/[0-9]/.test(src[i])) {
       let digits = "";
-      while (/[0-9]/.test(src[i])) digits += src[i++];
+      let k = i;
+      while (/[0-9]/.test(src[k])) digits += src[k++];
+      // A number names a column — unless the scope has no column to number
+      // and an Example goes by that number instead. That is how a line-form
+      // Concept reads (`@Integer@35`): it has no grid, so an Example is all
+      // a number can name there.
+      if (!scope.hasColumn || scope.hasColumn(+digits)) { i = k; return { col: +digits, row: null }; }
+      const asRow = scope.matchRow(src.slice(i));
+      if (asRow) { i += asRow.length; return { col: null, row: asRow.id }; }
+      i = k; // neither: let the absent column raise its own error
       return { col: +digits, row: null };
     }
     const rest = src.slice(i);
@@ -504,58 +574,32 @@ function evalFormula(src, ctx) {
     i += m.length;
     return asCol ? { col: m.id, row: null } : { col: null, row: m.id };
   };
-  // The leading part of a reference: a current-table column/Example (as
-  // ever), or — only when it names neither, so no formula that resolved
-  // before changes meaning — a foreign TABLE, written as the Concept/
-  // Example/Attribute it sits under, followed by another '@' to name its
-  // column (`@Order@…`). Returns { scope, part }: when a table was named,
-  // scope is that foreign table and part is null (the caller reads the
-  // cell/column from it); otherwise scope is the current table and part is
-  // the col/Example already read.
-  const leadPart = () => {
-    if (/[0-9]/.test(src[i])) return { scope: ctx, part: refPart(ctx) };
-    const rest = src.slice(i);
-    const colM = ctx.matchColumn(rest);
-    const rowM = ctx.matchRow(rest);
-    if (colM || rowM) {
-      const asCol = colM && (!rowM || colM.length >= rowM.length);
-      const m = asCol ? colM : rowM;
-      i += m.length;
-      return { scope: ctx, part: asCol ? { col: m.id, row: null } : { col: null, row: m.id } };
-    }
-    // neither a column nor an Example here: a foreign table, when the name
-    // matches one and a '@' follows to name its column
-    const tm = ctx.matchTable && ctx.matchTable(rest);
-    if (tm && src[i + tm.length] === "@") {
-      const foreign = ctx.table(tm.id);
-      if (!foreign) err(`the table '${rest.slice(0, tm.length)}' has no data`);
-      i += tm.length + 1; // the table name and its '@'
-      return { scope: foreign, part: null };
-    }
-    err(tm
-      ? "a foreign table reference names a cell — write @Table@column@Example"
-      : "unknown column, Example or table after '@'");
+  // Try a reading from the cursor; on failure rewind and answer FAIL, so an
+  // alternative reading can be tried in its place. The readings only look
+  // values up, so an abandoned attempt leaves nothing behind but the cursor.
+  const FAIL = Symbol("no reading");
+  const attempt = (read) => {
+    const save = i;
+    try { return read(); } catch { i = save; return FAIL; }
   };
-  // a cell reference: @col or @N for this row's cell; a column paired with
-  // an Example (either order) for that Example's cell; or a foreign table's
-  // cell, @Table@column@Example — the table first, then a column and an
-  // Example in either order.
-  const ref = () => {
-    i++; // the '@'
-    const { scope, part } = leadPart();
-    if (part === null) {
-      // a foreign table was named: its column and Example follow, in either order
-      const b = refPart(scope);
-      if (src[i] !== "@") err("a foreign table cell needs both a column and an Example — write @Table@column@Example");
-      i++;
-      const c = refPart(scope);
-      let col, row;
-      if (b.col != null && c.row != null) { col = b.col; row = c.row; }
-      else if (b.row != null && c.col != null) { col = c.col; row = b.row; }
-      else err("@Table pairs a column with an Example — one of each, in either order");
-      return dead ? "" : scope.cellAt(col, row);
-    }
-    const a = part;
+  // A foreign TABLE named at the cursor — written as the Concept/Example/
+  // Attribute it sits under — followed by the '@' that names its column
+  // (`@Order@…`). Answers its scope, cursor past that '@', or null with the
+  // cursor untouched when no table is named here.
+  const tableAt = () => {
+    const rest = src.slice(i);
+    const tm = ctx.matchTable && ctx.matchTable(rest);
+    if (!tm || src[i + tm.length] !== "@") return null;
+    const foreign = ctx.table(tm.id);
+    if (!foreign) err(`the table '${rest.slice(0, tm.length)}' has no data`);
+    i += tm.length + 1; // the table name and its '@'
+    return foreign;
+  };
+  // The local reading of a cell reference, the '@' already consumed: @col or
+  // @N for this row's cell, or a column paired with an Example in either
+  // order for that Example's cell.
+  const localRef = () => {
+    const a = refPart(ctx);
     if (src[i] === "@") {
       i++;
       const b = refPart(ctx);
@@ -568,19 +612,69 @@ function evalFormula(src, ctx) {
     if (a.col == null) err("@ names a column; pair a lone Example as @column@Example");
     return dead ? "" : ctx.cell(a.col);
   };
+  // The foreign reading of a cell reference, the table's scope already read:
+  // its column and Example follow, in either order — or, on a Concept, an
+  // attribute alone, which reads the value the Concept states on its own
+  // line (`@Measurement@alias`). A grid has no such value, so a table still
+  // needs its Example named.
+  const foreignRef = (scope) => {
+    const b = refPart(scope);
+    if (src[i] !== "@") {
+      if (b.col != null && scope.self) {
+        const own = scope.self(b.col);
+        if (own !== undefined) return dead ? "" : own;
+        err(`'${scope.name}' states no value of its own here — name one of its Examples too, like @${scope.name}@…@${scope.rows[0] || "Example"}`);
+      }
+      err("a foreign table cell needs both a column and an Example — write @Table@column@Example");
+    }
+    i++;
+    const c = refPart(scope);
+    let col, row;
+    if (b.col != null && c.row != null) { col = b.col; row = c.row; }
+    else if (b.row != null && c.col != null) { col = c.col; row = b.row; }
+    else err("@Table pairs a column with an Example — one of each, in either order");
+    return dead ? "" : scope.cellAt(col, row);
+  };
+  // a cell reference: this table's, or a foreign table's
+  // @Table@column@Example. The local reading is tried first, so no formula
+  // that resolved before changes meaning; the table gets its turn when the
+  // local reading cannot be completed — an owner with its own `person`
+  // attribute must not swallow the lead of `@Person@alias@Socrates` — and,
+  // as ever, when the lead names nothing local at all.
+  const ref = () => {
+    i++; // the '@'
+    const local = attempt(localRef);
+    if (local !== FAIL) return local;
+    const scope = tableAt();
+    if (scope) return foreignRef(scope);
+    if (ctx.matchTable && ctx.matchTable(src.slice(i)))
+      err("a foreign table reference names a cell — write @Table@column@Example");
+    return localRef(); // nothing foreign here: raise the local reading's error
+  };
   // a bare column, for the aggregates: @N or @name of this table, or a
   // foreign column @Table@column; never an @Example cell. Returns { scope,
-  // col } so the aggregate ranges over the right table's column.
-  const colRef = () => {
-    i++; // the '@'
-    const { scope, part } = leadPart();
-    if (part === null) {
-      const b = refPart(scope);
-      if (b.col == null) err("expected a column after the table, like @Order@price");
-      return { scope, col: b.col };
-    }
+  // col } so the aggregate ranges over the right table's column. Local first
+  // and then the table, exactly as `ref` reads a cell.
+  const localCol = (name) => {
+    const part = refPart(ctx);
     if (part.col == null) err("expected a column here, like @2 or @price");
+    // an aggregate ranges over a whole column, so an Example paired here
+    // means the lead named a foreign table rather than this table's column
+    if (src[i] === "@") err(`${name}() ranges over a column, not one row's cell`);
     return { scope: ctx, col: part.col };
+  };
+  const foreignCol = (scope) => {
+    const b = refPart(scope);
+    if (b.col == null) err("expected a column after the table, like @Order@price");
+    return { scope, col: b.col };
+  };
+  const colRef = (name) => {
+    i++; // the '@'
+    const local = attempt(() => localCol(name));
+    if (local !== FAIL) return local;
+    const scope = tableAt();
+    if (scope) return foreignCol(scope);
+    return localCol(name); // raise the local reading's own error
   };
 
   const AGG = {
@@ -595,7 +689,7 @@ function evalFormula(src, ctx) {
     if (name in AGG || name === "count") {
       ws();
       if (src[i] !== "@") err(`${name}() takes a column reference like @2 or @price`);
-      const { scope, col } = colRef();
+      const { scope, col } = colRef(name);
       if (src[i] === "@") err(`${name}() ranges over a column, not one row's cell`);
       expect(")");
       if (dead) return 0;
@@ -624,13 +718,19 @@ function evalFormula(src, ctx) {
     const arity = {
       round: [1, 2], abs: [1, 1], upper: [1, 1], lower: [1, 1], trim: [1, 1],
       len: [1, 1], left: [2, 2], right: [2, 2], mid: [3, 3], replace: [3, 3],
+      and: [2, Infinity], or: [2, Infinity], xor: [2, Infinity], not: [1, 1],
+      concat: [1, Infinity], substitute: [3, 4], find: [2, 3], contains: [2, 2],
+      starts: [2, 2], ends: [2, 2], proper: [1, 1], repeat: [2, 2], pad: [2, 3],
+      split: [2, 3], text: [1, 1], value: [1, 1],
     }[name];
     const argv = [cmp()];
     ws();
     while (src[i] === ",") { i++; argv.push(cmp()); ws(); }
     expect(")");
     if (argv.length < arity[0] || argv.length > arity[1]) {
-      err(`${name}() takes ${arity[0] === arity[1] ? arity[0] : `${arity[0]} to ${arity[1]}`} argument(s), got ${argv.length}`);
+      const wants = arity[1] === Infinity ? `${arity[0]} or more`
+        : arity[0] === arity[1] ? `${arity[0]}` : `${arity[0]} to ${arity[1]}`;
+      err(`${name}() takes ${wants} argument(s), got ${argv.length}`);
     }
     if (dead) return 0;
     const n = (k) => Math.trunc(toNum(argv[k], `${name}() argument ${k + 1}`));
@@ -646,6 +746,55 @@ function evalFormula(src, ctx) {
       case "right": { const k = Math.max(0, n(1)); return k ? s(0).slice(-k) : ""; }
       case "mid": { const at = Math.max(1, n(1)) - 1; return s(0).slice(at, at + Math.max(0, n(2))); }
       case "replace": { const from = s(1); return from ? s(0).split(from).join(s(2)) : s(0); }
+      case "and": return argv.every(truthOf) ? 1 : 0;
+      case "or": return new Choice(argv);
+      case "xor": return argv.filter(truthOf).length % 2 === 1 ? 1 : 0;
+      case "not": return truthOf(argv[0]) ? 0 : 1;
+      // concat() is '&' with a name, for joining more than a pair readably
+      case "concat": return argv.map(toStr).join("");
+      // substitute() replaces one occurrence (the nth, 1-based) where
+      // replace() replaces them all — the pair Excel splits the same way
+      case "substitute": {
+        const from = s(1);
+        if (!from) return s(0);
+        if (argv.length < 4) return s(0).split(from).join(s(2));
+        const nth = n(3);
+        let seen = 0, at = -1;
+        for (let k = s(0).indexOf(from); k !== -1; k = s(0).indexOf(from, k + 1)) {
+          if (++seen === nth) { at = k; break; }
+        }
+        return at === -1 ? s(0) : s(0).slice(0, at) + s(2) + s(0).slice(at + from.length);
+      }
+      // find() answers a 1-based position, 0 when absent — so it reads as a
+      // truth too: if(find(@note,`urgent`), …) is 'when the note says urgent'
+      case "find": {
+        const from = argv.length > 2 ? Math.max(1, n(2)) - 1 : 0;
+        return s(0).indexOf(s(1), from) + 1;
+      }
+      case "contains": return s(0).includes(s(1)) ? 1 : 0;
+      case "starts": return s(0).startsWith(s(1)) ? 1 : 0;
+      case "ends": return s(0).endsWith(s(1)) ? 1 : 0;
+      case "proper": return s(0).replace(/\S+/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+      case "repeat": return s(0).repeat(Math.max(0, n(1)));
+      // pad() to a width, on the right by default; a third argument pads left
+      case "pad": {
+        const width = Math.max(0, n(1));
+        const side = argv.length > 2 ? s(2).trim().toLowerCase() : "right";
+        if (s(0).length >= width) return s(0);
+        const fill = " ".repeat(width - s(0).length);
+        return side === "left" ? fill + s(0) : s(0) + fill;
+      }
+      // split() takes the nth field (1-based, default the first) — the way
+      // to reach into a value that packs several, `Doe, Jane`
+      case "split": {
+        const parts = s(0).split(s(1));
+        const k = argv.length > 2 ? n(2) : 1;
+        return parts[(k < 0 ? parts.length + k : k - 1)] ?? "";
+      }
+      // text() and value() cross the number/text line on purpose, for the
+      // times coercion should be said out loud rather than inferred
+      case "text": return toStr(argv[0]);
+      case "value": return toNum(argv[0], "value()");
     }
   }
 
@@ -662,7 +811,7 @@ function evalFormula(src, ctx) {
       i = close + 1;
       return v;
     }
-    const fn = /^(sum|avg|min|max|count|round|abs|upper|lower|trim|len|left|right|mid|replace|if)\s*\(/i.exec(src.slice(i));
+    const fn = /^(sum|avg|min|max|count|round|abs|upper|lower|trim|len|left|right|mid|replace|if|and|or|xor|not|concat|substitute|find|contains|starts|ends|proper|repeat|pad|split|text|value)\s*\(/i.exec(src.slice(i));
     if (fn) return call(fn[1].toLowerCase(), fn[0].length);
     const num = /^\d+(\.\d+)?/.exec(src.slice(i));
     if (num) { i += num[0].length; return +num[0]; }
@@ -716,6 +865,8 @@ function evalFormula(src, ctx) {
 // is written as it is, with any '|' bent to a broken bar (a pipe cannot
 // live inside a pipe table).
 function formatValue(v, old) {
+  // a Choice written into a value is being read as a truth, not as a set
+  if (v instanceof Choice) v = truthOf(v) ? 1 : 0;
   if (typeof v === "string") return v.replace(/\|/g, "¦");
   if (!isFinite(v)) throw new Error("the result is not a number");
   const rounded = Math.round(v * 100) / 100;
@@ -782,12 +933,13 @@ function foreignScope(header, rows) {
   const numCols = Math.max(header ? header.length : 0, ...rows.map((r) => r.length), 0);
   const raw = (r, c) => {
     if (c < 1 || c > numCols) throw new Error(`there is no column @${c}`);
-    return splitCell((rows[r] || [])[c - 1] || "").value;
+    return readValue(splitCell((rows[r] || [])[c - 1] || "").value);
   };
   const display = referenceNamesFrom(header, rows);
   return {
     columns: display.columns,
     rows: display.rows,
+    hasColumn: (c) => c >= 1 && c <= numCols,
     matchColumn: (rest) => longestMatch(rest, names),
     matchRow: (rest) => longestMatch(rest, rowCands),
     cellAt: (c, r) => raw(r, c),
@@ -832,9 +984,10 @@ function tableCtx(rows, row, header, registry) {
   const numCols = Math.max(header ? header.length : 0, ...rows.map((r) => r.cells.length));
   const raw = (r, c) => {
     if (c < 1 || c > numCols) throw new Error(`there is no column $${c}`);
-    return splitCell(r.cells[c - 1] || "").value;
+    return readValue(splitCell(r.cells[c - 1] || "").value);
   };
   return {
+    hasColumn: (c) => c >= 1 && c <= numCols,
     matchColumn: (rest) => longestMatch(rest, names),
     matchRow: (rest) => longestMatch(rest, rowNames),
     cell: (c) => raw(row, c),
@@ -1075,6 +1228,7 @@ module.exports = {
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas,
   compareValues, longestMatch, numericValue, tableCtx,
+  readValue, Choice, truthOf, describeBound,
   valueType, satisfiesTypes, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
   foreignScope, tableRegistry, mergeRegistries,
 };

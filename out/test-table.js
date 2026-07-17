@@ -10,7 +10,7 @@ const {
   sortRows, fromRegion, cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas, tableCtx,
   valueType, satisfiesTypes, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
-  tableRegistry, mergeRegistries, foreignScope,
+  tableRegistry, mergeRegistries, foreignScope, readValue, truthOf,
 } = require("../src/table");
 
 let failures = 0;
@@ -212,6 +212,81 @@ const fresh = () => blockAt(doc, 3);
   check("evalFormula: comparisons yield 1 or 0, numeric when both sides read as numbers",
     evalFormula("@2>=3", ctx) === 1 && evalFormula("@2<3", ctx) === 0
     && evalFormula("`b`>`a`", ctx) === 1 && evalFormula("`10`==10", ctx) === 1);
+
+  // the logical operators: and/not/xor answer a truth outright, or() answers
+  // a Choice that reads as a truth here and as a set in a constraint
+  check("evalFormula: and/not/xor answer 1 or 0",
+    evalFormula("and(1,1)", ctx) === 1 && evalFormula("and(1,0)", ctx) === 0
+    && evalFormula("not(0)", ctx) === 1 && evalFormula("not(1)", ctx) === 0
+    && evalFormula("xor(1,0)", ctx) === 1 && evalFormula("xor(1,1)", ctx) === 0);
+  check("evalFormula: the truth words read as themselves, empty is false, other text is true",
+    truthOf("yes") === true && truthOf("TRUE") === true
+    && truthOf("no") === false && truthOf("False") === false
+    && truthOf("") === false && truthOf("  ") === false
+    && truthOf("widget") === true && truthOf("0") === false && truthOf(0) === false);
+  check("evalFormula: or() reads as a truth wherever a truth is wanted",
+    evalFormula("or(0,0)+0", ctx) === 0 && evalFormula("or(0,1)+0", ctx) === 1
+    && evalFormula("if(or(0,1),`y`,`n`)", ctx) === "y"
+    && evalFormula("if(or(0,0),`y`,`n`)", ctx) === "n"
+    && evalFormula("not(or(0,0))", ctx) === 1);
+  check("evalFormula: or() reads as a set wherever '==' compares against it",
+    compareValues("==", "sent", evalFormula("or(`draft`,`sent`)", ctx)) === true
+    && compareValues("==", "void", evalFormula("or(`draft`,`sent`)", ctx)) === false
+    && compareValues(">=", "5", evalFormula("or(1,9)", ctx)) === true);
+  check("evalFormula: and/or/xor want at least two arguments, not() exactly one",
+    (() => {
+      const throws = (f) => { try { evalFormula(f, ctx); return false; } catch { return true; } };
+      return throws("and(1)") && throws("or(1)") && throws("not(1,2)");
+    })());
+  check("evalFormula: a formula's or() value formats as its truth, not its set",
+    formatValue(evalFormula("or(0,1)", ctx), "") === "1"
+    && formatValue(evalFormula("or(0,0)", ctx), "") === "0");
+
+  // the string functions
+  check("evalFormula: concat/find/contains/starts/ends",
+    evalFormula("concat(`a`,`b`,`c`)", ctx) === "abc"
+    && evalFormula("find(`hello world`,`world`)", ctx) === 7
+    && evalFormula("find(`abc`,`z`)", ctx) === 0
+    && evalFormula("find(`a-a`,`a`,2)", ctx) === 3
+    && evalFormula("contains(`hello`,`ell`)", ctx) === 1
+    && evalFormula("starts(`hello`,`he`)", ctx) === 1
+    && evalFormula("ends(`hello`,`lo`)", ctx) === 1);
+  check("evalFormula: find() reads as a truth, being 0 exactly when absent",
+    (() => {
+      const noted = (text) => ({
+        ...ctx,
+        matchColumn: (rest) => (rest.toLowerCase().startsWith("note") ? { id: 1, length: 4 } : null),
+        cell: () => text,
+      });
+      return evalFormula("if(find(@note,`urgent`),`!`,`-`)", noted("urgent job")) === "!"
+        && evalFormula("if(find(@note,`urgent`),`!`,`-`)", noted("calm job")) === "-";
+    })());
+  check("evalFormula: proper/repeat/pad",
+    evalFormula("proper(`jane DOE`)", ctx) === "Jane Doe"
+    && evalFormula("repeat(`ab`,3)", ctx) === "ababab"
+    && evalFormula("pad(`x`,4)", ctx) === "x   "
+    && evalFormula("pad(`x`,4,`left`)", ctx) === "   x"
+    && evalFormula("pad(`toolong`,3)", ctx) === "toolong");
+  check("evalFormula: split() takes the nth field, counting back from the end when negative",
+    evalFormula("split(`Doe, Jane`,`, `,2)", ctx) === "Jane"
+    && evalFormula("split(`Doe, Jane`,`, `)", ctx) === "Doe"
+    && evalFormula("split(`a/b/c`,`/`,-1)", ctx) === "c"
+    && evalFormula("split(`a`,`/`,9)", ctx) === "");
+  check("evalFormula: substitute() replaces the nth, replace() replaces all",
+    evalFormula("substitute(`a-a-a`,`a`,`X`,2)", ctx) === "a-X-a"
+    && evalFormula("substitute(`a-a-a`,`a`,`X`)", ctx) === "X-X-X"
+    && evalFormula("replace(`a-a-a`,`a`,`X`)", ctx) === "X-X-X");
+  check("evalFormula: text() and value() say the coercion out loud",
+    evalFormula("text(42)&`!`", ctx) === "42!"
+    && evalFormula("value(`$1,200`)+1", ctx) === 1201);
+
+  // an escaped '=' is a value's own character, not the derivation operator
+  check("splitCell: an escaped '=' never splits the cell",
+    splitCell("a \\= b").eq === -1 && splitCell("a \\= b").value === "a \\= b"
+    && splitCell("4 =2*2").eq === 2);
+  check("readValue: the backslash comes off when the value is read as data",
+    readValue("a \\= b") === "a = b" && readValue("plain") === "plain"
+    && readValue("4") === "4");
   check("evalFormula: if() is lazy — the untaken branch may not compute",
     evalFormula("if(count(@3)>0,avg(@3),0)", { ...ctx, column: () => [] }) === 0
     && evalFormula("if(@1>5,`big`,`small`)", ctx) === "big");

@@ -9,7 +9,10 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const { lint, KIND, INDENT } = require("./linter");
-const { resolve, owningConcept, externalIndex } = require("./crosslinks");
+const {
+  resolve, owningConcept, externalIndex, unlistedValues,
+  index: crosslinkIndex, conceptType, listedExamples,
+} = require("./crosslinks");
 const table = require("./table");
 const { suggest } = require("./fca");
 const { clashes } = require("./godel");
@@ -47,40 +50,78 @@ function acceptedWords() {
 // and the same Concept defined in two files can be flagged. Built at
 // activation, refreshed per-file on save and by a watcher; the current
 // document's own live edits are re-linted in analyse, so it stays fresh.
-const workspaceIndex = new Map(); // fsPath -> { root, nodes }
+// Keyed by fileKey (the case-folded path), but every entry carries the
+// file's real `fsPath` — the key identifies, the fsPath is what a link
+// opens and what a message names, and folding the two would open
+// 'people.aot' on a disk that spells it 'People.aot'.
+const workspaceIndex = new Map(); // fileKey -> { fsPath, root, nodes, tables, concepts }
 let workspaceExternal = null;     // cached externalIndex over the whole repo
+
+// Whether the platform's file system holds names case-blind. Windows and
+// macOS do, Linux does not — every path comparison below follows it rather
+// than assuming, so the same repo behaves the same on all three.
+const CASE_BLIND_FS = process.platform === "win32" || process.platform === "darwin";
+
+// One key for a file, whatever case it arrives in. On Windows the same file
+// reaches us as 'C:\repo\a.aot' from one source and 'c:\repo\a.aot' from
+// another (VS Code's URIs and Node's globs disagree about the drive letter),
+// and two keys for one file would have that file flagged as its own
+// duplicate Concept, and merged into its own formula registry twice.
+const fileKey = (p) => (CASE_BLIND_FS ? path.normalize(p).toLowerCase() : path.normalize(p));
+
+// Whether `file` sits inside `dir`, compared as resolved paths so no amount
+// of '..' can smuggle a path out of one, and so a sibling whose name merely
+// starts the same ('/repo-two' against '/repo') is never mistaken for a child.
+function isInside(dir, file) {
+  const norm = (p) => (CASE_BLIND_FS ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const rel = path.relative(norm(dir), norm(file));
+  return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
 
 function reindexAot(fsPath, text) {
   try {
     const rootName = path.basename(fsPath).replace(/\.[^.]*$/, "");
     const { root, nodes } = lint(text, rootName);
     const tables = table.tableRegistry(text.split(/\r?\n/), rootName);
-    workspaceIndex.set(path.normalize(fsPath), { root, nodes, tables });
-  } catch { workspaceIndex.delete(path.normalize(fsPath)); }
+    const concepts = derive.conceptRegistry(root, nodes);
+    workspaceIndex.set(fileKey(fsPath), { fsPath, root, nodes, tables, concepts });
+  } catch { workspaceIndex.delete(fileKey(fsPath)); }
   workspaceExternal = null; // invalidate; rebuilt lazily
 }
 
-// The table registry a formula in `doc` resolves its cross-table references
-// against: every table in the repo (the workspace index) with the current
-// document's own tables — parsed from its live, possibly-unsaved text —
-// overlaid last, so a same-named table here shadows one elsewhere. A lone
-// file (no workspace) simply sees its own tables.
-function formulaRegistry(doc) {
-  const here = path.normalize(doc.fileName || "");
+// The registry a formula in `doc` resolves its cross-Concept references
+// against: every table and every line-form Concept in the repo (the
+// workspace index), with the current document's own — parsed from its live,
+// possibly-unsaved text — overlaid last, so a same-named scope here shadows
+// one elsewhere. A lone file (no workspace) simply sees its own.
+//
+// Within one file a table shadows the line-form Concept of the same name:
+// both stand for the same rows, and the grid is the sharper reading of them.
+// `parsed` (optional) is the caller's already-linted { root, nodes }, so the
+// paths that just parsed do not parse the document twice.
+function formulaRegistry(doc, parsed) {
+  const here = fileKey(doc.fileName || "");
   const maps = [];
   for (const [fsPath, v] of workspaceIndex) {
-    if (fsPath === here || !v.tables) continue;
-    maps.push(v.tables);
+    if (fsPath !== here && v.concepts) maps.push(v.concepts);
+  }
+  for (const [fsPath, v] of workspaceIndex) {
+    if (fsPath !== here && v.tables) maps.push(v.tables);
   }
   const rootName = path.basename(doc.fileName || "").replace(/\.[^.]*$/, "");
-  maps.push(table.tableRegistry(doc.getText().split(/\r?\n/), rootName));
+  const text = doc.getText();
+  try {
+    const { root, nodes } = parsed || lint(text, rootName);
+    maps.push(derive.conceptRegistry(root, nodes));
+  } catch { /* an unparseable document still offers its tables */ }
+  maps.push(table.tableRegistry(text.split(/\r?\n/), rootName));
   return table.mergeRegistries(...maps);
 }
 
 function externalFor() {
   if (!workspaceExternal) {
     workspaceExternal = externalIndex(
-      [...workspaceIndex.entries()].map(([file, v]) => ({ file, root: v.root, nodes: v.nodes })));
+      [...workspaceIndex.values()].map((v) => ({ file: v.fsPath, root: v.root, nodes: v.nodes })));
   }
   return workspaceExternal;
 }
@@ -90,21 +131,20 @@ function externalFor() {
 function underWorkspace(doc) {
   const folders = vscode.workspace.workspaceFolders || [];
   if (!folders.length || !doc.fileName) return false;
-  const f = path.normalize(doc.fileName);
-  return folders.some((w) => f.startsWith(path.normalize(w.uri.fsPath)));
+  return folders.some((w) => isInside(w.uri.fsPath, doc.fileName));
 }
 
 // A Concept the current file defines that another file also defines (ci):
 // a warning, not a violation — one name should mean one thing across a repo.
 function duplicateConceptWarnings(doc, nodes) {
-  const here = path.normalize(doc.fileName || "");
+  const here = fileKey(doc.fileName || "");
   const elsewhere = new Map(); // lowercased name -> { file, line }
   for (const [fsPath, v] of workspaceIndex) {
     if (fsPath === here) continue;
     for (const n of v.nodes) {
       if (n.kind !== KIND.CONCEPT) continue;
       const k = n.name.toLowerCase();
-      if (!elsewhere.has(k)) elsewhere.set(k, { file: path.basename(fsPath), line: n.line });
+      if (!elsewhere.has(k)) elsewhere.set(k, { file: path.basename(v.fsPath), line: n.line });
     }
   }
   const out = [];
@@ -124,7 +164,8 @@ function analyse(doc) {
   // keep this file's entry current so other files resolve against its edits
   if (inWs) {
     const tables = table.tableRegistry(doc.getText().split(/\r?\n/), rootName);
-    workspaceIndex.set(path.normalize(doc.fileName), { root, nodes, tables });
+    const concepts = derive.conceptRegistry(root, nodes);
+    workspaceIndex.set(fileKey(doc.fileName), { fsPath: doc.fileName, root, nodes, tables, concepts });
     workspaceExternal = null;
   }
   const links = resolve(doc.getText(), root, nodes, inWs ? externalFor() : undefined);
@@ -171,7 +212,7 @@ function analyse(doc) {
   // next recompute would change is a warning — pinned to the exact span
   const formulaErrors = [], formulaWarnings = [];
   const docLines = doc.getText().split(/\r?\n/);
-  const registry = formulaRegistry(doc);
+  const registry = formulaRegistry(doc, { root, nodes });
   for (const f of [...table.formulas(docLines, registry), ...derive.auditValues(root, nodes, docLines, registry)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
     else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
@@ -179,9 +220,17 @@ function analyse(doc) {
   // spelling is advisory prose-hygiene, independent of the tree's verdict:
   // words longer than four characters that no English dialect (nor the
   // user's accepted words) knows, off with aot.spellingHints
-  const hints = vscode.workspace.getConfiguration("aot").get("spellingHints", true)
+  const config = vscode.workspace.getConfiguration("aot");
+  const hints = config.get("spellingHints", true)
     ? spelling.check(doc.getText(), accepted)
     : [];
+  // a value naming no Example of the Concept typing its attribute is a gap
+  // in the model rather than a contradiction in it, so it hints exactly as
+  // spelling does — on its span, never in the Problems panel, never in V —
+  // and its Quick Fix lists the Example. Off with aot.exampleHints.
+  if (config.get("exampleHints", true)) {
+    hints.push(...unlistedValues(doc.getText(), root, nodes, inWs ? externalFor() : undefined));
+  }
   return {
     errors: errors.concat(deepErrors, formulaErrors),
     warnings: warnings.concat(depWarnings, formulaWarnings, repoWarnings),
@@ -237,7 +286,7 @@ async function autoComputeValues(doc, analysis, force) {
     analysis = lint(doc.getText(), rootName);
   }
   const lines = doc.getText().split(/\r?\n/);
-  let edits = derive.recomputeValues(analysis.root, analysis.nodes, lines, formulaRegistry(doc));
+  let edits = derive.recomputeValues(analysis.root, analysis.nodes, lines, formulaRegistry(doc, analysis));
   if (!edits.length) return;
   const busy = new Set();
   for (const editor of vscode.window.visibleTextEditors) {
@@ -440,6 +489,64 @@ const referenceCompletion = {
   },
 };
 
+// The Example names an archived `_<Concept>.csv` still remembers — its first
+// column. A CSV is archived when no Concept claims it any more, and it is
+// never folded back: that would silently undo the archiving. Reading it,
+// though, costs nothing and is worth everything — those values were real
+// once, and are exactly what someone re-typing the attribute is reaching for.
+function archivedValues(doc, conceptName) {
+  let csv;
+  try { csv = fs.readFileSync(path.join(aotFilesDir(doc), "_" + csvName(conceptName)), "utf8"); }
+  catch { return []; }
+  return table.fromCsv(csv).slice(1).map((r) => (r[0] || "").trim()).filter(Boolean);
+}
+
+// The values an attribute can take, offered where its value is typed. An
+// attribute that names a Concept is answerable to that Concept's Examples —
+// the same rule the unlisted-value hint applies — so those are the
+// suggestions, with the Concept's archived CSV folded in beside them and
+// marked as such.
+const valueCompletion = {
+  provideCompletionItems(doc, position) {
+    // the cheap guards first: this runs on every keystroke, and only a value
+    // being typed (never a formula, never a table cell) has values to offer
+    const line = doc.lineAt(position.line).text;
+    if (line.trimStart().startsWith("|")) return [];
+    const colon = line.indexOf(":");
+    if (colon === -1 || position.character <= colon) return [];
+    const typed = line.slice(colon + 1, position.character);
+    if (typed.includes("=")) return [];
+
+    // the last analysis, as the hover and the inlay chains do: completion
+    // fires on every keystroke, and re-linting the document each time to
+    // suggest a value would be paying the linter's price for the editor's
+    let parsed;
+    try { parsed = analysisByDoc.get(doc.uri.toString()) || analyse(doc); } catch { return []; }
+    const node = parsed.nodes.find((n) => n.line === position.line + 1
+      && (n.kind === KIND.DEFAULT || n.kind === KIND.ATTRIBUTE) && !n.cell);
+    if (!node) return [];
+    const type = conceptType(node, crosslinkIndex(parsed.root, parsed.nodes).concepts);
+    if (!type) return [];
+
+    const items = [];
+    const seen = new Set();
+    const push = (text, detail, kind, group, i) => {
+      if (seen.has(text.toLowerCase())) return;
+      seen.add(text.toLowerCase());
+      const it = new vscode.CompletionItem(text, kind);
+      it.detail = detail;
+      it.sortText = group + String(i).padStart(3, "0");
+      items.push(it);
+    };
+    listedExamples(type).forEach((ex, i) =>
+      push(ex.name, `Example of ${type.name}`, vscode.CompletionItemKind.EnumMember, "0", i));
+    // the archive comes second: a value that was real once, but is not now
+    archivedValues(doc, type.name).forEach((v, i) =>
+      push(v, `archived in _${csvName(type.name)}`, vscode.CompletionItemKind.Value, "1", i));
+    return items;
+  },
+};
+
 // Resolve a path-shaped value to an existing file's absolute path, or null:
 // an absolute path as written, else relative to the .aot's folder, else to
 // the workspace root; `~/` expands to the home directory.
@@ -464,6 +571,78 @@ function resolveFilePath(doc, text) {
 // Every file-path value in the document that resolves to a real file.
 function fileLinksIn(doc) {
   return urls.findFiles(doc.getText().split(/\r?\n/), (t) => resolveFilePath(doc, t));
+}
+
+// A free name in `dir` for `base`: the name itself when nothing holds it,
+// else 'name (2).ext', 'name (3).ext', … — the convention every desktop uses.
+function freeName(dir, base) {
+  const ext = path.extname(base);
+  const stem = path.basename(base, ext);
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? base : `${stem} (${n})${ext}`;
+    if (!fs.existsSync(path.join(dir, name))) return name;
+  }
+}
+
+// The file link under a position, or the only one on its line.
+function fileLinkAt(doc, position) {
+  const here = fileLinksIn(doc).filter((f) => f.line === position.line + 1);
+  return here.find((f) => position.character >= f.startCol && position.character <= f.endCol) || here[0] || null;
+}
+
+// AOT: Copy File into aot.files — the lightbulb on a file-path value that
+// points outside the repo's own file store. The file is copied in and the
+// value rewritten to name the copy, so a model travels with its evidence:
+// clone the repo and everything it cites comes too, instead of a path into
+// somebody's Desktop that means nothing on any other machine.
+//
+// Never silently destructive. A file already there with the same bytes is
+// simply relinked — no write at all — and one that differs asks first,
+// offering to keep both under a numbered name. The copy is written with
+// forward slashes whatever the platform, so the .aot reads the same on
+// Windows, Linux and macOS.
+async function copyFileIntoRepo() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "aot") return;
+  const doc = editor.document;
+  const link = fileLinkAt(doc, editor.selection.active);
+  if (!link) {
+    vscode.window.showInformationMessage("AOT: put the cursor on a file path to copy it into aot.files.");
+    return;
+  }
+  const dir = aotFilesDir(doc);
+  const base = path.basename(link.fsPath);
+  if (isInside(dir, link.fsPath)) {
+    vscode.window.showInformationMessage(`AOT: '${base}' already lives in aot.files.`);
+    return;
+  }
+  let name = base;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const source = fs.readFileSync(link.fsPath);
+    const target = path.join(dir, base);
+    let write = true;
+    if (fs.existsSync(target)) {
+      if (fs.readFileSync(target).equals(source)) {
+        write = false; // the very same file is already here: just point at it
+      } else {
+        const choice = await vscode.window.showWarningMessage(
+          `'${base}' is already in aot.files, holding something different.`,
+          { modal: true, detail: "Keep both, and the copy is named '" + freeName(dir, base) + "'." },
+          "Keep Both", "Replace");
+        if (!choice) return;
+        if (choice === "Keep Both") name = freeName(dir, base);
+      }
+    }
+    if (write) fs.writeFileSync(path.join(dir, name), source);
+  } catch (e) {
+    vscode.window.showErrorMessage(`AOT: could not copy '${base}' into aot.files — ${e.message}`);
+    return;
+  }
+  const rel = `aot.files/${name}`;
+  await editor.edit((b) => b.replace(
+    new vscode.Range(link.line - 1, link.startCol, link.line - 1, link.endCol), rel));
+  vscode.window.showInformationMessage(`AOT: '${base}' is in aot.files; the value now reads ${rel}.`);
 }
 
 // A URL or file path under the cursor answers on hover: a URL with light
@@ -654,6 +833,10 @@ const inlayProvider = {
 // is read back out of the message (both formats are this extension's own).
 const ACCEPT_SPELLING = /^'(.+)' is not in the dictionary/;
 const ACCEPT_PLURAL = /^Concept '(.+)' appears plural/;
+// the lightbulb on an unlisted value lists it as an Example of the Concept
+// that types its attribute; both names are read back out of the message,
+// which is this extension's own (crosslinks.unlistedValues)
+const UNLISTED_VALUE = /^'(.+)' is not an Example of Concept '(.+)' —/;
 const codeActionProvider = {
   provideCodeActions(doc, range, context) {
     const actions = [];
@@ -670,6 +853,21 @@ const codeActionProvider = {
       action.command = { command: "aot.acceptWord", title: `Accept '${word}'`, arguments: [word] };
       actions.push(action);
     }
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot") continue;
+      const unlisted = UNLISTED_VALUE.exec(diagnostic.message);
+      if (!unlisted) continue;
+      const [, value, concept] = unlisted;
+      const action = new vscode.CodeAction(
+        `Add '${value}' as an Example of '${concept}'`, vscode.CodeActionKind.QuickFix);
+      action.diagnostics = [diagnostic];
+      action.command = {
+        command: "aot.addExample",
+        title: `Add '${value}' as an Example of '${concept}'`,
+        arguments: [value, concept],
+      };
+      actions.push(action);
+    }
     // a stale formula/value offers the one command that fixes them all
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
@@ -679,6 +877,18 @@ const codeActionProvider = {
       action.command = { command: "aot.recomputeFormulas", title: "Recompute formulas" };
       actions.push(action);
       break;
+    }
+    // a file-path value pointing outside the repo's own file store offers to
+    // bring the file in, so the model carries what it cites
+    const cursor = range && range.start;
+    if (cursor) {
+      const link = fileLinkAt(doc, cursor);
+      if (link && !isInside(aotFilesDir(doc), link.fsPath)) {
+        const action = new vscode.CodeAction(
+          `Copy '${path.basename(link.fsPath)}' into aot.files`, vscode.CodeActionKind.QuickFix);
+        action.command = { command: "aot.copyFileIntoRepo", title: "Copy into aot.files" };
+        actions.push(action);
+      }
     }
     // a derivation under the cursor offers the copy-down: onto the same
     // column's other rows (table), or the same attribute of every sibling
@@ -707,6 +917,56 @@ const codeActionProvider = {
     return actions;
   },
 };
+
+// AOT: Add Example — the lightbulb on an unlisted value. `value` joins the
+// Concept named by `conceptName` as an Example, in whichever form that
+// Concept is already written: a row on its table, or a `- value` line under
+// its last Example. The cursor lands on the new Example so the writer can
+// carry straight on filling it in — the point of the fix is to get the idea
+// into the model, not to leave them hunting for where it went.
+async function addExample(value, conceptName) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "aot") return;
+  const doc = editor.document;
+  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
+  const { root, nodes } = lint(doc.getText(), rootName);
+  const key = conceptName.toLowerCase();
+  const concept = [root, ...nodes].find((n) => n && n.kind === KIND.CONCEPT
+    && (n.name.toLowerCase() === key || (n.alias && n.alias.toLowerCase() === key)));
+  if (!concept) {
+    vscode.window.showWarningMessage(`AOT: this file no longer defines the Concept '${conceptName}'.`);
+    return;
+  }
+  const lines = doc.getText().split(/\r?\n/);
+  const edit = derive.addExample(
+    root, nodes, lines, concept, value, rootName, formulaRegistry(doc, { root, nodes }));
+  if (!edit) {
+    vscode.window.showWarningMessage(`AOT: could not find where to list '${value}' under '${conceptName}'.`);
+    return;
+  }
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const { from, to, block } = edit;
+  await editor.edit((b) => {
+    if (to < from) {
+      // a pure insert: on the line below `from - 1`, or appended when the
+      // Concept's last Example ends the file
+      if (from >= doc.lineCount) {
+        const last = doc.lineCount - 1;
+        b.insert(new vscode.Position(last, doc.lineAt(last).text.length), eol + block.join(eol));
+      } else {
+        b.insert(new vscode.Position(from, 0), block.join(eol) + eol);
+      }
+    } else {
+      b.replace(new vscode.Range(from, 0, to, doc.lineAt(to).text.length), block.join(eol));
+    }
+  });
+  // put the cursor on the new Example's own name, ready to be built on
+  const at = to < from ? Math.min(from, doc.lineCount - 1) : Math.min(to + block.length - 1, doc.lineCount - 1);
+  const text = doc.lineAt(at).text;
+  const col = Math.max(text.indexOf(value), 0) + value.length;
+  editor.selection = new vscode.Selection(at, col, at, col);
+  editor.revealRange(new vscode.Range(at, 0, at, col));
+}
 
 // AOT: Recompute Formulas — one pass over the whole document: every table
 // re-aligned and recomputed, every line-form '=' value refreshed.
@@ -783,6 +1043,15 @@ const lastWritten = new Map(); // csv path -> the content this extension wrote
 
 const csvName = (name) => name.replace(/[\\/:*?"<>|]/g, "-") + ".csv";
 
+// Two CSV texts hold the same data when they differ only in line endings.
+// The mirror writes LF on every platform, but a CSV is exactly the file a
+// user opens in something else — Excel and Notepad write CRLF back on
+// Windows, and git hands out CRLF wherever these are committed with
+// 'text=auto'. Compare the bytes and that round trip looks like an edit: the
+// watcher folds a grid that never changed, and the next save rewrites the
+// file, for a diff nobody made.
+const sameCsvText = (a, b) => String(a).replace(/\r\n/g, "\n") === String(b).replace(/\r\n/g, "\n");
+
 // The workspace root a document belongs to (or its own folder, standalone).
 function workspaceRoot(doc) {
   const folder = vscode.workspace.getWorkspaceFolder && vscode.workspace.getWorkspaceFolder(doc.uri);
@@ -817,12 +1086,16 @@ function scanAotFiles(root) {
 // The text of a workspace .aot, preferring the live document when it is the
 // one being saved (so its unsaved edits count).
 function aotText(fsPath, currentDoc) {
-  if (currentDoc && path.normalize(fsPath) === path.normalize(currentDoc.fileName)) return currentDoc.getText();
+  if (currentDoc && fileKey(fsPath) === fileKey(currentDoc.fileName)) return currentDoc.getText();
   try { return fs.readFileSync(fsPath, "utf8"); } catch { return null; }
 }
 
-// Every CSV name any .aot in the repo would write — the shared folder means
-// a CSV is an orphan only when *no* file has a table for it.
+// Every CSV name the repo claims — the shared folder means a CSV is an
+// orphan only when *no* file speaks for it. Two things speak for one: a
+// table that would write it, and a **file-path value that points at it** —
+// a CSV copied in as evidence is referenced, not abandoned, and archiving it
+// would break the very link that names it.
+const AOT_FILES_REF = /aot\.files[\\/]([^\s|`"'<>]+)/g;
 function globalCsvNames(root, currentDoc) {
   const names = new Set();
   for (const f of scanAotFiles(root)) {
@@ -830,20 +1103,42 @@ function globalCsvNames(root, currentDoc) {
     if (text === null) continue;
     const rootName = path.basename(f).replace(/\.[^.]*$/, "");
     for (const t of table.tablesOf(text.split(/\r?\n/), rootName)) names.add(csvName(t.name).toLowerCase());
+    for (const m of text.matchAll(AOT_FILES_REF)) names.add(path.basename(m[1]).toLowerCase());
+    // a Concept written line-form speaks for its CSV exactly as a table
+    // does — when it has Examples to put in one
+    try {
+      const { root, nodes } = lint(text, rootName);
+      for (const [, scope] of derive.conceptRegistry(root, nodes)) {
+        if (scope.rows.length) names.add(csvName(scope.name).toLowerCase());
+      }
+    } catch { /* an unparseable file speaks for nothing */ }
   }
   return names;
 }
 
-// The .aot files whose tables include a Concept named `name`.
+// The .aot files that own a Concept named `name` — one written as a table,
+// or one written line-form with Examples of its own. Both are the same idea
+// wearing a different shape, so both answer for the same CSV.
 function findOwningAots(root, name) {
   const low = name.toLowerCase();
   const out = [];
   for (const f of scanAotFiles(root)) {
     let text; try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
     const rootName = path.basename(f).replace(/\.[^.]*$/, "");
-    if (table.tablesOf(text.split(/\r?\n/), rootName).some((t) => t.name.toLowerCase() === low)) out.push(f);
+    if (table.tablesOf(text.split(/\r?\n/), rootName).some((t) => t.name.toLowerCase() === low)) { out.push(f); continue; }
+    try {
+      const { root: r, nodes } = lint(text, rootName);
+      if (conceptNamed(r, nodes, low)) out.push(f);
+    } catch { /* an unparseable file owns nothing */ }
   }
   return out;
+}
+
+// The line-form Concept of a name that has Examples to mirror, or null.
+function conceptNamed(root, nodes, low) {
+  return [root, ...nodes].find((n) => n && n.kind === KIND.CONCEPT
+    && n.name.toLowerCase() === low
+    && n.children.some((c) => c.kind === KIND.INDIVIDUAL)) || null;
 }
 
 // Fold a document's pre-1.3 per-file folders (`tables.<file>` and
@@ -897,16 +1192,33 @@ function syncAotToCsv(doc) {
   migrateLegacyDirs(doc, dir);
   if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(workspaceRoot(doc), doc));
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-  const found = table.tablesOf(doc.getText().split(/\r?\n/), rootName);
+  const found = table.tablesOf(doc.getText().split(/\r?\n/), rootName)
+    .map((t) => ({ name: t.name, grid: [t.header, ...t.rows] }));
+  // A Concept written line-form mirrors too — but only where a CSV of its
+  // name is already in the folder. That CSV is the opt-in: without it, every
+  // Concept with Examples would rain a file into aot.files on the first save.
+  // A table of the same name has already spoken for it.
+  try {
+    const { root, nodes } = lint(doc.getText(), rootName);
+    const taken = new Set(found.map((t) => csvName(t.name).toLowerCase()));
+    for (const [, scope] of derive.conceptRegistry(root, nodes)) {
+      // a Concept in the registry only for the values it states of its own
+      // has no rows to mirror — a CSV of nothing but a header helps no one
+      if (!scope.rows.length) continue;
+      const file = csvName(scope.name);
+      if (taken.has(file.toLowerCase()) || !fs.existsSync(path.join(dir, file))) continue;
+      found.push({ name: scope.name, grid: scope.grid() });
+    }
+  } catch { /* an unparseable document mirrors only what tablesOf could find */ }
   if (!found.length) return;
   fs.mkdirSync(dir, { recursive: true });
   for (const t of found) {
     const file = path.join(dir, csvName(t.name));
-    const csv = table.toCsv([t.header, ...t.rows]);
-    if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === csv) continue;
+    const csv = table.toCsv(t.grid);
+    if (fs.existsSync(file) && sameCsvText(fs.readFileSync(file, "utf8"), csv)) continue;
     // never clobber a CSV the user has open with unsaved edits
     const openDirty = (vscode.workspace.textDocuments || []).find(
-      (d) => d.fileName && path.normalize(d.fileName) === path.normalize(file) && d.isDirty);
+      (d) => d.fileName && fileKey(d.fileName) === fileKey(file) && d.isDirty);
     if (openDirty) {
       vscode.window.showWarningMessage(`'${path.basename(file)}' has unsaved edits — save or revert it, then save the .aot again to re-mirror.`);
       continue;
@@ -914,6 +1226,35 @@ function syncAotToCsv(doc) {
     lastWritten.set(file, csv);
     fs.writeFileSync(file, csv);
   }
+}
+
+// Fold a CSV's rows into a Concept written line-form: each row becomes (or
+// updates) a `- Example` with its attributes beneath, and the Concept keeps
+// the shape its author chose. The edits are applied bottom-up so no earlier
+// insert shifts the lines a later one was measured against.
+async function foldCsvIntoExamples(doc, lines, rootName, name, grid) {
+  let parsed;
+  try { parsed = lint(doc.getText(), rootName); } catch { return; }
+  const concept = conceptNamed(parsed.root, parsed.nodes, name.toLowerCase());
+  if (!concept) return;
+  const ops = derive.updateExamples(lines, concept, grid[0], grid.slice(1));
+  if (!ops.length) return;
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const edit = new vscode.WorkspaceEdit();
+  const lineOf = (op) => (op.type === "replace" ? op.line : op.afterLine);
+  for (const op of [...ops].sort((a, b) => lineOf(b) - lineOf(a))) {
+    if (op.type === "replace") {
+      edit.replace(doc.uri, doc.lineAt(op.line - 1).range, op.text);
+    } else if (op.afterLine >= doc.lineCount) {
+      const last = doc.lineCount - 1;
+      edit.insert(doc.uri, new vscode.Position(last, doc.lineAt(last).text.length), eol + op.text);
+    } else {
+      edit.insert(doc.uri, new vscode.Position(op.afterLine, 0), op.text + eol);
+    }
+  }
+  await vscode.workspace.applyEdit(edit);
+  const saved = await doc.save();
+  if (!saved) vscode.window.showWarningMessage(`AOT: folded '${name}.csv' into ${path.basename(doc.fileName)}, but could not save it.`);
 }
 
 async function syncCsvIntoAot(uri) {
@@ -924,20 +1265,29 @@ async function syncCsvIntoAot(uri) {
   if (path.basename(csvPath).startsWith("_")) return; // an archived orphan, not synced
   let csv;
   try { csv = fs.readFileSync(csvPath, "utf8"); } catch { return; }
-  if (lastWritten.get(csvPath) === csv) return; // our own write echoing back
+  // our own write echoing back is not an edit — and a CSV we never wrote
+  // cannot be one either, so only a remembered write is compared
+  const written = lastWritten.get(csvPath);
+  if (written !== undefined && sameCsvText(written, csv)) return;
   const name = path.basename(csvPath, ".csv");
   const owners = findOwningAots(path.dirname(dir), name);
   if (!owners.length) return;
   if (owners.length > 1) {
-    vscode.window.showWarningMessage(`'${name}.csv' matches a table in ${owners.length} files; folding into '${path.basename(owners[0])}'.`);
+    vscode.window.showWarningMessage(`'${name}.csv' matches a Concept in ${owners.length} files; folding into '${path.basename(owners[0])}'.`);
   }
   const aotPath = owners[0];
   const grid = table.fromCsv(csv);
   if (!grid.length) return;
   const doc = await vscode.workspace.openTextDocument(aotPath);
   const rootName = path.basename(aotPath).replace(/\.[^.]*$/, "");
+  const lines = doc.getText().split(/\r?\n/);
+  // A Concept written as a table takes the grid as a table, as it always
+  // has. One written line-form keeps its Examples: the rows merge in by
+  // name, so the CSV brings data without restructuring the tree.
+  const isTable = table.tablesOf(lines, rootName).some((t) => t.name.toLowerCase() === name.toLowerCase());
+  if (!isTable) return foldCsvIntoExamples(doc, lines, rootName, name, grid);
   const result = table.updateTable(
-    doc.getText().split(/\r?\n/), name, grid[0], grid.slice(1), rootName, formulaRegistry(doc));
+    lines, name, grid[0], grid.slice(1), rootName, formulaRegistry(doc));
   if (!result || !result.changed) return;
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const edit = new vscode.WorkspaceEdit();
@@ -1236,6 +1586,8 @@ function activate(context) {
     vscode.languages.registerInlayHintsProvider({ language: "aot" }, inlayProvider),
     // typing '@' in a formula suggests the columns and Examples to reference
     vscode.languages.registerCompletionItemProvider({ language: "aot" }, referenceCompletion, "@"),
+    // the values an attribute's Concept vouches for, live and archived
+    vscode.languages.registerCompletionItemProvider({ language: "aot" }, valueCompletion),
     // URLs and file-path values are Ctrl+clickable — a URL opens externally
     // (hover fetches its metadata), a file opens in the editor
     vscode.languages.registerDocumentLinkProvider({ language: "aot" }, {
@@ -1254,6 +1606,10 @@ function activate(context) {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     }),
     vscode.commands.registerCommand("aot.acceptWord", acceptWord),
+    // the Quick Fix that lists an unlisted value as an Example of its Concept
+    vscode.commands.registerCommand("aot.addExample", addExample),
+    // the Quick Fix that brings a cited file into the repo's own file store
+    vscode.commands.registerCommand("aot.copyFileIntoRepo", copyFileIntoRepo),
     // a settings change (accepted words, spelling toggle, ...) re-lints
     // every open document so the findings track it immediately
     vscode.workspace.onDidChangeConfiguration((event) => {
@@ -1340,7 +1696,7 @@ function activate(context) {
   };
   aotWatcher.onDidChange(onAotFsEvent);
   aotWatcher.onDidCreate(onAotFsEvent);
-  aotWatcher.onDidDelete((uri) => { workspaceIndex.delete(path.normalize(uri.fsPath)); workspaceExternal = null; });
+  aotWatcher.onDidDelete((uri) => { workspaceIndex.delete(fileKey(uri.fsPath)); workspaceExternal = null; });
   context.subscriptions.push(aotWatcher);
 
   updateTableContext();

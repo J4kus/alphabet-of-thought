@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, splitCell, splitConstraint } = require("./table");
+const { cells: tableCells, isSeparator, splitCell, splitConstraint, readValue } = require("./table");
 
 const INDENT = 4;
 
@@ -259,7 +259,7 @@ function parse(text, rootName, report) {
           if (!attr || !value) continue;
           const cellValue = {
             line, depth: depth + 1, kind: DEFAULT, name: attr.name,
-            value, alias: null, parent: example, children: [],
+            value: readValue(value), alias: null, parent: example, children: [],
             valueCol: row[c].col, cell: true,
           };
           example.children.push(cellValue);
@@ -311,14 +311,16 @@ function parse(text, rootName, report) {
     // a line-form value may carry an '=' formula exactly as a table cell
     // does: `total: 30 =sum($price)` computes. Only the value part enters
     // the model; the formula is presentation, audited and coloured by the
-    // editor (derive.js), invisible to the arithmetic.
+    // editor (derive.js), invisible to the arithmetic. The split comes
+    // first and the escape comes off after, so `a \= b` is read as the one
+    // value 'a = b' rather than split into a derivation of 'a'.
     if (kind === DEFAULT && value) {
       const split = splitCell(value);
       if (split.eq !== -1) {
         node.formula = value.slice(split.eq + split.op.length).trim();
         node.op = split.op;
-        node.value = split.value;
       }
+      node.value = readValue(split.value);
     }
     parent.children.push(node);
     nodes.push(node);
