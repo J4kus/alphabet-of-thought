@@ -19,12 +19,12 @@ Measurement Test
     person: James
     alias: Mike =@Person@alias@Socrates
     age: No =@Integer@is prime
+    file tester ex: 5 =@File Tester@aot.files/Person.csv@alias
     
 File Tester
     |name                |test (alias)|tester two                   |is good ==OR(`Yes`,`No`)|integer|
     |--------------------+------------+-----------------------------+------------------------+-------|
     |aot.files/Person.csv|5           |Mike =@Measurement test@alias|Yes                     |5      |
-    |                    |            |                             |                        |       |
 
-Integer Tester
+integer Tester
     file tester

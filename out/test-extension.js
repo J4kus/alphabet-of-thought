@@ -1097,6 +1097,23 @@ if (process.platform === "win32" || process.platform === "darwin") {
   console.log(cleared && cleared.length === 0
     ? "PASS (nudge: an unused name shows nothing)"
     : "UNEXPECTED nudge clear " + JSON.stringify(cleared));
+
+  // standing in a usage is ambiguous — typing may be the right move — so
+  // the ghost text names the target and says which key does which
+  editor.selections = [new vscode.Selection(4, 10, 4, 10)]; // in 'person:', wearing Concept Person's name
+  vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
+  const usage = shown.pop();
+  console.log(usage && usage.length === 1 && usage[0].range.a[0] === 4
+    && usage[0].renderOptions.after.contentText === "names 'Person' — F2 renames its 2 uses, typing changes just this one"
+    ? "PASS (nudge: an attribute wearing a Concept's name offers both keys)"
+    : "UNEXPECTED usage nudge " + JSON.stringify(usage));
+  editor.selections = [new vscode.Selection(4, 18, 4, 18)]; // in the value 'Socrates'
+  vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
+  const value = shown.pop();
+  console.log(value && value.length === 1
+    && value[0].renderOptions.after.contentText === "names 'Socrates' — F2 renames its 1 use, typing changes just this one"
+    ? "PASS (nudge: a value naming an Example offers both keys)"
+    : "UNEXPECTED value nudge " + JSON.stringify(value));
 }
 
 // 9) aliases are alternative names: an attribute typed by a Concept's alias

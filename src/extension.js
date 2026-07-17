@@ -970,43 +970,44 @@ const renameProvider = {
   },
 };
 
-// A nudge toward F2: standing in a declared name that is used elsewhere
-// shows faint ghost text at the end of the line — how many places a hand
-// edit would strand, and the key that renames them all. It reuses the
-// rename's own span collection, so the count is exactly what F2 would
-// edit; a name nothing else uses shows nothing. Cached per cursor-name
-// and document version, so resting in a name costs one walk.
+// A nudge toward F2, as faint ghost text at the end of the cursor's line.
+// Standing in a declared name that is used elsewhere says how many places
+// a hand edit would strand and that F2 renames them all. Standing in a
+// usage — an attribute wearing a Concept's name, a value naming an
+// Example — is genuinely ambiguous: typing is the right move when this
+// one reference should point somewhere else, F2 when the thing itself is
+// changing name — so there the ghost text names the target and says which
+// key does which. It reuses the rename's own span collection, so the
+// count is exactly what F2 would edit; a name nothing uses shows nothing.
+// Cached per cursor-name and document version, so resting costs one walk.
 let renameHintType = null; // created on activation
 let renameHintLast = null; // { key, count } for the name the cursor is in
 function renameHint(editor) {
   if (!renameHintType) return;
   const doc = editor.document;
   const sel = editor.selections && editor.selections.length === 1 ? editor.selections[0] : null;
-  if (!sel || !sel.active) {
-    editor.setDecorations(renameHintType, []);
-    return;
-  }
+  const clear = () => editor.setDecorations(renameHintType, []);
+  if (!sel || !sel.active) return clear();
   const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
-  const found = declarationAt(doc, sel.active, analysis);
-  if (!found) {
-    editor.setDecorations(renameHintType, []);
-    return;
-  }
-  const key = `${doc.uri.toString()}:${doc.version}:${found.node.line}:${found.range.start.character}:${found.node.name}`;
+  // a usage first, exactly as F2 reads the cursor (renameContext)
+  const link = analysis.links.find((l) => !l.file && l.target.line && linkRange(l).contains(sel.active));
+  const found = link ? { node: link.target, usage: true } : declarationAt(doc, sel.active, analysis);
+  if (!found || !found.node.line) return clear();
+  const key = `${doc.uri.toString()}:${doc.version}:${found.usage ? "u" : "d"}:${found.node.line}:${found.node.name}`;
   if (!renameHintLast || renameHintLast.key !== key) {
     const registry = formulaRegistry(doc, analysis);
     const { uses } = renameSpans(doc, analysis, registry, renameRecords(doc, analysis, registry), found.node);
     renameHintLast = { key, count: uses.length };
   }
   const n = renameHintLast.count;
-  if (!n) {
-    editor.setDecorations(renameHintType, []);
-    return;
-  }
-  const end = doc.lineAt(found.node.line - 1).range.end;
+  if (!n) return clear();
+  const text = found.usage
+    ? `names '${found.node.name}' — F2 renames its ${n} use${n === 1 ? "" : "s"}, typing changes just this one`
+    : `${n} use${n === 1 ? "" : "s"} elsewhere — F2 renames them all`;
+  const end = doc.lineAt(sel.active.line).range.end;
   editor.setDecorations(renameHintType, [{
     range: new vscode.Range(end.line, end.character, end.line, end.character),
-    renderOptions: { after: { contentText: `${n} use${n === 1 ? "" : "s"} elsewhere — F2 renames them all` } },
+    renderOptions: { after: { contentText: text } },
   }]);
 }
 
