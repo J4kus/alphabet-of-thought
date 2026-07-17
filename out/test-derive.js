@@ -4,7 +4,7 @@
 //
 // Plain Node script, no framework — run with: node out/test-derive.js
 const { lint } = require("../src/linter");
-const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples } = require("../src/derive");
+const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples, formulaReferences } = require("../src/derive");
 const { tableRegistry, mergeRegistries } = require("../src/table");
 
 let failures = 0;
@@ -45,6 +45,18 @@ const parsed = (text) => {
     bad && bad.error === true && /table-only/.test(bad.message));
   check("audit: spans run from the operator to the value's end",
     vat.startCol === lines[3].indexOf("=") && vat.endCol === lines[3].length);
+
+  // the instrumented walk: every '@' name in every line-form formula, its
+  // exact span and the declaring nodes it resolves to — what a rename edits
+  const refs = formulaReferences(root, nodes, lines);
+  const attrRef = refs.find((r) => r.line === 4 && r.text === "price");
+  check("formulaReferences: @attr answers its span and every declaring copy",
+    attrRef && attrRef.kind === "column"
+    && lines[3].slice(attrRef.startCol, attrRef.endCol) === "price"
+    && attrRef.nodes.length === 2 && attrRef.nodes.every((n) => n.name === "price"));
+  const exRef = refs.find((r) => r.line === 5 && r.text === "B");
+  check("formulaReferences: @Example answers the sibling's node",
+    exRef && exRef.kind === "row" && exRef.nodes.length === 1 && exRef.nodes[0].name === "B");
 }
 
 // ---------------------------------------------------------------------------

@@ -264,10 +264,11 @@ function decorate(editor, decorationTypes) {
   editor.setDecorations(decorationTypes.individual, individuals);
 }
 
-// Fill computed line-form values in place, as a table keystroke does for
-// cells: runs after every refresh, but never under a cursor and never
-// while an edit burst is still held — type `total: =sum($price)`, move
-// off the line, and the value materialises in front of the formula.
+// Fill computed values in place — line-form '=' values and stale table
+// cells alike: runs after every refresh, but never under a cursor and
+// never while an edit burst is still held — type `total: =sum($price)`,
+// move off the line, and the value materialises in front of the formula;
+// change a cell a table formula reads, and the formula's cell follows.
 // Tracked per document, so one document's in-flight fill never swallows
 // another document's genuine keystrokes.
 const autoComputing = new Set(); // uri strings with a fill in flight
@@ -286,7 +287,11 @@ async function autoComputeValues(doc, analysis, force) {
     analysis = lint(doc.getText(), rootName);
   }
   const lines = doc.getText().split(/\r?\n/);
-  let edits = derive.recomputeValues(analysis.root, analysis.nodes, lines, formulaRegistry(doc, analysis));
+  const registry = formulaRegistry(doc, analysis);
+  let edits = [
+    ...derive.recomputeValues(analysis.root, analysis.nodes, lines, registry),
+    ...table.recomputeAll(doc.getText(), registry),
+  ];
   if (!edits.length) return;
   const busy = new Set();
   for (const editor of vscode.window.visibleTextEditors) {
@@ -780,6 +785,173 @@ const referenceProvider = {
       locations.unshift(new vscode.Location(doc.uri, doc.lineAt(at).range));
     }
     return locations;
+  },
+};
+
+// F2 renames a name everywhere it is meant: the declaration — a Concept,
+// an Example, an attribute, line-form or a table's header or first-column
+// cell — every crosslink that resolves to it, and every formula reference
+// that evaluation itself resolves to it (the instrumented walks of
+// table.formulaReferences and derive.formulaReferences), so a rename never
+// leaves a formula pointing at yesterday's name. An attribute renames with
+// its whole scope: the same-named copies its host's Examples carry, and
+// the ancestor declaration whose constraint governs it. An attribute
+// wearing a renamed Concept's name (the crosslink) follows it, and the
+// formulas reading that attribute follow in turn. Spans that resolve by
+// another text — an alias, a plural — keep their own spelling. Current
+// file only: a reference from another file keeps its name and shows its
+// own finding there.
+const nameStartOf = (doc, node) => {
+  if (node.nameCol !== undefined) return node.nameCol;
+  const raw = doc.lineAt(node.line - 1).text;
+  const indent = raw.length - raw.trimStart().length;
+  return node.kind === KIND.INDIVIDUAL ? indent + 2 : indent; // past '- '
+};
+const isAttrDecl = (n) => n.kind === KIND.ATTRIBUTE || (n.kind === KIND.DEFAULT && !n.cell);
+const isValueCell = (n) => n.kind === KIND.DEFAULT && n.cell; // a cell's value, named by its column
+const underConcept = (n, c) => n.parent === c
+  || (n.parent && n.parent.kind === KIND.INDIVIDUAL && n.parent.parent === c);
+
+function renameRecords(doc, analysis, registry) {
+  const lines = doc.getText().split(/\r?\n/);
+  return [
+    ...table.formulaReferences(lines, registry),
+    ...derive.formulaReferences(analysis.root, analysis.nodes, lines, registry),
+  ];
+}
+
+// The node a rename at `position` means, with the exact range under the
+// cursor: a crosslink names its target, a declaration itself, a formula
+// reference the declaration it resolves to.
+function renameContext(doc, position, analysis, registry, records) {
+  for (const link of analysis.links) {
+    if (!link.file && linkRange(link).contains(position)) return { node: link.target, range: linkRange(link) };
+  }
+  for (const node of analysis.nodes) {
+    if (node.line - 1 !== position.line || !node.name || isValueCell(node)) continue;
+    const start = nameStartOf(doc, node);
+    if (position.character >= start && position.character <= start + node.name.length) {
+      return { node, range: new vscode.Range(node.line - 1, start, node.line - 1, start + node.name.length) };
+    }
+  }
+  const site = (r) => nodeAtSite(analysis, doc, r.site, r.text);
+  for (const r of records) {
+    if (r.line - 1 !== position.line || position.character < r.startCol || position.character > r.endCol) continue;
+    const node = r.nodes ? r.nodes.find((n) => !isValueCell(n))
+      : r.conceptNode ? r.conceptNode.children.concat(...r.conceptNode.children.map((c) => c.children))
+        .find((n) => isAttrDecl(n) && n.name.toLowerCase() === r.attrKey)
+      : r.kind === "table" ? tableNode(analysis, doc, registry, r)
+      : r.site ? site(r) : null;
+    if (node) return { node, range: new vscode.Range(r.line - 1, r.startCol, r.line - 1, r.endCol) };
+  }
+  return null;
+}
+
+// The declaring node a walker's `site` (line + name column) points at.
+function nodeAtSite(analysis, doc, site, text) {
+  if (!site || !site.line) return null;
+  return analysis.nodes.find((n) => n.line === site.line && n.name && !isValueCell(n)
+    && (site.col === null ? n.name.toLowerCase() === text.toLowerCase() : nameStartOf(doc, n) === site.col)) || null;
+}
+
+// The node a table-name reference declares from: a line-form Concept's own
+// node, or the Concept/Example/Attribute line a grid sits under.
+function tableNode(analysis, doc, registry, r) {
+  const sc = registry.scopes.get(r.id);
+  if (!sc) return null;
+  if (sc.node) return analysis.nodes.includes(sc.node) ? sc.node : null;
+  return sc.nameLine ? nodeAtSite(analysis, doc, { line: sc.nameLine, col: null }, r.text) : null;
+}
+
+const renameProvider = {
+  prepareRename(doc, position) {
+    const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+    const registry = formulaRegistry(doc, analysis);
+    const found = renameContext(doc, position, analysis, registry, renameRecords(doc, analysis, registry));
+    if (!found || !found.node.line) throw new Error("nothing renameable here — put the cursor on a Concept, Example or attribute name");
+    return { range: found.range, placeholder: found.node.name };
+  },
+  provideRenameEdits(doc, position, newName) {
+    const name = newName.trim();
+    if (!name || /[@|:()=`\\]/.test(name) || name.startsWith("-")) {
+      throw new Error("a name cannot be empty, start with '-', or hold @ | : ( ) = ` \\");
+    }
+    const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+    const registry = formulaRegistry(doc, analysis);
+    const records = renameRecords(doc, analysis, registry);
+    const found = renameContext(doc, position, analysis, registry, records);
+    if (!found || !found.node.line) throw new Error("nothing renameable here — put the cursor on a Concept, Example or attribute name");
+    const target = found.node;
+    const lower = target.name.toLowerCase();
+
+    // the declarations the name means: the target; an attribute's
+    // same-named copies across its host's Examples, and the ancestor
+    // constraint that governs it by name
+    const set = new Set([target]);
+    if (isAttrDecl(target) || target.cell) {
+      const host = target.parent && target.parent.kind === KIND.INDIVIDUAL ? target.parent.parent : target.parent;
+      const owners = host ? [host, ...host.children.filter((c) => c.kind === KIND.INDIVIDUAL)] : [];
+      for (const o of owners) for (const c of o.children) {
+        if ((isAttrDecl(c) || (c.cell && c.kind === KIND.ATTRIBUTE)) && c.name.toLowerCase() === lower) set.add(c);
+      }
+      for (let p = target.parent; p; p = p.parent) {
+        for (const c of p.children) {
+          if (c.kind === KIND.ATTRIBUTE && c.name.toLowerCase() === lower && (c.op !== undefined || c.types)) set.add(c);
+        }
+      }
+    }
+
+    const spans = [];
+    const seen = new Set();
+    const push = (line, startCol, endCol) => {
+      const key = line + ":" + startCol;
+      if (!seen.has(key)) { seen.add(key); spans.push({ line, startCol, endCol }); }
+    };
+    for (const n of set) {
+      const start = nameStartOf(doc, n);
+      push(n.line, start, start + n.name.length);
+    }
+    // crosslinks follow — and an attribute wearing the renamed name is
+    // renamed with it, so the formulas reading that attribute follow too
+    for (const n of [...set]) {
+      for (const link of analysis.usagesOf.get(n) || []) {
+        const raw = doc.lineAt(link.line - 1).text.slice(link.startCol, link.endCol);
+        if (raw.toLowerCase() !== lower) continue; // resolved by alias or plural: its text is its own
+        push(link.line, link.startCol, link.endCol);
+        const wearer = analysis.nodes.find((nn) => nn.line === link.line && !isValueCell(nn) && nn.name
+          && (nn.kind === KIND.ATTRIBUTE || nn.kind === KIND.DEFAULT)
+          && nameStartOf(doc, nn) === link.startCol && nn.name.toLowerCase() === lower);
+        if (wearer) set.add(wearer);
+      }
+    }
+    // formula references, exactly as evaluation resolves them
+    const resolvesToSet = (r) => {
+      if (r.nodes) return r.nodes.some((n) => set.has(n));
+      if (r.conceptNode) return [...set].some((n) =>
+        (n.kind === KIND.ATTRIBUTE || n.kind === KIND.DEFAULT)
+        && n.name.toLowerCase() === r.attrKey && underConcept(n, r.conceptNode));
+      if (r.kind === "table") { const n = tableNode(analysis, doc, registry, r); return n ? set.has(n) : false; }
+      if (r.site) { const n = nodeAtSite(analysis, doc, r.site, r.text); return n ? set.has(n) : false; }
+      return false;
+    };
+    for (const r of records) {
+      if (r.text.toLowerCase() !== lower) continue;
+      if (!resolvesToSet(r)) continue;
+      push(r.line, r.startCol, r.endCol);
+    }
+
+    // Case follows the span, not the typist: Concepts are capitalised and
+    // attributes lowercase by convention, and every link resolves
+    // case-insensitively — so a span that is all lowercase today (an
+    // attribute name, its alias, a lowercase reference) takes the new name
+    // lowercased, and every other span takes it exactly as typed.
+    const edit = new vscode.WorkspaceEdit();
+    for (const s of spans) {
+      const old = doc.lineAt(s.line - 1).text.slice(s.startCol, s.endCol);
+      edit.replace(doc.uri, new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
+        old === old.toLowerCase() ? name.toLowerCase() : name);
+    }
+    return edit;
   },
 };
 
@@ -1582,6 +1754,9 @@ function activate(context) {
     vscode.languages.registerHoverProvider({ language: "aot" }, hoverProvider),
     // Shift+F12 lists a Concept's or Example's declaration and usages
     vscode.languages.registerReferenceProvider({ language: "aot" }, referenceProvider),
+    // F2 renames a Concept, Example or attribute everywhere: declaration,
+    // crosslinks, and every formula reference that resolves to it
+    vscode.languages.registerRenameProvider({ language: "aot" }, renameProvider),
     // dependency chains in small print at the end of crosslinked lines
     vscode.languages.registerInlayHintsProvider({ language: "aot" }, inlayProvider),
     // typing '@' in a formula suggests the columns and Examples to reference
@@ -1669,8 +1844,11 @@ function activate(context) {
       event.waitUntil(Promise.resolve().then(() => {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
         const { root, nodes } = lint(doc.getText(), rootName);
-        return derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), formulaRegistry(doc))
-          .map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
+        const reg = formulaRegistry(doc);
+        return [
+          ...derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), reg),
+          ...table.recomputeAll(doc.getText(), reg),
+        ].map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
       }));
     }),
     // the CSV mirror: .aot saves write the CSVs, CSV edits fold back in;

@@ -30,6 +30,7 @@ const { KIND, INDENT } = require("./linter");
 const {
   splitCell, evalFormula, formatValue, compareValues, longestMatch,
   satisfiesTypes, valueType, tablesOf, updateTable, describeBound,
+  cells, referenceSpans,
 } = require("./table");
 
 // The line-form derivation hosts: DEFAULT nodes whose parsed value carried
@@ -168,6 +169,8 @@ function conceptScope(concept) {
   };
   return {
     name: concept.name, // original case, for the completion
+    node: concept, // the defining node, for the rename that follows a reference
+    examples,
     columns: [...display.values()],
     rows: examples.map((ex) => ex.name),
     hasColumn: () => false,
@@ -348,6 +351,51 @@ function auditValues(root, nodes, lines, registry) {
     }
     if (!compareValues(a.op, d.value, bound)) {
       violation(d, `value '${d.value}' violates '${a.name} ${a.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
+    }
+  }
+  return out;
+}
+
+// Every name reference in every line-form '=' formula, resolved as
+// evaluation resolves it and pinned to the document — the line-form half
+// of table.js's formulaReferences, one record shape between them: local
+// attribute and Example names answer their declaring `nodes`, a foreign
+// grid answers a `site`, a line-form Concept its `conceptNode`/`attrKey`.
+// For the rename that follows a declaration.
+function formulaReferences(root, nodes, lines, registry) {
+  const out = [];
+  const current = (n) => n.value || "";
+  const isAttr = (n) => n.kind === KIND.DEFAULT || n.kind === KIND.ATTRIBUTE;
+  for (const d of hostsOf(nodes)) {
+    const s = spanOf(lines, d);
+    if (!s) continue;
+    const ctx = makeCtx(d, current, registry);
+    const { examples } = scopeOf(d);
+    const owners = [...new Set([d.parent, ...examples])].filter(Boolean);
+    const from = s.startCol + s.op.length;
+    const src = s.raw.slice(from, s.endCol);
+    for (const rec of referenceSpans(src, ctx)) {
+      const r = {
+        line: d.line, startCol: from + rec.start, endCol: from + rec.start + rec.length,
+        text: rec.text, kind: rec.kind, id: rec.id,
+      };
+      if (rec.kind === "table") {
+        // resolved through the registry by the caller
+      } else if (rec.scope === ctx) { // a sibling attribute or Example of this line
+        r.nodes = rec.kind === "column"
+          ? owners.flatMap((o) => o.children.filter((c) => isAttr(c) && c.name.toLowerCase() === rec.id))
+          : [rec.id];
+      } else if (rec.scope.node) { // a line-form Concept read as a table
+        if (rec.kind === "column") { r.conceptNode = rec.scope.node; r.attrKey = rec.id; }
+        else r.nodes = [rec.scope.examples[rec.id]].filter(Boolean);
+      } else if (rec.scope.headerLine && rec.kind !== "table") { // a foreign grid
+        const at = rec.kind === "column"
+          ? { line: rec.scope.headerLine, cell: rec.id }
+          : { line: (rec.scope.rowLines || [])[rec.id], cell: 1 };
+        const c = at.line ? cells(lines[at.line - 1] || "")[at.cell - 1] : null;
+        r.site = { line: at.line, col: c ? c.col : null };
+      }
+      out.push(r);
     }
   }
   return out;
@@ -539,4 +587,5 @@ function updateExamples(lines, concept, header, rows) {
 module.exports = {
   auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
+  formulaReferences,
 };

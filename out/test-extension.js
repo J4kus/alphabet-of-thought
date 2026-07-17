@@ -13,6 +13,7 @@ let semanticProvider = null;
 let hoverProvider = null;
 let codeActionsProvider = null;
 let referenceProvider = null;
+let renameProvider = null;
 let inlayProvider = null;
 let documentLinkProvider = null;
 let completionProvider = null;      // the '@' reference completion
@@ -53,6 +54,7 @@ const vscode = {
     registerDocumentFormattingEditProvider: (selector, provider) => { formattingProvider = provider; return { dispose() {} }; },
     registerDocumentSemanticTokensProvider: (selector, provider) => { semanticProvider = provider; return { dispose() {} }; },
     registerReferenceProvider: (selector, provider) => { referenceProvider = provider; return { dispose() {} }; },
+    registerRenameProvider: (selector, provider) => { renameProvider = provider; return { dispose() {} }; },
     registerInlayHintsProvider: (selector, provider) => { inlayProvider = provider; return { dispose() {} }; },
     registerDocumentLinkProvider: (selector, provider) => { documentLinkProvider = provider; return { dispose() {} }; },
     registerCompletionItemProvider: (selector, provider, ...triggers) => {
@@ -152,6 +154,7 @@ const vscode = {
     applyEdit: async (edit) => {
       for (const op of edit.ops) {
         const doc = op.uri.__doc;
+        if (!doc) continue; // a makeDoc fixture is a read-only snapshot
         if (op.type === "replace") {
           const [sl, , el] = op.range.a;
           doc.lines.splice(sl, el - sl + 1, ...op.text.split("\n"));
@@ -989,6 +992,81 @@ if (process.platform === "win32" || process.platform === "darwin") {
   });
 }
 
+// 8c) F2 rename: the declaration, the crosslinks and every formula
+// reference change together, so a rename never strands a formula
+{
+  // a column rename reaches the formula that reads it
+  const calc = makeDoc("c:\\repo\\Rename.aot", [
+    "Order",
+    "    |name|price|total       |",
+    "    |----+-----+------------|",
+    "    |A   |10   |20 =@price*2|",
+  ].join("\n"));
+  const prep = renameProvider.prepareRename(calc, new vscode.Position(1, 11));
+  console.log(prep && prep.placeholder === "price" && prep.range.a[1] === 10
+    ? "PASS (rename: prepare finds the header cell under the cursor)"
+    : "UNEXPECTED prepareRename " + JSON.stringify(prep));
+  const colEdit = renameProvider.provideRenameEdits(calc, new vscode.Position(1, 11), "cost");
+  const colOps = colEdit.ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
+  console.log(colOps.length === 2 && colOps[0] === "1,10,1,15:cost" && colOps[1] === "3,21,3,26:cost"
+    ? "PASS (rename: a column renames its header cell and the formula reading it)"
+    : "UNEXPECTED column rename " + JSON.stringify(colOps));
+
+  // a Concept rename carries the attribute wearing its name, and the
+  // formula reading that attribute follows in turn
+  const web = makeDoc("c:\\repo\\Web.aot", [
+    "Registry",
+    "    Person",
+    "        - Socrates",
+    "    - Emp",
+    "        person: Socrates",
+    "        boss: =@person",
+  ].join("\n"));
+  const conceptEdit = renameProvider.provideRenameEdits(web, new vscode.Position(1, 4), "Human");
+  const conceptOps = conceptEdit.ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
+  console.log(conceptOps.length === 3
+    && conceptOps.includes("1,4,1,10:Human")   // the Concept itself, as typed
+    && conceptOps.includes("4,8,4,14:human")   // the attribute wearing its name stays lowercase
+    && conceptOps.includes("5,16,5,22:human")  // the formula reading that attribute follows it
+    ? "PASS (rename: a Concept carries its crosslinked attribute, case following the span)"
+    : "UNEXPECTED concept rename " + JSON.stringify(conceptOps));
+
+  // a table's parent renames through cross-table references
+  const named = makeDoc("c:\\repo\\Named.aot", [
+    "Order",
+    "    |name|price|",
+    "    |----+-----|",
+    "    |Acme|10   |",
+    "spend: =@Order@price@Acme",
+  ].join("\n"));
+  const tableEdit = renameProvider.provideRenameEdits(named, new vscode.Position(0, 2), "Purchases");
+  const tableOps = tableEdit.ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
+  console.log(tableOps.length === 2
+    && tableOps.includes("0,0,0,5:Purchases")  // the Concept the table sits under
+    && tableOps.includes("4,9,4,14:Purchases") // the table name inside the formula
+    ? "PASS (rename: a table's parent renames inside cross-table references)"
+    : "UNEXPECTED table rename " + JSON.stringify(tableOps));
+}
+
+// 8d) rename on the real spreadsheet example: renaming Concept 'Integer'
+// reaches the alias that wears it and the '@Integer' formula reference
+{
+  const real = fs.readFileSync(path.join(__dirname, "..", "examples", "spreadsheet.aot"), "utf8");
+  const sheet = makeDoc("c:\\repo\\spreadsheet.aot", real);
+  const line = real.split(/\r?\n/).findIndex((l) => l.trim() === "Integer");
+  let ops = null, failed = null;
+  try {
+    ops = renameProvider.provideRenameEdits(sheet, new vscode.Position(line, 0), "Integer Test")
+      .ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
+  } catch (e) { failed = e.message; }
+  const hasDecl = ops && ops.includes(`${line},0,${line},7:Integer Test`);
+  const hasFormula = ops && ops.includes("20,14,20,21:Integer Test"); // '@Integer' keeps the Concept's case
+  const hasAlias = ops && ops.includes("17,9,17,16:integer test");    // the attribute's alias stays lowercase
+  console.log(!failed && hasDecl && hasFormula && hasAlias
+    ? "PASS (rename: the real spreadsheet's Integer renames with alias and formula)"
+    : "UNEXPECTED spreadsheet rename " + (failed || JSON.stringify(ops)));
+}
+
 // 9) aliases are alternative names: an attribute typed by a Concept's alias
 // crosslinks to that Concept, a Concept's alias that names another Concept
 // links itself (alias-is-a-Concept), and hovering a Concept lists its
@@ -1175,6 +1253,30 @@ if (process.platform === "win32" || process.platform === "darwin") {
     ? "PASS (fill: pressing Enter fills the formula on the line just left, mid edit-burst)"
     : "UNEXPECTED enter fill " + JSON.stringify(lines));
   vscode.window.visibleTextEditors.pop();
+})();
+
+// 9b3) table formulas fill themselves in too: a stale cell refreshes as
+// soon as the linter sees it — no Tab, no Format Document
+(async () => {
+  const lines = [
+    "Order",
+    "    |name|price|total   |",
+    "    |----+-----+--------|",
+    "    |A   |10   |15 =@2*2|",
+  ];
+  const doc = {
+    lines,
+    languageId: "aot", fileName: "c:\\repo\\TableFill.aot", eol: vscode.EndOfLine.LF,
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  doc.uri = { toString: () => "file:///tablefill", __doc: doc };
+  vscode.workspace._open(doc);
+  await new Promise((r) => setImmediate(r));
+  console.log(lines[3] === "    |A   |10   |20 =@2*2|"
+    ? "PASS (fill: a stale table cell recomputes itself, no Tab needed)"
+    : "UNEXPECTED table fill " + JSON.stringify(lines));
 })();
 
 // 9c) a URL in a value is Ctrl+clickable on exactly its span

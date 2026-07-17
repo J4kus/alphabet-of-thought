@@ -8,7 +8,8 @@ const {
   padRows, dataRow, nextCell, prevCell, nextRow, moveColumn, moveRow,
   insertColumn, deleteColumn, insertRow, deleteRow, insertSeparator,
   sortRows, fromRegion, cleanName, tablesOf, toCsv, fromCsv, updateTable,
-  splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas, tableCtx,
+  splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas, tableCtx,
+  formulaReferences,
   valueType, satisfiesTypes, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
   tableRegistry, mergeRegistries, foreignScope, readValue, truthOf,
 } = require("../src/table");
@@ -345,6 +346,68 @@ const fresh = () => blockAt(doc, 3);
 
   check("align: recomputes formulas before padding",
     align(["| name | b     |", "|------+-------|", "| 2    | =@1*2 |"].join("\n")).some((e) => e.text.includes("4 =@1*2")));
+
+  // the automatic fill: recomputeAll refreshes stale values, but a table
+  // whose values are already right is left exactly as typed, ragged or not
+  const autoFill = recomputeAll([
+    "Order",
+    "    |name|price|total   |",
+    "    |----+-----+--------|",
+    "    |A   |10   |15 =@2*2|",
+  ].join("\n"));
+  check("recomputeAll: a stale value refreshes, only its line edited",
+    autoFill.length === 1 && autoFill[0].line === 4 && autoFill[0].text === "    |A   |10   |20 =@2*2|");
+  check("recomputeAll: a fresh table is never touched, however ragged",
+    recomputeAll([
+      "    |name|price|total|",
+      "    |----+-----+-----|",
+      "    |A   |10 |20 =@2*2|",
+    ].join("\n")).length === 0);
+  check("recomputeAll: a value that widens its column redraws the block",
+    recomputeAll([
+      "    |name|price|total|",
+      "    |----+-----+-----|",
+      "    |A   |10   |=@2*20|",
+    ].join("\n")).length === 3);
+
+  // the instrumented walk: every '@' name in every formula, its exact span
+  // and the declaration it resolves to — what the rename edits
+  const refSheet = [
+    "Order",
+    "    |name|price|total    |",
+    "    |----+-----+---------|",
+    "    |A   |10   |=@price*2|",
+    "    |B   |20   |=@total@A|",
+  ];
+  const refs = formulaReferences(refSheet);
+  const priceRef = refs.find((r) => r.text === "price");
+  check("formulaReferences: a column name answers its span and its header cell",
+    priceRef && priceRef.kind === "column" && priceRef.line === 4
+    && refSheet[3].slice(priceRef.startCol, priceRef.endCol) === "price"
+    && priceRef.site.line === 2 && priceRef.site.col === 10);
+  const rowRef = refs.find((r) => r.text === "A");
+  check("formulaReferences: an Example name answers its row's first cell",
+    rowRef && rowRef.kind === "row" && rowRef.line === 5
+    && rowRef.site.line === 4 && rowRef.site.col === 5);
+
+  // a reference across tables points home to the other table's cells
+  const two = [
+    "Order",
+    "    |name|price|",
+    "    |----+-----|",
+    "    |Acme|10   |",
+    "Costs",
+    "    |name|spend             |",
+    "    |----+------------------|",
+    "    |X   |=@Order@price@Acme|",
+  ];
+  const foreign = formulaReferences(two, mergeRegistries(tableRegistry(two, "Sheet")));
+  check("formulaReferences: a table name records as a table reference",
+    foreign.some((r) => r.kind === "table" && r.text === "Order" && r.id === "order"));
+  check("formulaReferences: a foreign column points home to its header cell",
+    foreign.some((r) => r.text === "price" && r.site && r.site.line === 2 && r.site.col === 10));
+  check("formulaReferences: a foreign Example points home to its row",
+    foreign.some((r) => r.text === "Acme" && r.site && r.site.line === 4 && r.site.col === 5));
 
   // named references resolve against the header (aliases included), @Row
   // against the first column

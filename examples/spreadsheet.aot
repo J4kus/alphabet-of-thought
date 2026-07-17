@@ -1,7 +1,7 @@
 Person (Natural Person)
     |name    |nationality|alias|
     |--------+-----------+-----|
-    |Socrates|RSA        |Paul |
+    |Socrates|RSA        |Mike |
     |James   |           |     |
 Integer
     is group on its own: No
@@ -14,13 +14,14 @@ Integer
         is prime: No
     - 5
         
-Measurement
+Measurement Test
     age (integer): 5
     person: James
-    alias: Paul =@Person@alias@Socrates
-    age: No =@Integer@35@is prime
+    alias: Mike =@Person@alias@Socrates
+    age: No =@Integer@is prime
     
-File
-    |name                |test (alias)|tester two              |
-    |--------------------+------------+------------------------|
-    |aot.files/Person.csv|5           |Paul =@Measurement@alias|
+File Test
+    |name                |test (alias)|tester two                   |is good ==OR(`Yes`,`No`)|integer|
+    |--------------------+------------+-----------------------------+------------------------+-------|
+    |aot.files/Person.csv|5           |Mike =@Measurement test@alias|Yes                     |5      |
+    |                    |            |                             |                        |       |

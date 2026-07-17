@@ -959,6 +959,11 @@ function tableRegistry(lines, rootName) {
     if (map.has(key)) continue;
     const scope = foreignScope(t.header, t.rows);
     scope.name = t.name; // the parent name, original case, for completion
+    // where the table's names are declared, for the rename that follows a
+    // reference back to its declaration
+    scope.nameLine = t.nameLine;
+    scope.headerLine = t.start + 1;
+    scope.rowLines = t.rowLines;
     map.set(key, scope);
   }
   return map;
@@ -1068,14 +1073,114 @@ function formulas(lines, registry) {
           if (computed !== value) {
             span.stale = true;
             span.message = value === ""
-              ? `formula '=${span.formula}' is not yet computed (= ${computed}) — press Tab in the table, or run Format Document`
-              : `value '${value}' does not match its formula (= ${computed}) — press Tab in the table, or run Format Document, to recompute`;
+              ? `formula '=${span.formula}' is not yet computed (= ${computed}) — it fills in when the cursor leaves the line, or on save`
+              : `value '${value}' does not match its formula (= ${computed}) — it recomputes when the cursor leaves the line, or on save`;
           }
         } catch (e) {
           span.error = true;
           span.message = `formula '=${span.formula}' does not compute — ${e.message}`;
         }
         out.push(span);
+      });
+    }
+  }
+  return out;
+}
+
+// Run one formula through the evaluator itself and answer the exact span
+// of every name an '@' resolved — a column, an Example or a table — as
+// { start, length, text, kind, scope, id }, offsets within `src`. The
+// scope is the object the name resolved against: the ctx for a local
+// name, the registry's scope for a foreign one. A reading the evaluator
+// abandons (a local attempt giving way to a foreign table) re-reads the
+// same characters, so a later record replaces any earlier one it
+// overlaps: what survives is the parse that won. A formula that cannot
+// compute still answers the spans it resolved before failing.
+function referenceSpans(src, ctx) {
+  const out = [];
+  const record = (r) => {
+    for (let k = out.length - 1; k >= 0; k--) {
+      if (out[k].start < r.start + r.length && r.start < out[k].start + out[k].length) out.splice(k, 1);
+    }
+    out.push(r);
+  };
+  const wrapMatch = (fn, kind, scope) => fn && ((rest) => {
+    const m = fn(rest);
+    if (m) record({ start: src.length - rest.length, length: m.length, text: rest.slice(0, m.length), kind, scope, id: m.id });
+    return m;
+  });
+  const wrapScope = (scope) => scope && ({
+    ...scope,
+    matchColumn: wrapMatch(scope.matchColumn, "column", scope),
+    matchRow: wrapMatch(scope.matchRow, "row", scope),
+  });
+  const proxy = {
+    ...ctx,
+    matchColumn: wrapMatch(ctx.matchColumn, "column", ctx),
+    matchRow: wrapMatch(ctx.matchRow, "row", ctx),
+    matchTable: wrapMatch(ctx.matchTable, "table", ctx),
+    table: ctx.table && ((id) => wrapScope(ctx.table(id))),
+  };
+  try { evalFormula(src, proxy); } catch { /* partial spans still answer */ }
+  return out;
+}
+
+// Every name reference in every table formula of the text, resolved as
+// evaluation resolves it and pinned to the document: { line, startCol,
+// endCol, text, kind, id } plus where the name is declared — `site`
+// { line, col } for a grid name (col null when unknowable), `conceptNode`/
+// `attrKey` for an attribute of a line-form Concept, `nodes` for its
+// Example. A cross-file scope's site points into the other file and
+// simply matches nothing here. For the rename that follows a declaration.
+function formulaReferences(lines, registry) {
+  const out = [];
+  const colSite = (headerLine, k) => {
+    const c = headerLine ? cells(lines[headerLine - 1] || "")[k - 1] : null;
+    return { line: headerLine, col: c ? c.col : null };
+  };
+  const rowSite = (rowLine) => {
+    const c = rowLine ? cells(lines[rowLine - 1] || "")[0] : null;
+    return { line: rowLine, col: c ? c.col : null };
+  };
+  const place = (r, rec) => {
+    const s = rec.scope;
+    if (s.node) { // a line-form Concept read as a table
+      if (rec.kind === "column") { r.conceptNode = s.node; r.attrKey = rec.id; }
+      else r.nodes = [s.examples[rec.id]].filter(Boolean);
+    } else if (s.headerLine) { // a foreign grid, through the registry
+      r.site = rec.kind === "column" ? colSite(s.headerLine, rec.id) : rowSite((s.rowLines || [])[rec.id]);
+    }
+    return r;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const block = blockAt(lines, i);
+    if (!block) continue;
+    i = block.end;
+    const rows = dataRowsOf(block);
+    if (!rows.length) continue;
+    const header = block.rows[0].cells;
+    for (const row of rows) {
+      const abs = block.start + block.rows.indexOf(row);
+      cells(lines[abs]).forEach((cell) => {
+        const { eq, op } = splitCell(cell.text);
+        if (eq === -1) return;
+        const from = cell.col + eq + op.length;
+        const src = cell.text.slice(eq + op.length);
+        const ctx = tableCtx(rows, row, header, registry);
+        for (const rec of referenceSpans(src, ctx)) {
+          const r = {
+            line: abs + 1, startCol: from + rec.start, endCol: from + rec.start + rec.length,
+            text: rec.text, kind: rec.kind, id: rec.id,
+          };
+          if (rec.kind === "table") {
+            // resolved through the registry by the caller
+          } else if (rec.scope === ctx) { // this table's own name
+            r.site = rec.kind === "column"
+              ? colSite(block.start + 1, rec.id)
+              : rowSite(block.start + block.rows.indexOf(rec.id) + 1);
+          } else place(r, rec);
+          out.push(r);
+        }
       });
     }
   }
@@ -1102,19 +1207,24 @@ function tablesOf(lines, rootName) {
     if (!block) continue;
     i = block.end;
     if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) continue;
-    let name = rootName;
+    let name = rootName, nameLine = null;
     for (let j = block.start - 1; j >= 0; j--) {
       if (!lines[j].trim()) continue;
       if (lines[j].match(/^ */)[0].length < block.indent.length) {
         name = cleanName(lines[j].trim());
+        nameLine = j + 1;
         break;
       }
     }
     if (!name) continue;
     const header = block.rows[0].cells;
-    const rows = block.rows.slice(2).filter((r) => !r.sep)
-      .map((r) => header.map((_, k) => r.cells[k] || ""));
-    out.push({ name, start: block.start, end: block.end, indent: block.indent, header, rows });
+    const rows = [], rowLines = []; // each data row with its 1-based line
+    block.rows.forEach((r, j) => {
+      if (j < 2 || r.sep) return;
+      rows.push(header.map((_, k) => r.cells[k] || ""));
+      rowLines.push(block.start + j + 1);
+    });
+    out.push({ name, nameLine, start: block.start, end: block.end, indent: block.indent, header, rows, rowLines });
   }
   return out;
 }
@@ -1221,12 +1331,34 @@ function align(text, registry) {
   return edits;
 }
 
+// Recompute every '=' formula in the text's tables, touching nothing else:
+// a block whose values changed is redrawn whole (as Tab draws it), a block
+// whose values are already fresh is left exactly as typed — so the
+// automatic fill never re-aligns a table the writer is still shaping.
+// Returns the changed lines as { line, text } with 1-based line numbers.
+function recomputeAll(text, registry) {
+  const lines = text.split(/\r?\n/);
+  const edits = [];
+  for (let i = 0; i < lines.length; i++) {
+    const block = blockAt(lines, i);
+    if (!block) continue;
+    i = block.end; // one visit per block
+    if (!block.rows.some((r) => r.sep)) continue;
+    if (!recompute(block, registry)) continue; // fresh values — leave the lines alone
+    render(block).forEach((aligned, k) => {
+      if (aligned !== lines[block.start + k]) edits.push({ line: block.start + k + 1, text: aligned });
+    });
+  }
+  return edits;
+}
+
 module.exports = {
   cells, isSeparator, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, insertSeparator, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
-  splitCell, splitConstraint, evalFormula, formatValue, recompute, formulas,
+  splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas,
+  referenceSpans, formulaReferences,
   compareValues, longestMatch, numericValue, tableCtx,
   readValue, Choice, truthOf, describeBound,
   valueType, satisfiesTypes, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
