@@ -190,15 +190,13 @@ function parse(text, rootName, report) {
         let last = null;
         for (const cell of row.slice(1)) {
           // a header cell is an attribute term, so it may carry a trailing
-          // (alias) and a trailing constraint (`qty >=1`) exactly as the
-          // bare line form does — the constraint bounds the whole column
-          let name = cell.text, alias = null, aliasCol, op, formula, opCol, types;
+          // (alias) and trailing constraints (`qty >=1`, chained as
+          // `age >=18 <=65`) exactly as the bare line form does — each
+          // constraint bounds the whole column
+          let name = cell.text, alias = null, aliasCol, constraints = null;
           const con = splitConstraint(name);
           if (con.eq !== -1) {
-            op = con.op;
-            formula = con.formula;
-            types = con.types;
-            opCol = cell.col + con.eq;
+            constraints = con.constraints.map((b) => ({ op: b.op, formula: b.formula, opCol: cell.col + b.eq }));
             name = con.value;
           }
           if (name.endsWith(")") && name.includes("(")) {
@@ -220,7 +218,7 @@ function parse(text, rootName, report) {
             line, depth, kind: ATTRIBUTE, name, value: null,
             alias, aliasCol, parent, children: [], nameCol: cell.col, cell: true,
           };
-          if (op || types) { attr.op = op || null; attr.formula = formula; attr.opCol = opCol; attr.types = types || null; }
+          if (constraints) attr.constraints = constraints;
           parent.children.push(attr);
           nodes.push(attr);
           table.attrs.push(attr);
@@ -277,21 +275,17 @@ function parse(text, rootName, report) {
       if (row.length) cellNameCol = row[0].col;
       trimmed = "- " + (row.length ? row[0].text : "");
     }
-    // a bare attribute may carry a trailing constraint — `age >=18` bounds
-    // every value the attribute takes (checked by derive.js). The head must
+    // a bare attribute may carry trailing constraints — `age >=18` bounds
+    // every value the attribute takes (checked by derive.js), and several
+    // may chain on the one declaration: `age >=18 <=65`. The head must
     // be a colon-less lowercase term, so `age: 25 >=18` (a value) and
     // Concepts are left whole.
-    let constraint = null;
+    let constraints = null;
     {
       const con = splitConstraint(trimmed);
       const head = con.eq === -1 ? "" : con.value;
       if (head && !head.includes(":") && head[0] >= "a" && head[0] <= "z") {
-        constraint = {
-          op: con.op,
-          formula: con.formula,
-          types: con.types,
-          opCol: spaces + con.eq,
-        };
+        constraints = con.constraints.map((b) => ({ op: b.op, formula: b.formula, opCol: spaces + b.eq }));
         trimmed = head;
       }
     }
@@ -302,12 +296,7 @@ function parse(text, rootName, report) {
     const parent = stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, alias: alias || null, parent, children: [] };
     if (cellNameCol !== undefined && kind === INDIVIDUAL) node.nameCol = cellNameCol;
-    if (constraint && kind === ATTRIBUTE) {
-      node.op = constraint.op;
-      node.formula = constraint.formula;
-      node.opCol = constraint.opCol;
-      node.types = constraint.types;
-    }
+    if (constraints && kind === ATTRIBUTE) node.constraints = constraints;
     // a line-form value may carry an '=' formula exactly as a table cell
     // does: `total: 30 =sum($price)` computes. Only the value part enters
     // the model; the formula is presentation, audited and coloured by the

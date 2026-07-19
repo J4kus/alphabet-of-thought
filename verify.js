@@ -57,19 +57,19 @@ function walkAot(dir) {
 }
 
 // The cross-Concept registry a formula resolves against, mirroring the
-// editor's workspace scope (extension.js formulaRegistry): every table and
-// every line-form Concept in every .aot under the current directory (the
-// repo), with the file being checked overlaid last so its own win a shared
-// name, and a table shadowing the line-form Concept of the same name.
+// editor's workspace scope (extension.js formulaRegistry): every scope in
+// every .aot under the current directory (the repo), with the file being
+// checked overlaid last so its own win a shared name. One scope kind
+// covers both notations — a Concept answers whether its Examples are
+// table rows or '- ' lines (derive.conceptRegistry, unified in 1.6).
 // Unreadable siblings are skipped rather than fatal.
 function buildFormulaRegistry(targetFile, targetText, targetRoot) {
-  const concepts = [], tables = [];
+  const concepts = [];
   const scopesOf = (text, name) => {
-    tables.push(table.tableRegistry(text.split(/\r?\n/), name));
     try {
       const { root, nodes } = lint(text, name);
       concepts.push(derive.conceptRegistry(root, nodes));
-    } catch { /* an unparseable file still offers its tables */ }
+    } catch { /* an unparseable file offers nothing */ }
   };
   for (const p of walkAot(".")) {
     if (path.resolve(p) === path.resolve(targetFile)) continue;
@@ -77,13 +77,12 @@ function buildFormulaRegistry(targetFile, targetText, targetRoot) {
       scopesOf(fs.readFileSync(p, "utf8"), path.basename(p).replace(/\.[^.]*$/, ""));
     } catch { /* skip unreadable */ }
   }
-  const own = { concepts: [], tables: [] };
-  own.tables.push(table.tableRegistry(targetText.split(/\r?\n/), targetRoot));
+  const own = [];
   try {
     const { root, nodes } = lint(targetText, targetRoot);
-    own.concepts.push(derive.conceptRegistry(root, nodes));
+    own.push(derive.conceptRegistry(root, nodes));
   } catch { /* as above */ }
-  return table.mergeRegistries(...concepts, ...tables, ...own.concepts, ...own.tables);
+  return table.mergeRegistries(...concepts, ...own);
 }
 
 // Read a file or exit with a message instead of a stack trace.
@@ -318,14 +317,15 @@ function main() {
     deepErrors = deepErrors.concat(godel.clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
   // formulas and constraints — table cells and line-form values — exactly as
-  // the editor: one that cannot compute (or a violated constraint) is an
-  // error (counted in V), a value the next recompute would change is a warning
+  // the editor: one that cannot compute is an error (counted in V); a
+  // breached constraint or a value the next recompute would change is a
+  // warning, never counted in V
   const formulaErrors = [], formulaWarnings = [];
   const textLines = text.split(/\r?\n/);
   const registry = buildFormulaRegistry(file, text, rootName);
-  for (const f of [...table.formulas(textLines, registry), ...derive.auditValues(root, nodes, textLines, registry)]) {
+  for (const f of [...table.formulas(textLines, registry, rootName), ...derive.auditValues(root, nodes, textLines, registry)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message });
-    else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message });
+    else if (f.stale || f.warning) formulaWarnings.push({ line: f.line, message: f.message });
   }
   for (const { line, message } of deepErrors) console.log(`${file}:${line}: error: ${message}`);
   for (const { line, message } of formulaErrors) console.log(`${file}:${line}: error: ${message}`);

@@ -41,15 +41,24 @@ const looksLikePath = (v) => {
 // existing file. `resolve` returns an absolute fsPath or null (the extension
 // tries: absolute, then relative to the .aot's folder, then the workspace
 // root, and fs.existsSync). Returns { line, startCol, endCol, path (raw),
-// fsPath (resolved) }. Value region: after the first ': ' on a line, or a
-// whole table cell (handled by the caller passing cell spans). Here we take
-// the after-colon value and each pipe cell's trimmed content.
+// fsPath (resolved) }. Value region: after the first ': ' on a line, a `- `
+// Example's name (an Example may *be* a file, exactly as a table row may),
+// or a whole table cell. Here we take the after-colon value, the after-dash
+// name, and each pipe cell's trimmed content.
 function findFiles(lines, resolve) {
   const out = [];
   lines.forEach((raw, i) => {
     const spans = [];
     const t = raw.trimStart();
-    if (t.startsWith("|")) {
+    if (t.startsWith("- ")) {
+      // an Example line: everything after the marker is the candidate, so
+      // `- aot.files/report.csv` links the way a value or a cell does
+      const dash = raw.indexOf("- ");
+      const after = raw.slice(dash + 2);
+      const lead = after.length - after.trimStart().length;
+      const text = after.trim();
+      if (text) spans.push({ startCol: dash + 2 + lead, text });
+    } else if (t.startsWith("|")) {
       // table row: each cell's trimmed content is a candidate
       let start = raw.indexOf("|") + 1;
       for (let k = start; k <= raw.length; k++) {

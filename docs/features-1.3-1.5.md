@@ -9,7 +9,7 @@ A per-feature reference for everything introduced across **1.3.0**, **1.4.1** an
 
 Every snippet uses the **current** syntax, so it runs as written. The file **verifies** when its violation total **V = 0**: errors count toward V, warnings and hints never do.
 
-Run the whole suite with `npm test` (434 checks across nine plain Node scripts — no framework, each prints `PASS`/`FAIL` and exits non-zero on failure).
+Run the whole suite with `npm test` (460 checks across nine plain Node scripts — no framework, each prints `PASS`/`FAIL` and exits non-zero on failure).
 
 ---
 
@@ -43,40 +43,28 @@ Order
 
 ---
 
-## Type constraints on attributes
+## Date-aware constraint comparisons
 
 ### Before
-A constraint could only be a comparison (`age >=18`). Nothing said *what kind of value* an attribute takes, so `birth date: not yet known` sat there unremarked.
+A constraint's comparison was numeric or textual. `due >=2025-01-01` compared two dates as text, which happens to work for ISO dates but was an accident of the format, not a rule.
 
 ### What changed
-`is date`, `is number`, `is text`, chainable with `or`, and stackable with a bound. The types are **disjoint** — a value is a date (ISO `YYYY-MM-DD`), else a number (`$`/comma/`%`-tolerant), else text — so `is text` genuinely excludes numbers and dates. Every value the attribute takes is checked, types first, then the bound.
+A comparison is **chronological when both sides read as dates** (ISO `YYYY-MM-DD`, optionally with a time), numeric when both read as numbers, else exact text. So `due >=\`2025-01-01\`` holds every `due` value to the calendar.
 
 ### Write
 ```aot
 Person Record
-    birth date is date
-    age is number >=0
-    - Ada Lovelace
-        birth date: 1815-12-10
-        age: 36
+    due >=`2025-01-01`
+    - Good
+        due: 2026-01-01
+    - Bad
+        due: 2024-06-01      <- WARNING: violates 'due >= `2025-01-01`'
 ```
 
-```aot
-Person Record
-    birth date is date
-    - Ada Lovelace
-        birth date: around 1815      <- ERROR: must be date — it reads as text
-```
-
-Edge — a type clause needs a **real type word**, so prose is left alone:
-```aot
-Car
-    colour is red                    <- not a constraint: 'red' is not a type.
-                                        'colour is red' stays a plain attribute name
-```
+A breached constraint is a **warning**, never counted in V — data out of bounds is worth knowing, not a broken file.
 
 ### How it is tested
-`out/test-derive.js` — `audit: a non-date value fails 'is date'` lints a fixture and asserts `auditValues` returns an error pinned to the **value's** span (not the declaration's), with the message naming what it read as. `audit: a type clause without a bound still colours its declaration` proves the declaration is still returned for the syntax highlighting even when nothing is wrong.
+`out/test-derive.js` — the *date-aware bounds* block lints a fixture and asserts the early date raises a warning pinned to the **value's** span while the compliant date raises nothing. `out/test-table.js` — `valueType / date-aware compare` fixes the unit: `compareValues(">=", "2026-01-01", "2025-06-01") === true`.
 
 ---
 
@@ -409,7 +397,7 @@ Order
 Order
     status ==or(`draft`, `sent`, `paid`)
     - B
-        status: void     <- ERROR: value 'void' violates
+        status: void     <- WARNING: value 'void' violates
                             'status == `draft` or `sent` or `paid`'
 ```
 
@@ -432,7 +420,7 @@ An ordering distributes the same way — `>=or(1, 9)` holds when the value is at
 
 Together they pin the *whole* of the design: one value, two readings. A check on `truthOf` fixes the truth table itself (`"yes"`, `"0"`, `""`, `"widget"`), and an arity check asserts `and(1)`/`or(1)`/`not(1,2)` all throw.
 
-`out/test-derive.js` covers it in a real file: the *enumeration* block asserts `errors.length === 1` — so `sent` and `paid` passing is part of the assertion, not just `void` failing — and a second block does the same over a table header cell (`grade ==or(1,2,3)`), proving constraints work identically in both shapes.
+`out/test-derive.js` covers it in a real file: the *enumeration* block asserts `findings.length === 1` with the one finding a **warning** — so `sent` and `paid` passing is part of the assertion, not just `void` failing — and a second block does the same over a table header cell (`grade ==or(1,2,3)`), proving constraints work identically in both shapes.
 
 ---
 

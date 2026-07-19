@@ -48,15 +48,31 @@ function check(name, ok) {
     "    |name|file        |",
     "    |----+------------|",
     "    |A   |./data/a.csv|",
+    "    - aot.files/people.csv",           // an Example that *is* a file
+    "    - picture.png",                    // an Example that is an image
+    "    - Ada Lovelace",                   // an Example that is just a name
   ];
-  const known = new Set(["./assets/flow.svg", win, "./data/a.csv"]);
+  const known = new Set(["./assets/flow.svg", win, "./data/a.csv", "aot.files/people.csv", "picture.png"]);
   const files = findFiles(lines, (t) => (known.has(t) ? "/abs/" + t : null));
   check("findFiles: a relative path value resolves and is spanned",
     files.some((f) => f.line === 3 && f.path === "./assets/flow.svg" && f.fsPath === "/abs/./assets/flow.svg"));
   check("findFiles: an absolute Windows path resolves", files.some((f) => f.line === 4 && f.path === win));
   check("findFiles: a path inside a table cell resolves", files.some((f) => f.line === 8 && f.path === "./data/a.csv"));
-  check("findFiles: a URL is not a file, prose is not a path",
-    !files.some((f) => f.line === 2) && !files.some((f) => f.line === 5) && files.length === 3);
+  check("findFiles: a '- ' Example that is a file resolves, exactly spanned",
+    (() => {
+      const f = files.find((x) => x.line === 9);
+      return f && f.path === "aot.files/people.csv"
+        && f.startCol === lines[8].indexOf("aot.files")
+        && f.endCol === f.startCol + "aot.files/people.csv".length;
+    })());
+  check("findFiles: a '- ' Example that is an image resolves (the hover shows it)",
+    (() => {
+      const f = files.find((x) => x.line === 10);
+      return f && f.path === "picture.png" && isImage(f.fsPath);
+    })());
+  check("findFiles: a URL is not a file, prose and plain Examples are not paths",
+    !files.some((f) => f.line === 2) && !files.some((f) => f.line === 5)
+    && !files.some((f) => f.line === 11) && files.length === 5);
 }
 
 // ---------------------------------------------------------------------------

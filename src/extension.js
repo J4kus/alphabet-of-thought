@@ -78,25 +78,25 @@ function isInside(dir, file) {
   return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
+const docRootName = (doc) => path.basename(doc.fileName || "").replace(/\.[^.]*$/, "");
+
 function reindexAot(fsPath, text) {
   try {
     const rootName = path.basename(fsPath).replace(/\.[^.]*$/, "");
     const { root, nodes } = lint(text, rootName);
-    const tables = table.tableRegistry(text.split(/\r?\n/), rootName);
     const concepts = derive.conceptRegistry(root, nodes);
-    workspaceIndex.set(fileKey(fsPath), { fsPath, root, nodes, tables, concepts });
+    workspaceIndex.set(fileKey(fsPath), { fsPath, root, nodes, concepts });
   } catch { workspaceIndex.delete(fileKey(fsPath)); }
   workspaceExternal = null; // invalidate; rebuilt lazily
 }
 
 // The registry a formula in `doc` resolves its cross-Concept references
-// against: every table and every line-form Concept in the repo (the
-// workspace index), with the current document's own — parsed from its live,
-// possibly-unsaved text — overlaid last, so a same-named scope here shadows
-// one elsewhere. A lone file (no workspace) simply sees its own.
-//
-// Within one file a table shadows the line-form Concept of the same name:
-// both stand for the same rows, and the grid is the sharper reading of them.
+// against: every scope in the repo (the workspace index), with the current
+// document's own — parsed from its live, possibly-unsaved text — overlaid
+// last, so a same-named scope here shadows one elsewhere. A lone file (no
+// workspace) simply sees its own. One scope kind covers both notations: a
+// Concept's Examples answer whether they are table rows or '- ' lines
+// (derive.conceptRegistry, unified in 1.6).
 // `parsed` (optional) is the caller's already-linted { root, nodes }, so the
 // paths that just parsed do not parse the document twice.
 function formulaRegistry(doc, parsed) {
@@ -105,16 +105,10 @@ function formulaRegistry(doc, parsed) {
   for (const [fsPath, v] of workspaceIndex) {
     if (fsPath !== here && v.concepts) maps.push(v.concepts);
   }
-  for (const [fsPath, v] of workspaceIndex) {
-    if (fsPath !== here && v.tables) maps.push(v.tables);
-  }
-  const rootName = path.basename(doc.fileName || "").replace(/\.[^.]*$/, "");
-  const text = doc.getText();
   try {
-    const { root, nodes } = parsed || lint(text, rootName);
+    const { root, nodes } = parsed || lint(doc.getText(), docRootName(doc));
     maps.push(derive.conceptRegistry(root, nodes));
-  } catch { /* an unparseable document still offers its tables */ }
-  maps.push(table.tableRegistry(text.split(/\r?\n/), rootName));
+  } catch { /* an unparseable document still resolves against the repo */ }
   return table.mergeRegistries(...maps);
 }
 
@@ -163,9 +157,8 @@ function analyse(doc) {
   const inWs = underWorkspace(doc);
   // keep this file's entry current so other files resolve against its edits
   if (inWs) {
-    const tables = table.tableRegistry(doc.getText().split(/\r?\n/), rootName);
     const concepts = derive.conceptRegistry(root, nodes);
-    workspaceIndex.set(fileKey(doc.fileName), { fsPath: doc.fileName, root, nodes, tables, concepts });
+    workspaceIndex.set(fileKey(doc.fileName), { fsPath: doc.fileName, root, nodes, concepts });
     workspaceExternal = null;
   }
   const links = resolve(doc.getText(), root, nodes, inWs ? externalFor() : undefined);
@@ -208,14 +201,14 @@ function analyse(doc) {
     deepErrors = deepErrors.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
   // formulas and constraints, table cells and line-form values alike: one
-  // that cannot compute (or a violated constraint) is an error, a value the
+  // that cannot compute is an error; a breached constraint or a value the
   // next recompute would change is a warning — pinned to the exact span
   const formulaErrors = [], formulaWarnings = [];
   const docLines = doc.getText().split(/\r?\n/);
   const registry = formulaRegistry(doc, { root, nodes });
-  for (const f of [...table.formulas(docLines, registry), ...derive.auditValues(root, nodes, docLines, registry)]) {
+  for (const f of [...table.formulas(docLines, registry, rootName), ...derive.auditValues(root, nodes, docLines, registry)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
-    else if (f.stale) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
+    else if (f.stale || f.warning) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
   }
   // spelling is advisory prose-hygiene, independent of the tree's verdict:
   // words longer than four characters that no English dialect (nor the
@@ -282,15 +275,12 @@ async function autoComputeValues(doc, analysis, force) {
   if (!force && holdState.has(key)) return;
   // a caller that just analysed passes it in; the line-change path parses
   // fresh so the value fills the moment the cursor leaves, no wait
-  if (!analysis) {
-    const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-    analysis = lint(doc.getText(), rootName);
-  }
+  if (!analysis) analysis = lint(doc.getText(), docRootName(doc));
   const lines = doc.getText().split(/\r?\n/);
   const registry = formulaRegistry(doc, analysis);
   let edits = [
     ...derive.recomputeValues(analysis.root, analysis.nodes, lines, registry),
-    ...table.recomputeAll(doc.getText(), registry),
+    ...table.recomputeAll(doc.getText(), registry, docRootName(doc)),
   ];
   if (!edits.length) return;
   const busy = new Set();
@@ -815,7 +805,7 @@ const underConcept = (n, c) => n.parent === c
 function renameRecords(doc, analysis, registry) {
   const lines = doc.getText().split(/\r?\n/);
   return [
-    ...table.formulaReferences(lines, registry),
+    ...table.formulaReferences(lines, registry, docRootName(doc)),
     ...derive.formulaReferences(analysis.root, analysis.nodes, lines, registry),
   ];
 }
@@ -889,7 +879,7 @@ function renameSpans(doc, analysis, registry, records, target) {
     }
     for (let p = target.parent; p; p = p.parent) {
       for (const c of p.children) {
-        if (c.kind === KIND.ATTRIBUTE && c.name.toLowerCase() === lower && (c.op !== undefined || c.types)) set.add(c);
+        if (c.kind === KIND.ATTRIBUTE && c.name.toLowerCase() === lower && c.constraints) set.add(c);
       }
     }
   }
@@ -1012,11 +1002,12 @@ function renameHint(editor) {
 }
 
 // Dependency chains in small print: an inlay hint at the end of every line
-// that carries a dependency-forming crosslink shows the first chain from
-// the link's Concept, abbreviated — `→Person→Address` — in the editor's
-// native faint inline style. One hint per line, at most MAX_HOPS Concepts,
-// `…` when the chain runs on; the full chains stay on hover. Off with
-// aot.chainHints.
+// that carries a dependency-forming crosslink shows where the link's
+// Concept leads onward — `→Address` on a `person` crosslink when Person
+// rests on Address — in the editor's native faint inline style. The linked
+// Concept itself is left out: the line already names it. One hint per line,
+// at most MAX_HOPS Concepts, `…` when the chain runs on; the full chains
+// stay on hover. Off with aot.chainHints.
 const chainHintsChanged = new vscode.EventEmitter();
 const MAX_HOPS = 3;
 const inlayProvider = {
@@ -1043,8 +1034,8 @@ const inlayProvider = {
       const found = chainsOf(start);
       if (!found.length) continue;
       const path = found[0].path;
-      const shown = path.slice(0, 1 + MAX_HOPS);
-      const label = "→" + shown.map((n) => n.name).join("→") + (path.length > shown.length ? "…" : "");
+      const shown = path.slice(1, 1 + MAX_HOPS);
+      const label = "→" + shown.map((n) => n.name).join("→") + (path.length > 1 + shown.length ? "…" : "");
       const hint = new vscode.InlayHint(doc.lineAt(line).range.end, label);
       hint.paddingLeft = true;
       hint.tooltip = "dependency chain — hover the link for all chains";
@@ -1205,7 +1196,7 @@ function recomputeFormulas(editor) {
   const { root, nodes } = lint(doc.getText(), rootName);
   const lines = doc.getText().split(/\r?\n/);
   const reg = formulaRegistry(doc);
-  const edits = [...table.align(doc.getText(), reg), ...derive.recomputeValues(root, nodes, lines, reg)];
+  const edits = [...table.align(doc.getText(), reg, rootName), ...derive.recomputeValues(root, nodes, lines, reg)];
   if (!edits.length) return;
   return editor.edit((b) => {
     for (const { line, text } of edits) b.replace(doc.lineAt(line - 1).range, text);
@@ -1330,43 +1321,36 @@ function globalCsvNames(root, currentDoc) {
     const text = aotText(f, currentDoc);
     if (text === null) continue;
     const rootName = path.basename(f).replace(/\.[^.]*$/, "");
-    for (const t of table.tablesOf(text.split(/\r?\n/), rootName)) names.add(csvName(t.name).toLowerCase());
     for (const m of text.matchAll(AOT_FILES_REF)) names.add(path.basename(m[1]).toLowerCase());
-    // a Concept written line-form speaks for its CSV exactly as a table
-    // does — when it has Examples to put in one
+    // every Concept with Examples in its scope speaks for its CSV — tables
+    // and line form alike, one union file per Concept
     try {
-      const { root, nodes } = lint(text, rootName);
-      for (const [, scope] of derive.conceptRegistry(root, nodes)) {
-        if (scope.rows.length) names.add(csvName(scope.name).toLowerCase());
+      const { root: r, nodes } = lint(text, rootName);
+      for (const g of derive.mirrorGrids(r, nodes)) {
+        if (g.rows.length) names.add(csvName(g.name).toLowerCase());
       }
-    } catch { /* an unparseable file speaks for nothing */ }
+    } catch {
+      // an unparseable file still speaks for its complete tables
+      for (const t of table.tablesOf(text.split(/\r?\n/), rootName)) names.add(csvName(t.name).toLowerCase());
+    }
   }
   return names;
 }
 
-// The .aot files that own a Concept named `name` — one written as a table,
-// or one written line-form with Examples of its own. Both are the same idea
-// wearing a different shape, so both answer for the same CSV.
+// The .aot files that own a Concept named `name` with Examples in its
+// scope — written as a table, line form, or both: one idea, one CSV.
 function findOwningAots(root, name) {
   const low = name.toLowerCase();
   const out = [];
   for (const f of scanAotFiles(root)) {
     let text; try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
     const rootName = path.basename(f).replace(/\.[^.]*$/, "");
-    if (table.tablesOf(text.split(/\r?\n/), rootName).some((t) => t.name.toLowerCase() === low)) { out.push(f); continue; }
     try {
       const { root: r, nodes } = lint(text, rootName);
-      if (conceptNamed(r, nodes, low)) out.push(f);
+      if (derive.mirrorGrids(r, nodes).some((g) => g.rows.length && g.name.toLowerCase() === low)) out.push(f);
     } catch { /* an unparseable file owns nothing */ }
   }
   return out;
-}
-
-// The line-form Concept of a name that has Examples to mirror, or null.
-function conceptNamed(root, nodes, low) {
-  return [root, ...nodes].find((n) => n && n.kind === KIND.CONCEPT
-    && n.name.toLowerCase() === low
-    && n.children.some((c) => c.kind === KIND.INDIVIDUAL)) || null;
 }
 
 // Fold a document's pre-1.3 per-file folders (`tables.<file>` and
@@ -1420,24 +1404,25 @@ function syncAotToCsv(doc) {
   migrateLegacyDirs(doc, dir);
   if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(workspaceRoot(doc), doc));
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-  const found = table.tablesOf(doc.getText().split(/\r?\n/), rootName)
-    .map((t) => ({ name: t.name, grid: [t.header, ...t.rows] }));
-  // A Concept written line-form mirrors too — but only where a CSV of its
-  // name is already in the folder. That CSV is the opt-in: without it, every
-  // Concept with Examples would rain a file into aot.files on the first save.
-  // A table of the same name has already spoken for it.
+  // One union CSV per Concept: every Example in the Concept's scope (a
+  // table under an '- Example' files under the first Concept up the tree),
+  // columns the union of every attribute, blank where a row is silent. A
+  // Concept holding a table always mirrors; a pure line-form Concept only
+  // where a CSV of its name is already in the folder — that CSV is the
+  // opt-in, so a first save never rains files into aot.files.
+  const found = [];
   try {
     const { root, nodes } = lint(doc.getText(), rootName);
-    const taken = new Set(found.map((t) => csvName(t.name).toLowerCase()));
-    for (const [, scope] of derive.conceptRegistry(root, nodes)) {
-      // a Concept in the registry only for the values it states of its own
-      // has no rows to mirror — a CSV of nothing but a header helps no one
-      if (!scope.rows.length) continue;
-      const file = csvName(scope.name);
-      if (taken.has(file.toLowerCase()) || !fs.existsSync(path.join(dir, file))) continue;
-      found.push({ name: scope.name, grid: scope.grid() });
+    const taken = new Set();
+    for (const g of derive.mirrorGrids(root, nodes)) {
+      if (!g.rows.length) continue;
+      const file = csvName(g.name);
+      if (taken.has(file.toLowerCase())) continue;
+      if (!g.hasTable && !fs.existsSync(path.join(dir, file))) continue;
+      taken.add(file.toLowerCase());
+      found.push({ name: g.name, grid: [g.header, ...g.rows] });
     }
-  } catch { /* an unparseable document mirrors only what tablesOf could find */ }
+  } catch { /* an unparseable document mirrors nothing this save */ }
   if (!found.length) return;
   fs.mkdirSync(dir, { recursive: true });
   for (const t of found) {
@@ -1456,32 +1441,38 @@ function syncAotToCsv(doc) {
   }
 }
 
-// Fold a CSV's rows into a Concept written line-form: each row becomes (or
-// updates) a `- Example` with its attributes beneath, and the Concept keeps
-// the shape its author chose. The edits are applied bottom-up so no earlier
-// insert shifts the lines a later one was measured against.
-async function foldCsvIntoExamples(doc, lines, rootName, name, grid) {
+// Fold a union CSV back into the Concept's scope: rows merge by Example
+// name wherever the Example lives — a table row updates within its own
+// columns, a line-form Example attribute by attribute, a fresh name lands
+// in the Concept's own shape (derive.updateScope). The edits apply
+// bottom-up so no earlier insert shifts the lines a later one measured.
+async function foldCsvIntoScope(doc, lines, rootName, name, grid) {
   let parsed;
   try { parsed = lint(doc.getText(), rootName); } catch { return; }
-  const concept = conceptNamed(parsed.root, parsed.nodes, name.toLowerCase());
+  const low = name.toLowerCase();
+  const concept = [parsed.root, ...parsed.nodes].find((n) =>
+    n && n.kind === KIND.CONCEPT && n.name.toLowerCase() === low);
   if (!concept) return;
-  const ops = derive.updateExamples(lines, concept, grid[0], grid.slice(1));
+  const ops = derive.updateScope(lines, parsed.root, parsed.nodes, concept, grid[0], grid.slice(1), rootName);
   if (!ops.length) return;
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const edit = new vscode.WorkspaceEdit();
-  const lineOf = (op) => (op.type === "replace" ? op.line : op.afterLine);
+  const lineOf = (op) => (op.type === "replace" ? op.line : op.type === "block" ? op.from + 1 : op.afterLine);
   for (const op of [...ops].sort((a, b) => lineOf(b) - lineOf(a))) {
-    if (op.type === "replace") {
+    if (op.type === "block") {
+      const range = new vscode.Range(op.from, 0, op.to, doc.lineAt(op.to).text.length);
+      edit.replace(doc.uri, range, op.block.join(eol));
+    } else if (op.type === "replace") {
       edit.replace(doc.uri, doc.lineAt(op.line - 1).range, op.text);
     } else if (op.afterLine >= doc.lineCount) {
       const last = doc.lineCount - 1;
-      edit.insert(doc.uri, new vscode.Position(last, doc.lineAt(last).text.length), eol + op.text);
+      edit.replace(doc.uri, doc.lineAt(last).range, doc.lineAt(last).text + eol + op.text);
     } else {
       edit.insert(doc.uri, new vscode.Position(op.afterLine, 0), op.text + eol);
     }
   }
   await vscode.workspace.applyEdit(edit);
-  const saved = await doc.save();
+  const saved = await doc.save(); // the save re-mirrors, converging both copies
   if (!saved) vscode.window.showWarningMessage(`AOT: folded '${name}.csv' into ${path.basename(doc.fileName)}, but could not save it.`);
 }
 
@@ -1509,25 +1500,7 @@ async function syncCsvIntoAot(uri) {
   const doc = await vscode.workspace.openTextDocument(aotPath);
   const rootName = path.basename(aotPath).replace(/\.[^.]*$/, "");
   const lines = doc.getText().split(/\r?\n/);
-  // A Concept written as a table takes the grid as a table, as it always
-  // has. One written line-form keeps its Examples: the rows merge in by
-  // name, so the CSV brings data without restructuring the tree.
-  const isTable = table.tablesOf(lines, rootName).some((t) => t.name.toLowerCase() === name.toLowerCase());
-  if (!isTable) return foldCsvIntoExamples(doc, lines, rootName, name, grid);
-  const result = table.updateTable(
-    lines, name, grid[0], grid.slice(1), rootName, formulaRegistry(doc));
-  if (!result || !result.changed) return;
-  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const edit = new vscode.WorkspaceEdit();
-  if (result.to < result.from) {
-    const at = Math.min(result.from, doc.lineCount);
-    edit.insert(doc.uri, new vscode.Position(at, 0), result.block.join(eol) + eol);
-  } else {
-    const range = new vscode.Range(result.from, 0, result.to, doc.lineAt(result.to).text.length);
-    edit.replace(doc.uri, range, result.block.join(eol));
-  }
-  await vscode.workspace.applyEdit(edit);
-  await doc.save(); // the save re-mirrors, converging both copies
+  return foldCsvIntoScope(doc, lines, rootName, name, grid);
 }
 
 // --- table cell colouring ---------------------------------------------------
@@ -1569,7 +1542,7 @@ const semanticProvider = {
     // plain data, not derivation text.
     const docLines = doc.getText().split(/\r?\n/);
     const registry = formulaRegistry(doc);
-    for (const f of [...table.formulas(docLines, registry), ...derive.auditValues(root, nodes, docLines, registry)]) {
+    for (const f of [...table.formulas(docLines, registry, docRootName(doc)), ...derive.auditValues(root, nodes, docLines, registry)]) {
       if (f.paint === false) continue;
       builder.push(f.line - 1, f.startCol, f.endCol - f.startCol, FORMULA_TOKEN);
     }
@@ -1688,9 +1661,53 @@ function updateTableContext() {
 //     |----|
 //     |    |     <- cursor lands here
 //
-// One Ctrl+Z undoes the whole thing (the edit merges with the keystroke).
-// A '|' typed beside an existing table, or mid-line, scaffolds nothing.
+// Attributes the enclosing line inherits from its ancestors arrive as
+// ready-made columns (creation-time only — a table is never re-columned
+// when attributes are declared later). The parent's own attribute lines
+// are left out: they already declare, and a same-named column would be a
+// duplicate. One Ctrl+Z undoes the whole thing (the edit merges with the
+// keystroke). A '|' typed beside an existing table, or mid-line,
+// scaffolds nothing.
 let scaffolding = false;
+
+// The columns a fresh table inherits: attribute names declared on the
+// parent's ancestors, outermost first, deduped case-insensitively, minus
+// the names the parent declares itself.
+function inheritedColumns(parentNode) {
+  const declares = (n) => n.children
+    .filter((k) => k.kind === KIND.ATTRIBUTE || (k.kind === KIND.DEFAULT && !k.cell))
+    .map((k) => k.name);
+  const own = new Set(declares(parentNode).map((n) => n.toLowerCase()));
+  const chain = [];
+  for (let p = parentNode.parent; p; p = p.parent) chain.unshift(p);
+  const out = [], seen = new Set(["name"]);
+  for (const p of chain) {
+    for (const name of declares(p)) {
+      const key = name.toLowerCase();
+      if (seen.has(key) || own.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+// The node of the line a new table at `at` (0-based) with `indentLen`
+// leading spaces is filed under: the nearest shallower non-blank line,
+// else the root.
+function scaffoldParent(doc, at, indentLen, root, nodes) {
+  for (let i = at - 1; i >= 0; i--) {
+    const raw = doc.lineAt(i).text;
+    if (!raw.trim()) continue;
+    const ind = raw.match(/^ */)[0].length;
+    if (ind >= indentLen) continue;
+    const here = nodes.filter((n) => n.line === i + 1);
+    if (!here.length) return root;
+    return here.reduce((best, n) => (n.depth < best.depth ? n : best));
+  }
+  return root;
+}
+
 async function maybeScaffold(event) {
   if (scaffolding || event.document.languageId !== "aot") return;
   if (event.contentChanges.length !== 1) return;
@@ -1706,12 +1723,18 @@ async function maybeScaffold(event) {
   const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
   if (!editor) return;
   const indent = text.slice(0, text.indexOf("|"));
+  let columns = [];
+  try {
+    const { root, nodes } = lint(doc.getText(), docRootName(doc));
+    columns = inheritedColumns(scaffoldParent(doc, at, indent.length, root, nodes));
+  } catch { /* an unparseable document scaffolds the plain skeleton */ }
+  const header = ["name", ...columns];
   const block = {
     indent,
     rows: [
-      { sep: false, cells: ["name"] },
+      { sep: false, cells: header },
       { sep: true, cells: [] },
-      { sep: false, cells: [""] },
+      { sep: false, cells: header.map(() => "") },
     ],
   };
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
@@ -1860,7 +1883,7 @@ function activate(context) {
         const { root, nodes } = lint(doc.getText(), rootName);
         const lines = doc.getText().split(/\r?\n/);
         const reg = formulaRegistry(doc);
-        return [...table.align(doc.getText(), reg), ...derive.recomputeValues(root, nodes, lines, reg)]
+        return [...table.align(doc.getText(), reg, rootName), ...derive.recomputeValues(root, nodes, lines, reg)]
           .map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
       },
     }),
@@ -1909,7 +1932,7 @@ function activate(context) {
         const reg = formulaRegistry(doc);
         return [
           ...derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), reg),
-          ...table.recomputeAll(doc.getText(), reg),
+          ...table.recomputeAll(doc.getText(), reg, rootName),
         ].map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
       }));
     }),

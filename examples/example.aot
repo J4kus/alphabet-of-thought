@@ -104,7 +104,7 @@
             Make observation
         Detect Prediction Error
             Compare expectation to observation
-            Weight error (Precision)
+            Weight error (Make Precise)
             Flag Conflicting Intuition
     Make Deliberation
         Update Standing Belief

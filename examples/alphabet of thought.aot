@@ -113,7 +113,7 @@
             Same Line Connection
                 - value-is
                 - has-another-name
-                    begin: (
+                    begin : (
                     end: )
                     allow special value override: Ellipsis
                     - For Dependency Or A More General Context Name
@@ -357,12 +357,7 @@
                             - Purchase office equipment
                             - Approve vendor bids
             Workflow
-                Worker Pool (In Use Item)
-                    - Role
-                    - Asset
-                    - Function
-                    - Object
-                    - Value
+                Worker (Agent)
                     said of
                     is bottleneck: yes
                     is tangible: no
@@ -454,12 +449,11 @@
                         interval count: 1
                     Cycle
                         interval count: 2 or more
-                    item
                     not said of
                     result
                     is done
                     exception
-                    start condition
+                    start condition (after)
                     interval: 5 seconds
                     interval count
                     timeout
@@ -553,9 +547,18 @@
 - Workflow
 
     Alphabet Of Thought Programmer
-        thread: Asynchronous
-        - Create File
+        cycle
+            after
             interval
-            timeout: when file is published
-        - Iterate Over Extension
-            worker pool: 1
+            interval count
+            timeout duration
+            precision
+        - Identify a need to remember more then one brain
+            after: confusing time
+            interval: every new thought on a unfamiliar subject
+            interval count: until subject is scientifically instantiated
+            timeout duration: unproductive to continue
+            precision: all thoughts
+        - Try to be efficient with thought
+            after: grappling with a subject
+            

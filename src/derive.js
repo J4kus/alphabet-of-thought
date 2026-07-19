@@ -17,8 +17,9 @@
 // Reference semantics: `@attribute name` is the same owner's attribute
 // (longest case-insensitive match, aliases included); aggregates and
 // count() range over the *other* sibling Examples under the same parent;
-// `@attr@Example` reads the named sibling Example's value. Numeric `@N`
-// references are table-only and error here. A constraint's references
+// `@attr@Example` reads the named sibling Example's value. References are
+// name-only — a digits lead can name an Example ('- 35'), never a column
+// position (positional @N was removed in 1.6). A constraint's references
 // resolve per value, against that value's own Example or row — so
 // `total >=@price` holds each row's total to its own price.
 //
@@ -28,9 +29,9 @@
 
 const { KIND, INDENT } = require("./linter");
 const {
-  splitCell, evalFormula, formatValue, compareValues, longestMatch,
-  satisfiesTypes, valueType, tablesOf, updateTable, describeBound,
-  cells, referenceSpans,
+  splitCell, splitConstraint, evalFormula, formatValue, compareValues, longestMatch,
+  tablesOf, updateTable, describeBound, readValue, render,
+  referenceSpans,
 } = require("./table");
 
 // The line-form derivation hosts: DEFAULT nodes whose parsed value carried
@@ -86,10 +87,6 @@ function makeCtx(d, current, registry) {
   for (const ex of examples) ex.children.forEach(addName);
   const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
   const rowCands = examples.map((ex) => ({ key: ex.name.toLowerCase(), id: ex }));
-  const tableOnly = (c) => {
-    if (typeof c === "number") throw new Error("numeric @N references are table-only — use @attribute name");
-    return c;
-  };
   // an owner's value for the attribute; undefined when the owner never
   // asserts it, "" when it is declared but (not yet) valued
   const valueOn = (owner, id) => {
@@ -100,43 +97,37 @@ function makeCtx(d, current, registry) {
     return hit.kind === KIND.DEFAULT ? current(hit) : "";
   };
   return {
-    // line form has no grid, so no column carries a number: `@1` can only
-    // name an Example, and tableOnly still rejects a number that names none
-    hasColumn: () => false,
     matchColumn: (rest) => longestMatch(rest, nameCands),
     matchRow: (rest) => longestMatch(rest, rowCands),
     cell: (c) => {
-      const v = valueOn(d.parent, tableOnly(c));
+      const v = valueOn(d.parent, c);
       return v === undefined ? "" : v;
     },
     cellAt: (c, ex) => {
-      const v = valueOn(ex, tableOnly(c));
+      const v = valueOn(ex, c);
       return v === undefined ? "" : v;
     },
-    column: (c) => {
-      const id = tableOnly(c);
-      return examples.filter((ex) => ex !== host)
-        .map((ex) => valueOn(ex, id))
-        .filter((v) => v !== undefined);
-    },
+    column: (c) =>
+      examples.filter((ex) => ex !== host)
+        .map((ex) => valueOn(ex, c))
+        .filter((v) => v !== undefined),
     matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
     table: registry ? (id) => registry.scopes.get(id) : undefined,
   };
 }
 
-// A read-only evaluation scope over a line-form Concept: its Examples are
-// the rows, and the attribute names beneath it — its own defaults and its
-// Examples' — are the columns. Exactly the shape table.js's foreignScope
-// gives a table's grid, so the evaluator needs no new case and
-// `@Integer@35@is prime` reads the way `@Order@price@Acme` does: a Concept
-// written line-form and one written as a table are the same idea, so they
-// are referenced the same way.
+// A read-only evaluation scope over a Concept: its Examples are the rows —
+// whether they arrived as '- ' lines or as a table's data rows, the parsed
+// tree holds both the same way — and the attribute names beneath it (its
+// own defaults and its Examples') are the columns. The one scope shape the
+// registry serves, so `@Integer@35@is prime` reads the way
+// `@Order@price@Acme` does: a Concept written line-form and one written as
+// a table are the same idea, referenced the same way (unified in 1.6).
 //
 // An Example that is silent on an attribute answers the Concept's own
-// default — the inheritance the tree already means. A line-form Concept has
-// no columns to number, so `hasColumn` is false throughout and a numeric
-// part can only name an Example, which is what a Concept whose Examples are
-// numbers (`- 1`, `- 35`) needs.
+// default — the inheritance the tree already means. References are
+// name-only, so a numeric part can only name an Example, which is what a
+// Concept whose Examples are numbers (`- 1`, `- 35`) needs.
 function conceptScope(concept) {
   const examples = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
   const names = new Map();   // lowercased name or alias -> canonical id
@@ -173,7 +164,6 @@ function conceptScope(concept) {
     examples,
     columns: [...display.values()],
     rows: examples.map((ex) => ex.name),
-    hasColumn: () => false,
     matchColumn: (rest) => longestMatch(rest, nameCands),
     matchRow: (rest) => longestMatch(rest, rowCands),
     cellAt: (c, r) => valueAt(r, c),
@@ -193,33 +183,37 @@ function conceptScope(concept) {
   };
 }
 
-// The line-form Concepts one file offers to cross-Concept references: a Map
-// from each Concept's name (lowercased) to a conceptScope over it, keyed the
-// way table.js's tableRegistry keys a table. The first Concept wins a shared
-// name.
+// The scopes one file offers to cross-Concept references: a Map from each
+// name (lowercased) to a conceptScope over its node. The one registry both
+// notations share — a Concept's Examples are its rows whether they arrived
+// as '- ' lines or as a table's data rows, so the parsed tree answers for
+// both and a table needs no registry of its own (unified in 1.6).
 //
 // A Concept is worth registering when it has something to answer with, which
 // is either of the two things a Concept can hold: **Examples** (the rows a
 // reference reaches with `@Integer@35@is prime`) or **values of its own**
 // (the defaults a reference reaches with `@Measurement@alias`). A Concept
 // with neither — a bare name, or one holding only sub-Concepts — answers
-// nothing, so it stays out.
-//
-// Merge it *beneath* the same file's tableRegistry (mergeRegistries — later
-// wins): a Concept written as a table keeps the table's own scope, which is
-// the sharper reading of the same rows.
+// nothing, so it stays out. A line of another kind that holds Examples — an
+// Example or Attribute a table is filed under ('- test 1' with a grid
+// beneath it) — registers too, so `@test 1@…` keeps resolving; a Concept
+// wins a shared name.
 const answersSomething = (n) => n.children.some((c) =>
   c.kind === KIND.INDIVIDUAL || (c.kind === KIND.DEFAULT && c.value));
 
 function conceptRegistry(root, nodes) {
   const map = new Map();
   const add = (n) => {
+    if (!n.name) return;
     const key = n.name.toLowerCase();
     if (map.has(key) || !answersSomething(n)) return;
     map.set(key, conceptScope(n));
   };
   if (root) add(root);
   for (const n of nodes) if (n.kind === KIND.CONCEPT) add(n);
+  for (const n of nodes) {
+    if (n.kind !== KIND.CONCEPT && n.children.some((c) => c.kind === KIND.INDIVIDUAL)) add(n);
+  }
   return map;
 }
 
@@ -255,21 +249,24 @@ function constraintOf(d) {
   if (d.alias) keys.push(d.alias.toLowerCase());
   for (let p = d.parent; p; p = p.parent) {
     for (const c of p.children) {
-      if (c.kind !== KIND.ATTRIBUTE || (c.op === undefined && !c.types)) continue;
+      if (c.kind !== KIND.ATTRIBUTE || !c.constraints) continue;
       if (keys.includes(c.name.toLowerCase()) || (c.alias && keys.includes(c.alias.toLowerCase()))) return c;
     }
   }
   return null;
 }
 
-// Where a constraint sits on its declaring line: from the operator to the
-// end of the term (a header cell ends at its pipe, a bare line at its end).
-function constraintSpanOf(lines, a) {
+// Where the k-th of an attribute's constraints sits on its declaring line:
+// from its operator to the next chained bound, else to the end of the term
+// (a header cell ends at its pipe, a bare line at its end).
+function constraintSpanOf(lines, a, k) {
   const raw = lines[a.line - 1] || "";
-  let end = a.cell ? raw.indexOf("|", a.opCol) : -1;
+  const startCol = a.constraints[k].opCol;
+  let end = k + 1 < a.constraints.length ? a.constraints[k + 1].opCol
+    : a.cell ? raw.indexOf("|", startCol) : -1;
   if (end === -1) end = raw.length;
-  while (end > a.opCol && raw[end - 1] === " ") end--;
-  return { startCol: a.opCol, endCol: end };
+  while (end > startCol && raw[end - 1] === " ") end--;
+  return { startCol, endCol: end };
 }
 
 // Where a value sits on its raw line: a table cell knows its column, a
@@ -288,8 +285,9 @@ function valueSpanOf(lines, d) {
 // and every attribute constraint: the declaration's span is returned for
 // the colouring (and carries the error when its formula cannot compute);
 // each value the attribute takes is validated in its own context, a
-// violation pinned to the value itself (paint: false — a plain value is
-// not derivation text).
+// violation pinned to the value itself as a **warning** — a breached
+// constraint is worth knowing, not a broken file, so it never counts in V
+// (paint: false — a plain value is not derivation text).
 function auditValues(root, nodes, lines, registry) {
   const out = [];
   const current = (n) => n.value || "";
@@ -311,46 +309,44 @@ function auditValues(root, nodes, lines, registry) {
     }
     out.push(span);
   }
-  // the constraints: one coloured span per declaration (type clause and/or
-  // bound), one check per value — types first, then the bound
-  const constrained = nodes.filter((n) => n.kind === KIND.ATTRIBUTE && (n.op !== undefined || n.types));
+  // the constraints: one coloured span per bound (a declaration may chain
+  // several), one check per value per bound
+  const constrained = nodes.filter((n) => n.kind === KIND.ATTRIBUTE && n.constraints);
   if (!constrained.length) return out;
-  const declared = new Map(); // attribute node -> its pushed span
+  const declared = new Map(); // constraint -> its pushed span
   for (const a of constrained) {
-    const s = constraintSpanOf(lines, a);
-    const span = { line: a.line, startCol: s.startCol, endCol: s.endCol, op: a.op || null, formula: a.formula };
-    declared.set(a, span);
-    out.push(span);
+    a.constraints.forEach((con, k) => {
+      const s = constraintSpanOf(lines, a, k);
+      const span = { line: a.line, startCol: s.startCol, endCol: s.endCol, op: con.op, formula: con.formula };
+      declared.set(con, span);
+      out.push(span);
+    });
   }
   const violation = (d, message) => {
     const at = valueSpanOf(lines, d) || { startCol: 0, endCol: (lines[d.line - 1] || "").length };
-    out.push({ line: d.line, startCol: at.startCol, endCol: at.endCol, paint: false, error: true, message });
+    out.push({ line: d.line, startCol: at.startCol, endCol: at.endCol, paint: false, warning: true, message });
   };
   for (const d of nodes) {
     if (d.kind !== KIND.DEFAULT || !d.value) continue;
     const a = constraintOf(d);
     if (!a) continue;
-    // the type clause: the value must be one of the allowed types
-    if (a.types && !satisfiesTypes(d.value, a.types)) {
-      violation(d, `value '${d.value}' must be ${a.types.join(" or ")} ('${a.name} is ${a.types.join(" or ")}', line ${a.line}) — it reads as ${valueType(d.value)}`);
-      continue;
-    }
-    // the bound: the value must satisfy the comparison
-    if (!a.op) continue;
-    let bound;
-    try {
-      bound = evalFormula(a.formula, makeCtx(d, current, registry));
-    } catch (e) {
-      // an uncomputable bound is the declaration's problem, reported once
-      const span = declared.get(a);
-      if (span && !span.error) {
-        span.error = true;
-        span.message = `constraint '${a.op}${a.formula}' on '${a.name}' does not compute — ${e.message}`;
+    for (const con of a.constraints) {
+      // the bound: the value must satisfy each comparison in the chain
+      let bound;
+      try {
+        bound = evalFormula(con.formula, makeCtx(d, current, registry));
+      } catch (e) {
+        // an uncomputable bound is the declaration's problem, reported once
+        const span = declared.get(con);
+        if (span && !span.error) {
+          span.error = true;
+          span.message = `constraint '${con.op}${con.formula}' on '${a.name}' does not compute — ${e.message}`;
+        }
+        continue;
       }
-      continue;
-    }
-    if (!compareValues(a.op, d.value, bound)) {
-      violation(d, `value '${d.value}' violates '${a.name} ${a.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
+      if (!compareValues(con.op, d.value, bound)) {
+        violation(d, `value '${d.value}' violates '${a.name} ${con.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
+      }
     }
   }
   return out;
@@ -385,15 +381,9 @@ function formulaReferences(root, nodes, lines, registry) {
         r.nodes = rec.kind === "column"
           ? owners.flatMap((o) => o.children.filter((c) => isAttr(c) && c.name.toLowerCase() === rec.id))
           : [rec.id];
-      } else if (rec.scope.node) { // a line-form Concept read as a table
+      } else if (rec.scope.node) { // a registry scope, read as a table
         if (rec.kind === "column") { r.conceptNode = rec.scope.node; r.attrKey = rec.id; }
         else r.nodes = [rec.scope.examples[rec.id]].filter(Boolean);
-      } else if (rec.scope.headerLine && rec.kind !== "table") { // a foreign grid
-        const at = rec.kind === "column"
-          ? { line: rec.scope.headerLine, cell: rec.id }
-          : { line: (rec.scope.rowLines || [])[rec.id], cell: 1 };
-        const c = at.line ? cells(lines[at.line - 1] || "")[at.cell - 1] : null;
-        r.site = { line: at.line, col: c ? c.col : null };
       }
       out.push(r);
     }
@@ -584,8 +574,187 @@ function updateExamples(lines, concept, header, rows) {
   return merged;
 }
 
+// --- the union CSV mirror ---------------------------------------------------
+// One CSV per Concept, both notations together: the grid a Concept mirrors
+// holds every Example in its *scope* — the subtree above any deeper Concept,
+// so a table filed under an Example ('- test 1') mirrors into the first
+// Concept up the tree — and the union of every attribute those Examples and
+// the Concept carry. A row silent on a column answers the nearest enclosing
+// default, else empty; different Examples carrying different attributes all
+// fit, blank where undefined.
+
+const isAttrKind = (c) => c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE;
+
+// The first Concept up the tree from a node (the root when none nearer).
+function nearestConcept(n, root) {
+  for (let p = n.parent; p; p = p.parent) if (p.kind === KIND.CONCEPT) return p;
+  return root;
+}
+
+// A header cell's column name: the term minus its constraint and (alias).
+function headerColName(cell) {
+  let name = splitConstraint(cell).value;
+  if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
+  return name;
+}
+
+// The Examples in a Concept's scope, document order: every INDIVIDUAL in
+// its subtree that no deeper Concept claims.
+function scopeRowsOf(concept) {
+  const out = [];
+  const walk = (n) => {
+    for (const c of n.children) {
+      if (c.kind === KIND.CONCEPT) continue;
+      if (c.kind === KIND.INDIVIDUAL) out.push(c);
+      walk(c);
+    }
+  };
+  walk(concept);
+  return out;
+}
+
+// One union grid per Concept: { name, node, header, rows, hasTable }.
+// `hasTable` says a table lives in the Concept's scope — the mirror writes
+// those unbidden, while a pure line-form Concept stays opt-in (extension.js).
+function mirrorGrids(root, nodes) {
+  const out = [];
+  for (const concept of [root, ...nodes].filter((n) => n && n.kind === KIND.CONCEPT)) {
+    const scopeRows = scopeRowsOf(concept);
+    const names = new Map(); // lowercased -> the name as first written
+    const addNames = (owner) => {
+      for (const c of owner.children) {
+        if (!isAttrKind(c) || !c.name) continue;
+        const k = c.name.toLowerCase();
+        if (!names.has(k)) names.set(k, c.name);
+      }
+    };
+    addNames(concept);
+    for (const r of scopeRows) addNames(r);
+    // a row silent on a column answers the nearest enclosing default
+    const valueAt = (r, key) => {
+      const match = (c) => isAttrKind(c)
+        && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key));
+      const own = r.children.find(match);
+      if (own) return own.kind === KIND.DEFAULT ? own.value || "" : "";
+      for (let p = r.parent; p; p = p.parent) {
+        const hit = p.children.find((c) => c.kind === KIND.DEFAULT && !c.cell && match(c));
+        if (hit) return hit.value || "";
+        if (p === concept) break;
+      }
+      return "";
+    };
+    const hasTable = nodes.some((n) =>
+      n.kind === KIND.ATTRIBUTE && n.cell && nearestConcept(n, root) === concept);
+    out.push({
+      name: concept.name,
+      node: concept,
+      header: ["name", ...names.values()],
+      rows: scopeRows.map((r) => [r.name, ...[...names.keys()].map((k) => valueAt(r, k))]),
+      hasTable,
+    });
+  }
+  return out;
+}
+
+// Fold a union CSV grid back into a Concept's scope, merging by Example
+// name wherever the Example lives: a table row updates cell by cell within
+// its table's own columns (a column the table lacks is left alone — columns
+// arrive when a table is created, never from the mirror), a line-form
+// Example updates attribute by attribute (updateExamples), and a name the
+// file does not hold yet is appended — as a row of the Concept's own table
+// when it has one, else as a '- ' block. Nothing is ever deleted; a blank
+// cell says nothing; a value carrying a formula is left to its formula.
+// Returns ops in the updateExamples shape — plus { type: "block", from,
+// to, block } (0-based inclusive lines) for a touched table, redrawn
+// aligned exactly as updateTable redraws one.
+function updateScope(lines, root, nodes, concept, header, rows, rootName) {
+  const csvIdx = new Map(); // lowercased column name -> index in a CSV row
+  header.slice(1).forEach((h, k) => {
+    const key = String(h || "").trim().toLowerCase();
+    if (key && !csvIdx.has(key)) csvIdx.set(key, k + 1);
+  });
+  const byName = new Map();
+  for (const r of rows) {
+    const n = (r[0] || "").trim();
+    if (n && !byName.has(n.toLowerCase())) byName.set(n.toLowerCase(), r);
+  }
+  // the tables in the Concept's scope: those whose first row's Example has
+  // this Concept as its first Concept up the tree
+  const inScope = tablesOf(lines, rootName).filter((t) => {
+    if (!t.rowLines.length) return false;
+    const rowNode = nodes.find((n) => n.kind === KIND.INDIVIDUAL && n.line === t.rowLines[0]);
+    return rowNode ? nearestConcept(rowNode, root) === concept : false;
+  });
+  const direct = inScope.find((t) => t.name.toLowerCase() === concept.name.toLowerCase());
+  const matched = new Set(); // names a table row already answered for
+  const touched = []; // { t, rows: updated cell arrays, changed }
+  for (const t of inScope) {
+    const colNames = t.header.map(headerColName);
+    let changed = false;
+    const nextRows = t.rows.map((cellsRow) => {
+      const next = cellsRow.slice();
+      const rowName = splitCell(next[0] || "").value.trim();
+      const csvRow = rowName && byName.get(rowName.toLowerCase());
+      if (!csvRow || matched.has(rowName.toLowerCase())) return next;
+      matched.add(rowName.toLowerCase());
+      for (let k = 1; k < t.header.length; k++) {
+        const at = colNames[k] && csvIdx.get(colNames[k].toLowerCase());
+        if (!at) continue;
+        const v = (csvRow[at] || "").trim();
+        if (!v) continue; // a blank cell says nothing
+        const cur = splitCell(next[k] || "");
+        if (cur.eq !== -1) continue; // a formula owns its value
+        if (readValue(cur.value.trim()) === v) continue;
+        next[k] = v;
+        changed = true;
+      }
+      return next;
+    });
+    touched.push({ t, rows: nextRows, changed });
+  }
+  // the rest: line-form Examples merge in place, fresh names land in the
+  // Concept's own shape — its direct table when it has one, else '- ' form
+  const lineNames = new Set(concept.children
+    .filter((c) => c.kind === KIND.INDIVIDUAL && !(lines[c.line - 1] || "").trim().startsWith("|"))
+    .map((c) => c.name.toLowerCase()));
+  const forLines = [], freshRows = [];
+  for (const r of rows) {
+    const n = (r[0] || "").trim().toLowerCase();
+    if (!n || matched.has(n)) continue;
+    if (lineNames.has(n) || !direct) forLines.push(r);
+    else freshRows.push(r);
+  }
+  const ops = [];
+  if (forLines.length) ops.push(...updateExamples(lines, concept, header, forLines));
+  if (freshRows.length && direct) {
+    const own = touched.find((x) => x.t === direct);
+    for (const r of freshRows) {
+      own.rows.push(direct.header.map((cell, k) => {
+        if (k === 0) return (r[0] || "").trim();
+        const at = csvIdx.get(headerColName(cell).toLowerCase());
+        return at ? (r[at] || "").trim() : "";
+      }));
+    }
+    own.changed = true;
+  }
+  // a touched table is redrawn whole, aligned, appended rows included
+  for (const { t, rows: nextRows, changed } of touched) {
+    if (!changed) continue;
+    const block = render({
+      indent: t.indent,
+      rows: [
+        { sep: false, cells: t.header },
+        { sep: true, cells: [] },
+        ...nextRows.map((cells) => ({ sep: false, cells })),
+      ],
+    });
+    ops.push({ type: "block", from: t.start, to: t.end, block });
+  }
+  return ops;
+}
+
 module.exports = {
   auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
-  formulaReferences,
+  formulaReferences, mirrorGrids, updateScope,
 };

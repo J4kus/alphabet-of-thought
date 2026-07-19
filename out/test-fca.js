@@ -60,6 +60,36 @@ const misfiled = [
   );
 }
 
+// 2b) drift needs the Example's home to assert something too: a home
+// Concept that owns no explicit attribute (declared on it or beneath it —
+// inherited columns never count) reports no drift; declaring one beneath
+// it brings the finding back
+const wetStorage = [
+  "Fish",
+  "    lives in water",
+  "    - Trout",
+  "    - Salmon",
+  "Rock",
+  "    - Pebble",
+  "        hard: yes",
+  "Wet Storage",
+  "    lives in water",
+  "    Crate",
+  "        - Goldfish",
+].join("\n");
+{
+  const { root, nodes, errors } = lint(wetStorage, "Animal");
+  check("wet-storage fixture parses clean", errors.length === 0);
+  const report = suggest(root, nodes);
+  check("drift: silent when the home Concept owns no explicit attribute",
+    !report.findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+  const declared = wetStorage.replace("        - Goldfish", "        - Goldfish\n            sealed: yes");
+  const p2 = lint(declared, "Animal");
+  const report2 = suggest(p2.root, p2.nodes);
+  check("drift: an attribute declared beneath the home brings the finding back",
+    report2.findings.some((f) => /^drift: '- Goldfish'/.test(f.message) && f.message.includes("'Fish'")));
+}
+
 // 3) override: an Example re-declaring an inherited default keeps
 // only its own value column; the inherited one is shadowed
 const overrides = [

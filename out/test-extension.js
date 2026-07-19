@@ -675,6 +675,28 @@ const listed = [
     ? "PASS (scaffold: a first '|' grows header, separator and data row, cursor in the data row)"
     : "UNEXPECTED scaffold " + JSON.stringify({ grow, sel: edG.selection.a }));
 
+  // inherited attributes arrive as ready-made columns: the ancestors'
+  // declarations become the header, the parent's own lines stay out
+  const nested = [
+    "Animal",
+    "    legs",
+    "    habitat: land",
+    "    Otter",
+    "        whiskered",
+    "        |",
+  ];
+  const { doc: docN } = makeLive(nested, "Nested.aot");
+  typedPipe(docN, 5);
+  await new Promise((r) => setImmediate(r));
+  const inherited = nested.slice(5).join("\n") === [
+    "        |name|legs|habitat|",
+    "        |----+----+-------|",
+    "        |    |    |       |",
+  ].join("\n");
+  console.log(inherited
+    ? "PASS (scaffold: inherited attributes pre-fill the header, the parent's own stay out)"
+    : "UNEXPECTED scaffold columns " + JSON.stringify(nested.slice(5)));
+
   const beside = ["|a|b|", "|"];
   const { doc: docB } = makeLive(beside, "Beside.aot");
   typedPipe(docB, 1);
@@ -960,13 +982,13 @@ if (process.platform === "win32" || process.platform === "darwin") {
     "Order",
     "    | name | price | total    |",
     "    |------+-------+----------|",
-    "    | A    | 10    | 15 =@2*2 |",
+    "    | A    | 10    | 15 =@price*2 |",
   ].join("\n");
   const doc8 = makeDoc("c:\repo\Calc.aot", calc);
   const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc8);
   const formulaTok = tokens.find((t) => t[3] === 3);
-  console.log(formulaTok && formulaTok[0] === 3 && formulaTok[1] === 24 && formulaTok[2] === 5
-    ? "PASS (formula: '=@2*2' carries its own colour token)"
+  console.log(formulaTok && formulaTok[0] === 3 && formulaTok[1] === 24 && formulaTok[2] === 9
+    ? "PASS (formula: '=@price*2' carries its own colour token)"
     : "UNEXPECTED formula token " + JSON.stringify(tokens.filter((t) => t[3] === 3)));
 
   vscode.workspace._open(doc8);
@@ -986,7 +1008,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   };
   registeredCommands.get("aot.table.nextCell")(editor8);
   Promise.resolve().then(() => {
-    console.log(applied8 && applied8.includes("|20 =@2*2|")
+    console.log(applied8 && applied8.includes("|20 =@price*2|")
       ? "PASS (formula: Tab recomputes the value in place)"
       : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
   });
@@ -1051,19 +1073,32 @@ if (process.platform === "win32" || process.platform === "darwin") {
 // 8d) rename on the real spreadsheet example: renaming Concept 'Integer'
 // reaches the alias that wears it and the '@Integer' formula reference
 {
-  const real = fs.readFileSync(path.join(__dirname, "..", "examples", "spreadsheet.aot"), "utf8");
+  // an inline copy of the spreadsheet example's shape (the live example
+  // file is the user's to edit, so the test carries its own fixture)
+  const sheetLines = [
+    "Integer",
+    "    is prime: No",
+    "    - 35",
+    "        is prime: No",
+    "Measurement Test",
+    "    age (integer): 5",
+    "    check: No =@Integer@is prime",
+  ];
+  const real = sheetLines.join("\n");
   const sheet = makeDoc("c:\\repo\\spreadsheet.aot", real);
-  const line = real.split(/\r?\n/).findIndex((l) => l.trim() === "Integer");
+  const line = sheetLines.findIndex((l) => l.trim() === "Integer");
   let ops = null, failed = null;
   try {
     ops = renameProvider.provideRenameEdits(sheet, new vscode.Position(line, 0), "Integer Test")
       .ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
   } catch (e) { failed = e.message; }
+  const aliasAt = sheetLines[5].indexOf("integer");
+  const refAt = sheetLines[6].indexOf("Integer");
   const hasDecl = ops && ops.includes(`${line},0,${line},7:Integer Test`);
-  const hasFormula = ops && ops.includes("20,14,20,21:Integer Test"); // '@Integer' keeps the Concept's case
-  const hasAlias = ops && ops.includes("17,9,17,16:integer test");    // the attribute's alias stays lowercase
+  const hasFormula = ops && ops.includes(`6,${refAt},6,${refAt + 7}:Integer Test`); // '@Integer' keeps the Concept's case
+  const hasAlias = ops && ops.includes(`5,${aliasAt},5,${aliasAt + 7}:integer test`); // the attribute's alias stays lowercase
   console.log(!failed && hasDecl && hasFormula && hasAlias
-    ? "PASS (rename: the real spreadsheet's Integer renames with alias and formula)"
+    ? "PASS (rename: the spreadsheet fixture's Integer renames with alias and formula)"
     : "UNEXPECTED spreadsheet rename " + (failed || JSON.stringify(ops)));
 }
 
@@ -1240,10 +1275,11 @@ if (process.platform === "win32" || process.platform === "darwin") {
     ? "PASS (references: declaration + usages for the Example under the cursor)"
     : "UNEXPECTED references " + JSON.stringify(refs && refs.map((r) => r.range.a)));
 
-  // the inlay hint sits at the end of the crosslinked line, naming the chain
+  // the inlay hint sits at the end of the crosslinked line, naming where the
+  // chain leads — without restating the linked Concept itself
   const hints = inlayProvider.provideInlayHints(docV, new vscode.Range(0, 0, 7, 99));
   const hint = hints.find((h) => (h.position.a ? h.position.a[0] : h.position.line) === 7);
-  console.log(hint && /→Person→Address/.test(hint.label)
+  console.log(hint && hint.label === "→Address"
     ? "PASS (inlay: the dependency chain appears in small print at the line's end)"
     : "UNEXPECTED inlay hints " + JSON.stringify(hints));
 
@@ -1309,9 +1345,9 @@ if (process.platform === "win32" || process.platform === "darwin") {
 (async () => {
   const lines = [
     "Order",
-    "    |name|price|total   |",
-    "    |----+-----+--------|",
-    "    |A   |10   |15 =@2*2|",
+    "    |name|price|total       |",
+    "    |----+-----+------------|",
+    "    |A   |10   |15 =@price*2|",
   ];
   const doc = {
     lines,
@@ -1323,7 +1359,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   doc.uri = { toString: () => "file:///tablefill", __doc: doc };
   vscode.workspace._open(doc);
   await new Promise((r) => setImmediate(r));
-  console.log(lines[3] === "    |A   |10   |20 =@2*2|"
+  console.log(lines[3] === "    |A   |10   |20 =@price*2|"
     ? "PASS (fill: a stale table cell recomputes itself, no Tab needed)"
     : "UNEXPECTED table fill " + JSON.stringify(lines));
 })();

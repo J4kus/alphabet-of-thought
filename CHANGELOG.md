@@ -4,6 +4,22 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.6.0] - 2026-07-18
+
+**Tables and free text are one notation** — everything works the same in both, and each can be used in conjunction with the other. One breaking change. Full write-up with runnable edge cases and the tests behind each: [docs/features-1.6.md](docs/features-1.6.md).
+
+- **Positional `@N` references are removed** (breaking). References are name-only everywhere: write `@price`, never `@2`. A digits lead after `@` still names an **Example** (`@Integer@35@is prime` — a Concept whose Examples are numbers needs exactly that), it just never numbers a column. A formula still using `@2` errors with a migration hint.
+- **One reference registry for both notations.** The grid-only table registry is gone; every Concept answers cross-references through one tree-built scope whether its Examples are `- ` lines, table rows, or both. So `@Concept@attr` now reads a **table-formed** Concept's own free-text default too, cross-references and aggregates see the merged Example set, and a table filed under an `- Example` (`@test 1@…`) keeps answering.
+- **Free-text attributes and values work in conjunction with a table.** A cell formula reads the enclosing Concept's line-form attributes by name (`=@price*@tax rate` with `tax rate: 0.2` stated on the Concept), an **empty cell inherits the Concept's default** exactly as a silent `- Example` does, an in-table aggregate also ranges over the Concept's `- ` Examples, and a line-form sibling Example can be named in a cell reference. The grid always wins a shared name, so no existing formula changes meaning.
+- **The CSV mirror is one union file per Concept.** Rows are every Example in the Concept's scope — table rows and `- ` Examples together, and a table under an `- Example` mirrors into the **first Concept up the tree**; columns are the union of every attribute any of them carries, blank where a row is silent (inherited defaults fill in). Editing the CSV folds back by Example name wherever each lives: a table row updates within its table's own columns (redrawn aligned), a line-form Example attribute by attribute, a fresh name lands in the Concept's own shape. A valued cell whose table lacks the column is left to the tree — columns arrive when a table is created, never from the mirror — and the fold never deletes anything.
+- **Multiple constraints chain on one declaration.** `age >=18 <=65` bounds the attribute both ways — bare lines and header cells alike, any number of bounds — each checked and reported on its own span, an operator inside a bound's `or()` or backtick string never splitting it. (Previously the second bound silently became part of the first bound's formula.)
+- **`^` and `ln()` in formulas.** `^` is power, binding tighter than `*` and associating right (`2^3^2` = 512); `ln(x)` is the natural log and wants a positive number.
+- **A `- ` Example that is a file path links.** `- aot.files/Person.csv` Ctrl+clicks open like any value or cell link, and an Example that is an **image** shows its picture on hover — an Example may *be* a file, exactly as a table row may.
+- **Drift needs both sides to assert something.** The Concept an Example is filed **under** must now own at least one explicit attribute (declared on it or beneath it — inherited never counts), matching the guards that already held the Concept drifted toward. A home that declares nothing states no differentia to hold or release an Example by, so no drift is reported from it.
+- **A new table arrives with its inherited columns.** Typing `|` on an empty line still grows the skeleton in one keystroke — and attributes the enclosing line inherits from its ancestors arrive as ready-made columns. Creation-time only (a table is never re-columned later), and the parent's own attribute lines stay out: they already declare, and a same-named column would be a duplicate.
+- **Type constraints are removed from the language** (landed after 1.5.0). `birth date is date`, `is number`, `is text` are no longer constraints — a phrase like `colour is red` or `birth date is date` is simply a plain attribute name again. A constraint is a **comparison bound** only: `>= > < <= ==`, with `or()` listing allowed values. Date-aware comparison stays: two ISO dates still compare chronologically.
+- **A breached constraint is a warning, not an error** (landed after 1.5.0). `age: 15` under `age >=18` squiggles yellow on the value, naming the bound and its declaring line, and is **not** counted in `V` — data out of bounds is worth knowing, not a broken file. A constraint whose bound cannot compute is still an error on the declaration.
+
 ## [1.5.0] - 2026-07-17
 
 A batch about **referring to things**, and about the values you refer to them by. Full write-up with runnable edge cases and the tests behind each: [docs/features-1.3-1.5.md](docs/features-1.3-1.5.md).
@@ -39,7 +55,7 @@ A batch about **referring to things**, and about the values you refer to them by
 
 The batch:
 
-- **Type constraints on attributes**: `birth date is date`, `field is number or date`, `note is text`, chainable with a bound (`age is number >=18`, `due is date >=\`2025-01-01\``). Types are disjoint (so `is text` genuinely excludes numbers/dates); comparisons are date-aware (two ISO dates compare chronologically). Every value the attribute takes is checked — the violation pins to the value.
+- **Date-aware constraint comparisons**: two ISO dates (`YYYY-MM-DD`) compare chronologically, so `due >=\`2025-01-01\`` holds dates to the calendar rather than to text order.
 - **Cross-file linting**: every `.aot` in the workspace is indexed, so crosslinks, hover, and go-to-definition resolve across files (Ctrl+click opens the other file; the local file wins ties). A Concept defined in two files is a repo-wide **warning** (not counted in V); `node verify.js --workspace [dir]` reports the same headless.
 - **Attribute aliases are now the *only* crosslink when present** — `duration (time)` links `time`, never a run of `duration`; the reasoners (subsumption, FCA, dependencies) follow the same rule, and a value instantiates through an ancestor's alias too.
 - **Dependency chains come only from attributes** (and values that name another Concept's Example). A Concept that merely contains another in its name, or is aliased to it, is a *kind* of it — those crosslinks still navigate, but no longer show as a dependency (hover, inlay, `--depends`).
@@ -48,7 +64,7 @@ The batch:
 - **`@` completion**: typing `@` in a formula pops the columns first, then the Examples (in a table, from the block; on a line-form value, from the sibling attributes and Examples).
 - **Copy a formula across the row** (beside copy-down): both on the lightbulb and in the Command Palette.
 - **Orphaned CSVs are archived, not deleted**: a CSV whose Concept no table anywhere still has is renamed `_<name>.csv` and skipped by the fold-back watcher; a CSV open with unsaved edits is never clobbered (a warning tells you to save or revert it first).
-- README: the parent–child relationship **is** a type system (you can build the type system you want as a tree in Alpha); the `@` reference table; type constraints; the `aot.files` mirror; cross-file resolution.
+- README: the parent–child relationship **is** a type system (you can build the type system you want as a tree in Alpha); the `@` reference table; constraints; the `aot.files` mirror; cross-file resolution.
 
 ## [1.2.0] - 2026-07-12
 

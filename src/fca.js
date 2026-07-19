@@ -238,6 +238,19 @@ function suggest(root, nodes) {
     ![...info.intent].some((k) =>
       info.extent.some((g) => origins.get(g).get(k).chi % c.chi === 0n));
 
+  // drift needs both sides of the fence to assert something. The guards
+  // above hold the Concept drifted *toward* to at least one explicit
+  // attribute; the Concept the Example is filed *under* must own one too —
+  // declared on it or beneath it (its Examples included), never inherited.
+  // A home that declares nothing states no differentia to hold or release
+  // an Example by, so no drift is reported from it.
+  const attrDecls = nodes.filter((n) => n.kind === ATTRIBUTE || n.kind === DEFAULT);
+  const ownsAttr = (c) => attrDecls.some((n) => n.chi % c.chi === 0n);
+  const homeOf = (g) => {
+    for (let a = g.parent; a; a = a.parent) if (a.kind === CONCEPT) return a;
+    return root;
+  };
+
   // drift: an Example that satisfies a Concept's full intent but
   // sits elsewhere. Report only the most specific Concept(s) per
   // Example — matching a sub-Concept implies matching its ancestors.
@@ -246,6 +259,7 @@ function suggest(root, nodes) {
     if (c === root || !info.intent.size || vacuous.has(c) || allInherited(c, info)) continue;
     for (const g of objects) {
       if (info.extent.includes(g)) continue;
+      if (!ownsAttr(homeOf(g))) continue;
       if (isSuperset(intents.get(g), info.intent)) {
         if (!driftByObject.has(g)) driftByObject.set(g, []);
         driftByObject.get(g).push(c);

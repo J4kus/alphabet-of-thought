@@ -313,7 +313,7 @@ Person
 ```
 
 **Expected & edge cases**
-- Every value of `age` is checked. `age: 15` → **error** counted in V, pinned to the `15`, naming `age >= 18` and its line. `age: 21` → clean.
+- Every value of `age` is checked. `age: 15` → **warning** (never counted in V), pinned to the `15`, naming `age >= 18` and its line. `age: 21` → clean.
 - An **empty value** asserts nothing → never checked.
 - The bound's references resolve **per value** (`margin >=@price*0.1` holds each row's margin to its own price).
 - A **prose** term is safe: `speed > none noted` stays a plain name (a constraint is only believed when its right side reads as a formula).

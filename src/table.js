@@ -300,21 +300,22 @@ function fromRegion(lines) {
 // takes is validated against the bound (derive.js); values themselves
 // carry formulas only, never constraints.
 //
-//   @N / @name                 the same row's column (1 = the name column),
-//                              by number or by header name
+//   @name                      the same row's column, by header name —
+//                              references are name-only (positional @N was
+//                              removed in 1.6)
 //   @col@Example / @Example@col   the named Example's cell in that column —
 //                              either order; a name that is both a column
 //                              and an Example resolves as the longer match
 //                              (a tie goes to the column)
-//   sum avg min max count      over the table's other data rows: sum(@N),
+//   sum avg min max count      over the table's other data rows: sum(@price),
 //                              count(@price) — count tallies non-empty cells
-//   round(x,n) abs(x)          numeric helpers
+//   round(x,n) abs(x) ln(x)    numeric helpers; ln() wants a positive number
 //   upper lower trim len       string helpers; left(x,n) right(x,n)
 //   left right mid replace     mid(x,i,n) is 1-based, replace(x,a,b) is all
 //   if(cond,a,b)               lazy: only the taken branch is evaluated
 //   & and `literals`           & concatenates; backticks quote a string
 //   == <= >= < >               comparisons yield 1 or 0
-//   + - * / ( ) and plain numbers
+//   + - * / ^ ( ) and plain numbers — '^' is power, right-associative
 //
 // $ signs, thousands commas and % in referenced values are ignored, so a
 // money column reads as its number. Arithmetic coerces its operands to
@@ -353,70 +354,70 @@ function splitCell(text) {
 // The constraint operators an attribute declaration may carry.
 const CONSTRAINT_OPS = ["==", "<=", ">=", "<", ">"]; // longest first
 
-// The value types a `... is ...` clause may name.
-const TYPE_WORDS = ["date", "number", "text"];
-
-// Parse a ' is <type>[ or <type>]*' clause at position k (k points at the
-// space before 'is'). Returns { types, end } (end past the last type word)
-// or null when there is no such clause there.
-function parseTypeClause(text, k) {
-  if (text.slice(k, k + 4).toLowerCase() !== " is ") return null;
-  let i = k + 4;
-  const types = [];
-  for (;;) {
-    const m = /^[a-z]+/i.exec(text.slice(i));
-    if (!m || !TYPE_WORDS.includes(m[0].toLowerCase())) break;
-    types.push(m[0].toLowerCase());
-    i += m[0].length;
-    if (text.slice(i, i + 4).toLowerCase() === " or ") { i += 4; continue; }
-    break;
-  }
-  return types.length ? { types, end: i } : null;
-}
-
-// Split an attribute declaration into its term and its constraint. A
-// constraint is a **type clause**, a **comparison bound**, or both:
-//   `age >=18`                 the value must be at least 18
-//   `birth date is date`       the value must be a date
-//   `field is number or date`  either type is allowed
-//   `due is date >=`2025-01-01`  a date, and no earlier than that one
-// Returns { value (the term), eq (index the clause starts, -1 for none),
-// op, formula, types }. A bound is only believed when its right side looks
-// like a formula, so a prose term such as 'speed > none noted' stays a
-// plain name; a type clause needs a real type word, so 'car is red' does too.
+// Split an attribute declaration into its term and its constraints —
+// comparison bounds such as `age >=18`, `cap <=@price*1.5`, or several
+// chained on the one declaration: `age >=18 <=65` bounds the attribute
+// both ways. Returns { value (the term), eq (index the first clause
+// starts, -1 for none), op, formula (the first bound, for the callers
+// that only name the clause), constraints: [{ op, formula, eq }] }. A
+// bound is only believed when its right side reads as a formula, so a
+// prose term such as 'speed > none noted' stays a plain name.
 function splitConstraint(text) {
-  if (!text) return { value: text || "", eq: -1, op: null, formula: "", types: null };
-  // a type clause, optionally followed by a bound
-  for (let k = 1; k < text.length; k++) {
-    if (text[k] !== " ") continue;
-    const tc = parseTypeClause(text, k);
-    if (!tc) continue;
-    const term = text.slice(0, k).trim();
-    if (!term) continue;
-    let op = null, formula = "";
-    let j = tc.end;
-    while (text[j] === " ") j++;
-    const bop = CONSTRAINT_OPS.find((o) => text.startsWith(o, j));
-    if (bop) { op = bop; formula = text.slice(j + bop.length).trim(); }
-    return { value: term, eq: k + 1, op, formula, types: tc.types };
-  }
-  // a bound only
+  if (!text) return { value: text || "", eq: -1, op: null, formula: "", constraints: [] };
   for (let i = 0; i < text.length; i++) {
     if (i > 0 && text[i - 1] !== " ") continue;
     const op = CONSTRAINT_OPS.find((o) => text.startsWith(o, i));
     if (!op) continue;
-    const rest = text.slice(i + op.length);
-    if (rest.trim() && (rest.includes("@") || triesAsFormula(rest))) {
-      return { value: text.slice(0, i).trim(), eq: i, op, formula: rest.trim(), types: null };
+    const constraints = chainOf(text, i);
+    if (constraints) {
+      return {
+        value: text.slice(0, i).trim(), eq: i,
+        op: constraints[0].op, formula: constraints[0].formula, constraints,
+      };
     }
     i += op.length - 1; // an unaccepted candidate is skipped whole
   }
-  return { value: text, eq: -1, op: null, formula: "", types: null };
+  return { value: text, eq: -1, op: null, formula: "", constraints: [] };
 }
 
-// A value's type: a date (ISO `YYYY-MM-DD`, optionally with a time) reads
+// The bounds chained from `from` (which indexes an operator) to the end of
+// the text: each further space-preceded operator whose preceding segment
+// stands as a formula of its own starts a new bound — so 'age >=18 <=65'
+// carries two, while an operator inside a bound's own formula (a backtick
+// string, an or() list) never splits it. Answers null when a segment fails
+// to read as a formula; the caller then treats the text as prose.
+function chainOf(text, from) {
+  const constraints = [];
+  let opAt = from;
+  let op = CONSTRAINT_OPS.find((o) => text.startsWith(o, opAt));
+  let segStart = opAt + op.length;
+  for (let j = segStart; j <= text.length; j++) {
+    let next = null;
+    const boundary = j === text.length;
+    if (!boundary) {
+      if (text[j - 1] !== " ") continue;
+      next = CONSTRAINT_OPS.find((o) => text.startsWith(o, j));
+      if (!next) continue;
+    }
+    const seg = text.slice(segStart, boundary ? text.length : j).trim();
+    if (!seg || !(seg.includes("@") || triesAsFormula(seg))) {
+      if (boundary) return null; // every bound must read as a formula
+      continue;                  // an in-formula operator, not a new bound
+    }
+    constraints.push({ op, formula: seg, eq: opAt });
+    if (boundary) return constraints;
+    opAt = j;
+    op = next;
+    segStart = j + op.length;
+    j = segStart - 1; // resume the scan right after the new operator
+  }
+  return null;
+}
+
+// A value's kind: a date (ISO `YYYY-MM-DD`, optionally with a time) reads
 // as a date, a `$`/comma/%-tolerant number reads as a number, anything
-// else is text. Disjoint, so `is text` genuinely excludes numbers and dates.
+// else is text. Disjoint; comparisons use it to compare dates
+// chronologically, crosslinks to match value kinds.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
 const isDateValue = (v) => { const s = String(v).trim(); return DATE_RE.test(s) && !isNaN(Date.parse(s)); };
 const isNumberValue = (v) => !isNaN(numericValue(v));
@@ -425,8 +426,6 @@ function valueType(v) {
   if (isNumberValue(v)) return "number";
   return "text";
 }
-// Whether a value's type is among those a `is ...` clause allows.
-const satisfiesTypes = (v, types) => types.includes(valueType(v));
 
 // A dry run of the evaluator, used to tell a literal constraint formula
 // ('>=18', '<=100*1.5') from prose. Reference-bearing formulas never get
@@ -545,30 +544,20 @@ function evalFormula(src, ctx) {
     return v;
   };
 
-  // one part after an '@', resolved against `scope` (the current table, or
-  // a foreign one once a table has been named): a number names a column; a
-  // name is resolved against the columns and the Examples, the longer match
-  // winning and a tie going to the column. Returns { col, row } with exactly
-  // one set.
+  // one part after an '@', resolved by name against `scope` (the current
+  // table, or a foreign one once a table has been named): the columns and
+  // the Examples are both candidates, the longer match winning and a tie
+  // going to the column. A digits-only lead can name an Example ('- 35');
+  // it never numbers a column — references are name-only, in tables and
+  // free text alike. Returns { col, row } with exactly one set.
   const refPart = (scope) => {
-    if (/[0-9]/.test(src[i])) {
-      let digits = "";
-      let k = i;
-      while (/[0-9]/.test(src[k])) digits += src[k++];
-      // A number names a column — unless the scope has no column to number
-      // and an Example goes by that number instead. That is how a line-form
-      // Concept reads (`@Integer@35`): it has no grid, so an Example is all
-      // a number can name there.
-      if (!scope.hasColumn || scope.hasColumn(+digits)) { i = k; return { col: +digits, row: null }; }
-      const asRow = scope.matchRow(src.slice(i));
-      if (asRow) { i += asRow.length; return { col: null, row: asRow.id }; }
-      i = k; // neither: let the absent column raise its own error
-      return { col: +digits, row: null };
-    }
     const rest = src.slice(i);
     const colM = scope.matchColumn(rest);
     const rowM = scope.matchRow(rest);
-    if (!colM && !rowM) err("unknown column or Example after '@'");
+    if (!colM && !rowM) {
+      if (/^\d/.test(rest)) err("unknown column or Example after '@' — positional column numbers were removed (changed in 1.6), reference the column by its attribute name");
+      err("unknown column or Example after '@'");
+    }
     const asCol = colM && (!rowM || colM.length >= rowM.length);
     const m = asCol ? colM : rowM;
     i += m.length;
@@ -595,8 +584,8 @@ function evalFormula(src, ctx) {
     i += tm.length + 1; // the table name and its '@'
     return foreign;
   };
-  // The local reading of a cell reference, the '@' already consumed: @col or
-  // @N for this row's cell, or a column paired with an Example in either
+  // The local reading of a cell reference, the '@' already consumed: @col
+  // for this row's cell, or a column paired with an Example in either
   // order for that Example's cell.
   const localRef = () => {
     const a = refPart(ctx);
@@ -651,13 +640,13 @@ function evalFormula(src, ctx) {
       err("a foreign table reference names a cell — write @Table@column@Example");
     return localRef(); // nothing foreign here: raise the local reading's error
   };
-  // a bare column, for the aggregates: @N or @name of this table, or a
+  // a bare column, for the aggregates: @name of this table, or a
   // foreign column @Table@column; never an @Example cell. Returns { scope,
   // col } so the aggregate ranges over the right table's column. Local first
   // and then the table, exactly as `ref` reads a cell.
   const localCol = (name) => {
     const part = refPart(ctx);
-    if (part.col == null) err("expected a column here, like @2 or @price");
+    if (part.col == null) err("expected a column here, like @price");
     // an aggregate ranges over a whole column, so an Example paired here
     // means the lead named a foreign table rather than this table's column
     if (src[i] === "@") err(`${name}() ranges over a column, not one row's cell`);
@@ -688,7 +677,7 @@ function evalFormula(src, ctx) {
     i += skip; // the name and its '('
     if (name in AGG || name === "count") {
       ws();
-      if (src[i] !== "@") err(`${name}() takes a column reference like @2 or @price`);
+      if (src[i] !== "@") err(`${name}() takes a column reference like @price`);
       const { scope, col } = colRef(name);
       if (src[i] === "@") err(`${name}() ranges over a column, not one row's cell`);
       expect(")");
@@ -716,7 +705,7 @@ function evalFormula(src, ctx) {
       return cond ? then : other;
     }
     const arity = {
-      round: [1, 2], abs: [1, 1], upper: [1, 1], lower: [1, 1], trim: [1, 1],
+      round: [1, 2], abs: [1, 1], ln: [1, 1], upper: [1, 1], lower: [1, 1], trim: [1, 1],
       len: [1, 1], left: [2, 2], right: [2, 2], mid: [3, 3], replace: [3, 3],
       and: [2, Infinity], or: [2, Infinity], xor: [2, Infinity], not: [1, 1],
       concat: [1, Infinity], substitute: [3, 4], find: [2, 3], contains: [2, 2],
@@ -738,6 +727,11 @@ function evalFormula(src, ctx) {
     switch (name) {
       case "round": { const f = 10 ** (argv.length > 1 ? n(1) : 0); return Math.round(toNum(argv[0], "round()") * f) / f; }
       case "abs": return Math.abs(toNum(argv[0], "abs()"));
+      case "ln": {
+        const x = toNum(argv[0], "ln()");
+        if (x <= 0) err(`ln() takes a positive number, got ${x}`);
+        return Math.log(x);
+      }
       case "upper": return s(0).toUpperCase();
       case "lower": return s(0).toLowerCase();
       case "trim": return s(0).trim();
@@ -803,7 +797,7 @@ function evalFormula(src, ctx) {
     if (src[i] === "-") { i++; return -toNum(factor(), "after unary '-'"); }
     if (src[i] === "(") { i++; const v = cmp(); expect(")"); return v; }
     if (src[i] === "@") return ref();
-    if (src[i] === "$") err("references use '@', not '$' — write @price or @2 (changed in 1.3)");
+    if (src[i] === "$") err("references use '@', not '$' — write @price (changed in 1.3)");
     if (src[i] === "`") {
       const close = src.indexOf("`", i + 1);
       if (close === -1) err("unclosed '`' string");
@@ -811,18 +805,27 @@ function evalFormula(src, ctx) {
       i = close + 1;
       return v;
     }
-    const fn = /^(sum|avg|min|max|count|round|abs|upper|lower|trim|len|left|right|mid|replace|if|and|or|xor|not|concat|substitute|find|contains|starts|ends|proper|repeat|pad|split|text|value)\s*\(/i.exec(src.slice(i));
+    const fn = /^(sum|avg|min|max|count|round|abs|ln|upper|lower|trim|len|left|right|mid|replace|if|and|or|xor|not|concat|substitute|find|contains|starts|ends|proper|repeat|pad|split|text|value)\s*\(/i.exec(src.slice(i));
     if (fn) return call(fn[1].toLowerCase(), fn[0].length);
     const num = /^\d+(\.\d+)?/.exec(src.slice(i));
     if (num) { i += num[0].length; return +num[0]; }
     err(i >= src.length ? "the formula ends too soon" : `unexpected '${src[i]}'`);
   }
+  // '^' binds tighter than '*' and associates to the right, as in maths:
+  // 2^3^2 is 2^(3^2) = 512. Unary minus lives in factor, so -2^2 is (-2)^2.
+  function power() {
+    const v = factor();
+    ws();
+    if (src[i] !== "^") return v;
+    i++;
+    return toNum(v, "left of '^'") ** toNum(power(), "right of '^'");
+  }
   function term() {
-    let v = factor();
+    let v = power();
     for (;;) {
       ws();
-      if (src[i] === "*") { i++; v = toNum(v, "left of '*'") * toNum(factor(), "right of '*'"); }
-      else if (src[i] === "/") { i++; v = toNum(v, "left of '/'") / toNum(factor(), "right of '/'"); }
+      if (src[i] === "*") { i++; v = toNum(v, "left of '*'") * toNum(power(), "right of '*'"); }
+      else if (src[i] === "/") { i++; v = toNum(v, "left of '/'") / toNum(power(), "right of '/'"); }
       else return v;
     }
   }
@@ -922,57 +925,12 @@ function referenceNames(block) {
   return referenceNamesFrom(header, dataRowsOf(block).map((r) => r.cells));
 }
 
-// A read-only evaluation scope over a foreign table's grid — a table named
-// by another formula through the registry. Like tableCtx but with no
-// current row: `column` ranges over every data row (there is none to skip),
-// and `matchRow`/`cellAt` address a row by its index. Also carries the
-// `columns`/`rows` name lists so the completion can offer them.
-function foreignScope(header, rows) {
-  const names = headerNameCands(header);
-  const rowCands = rows.map((cells, r) => ({ key: splitCell(cells[0] || "").value.toLowerCase(), id: r }));
-  const numCols = Math.max(header ? header.length : 0, ...rows.map((r) => r.length), 0);
-  const raw = (r, c) => {
-    if (c < 1 || c > numCols) throw new Error(`there is no column @${c}`);
-    return readValue(splitCell((rows[r] || [])[c - 1] || "").value);
-  };
-  const display = referenceNamesFrom(header, rows);
-  return {
-    columns: display.columns,
-    rows: display.rows,
-    hasColumn: (c) => c >= 1 && c <= numCols,
-    matchColumn: (rest) => longestMatch(rest, names),
-    matchRow: (rest) => longestMatch(rest, rowCands),
-    cellAt: (c, r) => raw(r, c),
-    column: (c) => rows.map((_, r) => raw(r, c)),
-  };
-}
-
-// The tables one text offers to cross-table references: a Map from each
-// table's parent name (lowercased — the Concept/Example/Attribute it sits
-// under, as tablesOf files it) to a foreignScope over its grid. The first
-// table wins a shared name. Pure; the I/O layer (extension.js, verify.js)
-// builds one per file and merges them.
-function tableRegistry(lines, rootName) {
-  const map = new Map();
-  for (const t of tablesOf(lines, rootName)) {
-    const key = t.name.toLowerCase();
-    if (map.has(key)) continue;
-    const scope = foreignScope(t.header, t.rows);
-    scope.name = t.name; // the parent name, original case, for completion
-    // where the table's names are declared, for the rename that follows a
-    // reference back to its declaration
-    scope.nameLine = t.nameLine;
-    scope.headerLine = t.start + 1;
-    scope.rowLines = t.rowLines;
-    map.set(key, scope);
-  }
-  return map;
-}
-
-// Merge per-file table maps into the registry the evaluator reads: later
-// maps win a shared name (so the current file's own tables shadow the
-// repo's), and the table-name candidates are precomputed once. Pass the
-// result as the trailing `registry` argument to the recompute/audit calls.
+// Merge per-file scope maps (derive.js's conceptRegistry — the one scope
+// kind, built over the parsed tree, whether a Concept's Examples are rows
+// in a grid or '- ' lines) into the registry the evaluator reads: later
+// maps win a shared name (so the current file's own scopes shadow the
+// repo's), and the name candidates are precomputed once. Pass the result
+// as the trailing `registry` argument to the recompute/audit calls.
 function mergeRegistries(...maps) {
   const scopes = new Map();
   for (const m of maps) if (m) for (const [k, v] of m) scopes.set(k, v);
@@ -980,35 +938,123 @@ function mergeRegistries(...maps) {
 }
 
 // The table's evaluation context: header cells (and their aliases) resolve
-// $name references, first-column values resolve @Row references, and every
+// @name references, first-column values resolve @Row references, and every
 // reference reads the raw value part of its cell. A header's trailing
 // constraint (`qty >=1`) is not part of the column's name.
-function tableCtx(rows, row, header, registry) {
+//
+// `outer` (optional) is the scope of the line the table is filed under —
+// the Concept (or Example) whose line-form attributes ride along with the
+// grid, so tables and free text work as one: a cell formula may reference
+// the parent's own `tax rate: 0.2` by name, an empty cell inherits the
+// parent's default, an aggregate also ranges over the parent's line-form
+// Examples, and a line-form sibling Example can be named in a cell ref.
+// The grid always wins a shared name (the local reading first, as ever).
+function tableCtx(rows, row, header, registry, outer) {
   const names = headerNameCands(header);
   const rowNames = rows.map((r) => ({ key: splitCell(r.cells[0] || "").value.toLowerCase(), id: r }));
   const numCols = Math.max(header ? header.length : 0, ...rows.map((r) => r.cells.length));
   const raw = (r, c) => {
-    if (c < 1 || c > numCols) throw new Error(`there is no column $${c}`);
+    if (c < 1 || c > numCols) throw new Error(`there is no column @${c}`);
     return readValue(splitCell(r.cells[c - 1] || "").value);
   };
+  const gridName = (r) => splitCell((r.cells && r.cells[0]) || "").value;
+  // the outer key of a grid column (else a key passed through), null when
+  // the parent does not know the name
+  const outerCol = (c) => {
+    if (typeof c === "string") return c;
+    if (!outer) return null;
+    let name = splitConstraint((header || [])[c - 1] || "").value;
+    if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
+    const m = name ? outer.matchColumn(name) : null;
+    return m && m.length === name.length ? m.id : null;
+  };
+  // the parent's row index of an Example name, exact matches only
+  const outerRowOf = (name) => {
+    const m = outer && name ? outer.matchRow(name) : null;
+    return m && m.length === name.length ? m.id : null;
+  };
+  // read through the parent: the Example's own value, else the parent's
+  // stated default, else empty
+  const throughOuter = (key, exampleName) => {
+    const at = outerRowOf(exampleName);
+    if (at !== null) return outer.cellAt(key, at);
+    const own = outer.self ? outer.self(key) : undefined;
+    return own === undefined ? "" : own;
+  };
+  // a grid cell, an empty one inheriting the parent's default (exactly what
+  // an Example silent on an attribute means in the line form)
+  const read = (r, c) => {
+    const v = raw(r, c);
+    if (String(v).trim() !== "" || !outer) return v;
+    const key = outerCol(c);
+    const own = key !== null && outer.self ? outer.self(key) : undefined;
+    return own === undefined ? v : own;
+  };
   return {
-    hasColumn: (c) => c >= 1 && c <= numCols,
-    matchColumn: (rest) => longestMatch(rest, names),
-    matchRow: (rest) => longestMatch(rest, rowNames),
-    cell: (c) => raw(row, c),
-    cellAt: (c, r) => raw(r, c),
-    column: (c) => rows.filter((r) => r !== row).map((r) => raw(r, c)),
+    matchColumn: (rest) => longestMatch(rest, names) || (outer ? outer.matchColumn(rest) : null),
+    matchRow: (rest) => {
+      const local = longestMatch(rest, rowNames);
+      if (local || !outer) return local;
+      const m = outer.matchRow(rest);
+      return m ? { id: { outerRow: m.id }, length: m.length } : null;
+    },
+    cell: (c) => (typeof c === "number" ? read(row, c) : throughOuter(c, gridName(row))),
+    cellAt: (c, r) => {
+      const gridRow = Boolean(r && r.cells !== undefined);
+      if (typeof c === "number" && gridRow) return read(r, c);
+      const key = outerCol(c);
+      if (key === null) throw new Error("unknown column or Example after '@'");
+      return gridRow ? throughOuter(key, gridName(r)) : outer.cellAt(key, r.outerRow);
+    },
+    column: (c) => {
+      const grid = typeof c === "number" ? rows.filter((r) => r !== row).map((r) => read(r, c)) : null;
+      const key = outer ? outerCol(c) : null;
+      if (key === null) {
+        if (grid) return grid;
+        throw new Error("unknown column or Example after '@'");
+      }
+      if (!grid) {
+        // an outer-only name: the parent's other Examples carry it
+        const mine = outerRowOf(gridName(row));
+        return (outer.rows || []).map((_, k) => k).filter((k) => k !== mine)
+          .map((k) => outer.cellAt(key, k));
+      }
+      // the parent's line-form Examples ride along with the grid's rows
+      const held = new Set(rows.map((r) => gridName(r).toLowerCase()));
+      const extras = (outer.rows || [])
+        .map((name, k) => ({ name: String(name).toLowerCase(), k }))
+        .filter((e) => !held.has(e.name))
+        .map((e) => outer.cellAt(key, e.k));
+      return [...grid, ...extras];
+    },
     matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
     table: registry ? (id) => registry.scopes.get(id) : undefined,
   };
 }
 
+// The registry scope of the line a block is filed under: the nearest
+// shallower non-blank line's cleaned name — the root name at top level —
+// looked up in the registry. This is the `outer` scope tableCtx reads the
+// parent's line-form attributes and defaults through.
+function enclosingScope(lines, block, registry, rootName) {
+  if (!registry) return undefined;
+  let name = rootName;
+  for (let j = block.start - 1; j >= 0; j--) {
+    if (!lines[j].trim()) continue;
+    if (lines[j].match(/^ */)[0].length < block.indent.length) {
+      name = cleanName(lines[j].trim());
+      break;
+    }
+  }
+  return name ? registry.scopes.get(String(name).toLowerCase()) : undefined;
+}
+
 // Evaluate one cell's '=' formula in its row and table. Returns the value
 // it should carry; throws with a reason when it cannot compute.
-function computeCell(rows, row, text, header, registry) {
+function computeCell(rows, row, text, header, registry, outer) {
   const { value, eq, op } = splitCell(text);
   const formula = text.slice(eq + op.length);
-  return formatValue(evalFormula(formula.trim(), tableCtx(rows, row, header, registry)), value);
+  return formatValue(evalFormula(formula.trim(), tableCtx(rows, row, header, registry, outer)), value);
 }
 
 // Recompute every '=' formula cell in the block, top-down and
@@ -1016,7 +1062,7 @@ function computeCell(rows, row, text, header, registry) {
 // passes let a reference to a later formula converge. A cell that cannot
 // compute shows #ERR and keeps its formula. Constraint cells ('>=' and
 // kin) are never rewritten — they are checked by the audit, not computed.
-function recompute(block, registry) {
+function recompute(block, registry, outer) {
   const rows = dataRowsOf(block);
   const header = rows.length ? block.rows[0].cells : [];
   let changedAtAll = false;
@@ -1027,7 +1073,7 @@ function recompute(block, registry) {
         const { value, eq, op } = splitCell(text);
         if (eq === -1 || op !== "=") return;
         let out;
-        try { out = computeCell(rows, row, text, header, registry); } catch { out = "#ERR"; }
+        try { out = computeCell(rows, row, text, header, registry, outer); } catch { out = "#ERR"; }
         if (out !== value) {
           row.cells[k] = out + " =" + text.slice(eq + 1).trim();
           changed = true;
@@ -1046,7 +1092,7 @@ function recompute(block, registry) {
 // fixes. Fresh spans are still returned so the colouring covers them.
 // (Constraints live on attribute declarations and are audited by
 // derive.js against the parsed tree.)
-function formulas(lines, registry) {
+function formulas(lines, registry, rootName) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     const block = blockAt(lines, i);
@@ -1055,6 +1101,7 @@ function formulas(lines, registry) {
     const rows = dataRowsOf(block);
     if (!rows.length) continue;
     const header = block.rows[0].cells;
+    const outer = enclosingScope(lines, block, registry, rootName);
     for (const row of rows) {
       const abs = block.start + block.rows.indexOf(row);
       const cs = cells(lines[abs]);
@@ -1069,7 +1116,7 @@ function formulas(lines, registry) {
           formula: cell.text.slice(eq + op.length).trim(),
         };
         try {
-          const computed = computeCell(rows, row, cell.text, header, registry);
+          const computed = computeCell(rows, row, cell.text, header, registry, outer);
           if (computed !== value) {
             span.stale = true;
             span.message = value === ""
@@ -1129,10 +1176,10 @@ function referenceSpans(src, ctx) {
 // evaluation resolves it and pinned to the document: { line, startCol,
 // endCol, text, kind, id } plus where the name is declared — `site`
 // { line, col } for a grid name (col null when unknowable), `conceptNode`/
-// `attrKey` for an attribute of a line-form Concept, `nodes` for its
-// Example. A cross-file scope's site points into the other file and
+// `attrKey` for an attribute of a registry scope, `nodes` for its
+// Example. A cross-file scope's node points into the other file and
 // simply matches nothing here. For the rename that follows a declaration.
-function formulaReferences(lines, registry) {
+function formulaReferences(lines, registry, rootName) {
   const out = [];
   const colSite = (headerLine, k) => {
     const c = headerLine ? cells(lines[headerLine - 1] || "")[k - 1] : null;
@@ -1144,11 +1191,9 @@ function formulaReferences(lines, registry) {
   };
   const place = (r, rec) => {
     const s = rec.scope;
-    if (s.node) { // a line-form Concept read as a table
+    if (s.node) { // a registry scope, its declarations tree nodes
       if (rec.kind === "column") { r.conceptNode = s.node; r.attrKey = rec.id; }
       else r.nodes = [s.examples[rec.id]].filter(Boolean);
-    } else if (s.headerLine) { // a foreign grid, through the registry
-      r.site = rec.kind === "column" ? colSite(s.headerLine, rec.id) : rowSite((s.rowLines || [])[rec.id]);
     }
     return r;
   };
@@ -1159,6 +1204,7 @@ function formulaReferences(lines, registry) {
     const rows = dataRowsOf(block);
     if (!rows.length) continue;
     const header = block.rows[0].cells;
+    const outer = enclosingScope(lines, block, registry, rootName);
     for (const row of rows) {
       const abs = block.start + block.rows.indexOf(row);
       cells(lines[abs]).forEach((cell) => {
@@ -1166,7 +1212,7 @@ function formulaReferences(lines, registry) {
         if (eq === -1) return;
         const from = cell.col + eq + op.length;
         const src = cell.text.slice(eq + op.length);
-        const ctx = tableCtx(rows, row, header, registry);
+        const ctx = tableCtx(rows, row, header, registry, outer);
         for (const rec of referenceSpans(src, ctx)) {
           const r = {
             line: abs + 1, startCol: from + rec.start, endCol: from + rec.start + rec.length,
@@ -1175,9 +1221,17 @@ function formulaReferences(lines, registry) {
           if (rec.kind === "table") {
             // resolved through the registry by the caller
           } else if (rec.scope === ctx) { // this table's own name
-            r.site = rec.kind === "column"
-              ? colSite(block.start + 1, rec.id)
-              : rowSite(block.start + block.rows.indexOf(rec.id) + 1);
+            if (rec.kind === "column" && typeof rec.id === "number") {
+              r.site = colSite(block.start + 1, rec.id);
+            } else if (rec.kind === "row" && block.rows.includes(rec.id)) {
+              r.site = rowSite(block.start + block.rows.indexOf(rec.id) + 1);
+            } else if (outer && outer.node) {
+              // a name answered through the enclosing scope: its tree node
+              if (rec.kind === "column") { r.conceptNode = outer.node; r.attrKey = rec.id; }
+              else if (rec.id && rec.id.outerRow !== undefined) {
+                r.nodes = [outer.examples[rec.id.outerRow]].filter(Boolean);
+              }
+            }
           } else place(r, rec);
           out.push(r);
         }
@@ -1315,7 +1369,7 @@ function updateTable(lines, name, header, rows, rootName, registry) {
 // unbroken run of pipe rows sharing one indent that contains a separator
 // row — lone pipe Examples are left exactly as written.
 // Returns the changed lines as { line, text } with 1-based line numbers.
-function align(text, registry) {
+function align(text, registry, rootName) {
   const lines = text.split(/\r?\n/);
   const edits = [];
   for (let i = 0; i < lines.length; i++) {
@@ -1323,7 +1377,8 @@ function align(text, registry) {
     if (!block) continue;
     i = block.end; // one visit per block
     if (!block.rows.some((r) => r.sep)) continue;
-    recompute(block, registry); // formulas first, so the widths fit the fresh values
+    // formulas first, so the widths fit the fresh values
+    recompute(block, registry, enclosingScope(lines, block, registry, rootName));
     render(block).forEach((aligned, k) => {
       if (aligned !== lines[block.start + k]) edits.push({ line: block.start + k + 1, text: aligned });
     });
@@ -1336,7 +1391,7 @@ function align(text, registry) {
 // whose values are already fresh is left exactly as typed — so the
 // automatic fill never re-aligns a table the writer is still shaping.
 // Returns the changed lines as { line, text } with 1-based line numbers.
-function recomputeAll(text, registry) {
+function recomputeAll(text, registry, rootName) {
   const lines = text.split(/\r?\n/);
   const edits = [];
   for (let i = 0; i < lines.length; i++) {
@@ -1344,7 +1399,8 @@ function recomputeAll(text, registry) {
     if (!block) continue;
     i = block.end; // one visit per block
     if (!block.rows.some((r) => r.sep)) continue;
-    if (!recompute(block, registry)) continue; // fresh values — leave the lines alone
+    // fresh values — leave the lines alone
+    if (!recompute(block, registry, enclosingScope(lines, block, registry, rootName))) continue;
     render(block).forEach((aligned, k) => {
       if (aligned !== lines[block.start + k]) edits.push({ line: block.start + k + 1, text: aligned });
     });
@@ -1361,6 +1417,6 @@ module.exports = {
   referenceSpans, formulaReferences,
   compareValues, longestMatch, numericValue, tableCtx,
   readValue, Choice, truthOf, describeBound,
-  valueType, satisfiesTypes, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
-  foreignScope, tableRegistry, mergeRegistries,
+  valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
+  mergeRegistries, enclosingScope,
 };

@@ -34,7 +34,7 @@ def run(command: str) -> None:
 
 
 def main() -> None:
-    package = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
+    package = json.loads(PACKAGE_JSON.read_text(encoding="utf-8-sig"))
     current = package["version"]
 
     arg = sys.argv[1] if len(sys.argv) > 1 else None

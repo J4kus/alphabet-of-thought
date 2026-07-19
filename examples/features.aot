@@ -1,11 +1,9 @@
 Language Feature
     Reference
-        - Numbered Column
-            syntax: @2
-            reach: tables only
         - Named Column
             syntax: @price
             reach: tables and line values
+            note: references are name-only, positional numbers were removed in 1.6; a digits lead names an Example, never a column
         - Cross Cell
             syntax: @price@Alpha
             note: either order works, @price@Alpha or @Alpha@price
@@ -21,16 +19,10 @@ Language Feature
         - Past A Local Name
             syntax: @Person@alias@Socrates
             note: the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
-    Type Constraint
-        - Date Type
-            keyword: date
-            example: 1815-12-10
-        - Number Type
-            keyword: number
-            example: 42
-        - Text Type
-            keyword: text
-            example: hello
+    Constraint
+        - Comparison Bound
+            keyword: >= > < <= ==
+            example: age >=0
         - Listed Value
             keyword: or
             example: status ==or(`draft`, `sent`, `paid`)
@@ -68,15 +60,14 @@ Working Demonstration
         |-----+-------------+-------+---------------|
         |Alpha|10           |2      |20 =@price*@qty|
         |Beta |2 =@Alpha@qty|4      |5              |
-        |Total|             |       |25 =sum(@4)    |
+        |Total|             |       |25 =sum(@total)|
     Ledger Check
         |name       |from the ledger              |
         |-----------+-----------------------------|
         |alpha total|20 =@Sales Ledger@total@Alpha|
         |price sum  |12 =sum(@Sales Ledger@price) |
     Person Record
-        birth date is date
-        age is number >=0
+        age >=0
         - Ada Lovelace
             birth date: 1815-12-10
             age: 36
