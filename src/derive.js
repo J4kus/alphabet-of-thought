@@ -615,7 +615,8 @@ function scopeRowsOf(concept) {
 
 // One union grid per Concept: { name, node, header, rows, hasTable }.
 // `hasTable` says a table lives in the Concept's scope — the mirror writes
-// those unbidden, while a pure line-form Concept stays opt-in (extension.js).
+// those unbidden even valueless; a line-form Concept mirrors once any
+// Example carries an attribute value (extension.js).
 function mirrorGrids(root, nodes) {
   const out = [];
   for (const concept of [root, ...nodes].filter((n) => n && n.kind === KIND.CONCEPT)) {

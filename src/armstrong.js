@@ -12,14 +12,20 @@
 //      reasoning the README ties to the Graph primitive). X <-> Y is the same
 //      distinction written twice.
 //
-//   2. DECLARED dependencies (from the crosslinks). attribute-is-a-Concept,
-//      concept-contains-Concept, a Concept's alias, and the value links
-//      (default-is-a-Example / example-is-a-Example, read as "the owner
-//      rests on the Concept whose Example the value names") are all edges
-//      "C depends on D"; their transitive closure (Armstrong Transitivity)
-//      answers --depends: what a Concept rests on directly and what it
-//      inherits through a chain (Z depends on X through Y). Without the
-//      value edges a link through a value would hide its dependency.
+//   2. DECLARED dependencies (from the crosslinks). attribute-is-a-Concept
+//      and the value links (default-is-a-Example / example-is-a-Example,
+//      read as "the owner rests on the Concept whose Example the value
+//      names") are edges "C depends on D"; a Concept that merely contains
+//      another in its name, or is aliased to one, names a kind, not a
+//      dependency. The transitive closure (Armstrong Transitivity) answers
+//      --depends: what a Concept rests on directly and what it inherits
+//      through a chain (Z depends on X through Y). Without the value edges
+//      a link through a value would hide its dependency. The same closure
+//      polices the axioms (`axioms`): a chain that leads back to its start
+//      is an error (a dependency must ground out; X -> X is Reflexivity,
+//      trivially true, so the loop asserts nothing), and a direct edge a
+//      chain already implies is a warning (Transitivity makes the
+//      declaration redundant). A direct self-edge stays legal recursion.
 //
 // Inferred-FD findings are advisory, like the FCA / Gödel-clash hints: surfaced
 // only over a tree that verifies (V = 0), never counted in V. Pure: no I/O,
@@ -158,6 +164,48 @@ function inferFDs(root, nodes) {
 function findings(root, nodes) {
   const { holds, label, lineOf } = inferFDs(root, nodes);
   const byPair = new Map(holds.map((h) => [`${h.x} ${h.y}`, h]));
+  // Transitivity's minimal cover over the inferred set: an X -> Z that
+  // X -> Y and Y -> Z already give is implied, so the squiggle channel skips
+  // it (verify.js --fd still prints it, tagged with its witnessing chain).
+  // A member of an equivalence (the back pair holds too) is immune —
+  // dropping one direction could cost the pair's consequences both ways.
+  // Removal is iterative in a fixed order (a dropped FD covers nothing
+  // afterwards), so the surviving statements are minimal regardless of the
+  // order the pairs arrived in.
+  const cover = new Map(); // x -> Map(y -> h), the FDs still standing
+  for (const h of holds) {
+    if (!cover.has(h.x)) cover.set(h.x, new Map());
+    cover.get(h.x).set(h.y, h);
+  }
+  const reach = (from, to) => { // one BFS path [from .. to] in cover, or null
+    const prev = new Map();
+    const queue = [from];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const n = queue.shift();
+      for (const next of (cover.get(n) || new Map()).keys()) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        prev.set(next, n);
+        if (next === to) {
+          const path = [to];
+          for (let at = to; at !== from; at = prev.get(at)) path.unshift(prev.get(at));
+          return path;
+        }
+        queue.push(next);
+      }
+    }
+    return null;
+  };
+  const candidates = holds
+    .filter((h) => !byPair.has(`${h.y} ${h.x}`))
+    .sort((a, b) => `${label(a.x)} ${label(a.y)}`.localeCompare(`${label(b.x)} ${label(b.y)}`));
+  for (const h of candidates) {
+    cover.get(h.x).delete(h.y);
+    const path = reach(h.x, h.y);
+    if (path) h.implied = path.map(label);
+    else cover.get(h.x).set(h.y, h);
+  }
   const out = [];
   const reported = new Set();
   for (const h of holds) {
@@ -184,7 +232,7 @@ function findings(root, nodes) {
       }
     } else {
       out.push({
-        line: ly, kind: "derivable", confidence: h.confirms, incomplete,
+        line: ly, kind: "derivable", confidence: h.confirms, incomplete, implied: h.implied,
         message: `dependency: '${label(h.y)}' looks derivable — across ${h.support} Examples, every one with the same '${label(h.x)}' also has the same '${label(h.y)}' (${h.confirms} repeated '${label(h.x)}' value${h.confirms === 1 ? "" : "s"} confirm${h.confirms === 1 ? "s" : ""} it), so '${label(h.x)}' determines '${label(h.y)}'; set '${label(h.y)}' once from '${label(h.x)}' instead of repeating it (advisory: the file still verifies)`,
       });
     }
@@ -198,17 +246,18 @@ function findings(root, nodes) {
 // attribute-is-a-Concept crosslink, or a value whose Example belongs to D.
 // A Concept that merely contains or is-aliased-to another names a *kind*,
 // not a dependency, so those crosslinks are excluded. Each edge keeps the
-// attribute's name as its label 'via', and two attributes reaching the same
-// Concept stay two edges, so a chain can say which slot carries it.
+// attribute's name as its label 'via' and its declaring line as 'line' (the
+// first declaration wins), and two attributes reaching the same Concept stay
+// two edges, so a chain can say which slot carries it.
 function dependencyGraph(root, nodes) {
   const { concepts } = index(root, nodes);
   const conceptNodes = [root, ...nodes].filter((n) => n.kind === CONCEPT);
-  const edges = new Map(); // node -> [{ to, via }] direct dependencies
-  const add = (from, to, via) => {
+  const edges = new Map(); // node -> [{ to, via, line }] direct dependencies
+  const add = (from, to, via, line) => {
     if (from === to) return;
     if (!edges.has(from)) edges.set(from, []);
     const list = edges.get(from);
-    if (!list.some((e) => e.to === to && e.via === via)) list.push({ to, via });
+    if (!list.some((e) => e.to === to && e.via === via)) list.push({ to, via, line });
   };
   // A dependency is a Concept resting on another through an **attribute** —
   // a `human` slot makes a Concept depend on `Human`. A Concept whose name
@@ -219,7 +268,7 @@ function dependencyGraph(root, nodes) {
     for (const child of c.children) {
       if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
       const t = conceptType(child, concepts);
-      if (t) add(c, t, child.name);
+      if (t) add(c, t, child.name, child.line);
     }
   }
   // Value links declare dependencies too: a value (or listed Example) that
@@ -240,7 +289,7 @@ function dependencyGraph(root, nodes) {
     if (!target) continue;
     const from = owningConcept(d);
     const to = owningConcept(target);
-    if (from && to) add(from, to, via);
+    if (from && to) add(from, to, via, d.line);
   }
   return { edges, conceptNodes };
 }
@@ -300,4 +349,85 @@ function chains(root, nodes, concept) {
   return out;
 }
 
-module.exports = { inferFDs, findings, dependencyGraph, dependsOf, chains, MIN_CONFIDENCE };
+// The axioms as lint rules over the declared graph, both faces of
+// Transitivity. A chain that leads back to its start is an **error**: a
+// dependency must ground out, and a loop derives only X -> X — Reflexivity,
+// trivially true — so it asserts nothing while leaving every member defined
+// through the others. A direct edge that a chain through some *other*
+// Concept already implies is a **warning**: the declaration is redundant,
+// though the slot may still carry its own data. Two attributes of the same
+// type (parallel edges) never imply each other — the witness chain must pass
+// through an intermediate Concept. Direct self-reference (an attribute of
+// one's own kind) stays legitimate recursion: `dependencyGraph` drops
+// self-edges, so neither rule ever sees one. Each finding is pinned to the
+// attribute (or value) line that declares the offending edge. Single-file,
+// like the subsumption pass.
+function axioms(root, nodes) {
+  const { edges } = dependencyGraph(root, nodes);
+  // one shortest path start -> goal by BFS, skipping any banned edge object;
+  // returns the hops [{ node, via }] (start excluded), or null
+  const pathBetween = (start, goal, banned) => {
+    const prev = new Map(); // node -> { node: predecessor, via }
+    const queue = [start];
+    const seen = new Set([start]);
+    while (queue.length) {
+      const n = queue.shift();
+      for (const e of edges.get(n) || []) {
+        if ((banned && banned.has(e)) || seen.has(e.to)) continue;
+        seen.add(e.to);
+        prev.set(e.to, { node: n, via: e.via });
+        if (e.to === goal) {
+          const hops = [];
+          for (let at = goal; at !== start; at = prev.get(at).node) hops.unshift({ node: at, via: prev.get(at).via });
+          return hops;
+        }
+        queue.push(e.to);
+      }
+    }
+    return null;
+  };
+  // render a chain the way the hover does: A ─via→ B ─via→ C
+  const chainText = (start, hops) => [start.name, ...hops.map((h) => `─${h.via}→ ${h.node.name}`)].join(" ");
+  const errors = [];
+  const warnings = [];
+  // an edge whose target reaches back to its source lies on a cycle. One
+  // error per such edge: each is declared by one line, and removing any one
+  // of them breaks the loop.
+  const onCycle = new Set();
+  for (const [from, list] of edges) {
+    for (const e of list) {
+      const back = pathBetween(e.to, from, null);
+      if (!back) continue;
+      onCycle.add(e);
+      const loop = chainText(from, [{ node: e.to, via: e.via }, ...back]);
+      errors.push({
+        line: e.line,
+        message: `dependency cycle: '${from.name}' rests on itself — ${loop} — a dependency chain must ground out, but this one leads back to where it began; the loop derives only '${from.name} -> ${from.name}' (Reflexivity, trivially true), so it asserts nothing and no member ever reaches solid ground; break it by removing or retyping one of the attributes that carry it`,
+      });
+    }
+  }
+  // a direct edge whose target is still reachable once every parallel
+  // direct edge is banned is implied by the witnessing chain
+  for (const [from, list] of edges) {
+    const byTarget = new Map(); // to -> the parallel direct edges
+    for (const e of list) {
+      if (!byTarget.has(e.to)) byTarget.set(e.to, []);
+      byTarget.get(e.to).push(e);
+    }
+    for (const [to, direct] of byTarget) {
+      const witness = pathBetween(from, to, new Set(direct));
+      if (!witness) continue;
+      const chain = chainText(from, witness);
+      for (const e of direct) {
+        if (onCycle.has(e)) continue; // the cycle error already sits on this line
+        warnings.push({
+          line: e.line,
+          message: `redundant dependency: '${e.via}' makes '${from.name}' rest on '${to.name}' directly, but the chain ${chain} already implies that (Transitivity), so the direct declaration adds nothing; drop '${e.via}', or drop an intermediate link if the direct dependency is the one you mean`,
+        });
+      }
+    }
+  }
+  return { errors, warnings };
+}
+
+module.exports = { inferFDs, findings, dependencyGraph, dependsOf, chains, axioms, MIN_CONFIDENCE };

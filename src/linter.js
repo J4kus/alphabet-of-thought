@@ -538,6 +538,14 @@ function lint(text, rootName, accepted) {
   const { subsume } = require("./subsumption");
   const sub = subsume(root, nodes);
   for (const { line, message } of sub.findings) report.error(line, message);
+  // Armstrong's axioms over the declared dependency graph (also a lazy
+  // require — armstrong.js reads KIND from this module too). Structural like
+  // the subsumption pass, so not gated on V = 0: a dependency cycle is an
+  // error counted in V, a transitively implied direct edge a warning.
+  const { axioms } = require("./armstrong");
+  const ax = axioms(root, nodes);
+  for (const { line, message } of ax.errors) report.error(line, message);
+  for (const { line, message } of ax.warnings) report.warn(line, message);
   const byLine = (a, b) => a.line - b.line;
   return {
     root, nodes,

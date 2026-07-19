@@ -511,7 +511,7 @@ The mirror was table-only in both directions. `findOwningAots` looked for a **ta
 A table and a `- Example` list are the same idea in two shapes, so both answer for the same CSV.
 
 - **CSV → `.aot`**: the rows fold in **as Examples, merged by name** — an Example already there is updated attribute by attribute, one that is not is appended whole. The Concept keeps the form its author chose: a CSV arriving is data, and data is no reason to restructure somebody's tree into a table.
-- **`.aot` → CSV**: the Concept mirrors out on save, but **only where a CSV of its name is already in the folder**. That CSV is the opt-in — without the rule, the first save would rain a file into `aot.files` for every Concept that happens to list Examples.
+- **`.aot` → CSV**: the Concept mirrors out on save whenever **any Example carries an attribute value** — a value is data, and data earns its CSV (rule relaxed in 1.7: it used to wait for a CSV of its name to opt in). Only a Concept listing **bare names** stays quiet — a name-only list has no data a CSV would add — until a CSV of its name in the folder opts it in.
 
 Two things a CSV is never allowed to do: a **blank cell says nothing** rather than erasing (a CSV cannot tell "empty" from "unsaid"), and a value carrying a **formula** is left to its formula.
 
@@ -528,8 +528,9 @@ aot.files/Integer.csv          Integer
 
 Does **not** happen:
 ```aot
-Integer          <- no Integer.csv in aot.files: saving writes none.
-    - 1             Put an (even empty) Integer.csv there to opt in.
+Colour           <- bare names, no attribute values: saving writes none.
+    - Red           Put an (even empty) Colour.csv there to opt in.
+    - Blue
 ```
 ```
 name,is prime    Integer
@@ -541,7 +542,7 @@ name,is prime    Integer
 
 It then **applies** the ops bottom-up and re-lints the result, asserting the folded file reads back as the grid that made it *and* that `!applied.some((l) => l.trim().startsWith("|"))` — the Concept is still line form. That last assertion is the whole point of the feature, so it is stated as a test rather than left to a comment.
 
-`out/test-extension.js` §6c drives both directions against real files in a temp folder: it asserts saving with no CSV present writes **nothing** (the opt-in), then that adding a CSV makes the same save mirror out, then that a new CSV row folds back as `    - 7` with `is prime: Yes` beneath it.
+`out/test-extension.js` §6c drives both directions against real files in a temp folder: it asserts the first save writes `Integer.csv` unbidden (the Examples carry values), that a name-only Concept writes nothing until a CSV of its name opts it in, then that a new CSV row folds back as `    - 7` with `is prime: Yes` beneath it.
 
 ---
 
@@ -577,6 +578,8 @@ A file-path value that resolved to a real file was Ctrl+clickable — but only e
 ### What changed
 The lightbulb on any file-path value outside `aot.files` offers **Copy '<name>' into aot.files**. The file is copied in and the value rewritten to `aot.files/<name>` — with forward slashes, so the same `.aot` reads on all three platforms.
 
+Since 1.7, a value still naming the outside path — the same evidence cited from another file, never lightbulbed — Ctrl+clicks through to the `aot.files` copy of its name when one is there, and the hover names the same target the click opens. The written value is untouched; only the lightbulb rewrites it.
+
 Never silently destructive: a file already there with the **same bytes** is relinked with no write at all; one that differs asks first, and offers to keep both under a numbered name (`report (2).txt`).
 
 One consequence had to be fixed with it: `cleanupOrphans` archives any CSV no table claims, so a copied-in `evidence.csv` would have been archived on the next save — breaking the very link that named it. A CSV **any value points at** now counts as claimed.
@@ -593,7 +596,7 @@ Study
 ```
 
 ### How it is tested
-`out/test-extension.js` §4c is an end-to-end file-system test: it creates a real file *outside* a temp workspace, runs the registered `aot.copyFileIntoRepo` command against a mock editor, and asserts both halves — the bytes landed at `aot.files/report.txt`, and the line now reads `    evidence: aot.files/report.txt`.
+`out/test-extension.js` §4c is an end-to-end file-system test: it creates a real file *outside* a temp workspace, runs the registered `aot.copyFileIntoRepo` command against a mock editor, and asserts both halves — the bytes landed at `aot.files/report.txt`, and the line now reads `    evidence: aot.files/report.txt`. A third check cites the outside path from a second file and asserts the document link and the hover both answer with the `aot.files` copy.
 
 The orphan guard gets a real test rather than a unit one, because the bug was in the interaction: it puts an `evidence.csv` (cited by a value) and a `stray.csv` (cited by nothing) in the folder, triggers a genuine save, and asserts the first survives while the second is archived `_stray.csv`. Asserting both directions is what makes it a test of the *rule* rather than of one file.
 

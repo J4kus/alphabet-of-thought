@@ -2,7 +2,7 @@
 // (src/armstrong.js): infer FDs from Example data via Gödel projections, and
 // walk the declared Concept-dependency closure.
 const { lint } = require("../src/linter");
-const { inferFDs, findings, dependsOf, chains, dependencyGraph } = require("../src/armstrong");
+const { inferFDs, findings, dependsOf, chains, dependencyGraph, axioms } = require("../src/armstrong");
 
 let failures = 0;
 function check(name, ok) {
@@ -221,6 +221,153 @@ const valued = [
   const fromCensus = chains(root, nodes, census).map((c) => c.path.map((n) => n.name).join(">"));
   check("chains run on through value links: Census > Human > Address",
     fromCensus.includes("Census>Human>Address"));
+}
+
+// 6) the axioms as lint rules: a dependency cycle is an error (one per edge
+// on the loop, pinned to the attribute declaring it), a direct edge a chain
+// through another Concept already implies is a warning. Self-edges
+// (recursion) and parallel edges (two slots of one type) never flag.
+{
+  const looped = [
+    "Loop A",
+    "    partner loop b", // line 2 — on the cycle
+    "Loop B",
+    "    partner loop a", // line 4 — on the cycle
+  ].join("\n");
+  const { root, nodes } = lint(looped, "World");
+  const ax = axioms(root, nodes);
+  check("mutual dependency: one error per edge on the loop (2, not 4)", ax.errors.length === 2);
+  check("cycle errors sit on the declaring attribute lines",
+    ax.errors.some((e) => e.line === 2) && ax.errors.some((e) => e.line === 4));
+  check("cycle error names the witnessing chain hover-style",
+    ax.errors.some((e) => /^dependency cycle:/.test(e.message)
+      && e.message.includes("Loop A ─partner loop b→ Loop B ─partner loop a→ Loop A")));
+  check("a cycle edge is never also warned redundant", ax.warnings.length === 0);
+}
+{
+  const threeCycle = [
+    "Alpha",
+    "    next beta",
+    "Beta",
+    "    next gamma",
+    "Gamma",
+    "    next alpha",
+  ].join("\n");
+  const { root, nodes } = lint(threeCycle, "World");
+  const ax = axioms(root, nodes);
+  check("a longer loop (A > B > C > A) is caught too, one error per edge", ax.errors.length === 3);
+}
+{
+  const recursive = [
+    "Node",
+    "    parent node", // an attribute of one's own kind: recursion, not a loop
+    "    label",
+  ].join("\n");
+  const { root, nodes } = lint(recursive, "World");
+  const ax = axioms(root, nodes);
+  check("direct self-reference stays legitimate recursion (Reflexivity: X -> X asserts nothing)",
+    ax.errors.length === 0 && ax.warnings.length === 0);
+}
+{
+  const parallel = [
+    "Directional Edge",
+    "    from node",
+    "    to node",
+    "Node",
+    "    label",
+  ].join("\n");
+  const { root, nodes } = lint(parallel, "World");
+  const ax = axioms(root, nodes);
+  check("two slots of one type (parallel edges) never imply each other",
+    ax.errors.length === 0 && ax.warnings.length === 0);
+}
+{
+  const redundant = [
+    "Alpha",
+    "    beta",
+    "    gamma", // line 3 — implied via Alpha > Beta > Gamma
+    "Beta",
+    "    gamma", // line 5 — not redundant: Beta's only path
+    "Gamma",
+    "    size",
+  ].join("\n");
+  const { root, nodes } = lint(redundant, "World");
+  const ax = axioms(root, nodes);
+  check("a transitively implied direct edge warns once, on its declaring line",
+    ax.warnings.length === 1 && ax.warnings[0].line === 3);
+  check("the warning names the implying chain",
+    /^redundant dependency:/.test(ax.warnings[0].message)
+      && ax.warnings[0].message.includes("Alpha ─beta→ Beta ─gamma→ Gamma"));
+  check("redundancy is a warning, not an error", ax.errors.length === 0);
+  // the negative: remove the intermediate hop and the redundancy is gone
+  const direct = lint(redundant.replace("Beta\n    gamma", "Beta\n    size"), "World");
+  const ax2 = axioms(direct.root, direct.nodes);
+  check("without the implying chain the direct edge is not redundant", ax2.warnings.length === 0);
+}
+{
+  // the spreadsheet shape: a mutual dependency between two Concepts, each
+  // also declaring the edge the other's chain implies
+  const sheet = [
+    "Share",
+    "Shares Outstanding",
+    "    share",  // line 3 — redundant: implied via tensor
+    "    tensor", // line 4 — on the cycle
+    "Tensor",
+    "    share",  // line 6 — redundant: implied via shares outstanding
+    "    shares outstanding", // line 7 — on the cycle
+  ].join("\n");
+  const { root, nodes } = lint(sheet, "Market");
+  const ax = axioms(root, nodes);
+  check("spreadsheet shape: the mutual dependency errors on lines 4 and 7",
+    ax.errors.length === 2 && ax.errors.some((e) => e.line === 4) && ax.errors.some((e) => e.line === 7));
+  check("spreadsheet shape: both direct 'share' edges warn redundant (lines 3 and 6)",
+    ax.warnings.length === 2 && ax.warnings.some((w) => w.line === 3) && ax.warnings.some((w) => w.line === 6));
+  // the edges now carry their declaring line, for the pinning above
+  const { edges } = dependencyGraph(root, nodes);
+  const so = node(root, nodes, "Shares Outstanding");
+  check("dependencyGraph edges carry the declaring line",
+    (edges.get(so) || []).some((e) => e.to.name === "Share" && e.via === "share" && e.line === 3));
+}
+
+// 7) Transitivity's minimal cover over the inferred FDs: an X -> Z that
+// X -> Y and Y -> Z already give is tagged 'implied' (held off the squiggle
+// channel; --fd still prints it). Equivalence members are immune.
+const covered = [
+  "Ledger",
+  "    - Order A",
+  "        country: France",
+  "        currency: EUR",
+  "        symbol: E",
+  "    - Order B",
+  "        country: France",
+  "        currency: EUR",
+  "        symbol: E",
+  "    - Order C",
+  "        country: Germany",
+  "        currency: EUR",
+  "        symbol: E",
+  "    - Order D",
+  "        country: Japan",
+  "        currency: JPY",
+  "        symbol: Y",
+].join("\n");
+{
+  const { root, nodes, errors } = lint(covered, "Sales");
+  check("cover fixture parses clean", errors.length === 0);
+  const fd = findings(root, nodes);
+  const eq = fd.find((f) => f.message.includes("currency") && f.message.includes("symbol") && /equivalent|one-to-one/.test(f.message));
+  check("currency <-> symbol equivalence found and immune to the cover", !!eq && !eq.implied);
+  const toCurrency = fd.find((f) => /determines 'currency'/.test(f.message));
+  const toSymbol = fd.find((f) => /determines 'symbol'/.test(f.message));
+  check("exactly one of country's two consequences is tagged implied",
+    !!toCurrency && !!toSymbol && !!toCurrency.implied !== !!toSymbol.implied);
+  const implied = toCurrency.implied ? toCurrency : toSymbol;
+  check("the implied finding carries its witnessing chain",
+    Array.isArray(implied.implied) && implied.implied.length === 3 && implied.implied[0] === "country");
+  // the negative: without the equivalence there is no chain, nothing implied
+  const flat = lint(covered.split("\n").filter((l) => !l.includes("symbol")).join("\n"), "Sales");
+  const flatFd = findings(flat.root, flat.nodes);
+  check("without a covering chain no finding is implied", flatFd.every((f) => !f.implied));
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

@@ -254,14 +254,17 @@ function main() {
       process.exit(1);
     }
     const fds = armstrong.findings(root, nodes);
-    // --fd shows everything (covariation and provisional findings included);
-    // the editor only flags the confident, complete ones. Tag each line with
-    // kind/confidence so the difference shows.
-    for (const { line, message, kind, confidence, incomplete } of fds) {
-      const flagged = confidence >= armstrong.MIN_CONFIDENCE && !incomplete ? "" : " [editor: on demand only]";
+    // --fd shows everything (covariation, provisional and transitively
+    // implied findings included); the editor only flags the confident,
+    // complete, non-implied ones. Tag each line with kind/confidence so the
+    // difference shows.
+    for (const { line, message, kind, confidence, incomplete, implied } of fds) {
+      const flagged = implied
+        ? ` [implied by ${implied.map((l) => `'${l}'`).join(" → ")} — editor: on demand only]`
+        : confidence >= armstrong.MIN_CONFIDENCE && !incomplete ? "" : " [editor: on demand only]";
       console.log(`${file}:${line}: [${kind} ·conf ${confidence}]${flagged} ${message}`);
     }
-    const flaggedCount = fds.filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete).length;
+    const flaggedCount = fds.filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied).length;
     console.log(`\n${fds.length} functional dependenc${fds.length === 1 ? "y" : "ies"} inferred from the Examples (${flaggedCount} flagged in the editor, ${fds.length - flaggedCount} below the threshold or provisional)`);
     return;
   }
@@ -312,7 +315,7 @@ function main() {
     const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
     if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
       deepErrors = suggest(root, nodes).findings;
-      depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete);
+      depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied);
     }
     deepErrors = deepErrors.concat(godel.clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }

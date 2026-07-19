@@ -191,9 +191,10 @@ function analyse(doc) {
       // one-to-one covariation (confidence 0) could be coincidence, and a
       // finding over an ellipsis-marked (intentionally incomplete) Example
       // set is provisional — both stay held back, like the same-name clash
-      // split below.
+      // split below. An FD other FDs already imply by transitivity (the
+      // minimal cover) is held back too.
       depWarnings = vscode.workspace.getConfiguration("aot").get("dependencyFindings", false)
-        ? armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete)
+        ? armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied)
         : [];
     }
     // only the strong, content-identical clashes are flagged in the editor;
@@ -568,6 +569,19 @@ function fileLinksIn(doc) {
   return urls.findFiles(doc.getText().split(/\r?\n/), (t) => resolveFilePath(doc, t));
 }
 
+// The repo's own copy of a cited file, or null: the value points outside
+// aot.files, but a file of the same name is held there. Ctrl+click and the
+// hover answer with the copy — the file that travels with the repo — while
+// the written value, and the lightbulb that offers to rewrite it, keep
+// seeing the path as typed.
+function repoCopyOf(doc, fsPath) {
+  const dir = aotFilesDir(doc);
+  if (isInside(dir, fsPath)) return null;
+  const copy = path.join(dir, path.basename(fsPath));
+  try { if (fs.existsSync(copy) && fs.statSync(copy).isFile()) return copy; } catch { /* unreadable: no copy */ }
+  return null;
+}
+
 // A free name in `dir` for `base`: the name itself when nothing holds it,
 // else 'name (2).ext', 'name (3).ext', … — the convention every desktop uses.
 function freeName(dir, base) {
@@ -644,20 +658,24 @@ async function copyFileIntoRepo() {
 // metadata (a HEAD request, cached, off with aot.urlMetadata), and an image
 // URL or image file with the picture itself. A non-image file just confirms
 // the resolved path. Ctrl+click (the DocumentLinkProvider) opens either.
+// Both answer with the aot.files copy of an outside file when one is there,
+// so the hover always names exactly what the click will open.
 function linkHoverAt(doc, position) {
   if (position.line >= doc.lineCount) return null;
   const lineText = doc.lineAt(position.line).text;
   const at = (s) => position.character >= s.startCol && position.character <= s.endCol;
   const rangeOf = (s) => new vscode.Range(position.line, s.startCol, position.line, s.endCol);
 
-  // a file path: show the picture for an image, else the resolved path
+  // a file path: show the picture for an image, else the resolved path —
+  // the aot.files copy where one exists, matching what Ctrl+click opens
   const file = fileLinksIn(doc).find((f) => f.line === position.line + 1 && at(f));
   if (file) {
+    const target = repoCopyOf(doc, file.fsPath) || file.fsPath;
     const md = new vscode.MarkdownString();
     md.supportHtml = true;
-    const uri = vscode.Uri.file(file.fsPath);
-    if (urls.isImage(file.fsPath)) md.appendMarkdown(`![](${uri.toString()}|width=320)\n\n`);
-    md.appendMarkdown(`\`${file.fsPath}\``);
+    const uri = vscode.Uri.file(target);
+    if (urls.isImage(target)) md.appendMarkdown(`![](${uri.toString()}|width=320)\n\n`);
+    md.appendMarkdown(`\`${target}\``);
     return new vscode.Hover(md, rangeOf(file));
   }
 
@@ -1179,12 +1197,14 @@ async function addExample(value, conceptName) {
       b.replace(new vscode.Range(from, 0, to, doc.lineAt(to).text.length), block.join(eol));
     }
   });
-  // put the cursor on the new Example's own name, ready to be built on
-  const at = to < from ? Math.min(from, doc.lineCount - 1) : Math.min(to + block.length - 1, doc.lineCount - 1);
-  const text = doc.lineAt(at).text;
-  const col = Math.max(text.indexOf(value), 0) + value.length;
-  editor.selection = new vscode.Selection(at, col, at, col);
-  editor.revealRange(new vscode.Range(at, 0, at, col));
+  // the cursor stays on the value the Fix was invoked from — the editor
+  // carries the selection through the edit — because the user is
+  // mid-thought at the usage, not at the Concept; the hint clearing is the
+  // confirmation, and the status bar names the line the Example landed on
+  // for when they want to go build on it
+  const at = to < from ? Math.min(from, doc.lineCount - 1) : from + block.length - 1;
+  vscode.window.setStatusBarMessage(
+    `AOT: '${value}' listed as an Example of '${concept.name}' (line ${at + 1})`, 5000);
 }
 
 // AOT: Recompute Formulas — one pass over the whole document: every table
@@ -1407,9 +1427,10 @@ function syncAotToCsv(doc) {
   // One union CSV per Concept: every Example in the Concept's scope (a
   // table under an '- Example' files under the first Concept up the tree),
   // columns the union of every attribute, blank where a row is silent. A
-  // Concept holding a table always mirrors; a pure line-form Concept only
-  // where a CSV of its name is already in the folder — that CSV is the
-  // opt-in, so a first save never rains files into aot.files.
+  // Concept mirrors whenever a table lives in its scope or any Example
+  // carries an attribute value — a value is data, and data earns its CSV.
+  // Only a Concept listing bare names stays quiet (a name-only list has no
+  // data a CSV would add) until a CSV of its name in the folder opts it in.
   const found = [];
   try {
     const { root, nodes } = lint(doc.getText(), rootName);
@@ -1418,7 +1439,8 @@ function syncAotToCsv(doc) {
       if (!g.rows.length) continue;
       const file = csvName(g.name);
       if (taken.has(file.toLowerCase())) continue;
-      if (!g.hasTable && !fs.existsSync(path.join(dir, file))) continue;
+      const hasValue = g.rows.some((r) => r.slice(1).some((v) => String(v).trim()));
+      if (!g.hasTable && !hasValue && !fs.existsSync(path.join(dir, file))) continue;
       taken.add(file.toLowerCase());
       found.push({ name: g.name, grid: [g.header, ...g.rows] });
     }
@@ -1847,14 +1869,17 @@ function activate(context) {
     // the values an attribute's Concept vouches for, live and archived
     vscode.languages.registerCompletionItemProvider({ language: "aot" }, valueCompletion),
     // URLs and file-path values are Ctrl+clickable — a URL opens externally
-    // (hover fetches its metadata), a file opens in the editor
+    // (hover fetches its metadata), a file opens in the editor. A file cited
+    // by an outside path opens its aot.files copy when one of its name is
+    // there: the copy is the one that travels with the repo.
     vscode.languages.registerDocumentLinkProvider({ language: "aot" }, {
       provideDocumentLinks(doc) {
         const links = urls.findUrls(doc.getText().split(/\r?\n/)).map((u) => new vscode.DocumentLink(
           new vscode.Range(u.line - 1, u.startCol, u.line - 1, u.endCol), vscode.Uri.parse(u.url)));
         for (const f of fileLinksIn(doc)) {
           links.push(new vscode.DocumentLink(
-            new vscode.Range(f.line - 1, f.startCol, f.line - 1, f.endCol), vscode.Uri.file(f.fsPath)));
+            new vscode.Range(f.line - 1, f.startCol, f.line - 1, f.endCol),
+            vscode.Uri.file(repoCopyOf(doc, f.fsPath) || f.fsPath)));
         }
         return links;
       },

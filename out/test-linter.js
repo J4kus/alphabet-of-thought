@@ -615,5 +615,35 @@ check("verify: a well-formed tree yields no errors",
   check("hint/FCA: fewer than two Examples -> tooFew", suggest(tiny.root, tiny.nodes).tooFew === true);
 }
 
+// lint() folds the Armstrong axiom checks over the declared dependency
+// graph: a dependency cycle is an error counted in V, a transitively
+// implied direct edge a warning (never in V). Recursion stays legal.
+{
+  const looped = lint(aot(
+    "Loop A",
+    "    partner loop b",
+    "Loop B",
+    "    partner loop a",
+  ), "World");
+  const cycles = looped.errors.filter((e) => /^dependency cycle:/.test(e.message));
+  check("lint: a mutual dependency is two errors, counted in V", cycles.length === 2 && looped.errors.length === 2);
+  const redundant = lint(aot(
+    "Alpha",
+    "    beta",
+    "    gamma",
+    "Beta",
+    "    gamma",
+    "Gamma",
+    "    size",
+  ), "World");
+  check("lint: a transitively implied direct edge is a warning, not in V",
+    redundant.errors.length === 0
+      && redundant.warnings.some((w) => /^redundant dependency:/.test(w.message) && w.line === 3));
+  const recursive = lint(aot("Node", "    parent node", "    label"), "World");
+  check("lint: recursion (an attribute of one's own kind) raises nothing",
+    !recursive.errors.some((e) => /dependency/.test(e.message))
+      && !recursive.warnings.some((w) => /dependency/.test(w.message)));
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

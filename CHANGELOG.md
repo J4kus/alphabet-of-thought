@@ -4,6 +4,18 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.7.0] - 2026-07-19
+
+**Armstrong's axioms police the dependency graph.** The declared Concept-dependency graph — the one behind `--depends`, the hover and the inlay chains — is now held to the axioms it is named after, in the lint pass itself. Each of the six axioms is accounted for: Reflexivity and Transitivity as the rules below, Augmentation / Union / Decomposition / Pseudotransitivity documented as inexpressible over single-attribute edges (README, [Armstrong's axioms](README.md#armstrongs-axioms-dependency-inference)).
+
+- **A dependency cycle is an error, counted in `V`** (error rule 21). A Concept resting on itself through other Concepts — `Shares Outstanding ─tensor→ Tensor ─shares outstanding→ Shares Outstanding` — derives only `X → X` (Reflexivity, trivially true), so the loop asserts nothing while leaving every member defined through the others. One error per attribute carrying an edge of the loop, pinned to its declaring line — removing any one breaks it. Structural like the subsumption pass: no Examples needed, not gated behind rules 1–16, current file only.
+- **A redundant direct dependency is a warning** (warning rule 11, always on, never in `V`). A direct edge that a chain through another Concept already implies — `share` on `Shares Outstanding` when `─tensor→ Tensor ─share→ Share` already reaches it — adds nothing by Transitivity. Two attributes of the same type (`from node` / `to node`) never imply each other: the witnessing chain must pass through an intermediate Concept. The inferred-FD warnings renumber to rules 12–13 to make room.
+- **Recursion stays legal.** An attribute of a Concept's own kind (`parent measurement` on `Measurement`) is direct self-reference — Reflexivity makes `X → X` trivially true, so it declares nothing and is never an edge, never flagged.
+- **The inferred FDs report a minimal cover.** An `X → Z` that `X → Y` and `Y → Z` already give follows by Transitivity: it is held off the squiggle channel, and `--fd` prints it tagged `[implied by 'x' → 'y' → 'z']`. A member of an equivalence is never pruned, so no consequence is lost to the pruning order.
+- `examples/spreadsheet.aot` currently demonstrates both findings (the `Shares Outstanding ↔ Tensor` loop, and the direct `share` edges the chains imply) — it stops verifying until the loop is broken. The reference model still verifies at `V = 0`, with one new redundancy warning (`said of` on `Measurement`, implied via `Time`).
+- **The CSV mirror no longer waits for an opt-in.** A line-form Concept whose Examples carry at least one attribute value mirrors out to `aot.files` on its first save, CSV present or not — a value is data, and data earns its CSV. Only a Concept listing bare names stays quiet (a name-only list has no data a CSV would add) until a CSV of its name is placed in the folder, as before.
+- **A cited file's link prefers the repo's own copy.** Ctrl+click on a file-path value that still names a path outside `aot.files` opens `aot.files/<name>` when a file of that name is held there, and the hover names the same target — the copy is the one that travels with the repo. The value as written is untouched: the lightbulb still offers **Copy '<name>' into aot.files** to rewrite it.
+
 ## [1.6.0] - 2026-07-18
 
 **Tables and free text are one notation** — everything works the same in both, and each can be used in conjunction with the other. One breaking change. Full write-up with runnable edge cases and the tests behind each: [docs/features-1.6.md](docs/features-1.6.md).

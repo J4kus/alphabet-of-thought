@@ -3,6 +3,7 @@ Person
     |--------+--------------+-----------+----------+------------+--------------------------------------------------------------------|
     |Socrates|Athens        |Philosopher|Sokrates  |Sophroniscus|Sokrates son of Sophroniscus =concat(@first name,` son of `,@father)|
     |Jakus   |George        |Engineer   |Jakus     |Paul        |Jakus son of Paul =concat(@first name,` son of `,@father)           |
+    |Tim Cook|              |           |          |            |                                                                    |
 
 
 City
@@ -10,44 +11,39 @@ City
     - Athens
         residents known as: Athenians
     - George
+    - San Francisco
 
 Population
     number of people
     year
     city
+Exchange
 Price
+    - aot.files\_Price.csv
 Share
-
-    company name: Apple Inc.
-    exchange: NASDAQ
-    ticker: AAPL
-    - apple
-        ticker
-    - google
-    - netflix
+    |name   |ticker|exchange|company name|ceo (person)|
+    |-------+------+--------+------------+------------|
+    |apple  |APPL  |NASDAQ  |Apple Inc.  |Tim Cook    |
+    |google |GOOG  |        |            |            |
+    |netflix|NFLX  |        |            |            |
 Shares Outstanding
-    share
-    number of outstanding shares
-    tensor
-Tensor
-    ticker
-    share: 25 =5^2
-    
-
-
-    open price
-    high price
-    low price
-    close price
     volume
-    shares outstanding
     - day 1
         share: netflix
-        open price: 148.00
-        high price: 149.20
-        low price: 147.50
+        open price: 148
+        high price: 149.2
+        low price: 147.5
         close price: 148.25
         volume: 52000000
-        date: 2026-18-07
+        date: 2026-18-12
     - day 2
         share: apple
+        volume: 20535343
+        open price: 4214
+Comparison
+    |shape                            |alpha|prose|alpha saves|
+    |---------------------------------+-----+-----+-----------|
+    |Taxonomy, 155 ideas              |666  |1,565|57%        |
+    |Grid, 100 Examples x 4 attributes|2,330|3,007|23%        |
+    |Grid, 5 Examples x 4 attributes  |151  |163  |7%         |
+    |Grid, 1 Example x 4 attributes   |55   |38   |-45%       |

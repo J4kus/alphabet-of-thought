@@ -102,6 +102,7 @@ const vscode = {
     showWarningMessage: (m) => { vscode.window._warnings.push(m); return Promise.resolve(); },
     showInformationMessage: (m) => { vscode.window._info.push(m); return Promise.resolve(); },
     showErrorMessage: (m) => { vscode.window._errors.push(m); return Promise.resolve(); },
+    setStatusBarMessage: (m) => { vscode.window._status = m; return { dispose() {} }; },
   },
   WorkspaceEdit: class {
     constructor() { this.ops = []; }
@@ -459,8 +460,9 @@ const listed = [
 }
 
 // 4b) the aot.addExample command: the lightbulb on an unlisted value lists
-// it under its Concept, in the form that Concept is already written in, and
-// leaves the cursor on the new Example.
+// it under its Concept, in the form that Concept is already written in. The
+// cursor is left where the Fix was invoked (the editor's own selection
+// tracking rides it through the edit); the status bar names the landed line.
 (async () => {
   const lines = [
     "Integer",
@@ -492,10 +494,11 @@ const listed = [
   await plainCommands.get("aot.addExample")("5", "Integer");
   vscode.window.activeTextEditor = undefined;
   const landed = lines[3] === "    - 5"; // after the last Example, before 'Note'
-  const cursorOnIt = editor.selection.active.line === 3;
-  console.log(landed && cursorOnIt
-    ? "PASS (addExample command: the value is listed under its Concept, cursor on it)"
-    : "UNEXPECTED addExample " + JSON.stringify({ lines, sel: editor.selection.a }));
+  const cursorKept = editor.selection.active.line === 4 && editor.selection.active.character === 0;
+  const told = vscode.window._status === "AOT: '5' listed as an Example of 'Integer' (line 4)";
+  console.log(landed && cursorKept && told
+    ? "PASS (addExample command: the value is listed under its Concept, cursor kept at the usage)"
+    : "UNEXPECTED addExample " + JSON.stringify({ lines, sel: editor.selection.a, status: vscode.window._status }));
 })();
 
 // 4c) aot.copyFileIntoRepo: a cited file living outside the repo is copied
@@ -545,6 +548,22 @@ const listed = [
   console.log(landed && relinked
     ? "PASS (copy file: the file lands in aot.files and the value names the copy)"
     : "UNEXPECTED copy file " + JSON.stringify({ landed, line: lines[1] }));
+
+  // a value still naming the outside path — another file citing the same
+  // evidence, never lightbulbed — Ctrl+clicks through to the copy now in
+  // aot.files, and the hover names the same target the click opens
+  const citingOutside = makeDoc(path.join(wsRoot, "Cites.aot"),
+    ["Study", "    evidence: " + source.replace(/\\/g, "/")].join("\n"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: wsRoot } }];
+  const outsideLinks = documentLinkProvider.provideDocumentLinks(citingOutside);
+  const repointed = outsideLinks.find((l) => l.target.scheme === "file");
+  const hover = await hoverProvider.provideHover(citingOutside, new vscode.Position(1, 20));
+  vscode.workspace.workspaceFolders = folders;
+  console.log(repointed && repointed.target.fsPath === copied
+    && hover && hover.contents.value.includes(copied)
+    ? "PASS (copy file: a value still naming the outside path clicks and hovers through to the aot.files copy)"
+    : "UNEXPECTED repoint " + JSON.stringify({
+      target: repointed && repointed.target.fsPath, hover: hover && hover.contents.value }));
 
   // a CSV a value points at is claimed, not an orphan: no table writes
   // 'evidence.csv', but the model cites it, so the save must leave it be —
@@ -834,9 +853,11 @@ const listed = [
   fs.rmSync(tmp, { recursive: true, force: true });
 })();
 
-// 6c) the mirror reaches line-form Concepts too: a CSV of a Concept's name
-// folds its rows in as Examples (keeping line form), and saving writes the
-// Concept back out — but only because a CSV of that name is already there.
+// 6c) the mirror reaches line-form Concepts too: an Example carrying an
+// attribute value is data, so the first save writes the CSV unbidden; only
+// a Concept listing bare names stays quiet until a CSV of its name opts it
+// in. A CSV of the Concept's name folds its rows in as Examples (line form
+// kept).
 (async () => {
   const os = require("os");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-lineform-"));
@@ -847,18 +868,27 @@ const listed = [
   const aotText = ["Integer", "    - 1", "        is prime: Yes", "    - 35", "        is prime: No"].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
-  // no CSV yet: saving must not rain a file into aot.files for every Concept
+  // no CSV yet, but the Examples carry values: the first save mirrors out
   vscode.workspace._save(makeDoc(aotPath, aotText));
-  const restrained = !fs.existsSync(path.join(dir, "Integer.csv"));
+  let written; try { written = fs.readFileSync(path.join(dir, "Integer.csv"), "utf8"); } catch { written = null; }
+  console.log(written === "name,is prime\n1,Yes\n35,No\n"
+    ? "PASS (csv mirror: a line-form Concept with attribute values mirrors out unbidden)"
+    : "UNEXPECTED line-form mirror " + JSON.stringify({ written }));
 
-  // the CSV is the opt-in: put one there, and the Concept mirrors out to it
-  fs.writeFileSync(path.join(dir, "Integer.csv"), "name,is prime\n");
-  vscode.workspace._save(makeDoc(aotPath, aotText));
-  const written = fs.readFileSync(path.join(dir, "Integer.csv"), "utf8");
-  const mirrored = written === "name,is prime\n1,Yes\n35,No\n";
-  console.log(restrained && mirrored
-    ? "PASS (csv mirror: a line-form Concept mirrors out, but only where a CSV opted in)"
-    : "UNEXPECTED line-form mirror " + JSON.stringify({ restrained, written }));
+  // bare names carry no data: a name-only Concept writes nothing…
+  const namesPath = path.join(root, "Colours.aot");
+  const namesText = ["Colour", "    - Red", "    - Blue"].join("\n");
+  fs.writeFileSync(namesPath, namesText);
+  vscode.workspace._save(makeDoc(namesPath, namesText));
+  const restrained = !fs.existsSync(path.join(dir, "Colour.csv"));
+
+  // …until a CSV of its name is the opt-in
+  fs.writeFileSync(path.join(dir, "Colour.csv"), "name\n");
+  vscode.workspace._save(makeDoc(namesPath, namesText));
+  const opted = fs.readFileSync(path.join(dir, "Colour.csv"), "utf8") === "name\nRed\nBlue\n";
+  console.log(restrained && opted
+    ? "PASS (csv mirror: a name-only Concept stays quiet until a CSV of its name opts it in)"
+    : "UNEXPECTED name-only mirror " + JSON.stringify({ restrained, opted }));
 
   // and back: a new row folds in as a '- Example', line form kept
   fs.writeFileSync(path.join(dir, "Integer.csv"), "name,is prime\n1,Yes\n35,No\n7,Yes\n");

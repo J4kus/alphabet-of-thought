@@ -530,7 +530,7 @@ const parsed = (text) => {
     && ft.rows[1].join("|") === "test 1|EU||"
     && ft.rows[2].join("|") === "aot.files/Person.csv|EU||Mike");
   const other = grids.find((g) => g.name === "Other");
-  check("mirror: a pure line-form Concept grids too, marked table-less (the opt-in)",
+  check("mirror: a pure line-form Concept grids too, marked table-less",
     other && other.hasTable === false && other.rows.length === 1 && other.header.join(",") === "name");
 }
 
