@@ -47,3 +47,13 @@ Comparison
     |Grid, 100 Examples x 4 attributes|2,330|3,007|23%        |
     |Grid, 5 Examples x 4 attributes  |151  |163  |7%         |
     |Grid, 1 Example x 4 attributes   |55   |38   |-45%       |
+
+Order
+    tax rate: 0.2
+    origin: EU
+    - Loose
+        price: 50
+    |name|price|vat                 |site       |all             |
+    |----+-----+--------------------+-----------+----------------|
+    |A   |100  |20 =@price*@tax rate|EU =@origin|90 =sum(@price) |
+    |B   |40   |                    |US         |50 =@price@Loose|

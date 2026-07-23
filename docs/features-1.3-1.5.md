@@ -511,7 +511,7 @@ The mirror was table-only in both directions. `findOwningAots` looked for a **ta
 A table and a `- Example` list are the same idea in two shapes, so both answer for the same CSV.
 
 - **CSV → `.aot`**: the rows fold in **as Examples, merged by name** — an Example already there is updated attribute by attribute, one that is not is appended whole. The Concept keeps the form its author chose: a CSV arriving is data, and data is no reason to restructure somebody's tree into a table.
-- **`.aot` → CSV**: the Concept mirrors out on save whenever **any Example carries an attribute value** — a value is data, and data earns its CSV (rule relaxed in 1.7: it used to wait for a CSV of its name to opt in). Only a Concept listing **bare names** stays quiet — a name-only list has no data a CSV would add — until a CSV of its name in the folder opts it in.
+- **`.aot` → CSV**: the Concept mirrors out on save whenever **Examples live in its scope** — bare names included, exactly as a table of names would write (rule relaxed in 1.7: it used to wait for a CSV of its name to opt in, then for an Example carrying a value).
 
 Two things a CSV is never allowed to do: a **blank cell says nothing** rather than erasing (a CSV cannot tell "empty" from "unsaid"), and a value carrying a **formula** is left to its formula.
 
@@ -527,11 +527,6 @@ aot.files/Integer.csv          Integer
 ```
 
 Does **not** happen:
-```aot
-Colour           <- bare names, no attribute values: saving writes none.
-    - Red           Put an (even empty) Colour.csv there to opt in.
-    - Blue
-```
 ```
 name,is prime    Integer
 1,               <- the blank does NOT erase 'is prime: Yes'
@@ -542,7 +537,7 @@ name,is prime    Integer
 
 It then **applies** the ops bottom-up and re-lints the result, asserting the folded file reads back as the grid that made it *and* that `!applied.some((l) => l.trim().startsWith("|"))` — the Concept is still line form. That last assertion is the whole point of the feature, so it is stated as a test rather than left to a comment.
 
-`out/test-extension.js` §6c drives both directions against real files in a temp folder: it asserts the first save writes `Integer.csv` unbidden (the Examples carry values), that a name-only Concept writes nothing until a CSV of its name opts it in, then that a new CSV row folds back as `    - 7` with `is prime: Yes` beneath it.
+`out/test-extension.js` §6c drives both directions against real files in a temp folder: it asserts the first save writes `Integer.csv` unbidden, that a name-only Concept mirrors out its one-column CSV exactly as a table of names would, then that a new CSV row folds back as `    - 7` with `is prime: Yes` beneath it.
 
 ---
 

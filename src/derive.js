@@ -613,10 +613,9 @@ function scopeRowsOf(concept) {
   return out;
 }
 
-// One union grid per Concept: { name, node, header, rows, hasTable }.
-// `hasTable` says a table lives in the Concept's scope — the mirror writes
-// those unbidden even valueless; a line-form Concept mirrors once any
-// Example carries an attribute value (extension.js).
+// One union grid per Concept: { name, node, header, rows }. Every Concept
+// with Examples grids the same way — a table, a '- ' list, or both are one
+// idea in two spellings, so the mirror never asks which one wrote the rows.
 function mirrorGrids(root, nodes) {
   const out = [];
   for (const concept of [root, ...nodes].filter((n) => n && n.kind === KIND.CONCEPT)) {
@@ -644,14 +643,11 @@ function mirrorGrids(root, nodes) {
       }
       return "";
     };
-    const hasTable = nodes.some((n) =>
-      n.kind === KIND.ATTRIBUTE && n.cell && nearestConcept(n, root) === concept);
     out.push({
       name: concept.name,
       node: concept,
       header: ["name", ...names.values()],
       rows: scopeRows.map((r) => [r.name, ...[...names.keys()].map((k) => valueAt(r, k))]),
-      hasTable,
     });
   }
   return out;

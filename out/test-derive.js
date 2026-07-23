@@ -522,16 +522,15 @@ const parsed = (text) => {
   const grids = mirrorGrids(root, nodes);
   const ft = grids.find((g) => g.name === "File Tester");
   check("mirror: one union grid per Concept, a table under an Example included",
-    ft && ft.hasTable === true
-    && ft.header.join(",") === "name,origin,weight,alias"
+    ft && ft.header.join(",") === "name,origin,weight,alias"
     && ft.rows.length === 3);
   check("mirror: a row silent on a column answers the nearest default, else blank",
     ft.rows[0].join("|") === "loose one|EU|7|"
     && ft.rows[1].join("|") === "test 1|EU||"
     && ft.rows[2].join("|") === "aot.files/Person.csv|EU||Mike");
   const other = grids.find((g) => g.name === "Other");
-  check("mirror: a pure line-form Concept grids too, marked table-less",
-    other && other.hasTable === false && other.rows.length === 1 && other.header.join(",") === "name");
+  check("mirror: a pure line-form Concept grids exactly the same way",
+    other && other.rows.length === 1 && other.header.join(",") === "name");
 }
 
 // ---------------------------------------------------------------------------

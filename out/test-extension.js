@@ -853,11 +853,10 @@ const listed = [
   fs.rmSync(tmp, { recursive: true, force: true });
 })();
 
-// 6c) the mirror reaches line-form Concepts too: an Example carrying an
-// attribute value is data, so the first save writes the CSV unbidden; only
-// a Concept listing bare names stays quiet until a CSV of its name opts it
-// in. A CSV of the Concept's name folds its rows in as Examples (line form
-// kept).
+// 6c) the mirror reaches line-form Concepts too, exactly as it does
+// tables: the first save writes the CSV unbidden — a Concept listing bare
+// names included, just as a one-column table of names would write. A CSV
+// of the Concept's name folds its rows in as Examples (line form kept).
 (async () => {
   const os = require("os");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-lineform-"));
@@ -875,20 +874,16 @@ const listed = [
     ? "PASS (csv mirror: a line-form Concept with attribute values mirrors out unbidden)"
     : "UNEXPECTED line-form mirror " + JSON.stringify({ written }));
 
-  // bare names carry no data: a name-only Concept writes nothing…
+  // bare names are Examples all the same: a name-only Concept mirrors out
+  // on its first save, exactly as a one-column table of names would
   const namesPath = path.join(root, "Colours.aot");
   const namesText = ["Colour", "    - Red", "    - Blue"].join("\n");
   fs.writeFileSync(namesPath, namesText);
   vscode.workspace._save(makeDoc(namesPath, namesText));
-  const restrained = !fs.existsSync(path.join(dir, "Colour.csv"));
-
-  // …until a CSV of its name is the opt-in
-  fs.writeFileSync(path.join(dir, "Colour.csv"), "name\n");
-  vscode.workspace._save(makeDoc(namesPath, namesText));
-  const opted = fs.readFileSync(path.join(dir, "Colour.csv"), "utf8") === "name\nRed\nBlue\n";
-  console.log(restrained && opted
-    ? "PASS (csv mirror: a name-only Concept stays quiet until a CSV of its name opts it in)"
-    : "UNEXPECTED name-only mirror " + JSON.stringify({ restrained, opted }));
+  let colours; try { colours = fs.readFileSync(path.join(dir, "Colour.csv"), "utf8"); } catch { colours = null; }
+  console.log(colours === "name\nRed\nBlue\n"
+    ? "PASS (csv mirror: a name-only line-form Concept mirrors out unbidden, as a table would)"
+    : "UNEXPECTED name-only mirror " + JSON.stringify({ colours }));
 
   // and back: a new row folds in as a '- Example', line form kept
   fs.writeFileSync(path.join(dir, "Integer.csv"), "name,is prime\n1,Yes\n35,No\n7,Yes\n");

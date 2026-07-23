@@ -1426,11 +1426,9 @@ function syncAotToCsv(doc) {
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   // One union CSV per Concept: every Example in the Concept's scope (a
   // table under an '- Example' files under the first Concept up the tree),
-  // columns the union of every attribute, blank where a row is silent. A
-  // Concept mirrors whenever a table lives in its scope or any Example
-  // carries an attribute value — a value is data, and data earns its CSV.
-  // Only a Concept listing bare names stays quiet (a name-only list has no
-  // data a CSV would add) until a CSV of its name in the folder opts it in.
+  // columns the union of every attribute, blank where a row is silent.
+  // Every Concept with Examples mirrors — written as a table, line form,
+  // or both, one idea, one CSV, whichever spelling holds it.
   const found = [];
   try {
     const { root, nodes } = lint(doc.getText(), rootName);
@@ -1439,8 +1437,6 @@ function syncAotToCsv(doc) {
       if (!g.rows.length) continue;
       const file = csvName(g.name);
       if (taken.has(file.toLowerCase())) continue;
-      const hasValue = g.rows.some((r) => r.slice(1).some((v) => String(v).trim()));
-      if (!g.hasTable && !hasValue && !fs.existsSync(path.join(dir, file))) continue;
       taken.add(file.toLowerCase());
       found.push({ name: g.name, grid: [g.header, ...g.rows] });
     }

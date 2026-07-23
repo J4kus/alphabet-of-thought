@@ -21,15 +21,13 @@
         Said Of
             - Is Said Of
             - Not Said Of
-                time
-                    start time
-                    end time
-                    created time
-                    updated time
+                start time
+                end time
+                created time
+                updated time
                 is active
-                author
-                    created author
-                    updated author
+                created author
+                updated author
         Present in
             - Is Present In
             - Not Present In
@@ -37,11 +35,8 @@
     Token
         Idea
             recognise
-            said of
-            present in
             example
             Schema Line (Acting On)
-                said of: Is Said Of
                 - Concept (Universal Substance)
                     recognise: first letter is capitalised
                     present in: False
@@ -53,7 +48,6 @@
                     present in: True
                     example: full name
             Content Line (Being Acted Upon)
-                said of: Not Said Of
                 - Example (Individual Substance)
                     recognise: must start with dash and space
                     present in: False
@@ -137,11 +131,8 @@
                 path: tests/
     - Thought
         Alpha Node
-            said of
-            present in
         Primitive
             Graph
-                said of
                 Node
                     Dependency
                         Independent Node
@@ -168,10 +159,8 @@
                         first node
                         second node
                 Record
-                    said of: Not Said Of
             Motivation
                 Beneficiary
-                    said of
                     interest (How much the stakeholder cares about the outcome)
                     influence  (Their ability to affect decisions, resources, or outcomes)
                     Human (Natural Person)
@@ -198,7 +187,6 @@
                         nickname
                         tax number
                 Measurement
-                    said of: Not Said Of
                     parent measurement: None
                     name
                     expected value
@@ -358,7 +346,6 @@
                             - Approve vendor bids
             Workflow
                 Worker (Agent)
-                    said of
                     is bottleneck: yes
                     is tangible: no
                     useful life: infinite
@@ -449,7 +436,6 @@
                         interval count: 1
                     Cycle
                         interval count: 2 or more
-                    not said of
                     result
                     is done
                     exception
