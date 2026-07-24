@@ -31,7 +31,7 @@ const { KIND, INDENT } = require("./linter");
 const {
   splitCell, splitConstraint, evalFormula, formatValue, compareValues, longestMatch,
   tablesOf, updateTable, describeBound, readValue, render,
-  referenceSpans,
+  referenceSpans, widthCookie, numberless,
 } = require("./table");
 
 // The line-form derivation hosts: DEFAULT nodes whose parsed value carried
@@ -207,7 +207,12 @@ function conceptRegistry(root, nodes) {
     if (!n.name) return;
     const key = n.name.toLowerCase();
     if (map.has(key) || !answersSomething(n)) return;
-    map.set(key, conceptScope(n));
+    const scope = conceptScope(n);
+    map.set(key, scope);
+    // a numbering prefix (`1. Trip`) is presentation: `@Trip@…` still
+    // resolves to the numbered Concept's scope
+    const plain = numberless(n.name).toLowerCase();
+    if (plain && !map.has(plain)) map.set(plain, scope);
   };
   if (root) add(root);
   for (const n of nodes) if (n.kind === KIND.CONCEPT) add(n);
@@ -272,7 +277,11 @@ function constraintSpanOf(lines, a, k) {
 // Where a value sits on its raw line: a table cell knows its column, a
 // 'name: value' line finds its value after the colon.
 function valueSpanOf(lines, d) {
-  if (d.valueCol !== undefined) return { startCol: d.valueCol, endCol: d.valueCol + d.value.length };
+  if (d.valueCol !== undefined) {
+    // a wrapped cell's value grows past its own line: valueSpan holds the
+    // first fragment's on-line length
+    return { startCol: d.valueCol, endCol: d.valueCol + (d.valueSpan !== undefined ? d.valueSpan : d.value.length) };
+  }
   const raw = lines[d.line - 1] || "";
   const colon = raw.indexOf(":");
   if (colon === -1) return null;
@@ -574,6 +583,239 @@ function updateExamples(lines, concept, header, rows) {
   return merged;
 }
 
+// Numbered Examples stay numbered in listed order: once any Example under a
+// Concept starts `N. `, every sibling takes the sequential prefix — the
+// first `1. <name>`, the second `2. <name>` — unnumbered names gaining a
+// number and stale numbers corrected. Returns [{ node, newName }] for the
+// names that change ([] when the numbering is already true), or null when
+// no Example under the Concept is numbered: the first `N. ` a writer types
+// is the opt-in, so unnumbered lists stay untouched.
+function renumberExamples(concept) {
+  const NUMBERED = /^\d+\.\s+/;
+  const exs = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+  if (!exs.length || !exs.some((c) => NUMBERED.test(c.name))) return null;
+  const out = [];
+  exs.forEach((ex, i) => {
+    const newName = `${i + 1}. ${ex.name.replace(NUMBERED, "")}`;
+    if (newName !== ex.name) out.push({ node: ex, newName });
+  });
+  return out;
+}
+
+// Concept numbering: the moment one Concept name starts `1. `, every
+// Concept in its scope numbers sequentially in document order — the top
+// Concepts `1. `, `2. `, a sub-Concept `1.1 `, its child `1.1.1 ` — and
+// numbering descends only concept-to-concept (is-a). The scope is the
+// numbered Concept's nearest non-Concept ancestor: the whole file
+// normally, or just the Example/attribute the Concepts are filed under.
+// The way in is one `1. ` typed anywhere in the scope; the way out is one
+// number deleted — the rest of the scope's numbers (parents' included)
+// then come off. A scope that is fully numbered keeps its numbers true to
+// position, so moves re-number. Returns [{ node, newName }] ([] when
+// nothing changes). Numbering is presentation: resolution strips it
+// (numberless), so references never break.
+function renumberConcepts(root, nodes) {
+  const isNumbered = (n) => numberless(n.name) !== n.name;
+  const isConcept = (n) => n.kind === KIND.CONCEPT;
+  const scopeRootOf = (c) => {
+    let p = c.parent;
+    while (p && p.kind === KIND.CONCEPT && p.parent) p = p.parent;
+    return p || root;
+  };
+  const numbered = new Set();
+  const scopes = new Set();
+  for (const n of nodes) {
+    if (isConcept(n) && isNumbered(n)) {
+      numbered.add(n);
+      scopes.add(scopeRootOf(n));
+    }
+  }
+  const out = [];
+  for (const scope of scopes) {
+    const expected = [];
+    const collect = (parent) => {
+      for (const c of parent.children) {
+        if (!isConcept(c)) continue;
+        expected.push(c);
+        collect(c);
+      }
+    };
+    collect(scope);
+    if (!expected.length) continue;
+    const have = expected.filter((c) => numbered.has(c));
+    const bare = (c) => numberless(c.name);
+    // fully numbered stays numbered (kept true to position); one fresh
+    // `1. ` opts the scope in; anything else means a number was deleted,
+    // and the whole scope's numbering comes off
+    const optIn = have.length === expected.length
+      || (have.length === 1 && /^1\.\s/.test(have[0].name));
+    if (optIn) {
+      const walk = (parent, path) => {
+        let i = 0;
+        for (const c of parent.children) {
+          if (!isConcept(c)) continue;
+          i++;
+          const p = [...path, i];
+          const newName = (p.length === 1 ? `${p[0]}. ` : `${p.join(".")} `) + bare(c);
+          if (newName !== c.name) out.push({ node: c, newName });
+          walk(c, p);
+        }
+      };
+      walk(scope, []);
+    } else {
+      for (const c of have) out.push({ node: c, newName: bare(c) });
+    }
+  }
+  return out;
+}
+
+// How two same-named Concept definitions differ: where each is filed (its
+// nearest named parent, null at top level), the attributes and Examples only
+// one of them carries, and the default values they set differently. All
+// comparison is case-insensitive, as references resolve. `identical` says the
+// two assert the same content (parentage aside). Feeds the duplicate-Concept
+// warning's "how they differ" clause and the reconcile merge: what `b` has
+// that `a` lacks is exactly what a merge into `a` must add.
+function diffConcepts(a, b) {
+  const byName = (n, want) => {
+    const m = new Map();
+    for (const c of n.children) {
+      if (!want.includes(c.kind)) continue;
+      if (!m.has(c.name.toLowerCase())) m.set(c.name.toLowerCase(), c);
+    }
+    return m;
+  };
+  const attrsA = byName(a, [KIND.ATTRIBUTE, KIND.DEFAULT]);
+  const attrsB = byName(b, [KIND.ATTRIBUTE, KIND.DEFAULT]);
+  const exA = byName(a, [KIND.INDIVIDUAL]);
+  const exB = byName(b, [KIND.INDIVIDUAL]);
+  const only = (mine, theirs) => [...mine.values()].filter((c) => !theirs.has(c.name.toLowerCase()));
+  const valuesDiffer = [];
+  for (const [k, ca] of attrsA) {
+    const cb = attrsB.get(k);
+    if (!cb || ca.kind !== KIND.DEFAULT || cb.kind !== KIND.DEFAULT) continue;
+    const va = String(ca.value), vb = String(cb.value);
+    if (va.toLowerCase() !== vb.toLowerCase()) valuesDiffer.push({ name: ca.name, a: va, b: vb });
+  }
+  // the root is the file, not a filing place — a top-level Concept's home is null
+  const home = (n) => (n.parent && n.parent.parent ? n.parent.name : null);
+  const parentA = home(a), parentB = home(b);
+  const d = {
+    parentA, parentB,
+    sameParent: String(parentA).toLowerCase() === String(parentB).toLowerCase(),
+    attrsOnlyA: only(attrsA, attrsB),
+    attrsOnlyB: only(attrsB, attrsA),
+    examplesOnlyA: only(exA, exB),
+    examplesOnlyB: only(exB, exA),
+    valuesDiffer,
+  };
+  d.identical = !d.attrsOnlyA.length && !d.attrsOnlyB.length
+    && !d.examplesOnlyA.length && !d.examplesOnlyB.length && !d.valuesDiffer.length;
+  return d;
+}
+
+// The diff as one readable clause for the duplicate-Concept warning:
+// `here` is the current file's definition, `there` the other file's.
+function conceptDiffClause(here, there) {
+  const d = diffConcepts(here, there);
+  const list = (ns) => ns.slice(0, 3).map((c) => `'${c.name}'`).join(", ") + (ns.length > 3 ? ", …" : "");
+  const bits = [];
+  if (!d.sameParent) {
+    const at = (p) => (p ? `under '${p}'` : "at top level");
+    bits.push(`filed ${at(d.parentA)} here vs ${at(d.parentB)} there`);
+  }
+  if (d.attrsOnlyA.length) bits.push(`attributes only here: ${list(d.attrsOnlyA)}`);
+  if (d.attrsOnlyB.length) bits.push(`attributes only there: ${list(d.attrsOnlyB)}`);
+  if (d.valuesDiffer.length) {
+    bits.push(`values differ: ${d.valuesDiffer.slice(0, 3).map((v) => `${v.name} ('${v.a}' vs '${v.b}')`).join(", ")}${d.valuesDiffer.length > 3 ? ", …" : ""}`);
+  }
+  if (d.examplesOnlyA.length) bits.push(`Examples only here: ${list(d.examplesOnlyA)}`);
+  if (d.examplesOnlyB.length) bits.push(`Examples only there: ${list(d.examplesOnlyB)}`);
+  return bits.length ? ` Differs: ${bits.join("; ")}.` : " The two carry identical content.";
+}
+
+// The one-file half of "reconcile": everything `other` (the same-named
+// Concept in another file, parsed from that file's tree) asserts that `kept`
+// does not — attributes, default values, Examples with their subtrees —
+// becomes edits on kept's file (`lines`). Raw lines are copied from
+// `otherLines` re-indented, so aliases, constraints and formulas survive;
+// table-row children, which have no line of their own to copy, are
+// synthesised from the node. Examples land in the shape kept is already
+// written in — rows on its table, else '- name' lines. Where both set the
+// same attribute differently, kept's value stands (it is the definition
+// being kept). Returns ops in the updateExamples shape ({ type: "replace" |
+// "insert" | "block" }, apply in descending line order), or null when
+// `other` has sub-Concepts — merging a subtree is a different operation.
+function mergeConceptOps(lines, otherLines, kept, other, rootName, registry) {
+  if (other.children.some((c) => c.kind === KIND.CONCEPT)) return null;
+  const d = diffConcepts(kept, other);
+  const ops = [];
+  const indent = " ".repeat(INDENT * (kept.depth + 1));
+  const childIndent = " ".repeat(INDENT * (kept.depth + 2));
+
+  // a child of `other` as lines for kept's file: the raw subtree re-indented,
+  // or synthesised when the node lives in a table row (no line of its own)
+  const subtreeLines = (node) => {
+    if (node.cell) {
+      if (node.kind === KIND.INDIVIDUAL) {
+        const out = [indent + `- ${node.name}`];
+        for (const c of node.children) {
+          if (c.kind === KIND.DEFAULT && c.value != null && String(c.value) !== "") {
+            out.push(childIndent + `${c.name}: ${c.value}`);
+          }
+        }
+        return out;
+      }
+      return [indent + node.name + (node.alias ? ` (${node.alias})` : "")];
+    }
+    const from = node.line - 1, to = lastLineOf(node) - 1;
+    const src = otherLines.slice(from, to + 1);
+    const srcIndent = (src[0].match(/^ */) || [""])[0].length;
+    const delta = indent.length - srcIndent;
+    return src.map((l) => {
+      const lead = (l.match(/^ */) || [""])[0].length;
+      return " ".repeat(Math.max(0, lead + delta)) + l.trimStart();
+    });
+  };
+
+  // attributes and defaults `other` alone declares, directly under kept's
+  // own line-form declarations (or its line when it has none)
+  const attrLines = [];
+  for (const c of d.attrsOnlyB) attrLines.push(...subtreeLines(c));
+  if (attrLines.length) {
+    const own = kept.children.filter((c) => c.kind !== KIND.INDIVIDUAL && !c.cell);
+    const after = own.length ? lastLineOf(own[own.length - 1]) : kept.line;
+    ops.push({ type: "insert", afterLine: after, text: attrLines.join("\n") });
+  }
+
+  // Examples `other` alone lists: rows when kept has a grid and the Example
+  // is flat (only attribute values), '- name' subtrees otherwise
+  const grid = tablesOf(lines, rootName).find((t) => t.name.toLowerCase() === kept.name.toLowerCase());
+  const flat = (ex) => ex.children.every((c) => c.kind === KIND.DEFAULT);
+  const asRows = grid ? d.examplesOnlyB.filter(flat) : [];
+  const asLines = grid ? d.examplesOnlyB.filter((ex) => !flat(ex)) : d.examplesOnlyB;
+  if (asRows.length) {
+    const rows = asRows.map((ex) => grid.header.map((h, k) => {
+      if (k === 0) return ex.name;
+      const key = headerColName(h).toLowerCase();
+      const hit = ex.children.find((c) => c.kind === KIND.DEFAULT
+        && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key)));
+      return hit && hit.value != null ? String(hit.value) : "";
+    }));
+    const u = updateTable(lines, grid.name, grid.header, [...grid.rows, ...rows], rootName, registry);
+    if (u && u.changed) ops.push({ type: "block", from: u.from, to: u.to, block: u.block });
+  }
+  if (asLines.length) {
+    const exLines = [];
+    for (const ex of asLines) exLines.push(...subtreeLines(ex));
+    // after the last Example's whole subtree, so the merged ones are siblings
+    const exs = kept.children.filter((c) => c.kind === KIND.INDIVIDUAL && !c.cell);
+    const last = exs.length ? exs[exs.length - 1] : kept.children[kept.children.length - 1];
+    ops.push({ type: "insert", afterLine: last ? lastLineOf(last) : kept.line, text: exLines.join("\n") });
+  }
+  return ops;
+}
+
 // --- the union CSV mirror ---------------------------------------------------
 // One CSV per Concept, both notations together: the grid a Concept mirrors
 // holds every Example in its *scope* — the subtree above any deeper Concept,
@@ -591,9 +833,10 @@ function nearestConcept(n, root) {
   return root;
 }
 
-// A header cell's column name: the term minus its constraint and (alias).
+// A header cell's column name: the term minus its width cookie, its
+// constraint and its (alias).
 function headerColName(cell) {
-  let name = splitConstraint(cell).value;
+  let name = splitConstraint(widthCookie(cell).text).value;
   if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
   return name;
 }
@@ -754,4 +997,5 @@ module.exports = {
   auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
   formulaReferences, mirrorGrids, updateScope,
+  diffConcepts, conceptDiffClause, mergeConceptOps, lastLineOf, renumberExamples, renumberConcepts,
 };

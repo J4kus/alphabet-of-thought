@@ -257,23 +257,28 @@ function clashes(root, nodes) {
     return radCache.get(n);
   };
   const findings = [];
+  // a clash names two nodes, so it reports at both — one finding per node,
+  // each related to its partner, so the editor squiggles both occurrences
   for (let i = 0; i < eligible.length; i++) {
     for (let j = i + 1; j < eligible.length; j++) {
       const a = eligible[i], b = eligible[j];
       if (related(a, b)) continue;
-      const line = Math.max(a.line, b.line);
-      if (a.godel === b.godel) {
-        findings.push({
-          line,
-          kind: "content",
-          message: `clash: '${display(a)}' and '${display(b)}' carry identical attributes and values — nothing in the data tells them apart, so they are one idea written twice; give one a differentia (a distinguishing attribute or value), or merge them (G = ${a.godel})`,
-        });
-      } else if (rad(a) === rad(b)) {
-        findings.push({
-          line,
-          kind: "names",
-          message: `clash: '${display(a)}' and '${display(b)}' have the same attribute names and differ only in their values — check that the values alone are meant to tell them apart (same radical)`,
-        });
+      for (const [self, other] of [[a, b], [b, a]]) {
+        if (a.godel === b.godel) {
+          findings.push({
+            line: self.line,
+            kind: "content",
+            message: `clash: '${display(self)}' and '${display(other)}' carry identical attributes and values — nothing in the data tells them apart, so they are one idea written twice; give one a differentia (a distinguishing attribute or value), or merge them (G = ${a.godel})`,
+            related: [{ line: other.line, message: `clashes with '${display(other)}'` }],
+          });
+        } else if (rad(a) === rad(b)) {
+          findings.push({
+            line: self.line,
+            kind: "names",
+            message: `clash: '${display(self)}' and '${display(other)}' have the same attribute names and differ only in their values — check that the values alone are meant to tell them apart (same radical)`,
+            related: [{ line: other.line, message: `clashes with '${display(other)}'` }],
+          });
+        }
       }
     }
   }

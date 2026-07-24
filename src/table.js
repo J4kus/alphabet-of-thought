@@ -59,23 +59,163 @@ function blockAt(lines, lineIdx) {
   return { start, end, indent, rows };
 }
 
-// Each column's width: its widest cell across the data rows.
-function widthsOf(block) {
-  const widths = [];
-  for (const row of block.rows) {
-    if (row.sep) continue;
-    row.cells.forEach((c, k) => { widths[k] = Math.max(widths[k] || 0, c.length); });
+// A numbering prefix — `1. `, `2.3 `, `1.1.1 ` — is presentation, never
+// part of a name's identity: `trip` types by the Concept `1. Trip` exactly
+// as it would by `Trip`, so numbering a tree breaks no reference. Shared
+// by every index that resolves names. A number must be followed by a dot
+// (`3 Foo` carries no prefix; `- 35` stays the Example it always was).
+const NUMBER_PREFIX = /^\d+\.(\d+(\.\d+)*)?\s+/;
+const numberless = (name) => String(name || "").replace(NUMBER_PREFIX, "");
+
+// --- column width cookies and cell wrapping ---------------------------------
+// A header cell may end in an org-style width cookie: `|description <24>|`
+// caps that column at 24 characters, and longer plain cells wrap onto
+// continuation rows — data rows whose first (name) cell is empty, each
+// fragment a cell of its own — so the table stays narrow. Continuation
+// rows are recognised ONLY when the header carries at least one cookie:
+// the cookie is the per-table opt-in, so cookie-less files keep their
+// meaning exactly (an empty name cell there stays the error it always
+// was). Never wrapped: the name column (it is the Example's identity),
+// header cells, and formula cells (the formula owns its text) — such a
+// cell may exceed its cookie, and the column then pads to it. A wrapped
+// value reads back as its fragments joined with single spaces.
+
+const WIDTH_COOKIE = /\s*<(\d+)>\s*$/;
+
+// A cell's text with its width cookie stripped: { text, width } — width
+// null when the cell carries none. The cookie comes off before constraints
+// and (alias) are read: it is layout, never part of the name.
+function widthCookie(cell) {
+  const m = WIDTH_COOKIE.exec(cell || "");
+  return m
+    ? { text: cell.slice(0, m.index).trim(), width: Math.max(1, +m[1]) }
+    : { text: cell || "", width: null };
+}
+
+// The per-column cookies of a block's header row, or null when the block
+// has no header or no cookie at all (it then behaves as it always did).
+function headerWidths(block) {
+  if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) return null;
+  const widths = block.rows[0].cells.map((c) => widthCookie(c).width);
+  return widths.some((w) => w !== null) ? widths : null;
+}
+
+// Is block.rows[i] a continuation row — a data row continuing the one
+// above? Only in a cookie-carrying block, below the separator, with an
+// empty first cell, something in a later cell, and a data row above.
+function isContinuation(block, i) {
+  if (!headerWidths(block)) return false;
+  const r = block.rows[i];
+  if (!r || r.sep || i < 3) return false;
+  if ((r.cells[0] || "") !== "" || !r.cells.some((c, k) => k > 0 && (c || "") !== "")) return false;
+  for (let j = i - 1; j >= 2; j--) {
+    if (block.rows[j].sep) return false;
+    if ((block.rows[j].cells[0] || "") !== "") return true;
   }
+  return false;
+}
+
+// Collapse the block's continuation rows into their logical rows, joining
+// each column's fragments with a single space. Mutates block.rows and
+// returns an array mapping each ORIGINAL row index to its logical row
+// index — null when the block has no cookies (then nothing changes). The
+// ops and the renderer both work on logical rows; render() wraps them out.
+function unwrapWithMap(block) {
+  if (!headerWidths(block)) return null;
+  const map = [], out = [];
+  for (let i = 0; i < block.rows.length; i++) {
+    const r = block.rows[i];
+    const prev = out[out.length - 1];
+    const continues = !r.sep && out.length >= 3 && prev && !prev.sep
+      && (r.cells[0] || "") === "" && r.cells.some((c, k) => k > 0 && (c || "") !== "");
+    if (continues) {
+      r.cells.forEach((c, k) => {
+        if (k === 0 || !c) return;
+        prev.cells[k] = ((prev.cells[k] || "") + " " + c).trim();
+      });
+      map.push(out.length - 1);
+      continue;
+    }
+    map.push(out.length);
+    out.push(r);
+  }
+  block.rows.length = 0;
+  block.rows.push(...out);
+  return map;
+}
+const unwrap = (block) => { unwrapWithMap(block); return block; };
+
+// Break a cell's text into fragments no wider than `width`, at spaces
+// where possible; a single word longer than the width is hard-split.
+function wrapText(text, width) {
+  const out = [];
+  let rest = text.trim();
+  while (rest.length > width) {
+    let cut = rest.lastIndexOf(" ", width);
+    if (cut <= 0) cut = width;
+    out.push(rest.slice(0, cut).trimEnd());
+    rest = rest.slice(cut).trimStart();
+  }
+  out.push(rest);
+  return out;
+}
+
+// Each column's width: its widest cell across the rows — a plain data cell
+// in a cookie-capped column counting no more than its cookie (it wraps),
+// while the header, the name column and formula cells count whole (they
+// never wrap, so a long one widens the column past its cookie).
+function widthsOf(block) {
+  const caps = headerWidths(block);
+  const widths = [];
+  block.rows.forEach((row, i) => {
+    if (row.sep) return;
+    const isHeader = i === 0 && block.rows.length > 1 && block.rows[1].sep;
+    row.cells.forEach((c, k) => {
+      let w = c.length;
+      const cap = caps && !isHeader && k > 0 ? caps[k] : null;
+      if (cap !== null && cap !== undefined && w > cap && splitCell(c).eq === -1) w = cap;
+      widths[k] = Math.max(widths[k] || 0, w);
+    });
+  });
   return widths.length ? widths : [0];
 }
 
 // Draw the block aligned: every column padded to its widest cell,
 // separator rows redrawn to match. No gutter spaces around the pipes.
+// With width cookies, continuation rows first collapse into their logical
+// rows, then over-wide plain cells wrap back out at the final column
+// widths; block.physStart maps each logical row to its first drawn line.
 function render(block) {
+  const caps = headerWidths(block);
+  if (!caps) {
+    const widths = widthsOf(block);
+    return block.rows.map((row) => row.sep
+      ? block.indent + "|" + widths.map((w) => "-".repeat(w)).join("+") + "|"
+      : block.indent + "|" + widths.map((w, k) => (row.cells[k] || "").padEnd(w)).join("|") + "|");
+  }
+  unwrap(block);
   const widths = widthsOf(block);
-  return block.rows.map((row) => row.sep
-    ? block.indent + "|" + widths.map((w) => "-".repeat(w)).join("+") + "|"
-    : block.indent + "|" + widths.map((w, k) => (row.cells[k] || "").padEnd(w)).join("|") + "|");
+  const out = [];
+  const physStart = [];
+  block.rows.forEach((row, i) => {
+    physStart[i] = out.length;
+    if (row.sep) {
+      out.push(block.indent + "|" + widths.map((w) => "-".repeat(w)).join("+") + "|");
+      return;
+    }
+    const isHeader = i === 0 && block.rows[1] && block.rows[1].sep;
+    const frags = widths.map((w, k) => {
+      const cell = row.cells[k] || "";
+      if (isHeader || k === 0 || cell.length <= w || splitCell(cell).eq !== -1) return [cell];
+      return wrapText(cell, w);
+    });
+    const depth = Math.max(1, ...frags.map((f) => f.length));
+    for (let d = 0; d < depth; d++) {
+      out.push(block.indent + "|" + widths.map((w, k) => (frags[k][d] || "").padEnd(w)).join("|") + "|");
+    }
+  });
+  block.physStart = physStart;
+  return out;
 }
 
 // Where a cell's text begins on an aligned line, so a command can land the
@@ -891,7 +1031,7 @@ function dataRowsOf(block) {
 function headerNameCands(header) {
   const cands = [];
   (header || []).forEach((cell, k) => {
-    let name = splitConstraint(cell).value, alias = null;
+    let name = splitConstraint(widthCookie(cell).text).value, alias = null;
     if (name.endsWith(")") && name.includes("(")) {
       const open = name.lastIndexOf("(");
       alias = name.slice(open + 1, -1).trim() || null;
@@ -910,7 +1050,7 @@ function headerNameCands(header) {
 function referenceNamesFrom(header, rows) {
   const columns = [];
   (header || []).slice(1).forEach((cell) => {
-    let name = splitConstraint(cell).value;
+    let name = splitConstraint(widthCookie(cell).text).value;
     if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
     if (name) columns.push(name);
   });
@@ -963,7 +1103,7 @@ function tableCtx(rows, row, header, registry, outer) {
   const outerCol = (c) => {
     if (typeof c === "string") return c;
     if (!outer) return null;
-    let name = splitConstraint((header || [])[c - 1] || "").value;
+    let name = splitConstraint(widthCookie((header || [])[c - 1] || "").text).value;
     if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
     const m = name ? outer.matchColumn(name) : null;
     return m && m.length === name.length ? m.id : null;
@@ -1098,12 +1238,17 @@ function formulas(lines, registry, rootName) {
     const block = blockAt(lines, i);
     if (!block) continue;
     i = block.end;
+    // continuation rows collapse so the evaluator ranges over logical rows;
+    // formula cells never wrap, so every span still sits whole on its
+    // host's own physical line, remembered per row before the collapse
+    const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
+    unwrap(block);
     const rows = dataRowsOf(block);
     if (!rows.length) continue;
     const header = block.rows[0].cells;
     const outer = enclosingScope(lines, block, registry, rootName);
     for (const row of rows) {
-      const abs = block.start + block.rows.indexOf(row);
+      const abs = block.start + physIdx.get(row);
       const cs = cells(lines[abs]);
       cs.forEach((cell) => {
         const { value, eq, op } = splitCell(cell.text);
@@ -1201,12 +1346,15 @@ function formulaReferences(lines, registry, rootName) {
     const block = blockAt(lines, i);
     if (!block) continue;
     i = block.end;
+    // as in formulas(): logical rows for evaluation, physical lines for spans
+    const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
+    unwrap(block);
     const rows = dataRowsOf(block);
     if (!rows.length) continue;
     const header = block.rows[0].cells;
     const outer = enclosingScope(lines, block, registry, rootName);
     for (const row of rows) {
-      const abs = block.start + block.rows.indexOf(row);
+      const abs = block.start + physIdx.get(row);
       cells(lines[abs]).forEach((cell) => {
         const { eq, op } = splitCell(cell.text);
         if (eq === -1) return;
@@ -1224,7 +1372,7 @@ function formulaReferences(lines, registry, rootName) {
             if (rec.kind === "column" && typeof rec.id === "number") {
               r.site = colSite(block.start + 1, rec.id);
             } else if (rec.kind === "row" && block.rows.includes(rec.id)) {
-              r.site = rowSite(block.start + block.rows.indexOf(rec.id) + 1);
+              r.site = rowSite(block.start + physIdx.get(rec.id) + 1);
             } else if (outer && outer.node) {
               // a name answered through the enclosing scope: its tree node
               if (rec.kind === "column") { r.conceptNode = outer.node; r.attrKey = rec.id; }
@@ -1271,12 +1419,16 @@ function tablesOf(lines, rootName) {
       }
     }
     if (!name) continue;
+    // continuation rows collapse: a grid's rows are logical rows, each
+    // pinned to its first physical line
+    const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
+    unwrap(block);
     const header = block.rows[0].cells;
     const rows = [], rowLines = []; // each data row with its 1-based line
     block.rows.forEach((r, j) => {
       if (j < 2 || r.sep) return;
       rows.push(header.map((_, k) => r.cells[k] || ""));
-      rowLines.push(block.start + j + 1);
+      rowLines.push(block.start + physIdx.get(r) + 1);
     });
     out.push({ name, nameLine, start: block.start, end: block.end, indent: block.indent, header, rows, rowLines });
   }
@@ -1327,7 +1479,7 @@ function updateTable(lines, name, header, rows, rootName, registry) {
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].trim();
     if (!t || t[0] === "|" || isSeparator(t)) continue;
-    if (cleanName(t) === name) {
+    if (cleanName(t).toLowerCase() === name.toLowerCase()) {
       conceptLine = i;
       conceptIndent = lines[i].match(/^ */)[0].length;
       break;
@@ -1377,9 +1529,18 @@ function align(text, registry, rootName) {
     if (!block) continue;
     i = block.end; // one visit per block
     if (!block.rows.some((r) => r.sep)) continue;
+    const extent = block.end - block.start + 1;
+    unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // formulas first, so the widths fit the fresh values
     recompute(block, registry, enclosingScope(lines, block, registry, rootName));
-    render(block).forEach((aligned, k) => {
+    const drawn = render(block);
+    if (drawn.length !== extent) {
+      // wrapping changed the block's line count: one whole-block edit
+      // ({ line, to } inclusive, text the block's lines joined with '\n')
+      edits.push({ line: block.start + 1, to: block.start + extent, text: drawn.join("\n") });
+      continue;
+    }
+    drawn.forEach((aligned, k) => {
       if (aligned !== lines[block.start + k]) edits.push({ line: block.start + k + 1, text: aligned });
     });
   }
@@ -1399,9 +1560,16 @@ function recomputeAll(text, registry, rootName) {
     if (!block) continue;
     i = block.end; // one visit per block
     if (!block.rows.some((r) => r.sep)) continue;
+    const extent = block.end - block.start + 1;
+    unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // fresh values — leave the lines alone
     if (!recompute(block, registry, enclosingScope(lines, block, registry, rootName))) continue;
-    render(block).forEach((aligned, k) => {
+    const drawn = render(block);
+    if (drawn.length !== extent) {
+      edits.push({ line: block.start + 1, to: block.start + extent, text: drawn.join("\n") });
+      continue;
+    }
+    drawn.forEach((aligned, k) => {
       if (aligned !== lines[block.start + k]) edits.push({ line: block.start + k + 1, text: aligned });
     });
   }
@@ -1419,4 +1587,6 @@ module.exports = {
   readValue, Choice, truthOf, describeBound,
   valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
   mergeRegistries, enclosingScope,
+  widthCookie, headerWidths, isContinuation, unwrap, unwrapWithMap,
+  numberless,
 };

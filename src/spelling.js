@@ -91,6 +91,9 @@ function check(text, extraWords) {
         line: i + 1,
         startCol: m.index + lead,
         endCol: m.index + lead + word.length,
+        // the structured list rides along for the editor's replace Fix; the
+        // message stays the wire contract the code actions parse
+        suggestions: verdict,
         message: verdict.length
           ? `'${word}' is not in the dictionary — did you mean ${verdict.map((s) => `'${s}'`).join(", ")}?`
           : `'${word}' is not in the dictionary — check the spelling`,

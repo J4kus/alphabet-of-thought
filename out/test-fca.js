@@ -90,6 +90,52 @@ const wetStorage = [
     report2.findings.some((f) => /^drift: '- Goldfish'/.test(f.message) && f.message.includes("'Fish'")));
 }
 
+// 2c) `...` on either side of the fence suppresses drift: a Map child (or
+// the Example form '- ...') declares that side intentionally incomplete, so
+// what looks like drift over it is provisional — misfiled (2) is the
+// control showing the same tree without '...' does report
+{
+  const openTarget = [
+    "Fish",
+    "    lives in water",
+    "    ... more kinds of fish",
+    "    - Trout",
+    "    - Salmon",
+    "Bird",
+    "    has wings",
+    "    - Sparrow",
+    "    - Goldfish",
+    "        lives in water",
+  ].join("\n");
+  const p = lint(openTarget, "Animal");
+  check("drift: silent when the Concept drifted toward carries '...'",
+    p.errors.length === 0
+    && !suggest(p.root, p.nodes).findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+
+  const openHome = [
+    "Fish",
+    "    lives in water",
+    "    - Trout",
+    "    - Salmon",
+    "Bird",
+    "    has wings",
+    "    ... still sorting these",
+    "    - Sparrow",
+    "    - Goldfish",
+    "        lives in water",
+  ].join("\n");
+  const h = lint(openHome, "Animal");
+  check("drift: silent when the Example's home carries '...'",
+    h.errors.length === 0
+    && !suggest(h.root, h.nodes).findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+
+  const openList = openTarget.replace("    ... more kinds of fish", "    - ...");
+  const l = lint(openList, "Animal");
+  check("drift: the Example form '- ...' opens its Concept just as a Map does",
+    l.errors.length === 0
+    && !suggest(l.root, l.nodes).findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+}
+
 // 3) override: an Example re-declaring an inherited default keeps
 // only its own value column; the inherited one is shadowed
 const overrides = [

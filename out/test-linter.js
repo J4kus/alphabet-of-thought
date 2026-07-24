@@ -34,8 +34,8 @@ function makeReport() {
   const errors = [], warnings = [];
   return {
     errors, warnings,
-    error: (line, message, range) => errors.push({ line, message, ...range }),
-    warn: (line, message) => warnings.push({ line, message }),
+    error: (line, message, extra) => errors.push({ line, message, ...extra }),
+    warn: (line, message, extra) => warnings.push({ line, message, ...extra }),
   };
 }
 
@@ -418,6 +418,37 @@ check("verify: the same Concept name defined twice is an error",
 check("verify: identical sibling defaults are an error",
   hasError(lintTree(aot("Box", "    colour: red", "    colour: red")).report, /repeated under 'Box' with the same value/));
 
+// names fold case everywhere references do: 'Animal' and 'ANIMAL' are one
+// Concept name, 'red' and 'RED' one value, the file name one name in any case
+check("verify: Concept names differing only in case are one name (univocity)",
+  hasError(lintTree(aot("Dog", "    Animal", "Cat", "    ANIMAL"), "Zoo").report,
+    /defined 2 times.*names differ only in case/));
+check("verify: sibling defaults differing only in value case are identical",
+  hasError(lintTree(aot("Box", "    colour: red", "    colour: RED")).report,
+    /repeated under 'Box' with the same value/));
+check("verify: repeating the file name in another case is still the repeat error",
+  hasError(lintTree(aot("ROOT"), "Root").report, /repeats the file name/));
+check("verify: a numbering prefix never makes a second name ('2. Animal' duplicates 'Animal')",
+  hasError(lintTree(aot("Dog", "    Animal", "Cat", "    2. Animal"), "Zoo").report, /defined 2 times/));
+check("verify: sibling slots differing only in case still share a signature",
+  lintTree(aot("Shape", "    Circle", "        colour: red", "    Disc", "        colour: RED"), "Art")
+    .report.warnings.some((w) => /shares its slots with a sibling under 'Shape'/.test(w.message)));
+
+// a duplicate names two places, so it reports at both — each finding
+// carrying the other's location as related information
+{
+  const both = lintTree(aot("Dog", "    Animal", "Cat", "    Animal"), "Zoo")
+    .report.errors.filter((e) => /Concept 'Animal' defined 2 times/.test(e.message));
+  check("verify: both duplicate definitions error, each related to the other",
+    both.length === 2
+    && both[0].related && both[0].related.length === 1 && both[0].related[0].line === both[1].line
+    && both[1].related && both[1].related.length === 1 && both[1].related[0].line === both[0].line);
+  const twins = lintTree(aot("Person", "    - Socrates", "Note", "    person: value", "        - socrates"), "World")
+    .report.warnings.filter((w) => /differs only in case/.test(w.message));
+  check("verify: the case-only Example warning reports at both spellings",
+    twins.length === 2 && twins.every((w) => w.related && w.related.length === 1));
+}
+
 // an identifier resolves to exactly one target: shared aliases, self-aliases
 // and an alias that names another Concept (a duplicate identity) are all errors
 check("verify: two Concepts sharing an alias is an error",
@@ -435,6 +466,37 @@ check("verify: an alias naming another Concept is a duplicate-identity error",
   const same = lintTree(aot("Person", "    - Socrates", "Crowd", "    - Socrates"), "World").report;
   check("verify: same-spelling Examples in different scopes stay quiet",
     !same.warnings.some((w) => /differs only in case/.test(w.message)));
+}
+
+// width cookies: a header cell's trailing <N> caps its column, and a data
+// row with an empty first cell then continues the Example above — without
+// a cookie that row stays the error it always was
+{
+  const wrapped = lintTree(aot(
+    "Note",
+    "    |name|d <10>    |",
+    "    |----+----------|",
+    "    |A   |a rather  |",
+    "    |    |long note |",
+  ), "Sheet");
+  check("table: a width cookie is parsed off the column name",
+    wrapped.nodes.some((n) => n.cell && n.name === "d" && n.maxWidth === 10));
+  const a = wrapped.nodes.find((n) => n.name === "A");
+  const d = a && a.children.find((c) => c.name === "d");
+  check("table: a continuation row's fragment joins the value above",
+    d && d.value === "a rather long note" && d.valueSpan === 8
+    && d.continuations && d.continuations.length === 1);
+  check("table: a cookie table's continuation row is no error",
+    !hasError(wrapped.report, /empty first cell/));
+  const plain = lintTree(aot(
+    "Note",
+    "    |name|d|",
+    "    |----+-|",
+    "    |A   |x|",
+    "    |    |y|",
+  ), "Sheet");
+  check("table: without a cookie the empty first cell stays the error it was",
+    hasError(plain.report, /empty first cell/));
 }
 
 // plural Concept (warning)

@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, splitCell, splitConstraint, readValue } = require("./table");
+const { cells: tableCells, isSeparator, splitCell, splitConstraint, readValue, widthCookie, numberless } = require("./table");
 
 const INDENT = 4;
 
@@ -32,13 +32,16 @@ const TYPE_NAME = ["Example", "Default Value", "Concept", "attribute", "Map"];
 // so no check has to know whether it produces an error or a warning until
 // it calls error() or warn(). A finding may carry { startCol, endCol } to
 // pin the squiggle to a span (a table cell); without it the editor
-// underlines the whole line.
+// underlines the whole line. It may also carry related:
+// [{ file?, line, startCol?, endCol?, message }] — the finding's partner
+// locations (the other half of a duplicate), which the editor renders as
+// clickable related information.
 function makeReport() {
   const errors = [], warnings = [];
   return {
     errors, warnings,
-    error: (line, message, range) => errors.push({ line, message, ...range }),
-    warn: (line, message) => warnings.push({ line, message }),
+    error: (line, message, extra) => errors.push({ line, message, ...extra }),
+    warn: (line, message, extra) => warnings.push({ line, message, ...extra }),
   };
 }
 
@@ -74,13 +77,14 @@ function groupBy(items, keyOf) {
 }
 
 // Walk the groups that hold a duplicate. For each, fn is called once per
-// extra member (all but the first) with that member, the shared "lines a, b"
-// string, and the whole group — the shape every uniqueness check reports in.
+// member with that member, the shared "lines a, b" string, the whole group,
+// and the member's partners — every occurrence of a conflict reports, each
+// finding pointing back at the others (rendered as related locations).
 function eachDuplicate(groups, fn) {
   for (const group of groups.values()) {
     if (group.length < 2) continue;
     const where = group.map((d) => d.line).join(", ");
-    for (const dup of group.slice(1)) fn(dup, where, group);
+    for (const dup of group) fn(dup, where, group, group.filter((o) => o !== dup));
   }
 }
 
@@ -186,14 +190,24 @@ function parse(text, rootName, report) {
         // header row: the cells after the first declare the columns as
         // attributes of the parent, exactly as bare lowercase lines would;
         // the first cell only labels the name column and asserts nothing
-        table = { depth, attrs: [] };
+        table = { depth, attrs: [], lastExample: null, hasCookies: false };
+        // a width cookie on the name column is parsed but ignored — the
+        // name column never wraps — yet it still opts the table in
+        if (widthCookie(row[0].text).width !== null) table.hasCookies = true;
         let last = null;
         for (const cell of row.slice(1)) {
           // a header cell is an attribute term, so it may carry a trailing
-          // (alias) and trailing constraints (`qty >=1`, chained as
+          // (alias), trailing constraints (`qty >=1`, chained as
           // `age >=18 <=65`) exactly as the bare line form does — each
-          // constraint bounds the whole column
-          let name = cell.text, alias = null, aliasCol, constraints = null;
+          // constraint bounds the whole column — and, last of all, an
+          // org-style width cookie (`description <24>`) capping the column
+          let name = cell.text, alias = null, aliasCol, constraints = null, maxWidth = null;
+          const cookie = widthCookie(name);
+          if (cookie.width !== null) {
+            maxWidth = cookie.width;
+            table.hasCookies = true;
+            name = cookie.text;
+          }
           const con = splitConstraint(name);
           if (con.eq !== -1) {
             constraints = con.constraints.map((b) => ({ op: b.op, formula: b.formula, opCol: cell.col + b.eq }));
@@ -219,6 +233,7 @@ function parse(text, rootName, report) {
             alias, aliasCol, parent, children: [], nameCol: cell.col, cell: true,
           };
           if (constraints) attr.constraints = constraints;
+          if (maxWidth !== null) attr.maxWidth = maxWidth;
           parent.children.push(attr);
           nodes.push(attr);
           table.attrs.push(attr);
@@ -230,6 +245,40 @@ function parse(text, rootName, report) {
         return;
       }
       if (table) {
+        // continuation row: in a width-cookie table a data row whose first
+        // cell is empty continues the Example above — each further cell is
+        // the next fragment of that column's value, read back joined by a
+        // space. Only a cookie opts a table in; without one the empty
+        // first cell stays the error it always was.
+        if (table.hasCookies && !row[0].text && table.lastExample
+            && row.some((span, c) => c > 0 && span.text)) {
+          for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
+            const attr = table.attrs[c - 1];
+            const { value } = splitCell(row[c].text);
+            if (!attr || !value) continue;
+            const frag = readValue(value);
+            const prior = table.lastExample.children.find(
+              (k) => k.kind === DEFAULT && k.cell && k.name === attr.name);
+            if (prior) {
+              // valueSpan keeps the first fragment's on-line length: the
+              // value grows past its own line, but its span must not
+              if (prior.valueSpan === undefined) prior.valueSpan = String(prior.value).length;
+              prior.value = `${prior.value} ${frag}`;
+              if (!prior.continuations) prior.continuations = [];
+              prior.continuations.push({ line, startCol: row[c].col, endCol: row[c].col + row[c].text.length });
+            } else {
+              const cellValue = {
+                line, depth: depth + 1, kind: DEFAULT, name: attr.name,
+                value: frag, alias: null, parent: table.lastExample, children: [],
+                valueCol: row[c].col, cell: true,
+              };
+              table.lastExample.children.push(cellValue);
+              nodes.push(cellValue);
+            }
+          }
+          prevDepth = depth;
+          return;
+        }
         // data row: one Example named by the first cell, one Attribute
         // Value per further cell — an empty cell asserts nothing
         if (!row[0].text) {
@@ -248,6 +297,7 @@ function parse(text, rootName, report) {
         };
         parent.children.push(example);
         nodes.push(example);
+        table.lastExample = example;
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
           const attr = table.attrs[c - 1];
           // a formula ('10 =$1+10') derives the value: only the value part
@@ -352,8 +402,9 @@ function verify(root, nodes, report, accepted) {
   const all = [root, ...nodes];
 
   // The file name is the root Concept; do not repeat it as a top-level line
+  // (names resolve case-insensitively, so the comparison folds case)
   for (const child of root.children) {
-    if (child.name === root.name) {
+    if (child.name.toLowerCase() === root.name.toLowerCase()) {
       report.error(child.line, `'${child.name}' repeats the file name — the file name is already the root Concept of the tree, so start with its children rather than naming it again (2 primes for the root, expected 1)`);
     }
   }
@@ -376,10 +427,15 @@ function verify(root, nodes, report, accepted) {
     }
   }
 
-  // Univocity: one Concept name, one prime
+  // Univocity: one Concept name, one prime. References resolve
+  // case-insensitively and numbering prefixes are presentation, so 'Foo',
+  // 'FOO' and '2. Foo' are all one name here.
   const concepts = nodes.filter((n) => n.kind === CONCEPT);
-  eachDuplicate(groupBy(concepts, (n) => n.name), (dup, where, defs) => {
-    report.error(dup.line, `Concept '${dup.name}' defined ${defs.length} times (lines ${where}) — one name must mean one kind, but this name labels ${defs.length} different ones; give all but one a distinguishing qualifier, or merge them (${defs.length} definitions for one term, expected 1)`);
+  eachDuplicate(groupBy(concepts, (n) => numberless(n.name).toLowerCase()), (dup, where, defs, others) => {
+    const caseNote = new Set(defs.map((d) => numberless(d.name))).size > 1
+      ? " (names differ only in case — references resolve case-insensitively, so they are one name)" : "";
+    report.error(dup.line, `Concept '${dup.name}' defined ${defs.length} times (lines ${where})${caseNote} — one name must mean one kind, but this name labels ${defs.length} different ones; give all but one a distinguishing qualifier, or merge them (${defs.length} definitions for one term, expected 1)`,
+      { related: others.map((o) => ({ line: o.line, message: `'${o.name}' also defined here` })) });
   });
 
   // An identifier resolves to exactly one target. A Concept's alias must be
@@ -401,8 +457,9 @@ function verify(root, nodes, report, accepted) {
       report.error(node.line, `alias '(${node.alias})' on '${node.name}' is the name of another Concept (line ${other.line}) — an alias is a second name for the *same* idea, so this makes '${node.name}' and '${node.alias}' one duplicated identity; merge them, or if '${node.name}' is a kind of '${node.alias}' file it under '${node.alias}' instead`);
     }
   }
-  eachDuplicate(groupBy(aliased, (n) => n.alias.toLowerCase()), (dup, where, group) => {
-    report.error(dup.line, `alias '(${dup.alias})' on '${dup.name}' is also the alias of '${group[0].name}' (lines ${where}) — an identifier must resolve to exactly one target; rename one alias`);
+  eachDuplicate(groupBy(aliased, (n) => n.alias.toLowerCase()), (dup, where, group, others) => {
+    report.error(dup.line, `alias '(${dup.alias})' on '${dup.name}' is also the alias of '${others[0].name}' (lines ${where}) — an identifier must resolve to exactly one target; rename one alias`,
+      { related: others.map((o) => ({ line: o.line, message: `alias '(${o.alias})' on '${o.name}'` })) });
   });
 
   // Example references resolve case-insensitively, so two Examples whose
@@ -412,10 +469,11 @@ function verify(root, nodes, report, accepted) {
   const individualsByCase = groupBy(nodes.filter((n) => n.kind === INDIVIDUAL), (n) => n.name.toLowerCase());
   for (const group of individualsByCase.values()) {
     if (new Set(group.map((n) => n.name)).size < 2) continue;
-    const first = group[0];
-    for (const dup of group.slice(1)) {
-      if (dup.name === first.name) continue;
-      report.warn(dup.line, `Example '- ${dup.name}' differs only in case from '- ${first.name}' (line ${first.line}) — Example references resolve case-insensitively, so these are one name to every link; align the spelling`);
+    for (const dup of group) {
+      const others = group.filter((o) => o.name !== dup.name);
+      if (!others.length) continue;
+      report.warn(dup.line, `Example '- ${dup.name}' differs only in case from '- ${others[0].name}' (line ${others[0].line}) — Example references resolve case-insensitively, so these are one name to every link; align the spelling`,
+        { related: others.map((o) => ({ line: o.line, message: `spelled '- ${o.name}' here` })) });
     }
   }
 
@@ -423,9 +481,11 @@ function verify(root, nodes, report, accepted) {
   // A differing alias sets them apart: `type (category)` and `type (Tag)` name
   // the same attribute but type it by different Concepts, so they are distinct.
   for (const node of all) {
-    const byContent = groupBy(realChildren(node), (c) => `${c.kind} ${c.name} ${c.value} ${c.alias || ""}`);
-    eachDuplicate(byContent, (d, where) => {
-      report.error(d.line, `${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}) — two identical siblings add nothing and blur the meaning; give them different values, or keep just one`);
+    const byContent = groupBy(realChildren(node), (c) =>
+      `${c.kind} ${c.name.toLowerCase()} ${String(c.value).toLowerCase()} ${(c.alias || "").toLowerCase()}`);
+    eachDuplicate(byContent, (d, where, group, others) => {
+      report.error(d.line, `${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}) — two identical siblings add nothing and blur the meaning; give them different values, or keep just one`,
+        { related: others.map((o) => ({ line: o.line, message: `'${o.name}' repeated here` })) });
     });
   }
 
@@ -507,8 +567,10 @@ function verify(root, nodes, report, accepted) {
   const slotSignature = (c) => {
     const slots = c.children
       .filter((k) => k.kind === ATTRIBUTE || k.kind === DEFAULT)
-      .map((k) => (k.kind === DEFAULT ? `${k.name}:${k.value}` : k.name));
-    if (c.value) slots.push(`:${c.value}`);
+      .map((k) => (k.kind === DEFAULT
+        ? `${k.name.toLowerCase()}:${String(k.value).toLowerCase()}`
+        : k.name.toLowerCase()));
+    if (c.value) slots.push(`:${String(c.value).toLowerCase()}`);
     return slots.sort().join("\0");
   };
   for (const node of all) {
@@ -517,8 +579,9 @@ function verify(root, nodes, report, accepted) {
     if (subConcepts.length < 2) continue;
     // no attributes (empty signature): the `...` is implied, differentia still to come
     const bySlots = groupBy(subConcepts, (c) => slotSignature(c) || null);
-    eachDuplicate(bySlots, (c, where) => {
-      report.warn(c.line, `'${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}) — same attributes and values, so only their order tells them apart; give each a differentia (a distinguishing attribute or value), or add a '...' Map under '${node.name}' if those differences are still to come`);
+    eachDuplicate(bySlots, (c, where, group, others) => {
+      report.warn(c.line, `'${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}) — same attributes and values, so only their order tells them apart; give each a differentia (a distinguishing attribute or value), or add a '...' Map under '${node.name}' if those differences are still to come`,
+        { related: others.map((o) => ({ line: o.line, message: `'${o.name}' shares the same slots` })) });
     });
   }
 }

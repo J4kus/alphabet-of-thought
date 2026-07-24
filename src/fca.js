@@ -254,12 +254,20 @@ function suggest(root, nodes) {
   // drift: an Example that satisfies a Concept's full intent but
   // sits elsewhere. Report only the most specific Concept(s) per
   // Example — matching a sub-Concept implies matching its ancestors.
+  // A `...` on either side of the fence — a Map child, or the Example form
+  // `- ...` as armstrong reads it — declares that side intentionally
+  // incomplete, so drift over it is provisional and not reported: neither
+  // toward an open Concept, nor away from an open home (and an ellipsis
+  // Example itself never drifts).
+  const open = (n) => incomplete(n)
+    || n.children.some((c) => c.kind === INDIVIDUAL && c.name.trim() === "...");
   const driftByObject = new Map();
   for (const [c, info] of infos) {
-    if (c === root || !info.intent.size || vacuous.has(c) || allInherited(c, info)) continue;
+    if (c === root || !info.intent.size || vacuous.has(c) || allInherited(c, info) || open(c)) continue;
     for (const g of objects) {
       if (info.extent.includes(g)) continue;
-      if (!ownsAttr(homeOf(g))) continue;
+      if (g.name.trim() === "...") continue;
+      if (!ownsAttr(homeOf(g)) || open(homeOf(g))) continue;
       if (isSuperset(intents.get(g), info.intent)) {
         if (!driftByObject.has(g)) driftByObject.set(g, []);
         driftByObject.get(g).push(c);

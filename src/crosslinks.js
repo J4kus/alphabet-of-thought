@@ -35,7 +35,7 @@
 // (link decorations + go-to-definition).
 
 const { KIND } = require("./linter");
-const { valueType } = require("./table"); // a leaf module; no cycle
+const { valueType, numberless } = require("./table"); // a leaf module; no cycle
 
 // Start offset of every word in a name, so a matched trailing run of
 // words maps back to the exact characters on the line.
@@ -61,18 +61,23 @@ function words(name) {
 function index(root, nodes) {
   const concepts = new Map(); // lowercased name -> defining node
   const individuals = new Map(); // lowercased name -> defining node
-  concepts.set(root.name.toLowerCase(), root);
+  // a numbering prefix (`1. Trip`) is presentation: the name resolves with
+  // and without it, so `trip` still types by `1. Trip`
+  const put = (map, name, node) => {
+    const key = name.toLowerCase();
+    if (!map.has(key)) map.set(key, node);
+    const plain = numberless(name).toLowerCase();
+    if (plain && !map.has(plain)) map.set(plain, node);
+  };
+  put(concepts, root.name, root);
   for (const node of nodes) {
-    if (node.kind === KIND.CONCEPT && !concepts.has(node.name.toLowerCase()))
-      concepts.set(node.name.toLowerCase(), node);
-    if (node.kind === KIND.INDIVIDUAL && !individuals.has(node.name.toLowerCase()))
-      individuals.set(node.name.toLowerCase(), node);
+    if (node.kind === KIND.CONCEPT) put(concepts, node.name, node);
+    if (node.kind === KIND.INDIVIDUAL) put(individuals, node.name, node);
   }
   // a Concept's alias is an alternative name for it, so it resolves wherever
   // the name would; registered after the names so a real name always wins
   for (const node of nodes) {
-    if (node.kind === KIND.CONCEPT && node.alias && !concepts.has(node.alias.toLowerCase()))
-      concepts.set(node.alias.toLowerCase(), node);
+    if (node.kind === KIND.CONCEPT && node.alias) put(concepts, node.alias, node);
   }
   return { concepts, individuals };
 }
@@ -110,10 +115,17 @@ function owningConcept(node) {
 // name with several, so resolution picks the one in the attribute's scope.
 function individualsIndex(nodes) {
   const byName = new Map();
+  const push = (key, n) => {
+    const list = byName.get(key);
+    if (list) { if (!list.includes(n)) list.push(n); } else byName.set(key, [n]);
+  };
   for (const n of nodes) {
     if (n.kind !== KIND.INDIVIDUAL) continue;
-    const list = byName.get(n.name.toLowerCase());
-    if (list) list.push(n); else byName.set(n.name.toLowerCase(), [n]);
+    push(n.name.toLowerCase(), n);
+    // a numbering prefix (`1. day 1`) is presentation: the plain name
+    // resolves to the numbered Example too
+    const plain = numberless(n.name).toLowerCase();
+    if (plain && plain !== n.name.toLowerCase()) push(plain, n);
   }
   return byName;
 }
@@ -149,9 +161,12 @@ function listedTarget(node, concepts, byName) {
 // its alias counts too, so a value of `type (category)` links against an
 // Example filed under `category`. Names are matched case-insensitively.
 function instantiates(node, attrName) {
-  const want = attrName.toLowerCase();
+  // numbering prefixes are presentation: `operation` still names the
+  // ancestor `1. Operation`
+  const want = numberless(attrName).toLowerCase();
   for (let a = node.parent; a; a = a.parent) {
-    if (a.name.toLowerCase() === want || (a.alias && a.alias.toLowerCase() === want)) return true;
+    if (numberless(a.name).toLowerCase() === want
+      || (a.alias && a.alias.toLowerCase() === want)) return true;
   }
   return false;
 }
@@ -231,7 +246,9 @@ function unlistedValues(text, root, nodes, external) {
     out.push({
       line: node.line,
       startCol,
-      endCol: startCol + node.value.length,
+      // a wrapped cell's value grows past its own line; the hint pins to
+      // the first fragment's span (valueSpan), never past the line's end
+      endCol: startCol + (node.valueSpan !== undefined ? node.valueSpan : node.value.length),
       value: node.value,
       concept: type,
       message: `'${node.value}' is not an Example of Concept '${type.name}' — its Examples are ${shown}`,
@@ -247,18 +264,28 @@ function unlistedValues(text, root, nodes, external) {
 function externalIndex(entries) {
   const concepts = new Map();    // lowercased name -> { node, file }
   const individuals = new Map(); // lowercased name -> [{ node, file }]
+  const putConcept = (name, entry) => {
+    const key = name.toLowerCase();
+    if (!concepts.has(key)) concepts.set(key, entry);
+    const plain = numberless(name).toLowerCase();
+    if (plain && !concepts.has(plain)) concepts.set(plain, entry);
+  };
+  const putIndividual = (key, entry) => {
+    if (individuals.has(key)) individuals.get(key).push(entry);
+    else individuals.set(key, [entry]);
+  };
   for (const { file, root, nodes } of entries) {
-    if (root && !concepts.has(root.name.toLowerCase())) concepts.set(root.name.toLowerCase(), { node: root, file });
+    if (root) putConcept(root.name, { node: root, file });
     for (const n of nodes) {
-      if (n.kind === KIND.CONCEPT && !concepts.has(n.name.toLowerCase())) concepts.set(n.name.toLowerCase(), { node: n, file });
+      if (n.kind === KIND.CONCEPT) putConcept(n.name, { node: n, file });
       if (n.kind === KIND.INDIVIDUAL) {
-        const k = n.name.toLowerCase();
-        if (individuals.has(k)) individuals.get(k).push({ node: n, file });
-        else individuals.set(k, [{ node: n, file }]);
+        putIndividual(n.name.toLowerCase(), { node: n, file });
+        const plain = numberless(n.name).toLowerCase();
+        if (plain && plain !== n.name.toLowerCase()) putIndividual(plain, { node: n, file });
       }
     }
     for (const n of nodes) {
-      if (n.kind === KIND.CONCEPT && n.alias && !concepts.has(n.alias.toLowerCase())) concepts.set(n.alias.toLowerCase(), { node: n, file });
+      if (n.kind === KIND.CONCEPT && n.alias) putConcept(n.alias, { node: n, file });
     }
   }
   return { concepts, individuals };
@@ -424,7 +451,9 @@ function resolve(text, root, nodes, external) {
           connection: "default-is-a-Example",
           line: node.line,
           startCol: valueStart,
-          endCol: valueStart + node.value.length,
+          // a wrapped cell's value grows past its own line; the link pins
+          // to the first fragment's span (valueSpan)
+          endCol: valueStart + (node.valueSpan !== undefined ? node.valueSpan : node.value.length),
           text: node.value,
           target,
         });

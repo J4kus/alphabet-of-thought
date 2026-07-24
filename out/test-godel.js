@@ -76,6 +76,11 @@ const clash = [
   buildGodel(root, nodes);
   check("identical content -> equal G", a.godel === b.godel && a.godel > 1n);
   const report = clashes(root, nodes);
+  const pair = report.findings.filter((f) => f.kind === "content");
+  check("clash: both twins report, each related to the other",
+    pair.length === 2
+    && pair[0].line === a.line && pair[1].line === b.line
+    && pair[0].related[0].line === b.line && pair[1].related[0].line === a.line);
   check(
     "clash: identical-content finding for the twins",
     report.findings.some((f) => /^clash:/.test(f.message) && f.message.includes("identical attributes and values")),

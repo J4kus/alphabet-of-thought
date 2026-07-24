@@ -132,20 +132,28 @@ function underWorkspace(doc) {
 // a warning, not a violation — one name should mean one thing across a repo.
 function duplicateConceptWarnings(doc, nodes) {
   const here = fileKey(doc.fileName || "");
-  const elsewhere = new Map(); // lowercased name -> { file, line }
+  const elsewhere = new Map(); // lowercased name -> { fsPath, line, node }
   for (const [fsPath, v] of workspaceIndex) {
     if (fsPath === here) continue;
     for (const n of v.nodes) {
       if (n.kind !== KIND.CONCEPT) continue;
-      const k = n.name.toLowerCase();
-      if (!elsewhere.has(k)) elsewhere.set(k, { file: path.basename(v.fsPath), line: n.line });
+      const k = table.numberless(n.name).toLowerCase();
+      if (!elsewhere.has(k)) elsewhere.set(k, { fsPath: v.fsPath, line: n.line, node: n });
     }
   }
   const out = [];
   for (const n of nodes) {
     if (n.kind !== KIND.CONCEPT) continue;
-    const dup = elsewhere.get(n.name.toLowerCase());
-    if (dup) out.push({ line: n.line, message: `Concept '${n.name}' is also defined in ${dup.file}:${dup.line} — one name should mean one thing across the repo; qualify one, or make them the same idea in a shared file` });
+    const dup = elsewhere.get(table.numberless(n.name).toLowerCase());
+    if (dup) {
+      const file = path.basename(dup.fsPath);
+      out.push({
+        line: n.line,
+        message: `Concept '${n.name}' is also defined in ${file}:${dup.line} — one name should mean one thing across the repo; qualify one, or make them the same idea in a shared file.`
+          + derive.conceptDiffClause(n, dup.node),
+        related: [{ file: dup.fsPath, line: dup.line, message: `'${dup.node.name}' defined in ${file}` }],
+      });
+    }
   }
   return out;
 }
@@ -263,6 +271,19 @@ function decorate(editor, decorationTypes) {
 // never while an edit burst is still held — type `total: =sum($price)`,
 // move off the line, and the value materialises in front of the formula;
 // change a cell a table formula reads, and the formula's cell follows.
+// A { line, text } edit from table.align/recomputeAll may instead span a
+// whole block ({ line, to }, both 1-based, inclusive) when cell wrapping
+// changed the block's line count; text then holds the block's lines joined
+// with '\n'. One range/text pair serves either shape, the text's newlines
+// following the document's EOL.
+function lineEditRange(doc, e) {
+  const last = (e.to || e.line) - 1;
+  return new vscode.Range(e.line - 1, 0, last, doc.lineAt(last).text.length);
+}
+function lineEditText(doc, e) {
+  return doc.eol === vscode.EndOfLine.CRLF ? e.text.replace(/\n/g, "\r\n") : e.text;
+}
+
 // Tracked per document, so one document's in-flight fill never swallows
 // another document's genuine keystrokes.
 const autoComputing = new Set(); // uri strings with a fill in flight
@@ -291,11 +312,14 @@ async function autoComputeValues(doc, analysis, force) {
       if (sel && sel.active) busy.add(sel.active.line);
     }
   }
-  edits = edits.filter((e) => !busy.has(e.line - 1));
+  edits = edits.filter((e) => {
+    for (let l = e.line; l <= (e.to || e.line); l++) if (busy.has(l - 1)) return false;
+    return true;
+  });
   if (!edits.length) return;
   const fill = new vscode.WorkspaceEdit();
-  for (const { line, text } of edits) {
-    fill.replace(doc.uri, doc.lineAt(line - 1).range, text);
+  for (const e of edits) {
+    fill.replace(doc.uri, lineEditRange(doc, e), lineEditText(doc, e));
   }
   autoComputing.add(key);
   try { await vscode.workspace.applyEdit(fill); } finally { autoComputing.delete(key); }
@@ -304,7 +328,7 @@ async function autoComputeValues(doc, analysis, force) {
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
   const { errors, warnings, hints, root, nodes } = analyse(doc);
-  const toDiagnostic = (severity) => ({ line, message, startCol, endCol }) => {
+  const toDiagnostic = (severity) => ({ line, message, startCol, endCol, related }) => {
     // lines are 1-based; a finding that carries columns (a table cell)
     // squiggles just that span, otherwise the whole line's content
     const at = Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
@@ -313,6 +337,22 @@ function refresh(diagnostics, decorationTypes, doc) {
       : doc.lineAt(at).range;
     const diagnostic = new vscode.Diagnostic(range, message, severity);
     diagnostic.source = "aot";
+    // a finding naming partner locations (the other half of a duplicate)
+    // carries them as clickable related information — in this file when the
+    // partner has no file, else in the named one (whole-line: another file's
+    // line length is unknown here, and the editor clamps the range)
+    if (related && related.length) {
+      diagnostic.relatedInformation = related.map((r) => {
+        const rAt = Math.max(r.line - 1, 0);
+        const rRange = r.startCol !== undefined
+          ? new vscode.Range(rAt, r.startCol, rAt, r.endCol)
+          : !r.file && rAt < doc.lineCount
+            ? doc.lineAt(rAt).range
+            : new vscode.Range(rAt, 0, rAt, 400);
+        const uri = r.file ? vscode.Uri.file(r.file) : doc.uri;
+        return new vscode.DiagnosticRelatedInformation(new vscode.Location(uri, rRange), r.message);
+      });
+    }
     return diagnostic;
   };
   // the linter's verdict is a problem: errors (V != 0) squiggle red and
@@ -502,44 +542,80 @@ function archivedValues(doc, conceptName) {
 // the same rule the unlisted-value hint applies — so those are the
 // suggestions, with the Concept's archived CSV folded in beside them and
 // marked as such.
+// The dropdown a Concept-typed attribute offers: the Concept's Examples
+// first, its archived CSV values after — shared by the line form and the
+// table cells, so the two spellings behave identically.
+function valueItemsFor(doc, type) {
+  const items = [];
+  const seen = new Set();
+  const push = (text, detail, kind, group, i) => {
+    if (seen.has(text.toLowerCase())) return;
+    seen.add(text.toLowerCase());
+    const it = new vscode.CompletionItem(text, kind);
+    it.detail = detail;
+    it.sortText = group + String(i).padStart(3, "0");
+    items.push(it);
+  };
+  listedExamples(type).forEach((ex, i) =>
+    push(ex.name, `Example of ${type.name}`, vscode.CompletionItemKind.EnumMember, "0", i));
+  // the archive comes second: a value that was real once, but is not now
+  archivedValues(doc, type.name).forEach((v, i) =>
+    push(v, `archived in _${csvName(type.name)}`, vscode.CompletionItemKind.Value, "1", i));
+  return items;
+}
+
+// The same dropdown inside a table cell: the cursor's column may be typed by
+// a Concept (its header cell names one, or carries one as an (alias)), and
+// then the cell's value is one of that Concept's Examples. A value the list
+// lacks still hints once written (unlistedValues), and its Quick Fix lists
+// it under the Concept — so picking from the dropdown and coining a fresh
+// Example both keep the model whole.
+function tableCellItems(doc, position, line, parsed) {
+  if (table.isSeparator(line.trim())) return [];
+  const lines = doc.getText().split(/\r?\n/);
+  const block = table.blockAt(lines, position.line);
+  if (!block || position.line === block.start) return []; // no block, or the header row itself
+  if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) return []; // headerless
+  const col = table.colAt(line, position.character);
+  if (col === 0) return []; // the name column declares Examples, not values
+  const cell = table.cells(line)[col];
+  if (cell && cell.text.slice(0, Math.max(0, position.character - cell.col)).includes("=")) return []; // a formula
+  const span = table.cells(lines[block.start])[col];
+  if (!span) return [];
+  const attr = parsed.nodes.find((n) => n.kind === KIND.ATTRIBUTE && n.cell
+    && n.line === block.start + 1
+    && n.nameCol >= span.col && n.nameCol <= span.col + span.text.length);
+  if (!attr) return [];
+  const type = conceptType(attr, crosslinkIndex(parsed.root, parsed.nodes).concepts);
+  if (!type) return [];
+  return valueItemsFor(doc, type);
+}
+
 const valueCompletion = {
   provideCompletionItems(doc, position) {
     // the cheap guards first: this runs on every keystroke, and only a value
-    // being typed (never a formula, never a table cell) has values to offer
+    // being typed (never a formula) has values to offer
     const line = doc.lineAt(position.line).text;
-    if (line.trimStart().startsWith("|")) return [];
+    // the last analysis, as the hover and the inlay chains do: completion
+    // fires on every keystroke, and re-linting the document each time to
+    // suggest a value would be paying the linter's price for the editor's
+    let parsed;
+    if (line.trimStart().startsWith("|")) {
+      try { parsed = analysisByDoc.get(doc.uri.toString()) || analyse(doc); } catch { return []; }
+      return tableCellItems(doc, position, line, parsed);
+    }
     const colon = line.indexOf(":");
     if (colon === -1 || position.character <= colon) return [];
     const typed = line.slice(colon + 1, position.character);
     if (typed.includes("=")) return [];
 
-    // the last analysis, as the hover and the inlay chains do: completion
-    // fires on every keystroke, and re-linting the document each time to
-    // suggest a value would be paying the linter's price for the editor's
-    let parsed;
     try { parsed = analysisByDoc.get(doc.uri.toString()) || analyse(doc); } catch { return []; }
     const node = parsed.nodes.find((n) => n.line === position.line + 1
       && (n.kind === KIND.DEFAULT || n.kind === KIND.ATTRIBUTE) && !n.cell);
     if (!node) return [];
     const type = conceptType(node, crosslinkIndex(parsed.root, parsed.nodes).concepts);
     if (!type) return [];
-
-    const items = [];
-    const seen = new Set();
-    const push = (text, detail, kind, group, i) => {
-      if (seen.has(text.toLowerCase())) return;
-      seen.add(text.toLowerCase());
-      const it = new vscode.CompletionItem(text, kind);
-      it.detail = detail;
-      it.sortText = group + String(i).padStart(3, "0");
-      items.push(it);
-    };
-    listedExamples(type).forEach((ex, i) =>
-      push(ex.name, `Example of ${type.name}`, vscode.CompletionItemKind.EnumMember, "0", i));
-    // the archive comes second: a value that was real once, but is not now
-    archivedValues(doc, type.name).forEach((v, i) =>
-      push(v, `archived in _${csvName(type.name)}`, vscode.CompletionItemKind.Value, "1", i));
-    return items;
+    return valueItemsFor(doc, type);
   },
 };
 
@@ -943,6 +1019,59 @@ function renameSpans(doc, analysis, registry, records, target) {
   return { decl, uses };
 }
 
+// Numbered Examples renumber themselves on save and on Format Document:
+// once any Example under a Concept starts `N. `, all of that Concept's
+// Examples take the sequential prefix, and every same-file reference to a
+// renamed Example — crosslinks, formula references, table name cells —
+// follows through the rename engine, the exact spans F2 would edit.
+// Returns whole-line rewrites ({ line, text }, 1-based) against the
+// document as it stands; the caller folds them in with the align and
+// recompute edits (dropping those on lines renumbering rewrites, since a
+// renumbered line makes them stale — the next save re-aligns).
+function renumberEdits(doc) {
+  let analysis;
+  try { analysis = analyse(doc); } catch { return []; }
+  const pairs = [];
+  for (const c of [analysis.root, ...analysis.nodes]) {
+    if (!c || c.kind !== KIND.CONCEPT) continue;
+    const changes = derive.renumberExamples(c);
+    if (changes) pairs.push(...changes);
+  }
+  // Concept numbering (`1. ` / `1.1 ` / `1.1.1 `) renames declarations
+  // only: resolution strips the prefix (table.numberless), so crosslinks,
+  // typed attributes and formulas keep working without a rename cascade.
+  const conceptPairs = derive.renumberConcepts(analysis.root, analysis.nodes);
+  if (!pairs.length && !conceptPairs.length) return [];
+  const registry = formulaRegistry(doc, analysis);
+  const records = renameRecords(doc, analysis, registry);
+  const byLine = new Map(); // 1-based line -> its spans with replacements
+  for (const { node, newName } of pairs) {
+    const { decl, uses } = renameSpans(doc, analysis, registry, records, node);
+    for (const s of [...decl, ...uses]) {
+      const old = doc.lineAt(s.line - 1).text.slice(s.startCol, s.endCol);
+      // case follows the span, exactly as F2 renames (renameProvider)
+      const text = old === old.toLowerCase() ? newName.toLowerCase() : newName;
+      if (old === text) continue;
+      if (!byLine.has(s.line)) byLine.set(s.line, []);
+      byLine.get(s.line).push({ startCol: s.startCol, endCol: s.endCol, text });
+    }
+  }
+  for (const { node, newName } of conceptPairs) {
+    const start = nameStartOf(doc, node);
+    if (!byLine.has(node.line)) byLine.set(node.line, []);
+    byLine.get(node.line).push({ startCol: start, endCol: start + node.name.length, text: newName });
+  }
+  const out = [];
+  for (const [line, spans] of byLine) {
+    let text = doc.lineAt(line - 1).text;
+    for (const s of spans.sort((a, b) => b.startCol - a.startCol)) {
+      text = text.slice(0, s.startCol) + s.text + text.slice(s.endCol);
+    }
+    out.push({ line, text });
+  }
+  return out;
+}
+
 const renameProvider = {
   prepareRename(doc, position) {
     const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
@@ -1044,10 +1173,14 @@ const inlayProvider = {
     const hinted = new Set();
     const out = [];
     for (const link of analysis.links) {
+      // only an attribute typed by a Concept *depends* on it — a Concept
+      // crosslinking another (contained name, alias) names a kind and
+      // inherits nothing, so no dependency arrow rides those lines
+      if (link.connection !== "attribute-is-a-Concept") continue;
       const line = link.line - 1;
       if (line < range.start.line || line > range.end.line || hinted.has(line)) continue;
       if (line >= doc.lineCount) continue;
-      const start = link.target.kind === KIND.INDIVIDUAL ? owningConcept(link.target) : link.target;
+      const start = link.target;
       if (!start) continue;
       const found = chainsOf(start);
       if (!found.length) continue;
@@ -1070,13 +1203,36 @@ const inlayProvider = {
 // is read back out of the message (both formats are this extension's own).
 const ACCEPT_SPELLING = /^'(.+)' is not in the dictionary/;
 const ACCEPT_PLURAL = /^Concept '(.+)' appears plural/;
+// a spelling hint carrying suggestions also offers to *apply* one: the
+// suggestions are read back out of the message (the extension's own format,
+// spelling.js), and with a single suggestion the fix is preferred, so
+// Auto Fix / Ctrl+. Enter applies it in one stroke
+const SPELLING_SUGGEST = /^'.+' is not in the dictionary — did you mean (.+)\?$/;
 // the lightbulb on an unlisted value lists it as an Example of the Concept
 // that types its attribute; both names are read back out of the message,
 // which is this extension's own (crosslinks.unlistedValues)
 const UNLISTED_VALUE = /^'(.+)' is not an Example of Concept '(.+)' —/;
+// the lightbulb on a repo-wide duplicate Concept reconciles the two: the
+// definition the Fix is invoked on stays the main one, the other file's
+// facts merge into it and its definition is deleted there (aot.reconcileConcept)
+const DUP_CONCEPT = /^Concept '(.+)' is also defined in /;
 const codeActionProvider = {
   provideCodeActions(doc, range, context) {
     const actions = [];
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot") continue;
+      const suggest = SPELLING_SUGGEST.exec(diagnostic.message);
+      if (!suggest) continue;
+      const words = suggest[1].split(", ").map((s) => s.replace(/^'|'$/g, ""));
+      words.forEach((word) => {
+        const fix = new vscode.CodeAction(`Replace with '${word}'`, vscode.CodeActionKind.QuickFix);
+        fix.diagnostics = [diagnostic];
+        fix.edit = new vscode.WorkspaceEdit();
+        fix.edit.replace(doc.uri, diagnostic.range, word);
+        fix.isPreferred = words.length === 1;
+        actions.push(fix);
+      });
+    }
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
       const spelt = ACCEPT_SPELLING.exec(diagnostic.message);
@@ -1103,6 +1259,17 @@ const codeActionProvider = {
         title: `Add '${value}' as an Example of '${concept}'`,
         arguments: [value, concept],
       };
+      actions.push(action);
+    }
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot") continue;
+      const dup = DUP_CONCEPT.exec(diagnostic.message);
+      if (!dup) continue;
+      const action = new vscode.CodeAction(
+        `Reconcile: keep this '${dup[1]}' (merge the other file's facts here, delete it there)`,
+        vscode.CodeActionKind.QuickFix);
+      action.diagnostics = [diagnostic];
+      action.command = { command: "aot.reconcileConcept", title: `Reconcile '${dup[1]}'`, arguments: [dup[1]] };
       actions.push(action);
     }
     // a stale formula/value offers the one command that fixes them all
@@ -1207,6 +1374,95 @@ async function addExample(value, conceptName) {
     `AOT: '${value}' listed as an Example of '${concept.name}' (line ${at + 1})`, 5000);
 }
 
+// AOT: Reconcile Concept — the lightbulb on a repo-wide duplicate. The
+// definition in the current file becomes the main one: everything the other
+// file's definition asserts that this one does not (attributes, values,
+// Examples) merges here, the other definition is deleted there, and both
+// files save — the saves reindex and refresh peers, so both warnings clear.
+async function reconcileConcept(conceptName) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "aot") return;
+  const doc = editor.document;
+  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
+  const { root, nodes } = lint(doc.getText(), rootName);
+  const key = conceptName.toLowerCase();
+  const kept = nodes.find((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === key);
+  if (!kept) {
+    vscode.window.showWarningMessage(`AOT: this file no longer defines the Concept '${conceptName}'.`);
+    return;
+  }
+  // the other definers, fresh from the index — the diagnostic may be stale
+  const here = fileKey(doc.fileName || "");
+  const definers = [];
+  for (const [k, v] of workspaceIndex) {
+    if (k === here) continue;
+    if (v.nodes.some((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === key)) definers.push(v.fsPath);
+  }
+  if (!definers.length) {
+    vscode.window.showInformationMessage(`AOT: no other file defines '${conceptName}' any more.`);
+    return;
+  }
+  let otherPath = definers[0];
+  if (definers.length > 1) {
+    const pick = await vscode.window.showQuickPick(
+      definers.map((p) => ({ label: path.basename(p), description: p })),
+      { placeHolder: `'${conceptName}' is defined in ${definers.length} other files — absorb which one?` });
+    if (!pick) return;
+    otherPath = pick.description;
+  }
+  // the other file's live text: an open dirty buffer beats the index's copy
+  const otherDoc = await vscode.workspace.openTextDocument(otherPath);
+  const otherRootName = path.basename(otherDoc.fileName).replace(/\.[^.]*$/, "");
+  const otherParsed = lint(otherDoc.getText(), otherRootName);
+  const other = otherParsed.nodes.find((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === key);
+  if (!other) {
+    vscode.window.showInformationMessage(`AOT: ${path.basename(otherPath)} no longer defines '${conceptName}'.`);
+    return;
+  }
+  const lines = doc.getText().split(/\r?\n/);
+  const otherLines = otherDoc.getText().split(/\r?\n/);
+  const ops = derive.mergeConceptOps(
+    lines, otherLines, kept, other, rootName, formulaRegistry(doc, { root, nodes }));
+  if (!ops) {
+    vscode.window.showWarningMessage(
+      `AOT: '${other.name}' in ${path.basename(otherPath)} has sub-Concepts — move those out by hand before reconciling.`);
+    return;
+  }
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const edit = new vscode.WorkspaceEdit();
+  // merge into this file, bottom-up so no op shifts the lines under another
+  const lineOf = (op) => (op.type === "replace" ? op.line : op.type === "block" ? op.from + 1 : op.afterLine);
+  for (const op of [...ops].sort((a, b) => lineOf(b) - lineOf(a))) {
+    if (op.type === "block") {
+      const range = new vscode.Range(op.from, 0, op.to, doc.lineAt(op.to).text.length);
+      edit.replace(doc.uri, range, op.block.join(eol));
+    } else if (op.type === "replace") {
+      edit.replace(doc.uri, doc.lineAt(op.line - 1).range, op.text);
+    } else if (op.afterLine >= doc.lineCount) {
+      const last = doc.lineCount - 1;
+      edit.replace(doc.uri, doc.lineAt(last).range, doc.lineAt(last).text + eol + op.text);
+    } else {
+      edit.insert(doc.uri, new vscode.Position(op.afterLine, 0), op.text + eol);
+    }
+  }
+  // delete the other definition's whole subtree there (its trailing newline
+  // too, or the preceding one when the subtree ends the file)
+  const from = other.line - 1;
+  const to = derive.lastLineOf(other) - 1;
+  const range = to + 1 < otherDoc.lineCount
+    ? new vscode.Range(from, 0, to + 1, 0)
+    : new vscode.Range(
+      from > 0 ? from - 1 : from,
+      from > 0 ? otherDoc.lineAt(from - 1).text.length : 0,
+      to, otherDoc.lineAt(to).text.length);
+  edit.delete(otherDoc.uri, range);
+  await vscode.workspace.applyEdit(edit);
+  await doc.save();
+  await otherDoc.save();
+  vscode.window.setStatusBarMessage(
+    `AOT: '${kept.name}' reconciled — merged from ${path.basename(otherPath)} and deleted there`, 5000);
+}
+
 // AOT: Recompute Formulas — one pass over the whole document: every table
 // re-aligned and recomputed, every line-form '=' value refreshed.
 function recomputeFormulas(editor) {
@@ -1219,7 +1475,7 @@ function recomputeFormulas(editor) {
   const edits = [...table.align(doc.getText(), reg, rootName), ...derive.recomputeValues(root, nodes, lines, reg)];
   if (!edits.length) return;
   return editor.edit((b) => {
-    for (const { line, text } of edits) b.replace(doc.lineAt(line - 1).range, text);
+    for (const e of edits) b.replace(lineEditRange(doc, e), lineEditText(doc, e));
   });
 }
 
@@ -1550,7 +1806,14 @@ const semanticProvider = {
       } else if (node.kind === KIND.INDIVIDUAL && node.nameCol !== undefined && node.name) {
         builder.push(node.line - 1, node.nameCol, node.name.length, EXAMPLE_TOKEN);
       } else if (node.kind === KIND.DEFAULT && node.cell && node.value) {
-        builder.push(node.line - 1, node.valueCol, node.value.length, VALUE_TOKEN);
+        // a wrapped cell's value grows past its own line: the first
+        // fragment's span (valueSpan) colours here, each continuation
+        // fragment on its own line after
+        builder.push(node.line - 1, node.valueCol,
+          node.valueSpan !== undefined ? node.valueSpan : node.value.length, VALUE_TOKEN);
+        for (const c of node.continuations || []) {
+          builder.push(c.line - 1, c.startCol, c.endCol - c.startCol, VALUE_TOKEN);
+        }
       }
     }
     // everything from an operator to its end is derivation text — a cell
@@ -1581,13 +1844,20 @@ function runTableOp(editor, op) {
   const pos = editor.selection.active;
   const block = table.blockAt(lines, pos.line);
   if (!block) return;
-  const target = op(block, pos.line - block.start, table.colAt(lines[pos.line], pos.character));
+  // width-cookie tables: continuation rows collapse before any op, so the
+  // ops travel logical rows; render() wraps them back out and physStart
+  // maps the target row to its first drawn line
+  const toLogical = table.unwrapWithMap(block);
+  const cursorRow = toLogical ? toLogical[pos.line - block.start] : pos.line - block.start;
+  const target = op(block, cursorRow, table.colAt(lines[pos.line], pos.character));
   if (!target) return;
   table.recompute(block, formulaRegistry(doc)); // every table keystroke recalculates, as org's TAB does
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
-    const line = block.start + target.row;
+    const phys = block.physStart && block.physStart[target.row] !== undefined
+      ? block.physStart[target.row] : target.row;
+    const line = block.start + phys;
     const character = table.cellStart(block, target.col);
     editor.selection = new vscode.Selection(line, character, line, character);
     editor.revealRange(new vscode.Range(line, character, line, character));
@@ -1651,6 +1921,7 @@ function shiftTableIndent(editor, dir) {
     : block.indent.slice(0, Math.max(0, block.indent.length - INDENT));
   if (next === block.indent) return;
   block.indent = next;
+  table.unwrap(block); // logical rows for the recompute; render re-wraps
   table.recompute(block, formulaRegistry(doc));
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
@@ -1799,6 +2070,17 @@ function activate(context) {
     timers.set(doc.uri.toString(),
       setTimeout(() => refresh(diagnostics, decorationTypes, doc), DEBOUNCE_MS));
   };
+  // Cross-file findings (duplicate Concepts, crosslinks) are computed from
+  // the workspace index at each document's own analyse — so when one file's
+  // entry changes, every *other* open .aot must re-analyse or its squiggles
+  // go stale (a duplicate warning surviving the other definition's deletion).
+  const refreshPeers = (changedFsPath) => {
+    for (const d of vscode.workspace.textDocuments) {
+      if (d.languageId !== "aot") continue;
+      if (changedFsPath && fileKey(d.fileName) === fileKey(changedFsPath)) continue;
+      refreshSoon(d);
+    }
+  };
 
   // the lone-sub warnings' short grace (see hold.js and refresh)
   const releaseHold = (doc) => {
@@ -1862,8 +2144,9 @@ function activate(context) {
     vscode.languages.registerInlayHintsProvider({ language: "aot" }, inlayProvider),
     // typing '@' in a formula suggests the columns and Examples to reference
     vscode.languages.registerCompletionItemProvider({ language: "aot" }, referenceCompletion, "@"),
-    // the values an attribute's Concept vouches for, live and archived
-    vscode.languages.registerCompletionItemProvider({ language: "aot" }, valueCompletion),
+    // the values an attribute's Concept vouches for, live and archived —
+    // '|' also triggers it, so entering a fresh table cell pops the list
+    vscode.languages.registerCompletionItemProvider({ language: "aot" }, valueCompletion, "|"),
     // URLs and file-path values are Ctrl+clickable — a URL opens externally
     // (hover fetches its metadata), a file opens in the editor. A file cited
     // by an outside path opens its aot.files copy when one of its name is
@@ -1887,6 +2170,8 @@ function activate(context) {
     vscode.commands.registerCommand("aot.acceptWord", acceptWord),
     // the Quick Fix that lists an unlisted value as an Example of its Concept
     vscode.commands.registerCommand("aot.addExample", addExample),
+    // the Quick Fix that reconciles a repo-wide duplicate Concept
+    vscode.commands.registerCommand("aot.reconcileConcept", reconcileConcept),
     // the Quick Fix that brings a cited file into the repo's own file store
     vscode.commands.registerCommand("aot.copyFileIntoRepo", copyFileIntoRepo),
     // a settings change (accepted words, spelling toggle, ...) re-lints
@@ -1897,15 +2182,24 @@ function activate(context) {
     }),
     // Format Document re-aligns every table's columns, as org-mode's TAB
     // does — each column padded to its widest cell, separators redrawn —
-    // and recomputes every line-form '=' value.
+    // recomputes every line-form '=' value, and renumbers `N. ` Examples.
     vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {
       provideDocumentFormattingEdits(doc) {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
         const { root, nodes } = lint(doc.getText(), rootName);
         const lines = doc.getText().split(/\r?\n/);
         const reg = formulaRegistry(doc);
-        return [...table.align(doc.getText(), reg, rootName), ...derive.recomputeValues(root, nodes, lines, reg)]
-          .map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
+        const renumber = renumberEdits(doc);
+        const renumbered = new Set(renumber.map((e) => e.line));
+        const overlaps = (e) => {
+          for (let l = e.line; l <= (e.to || e.line); l++) if (renumbered.has(l)) return true;
+          return false;
+        };
+        return [
+          ...[...table.align(doc.getText(), reg, rootName), ...derive.recomputeValues(root, nodes, lines, reg)]
+            .filter((e) => !overlaps(e)),
+          ...renumber,
+        ].map((e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e)));
       },
     }),
     // table cells coloured by their parsed kind, as their line forms are
@@ -1942,8 +2236,9 @@ function activate(context) {
       renameHint(event.textEditor);
     }),
     vscode.window.onDidChangeActiveTextEditor(updateTableContext),
-    // saving persists computed values: the recompute edits ride the save
-    // itself, so the file on disk always carries fresh values
+    // saving persists computed values and true numbering: the recompute and
+    // renumber edits ride the save itself, so the file on disk always
+    // carries fresh values and sequential `N. ` Examples
     vscode.workspace.onWillSaveTextDocument((event) => {
       const doc = event.document;
       if (doc.languageId !== "aot") return;
@@ -1951,17 +2246,29 @@ function activate(context) {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
         const { root, nodes } = lint(doc.getText(), rootName);
         const reg = formulaRegistry(doc);
+        const renumber = renumberEdits(doc);
+        const renumbered = new Set(renumber.map((e) => e.line));
+        const overlaps = (e) => {
+          for (let l = e.line; l <= (e.to || e.line); l++) if (renumbered.has(l)) return true;
+          return false;
+        };
         return [
-          ...derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), reg),
-          ...table.recomputeAll(doc.getText(), reg, rootName),
-        ].map(({ line, text }) => vscode.TextEdit.replace(doc.lineAt(line - 1).range, text));
+          ...[
+            ...derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), reg),
+            ...table.recomputeAll(doc.getText(), reg, rootName),
+          ].filter((e) => !overlaps(e)),
+          ...renumber,
+        ].map((e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e)));
       }));
     }),
     // the CSV mirror: .aot saves write the CSVs, CSV edits fold back in;
     // a save also releases any live hold — saving says "I am done here"
     vscode.workspace.onDidSaveTextDocument((doc) => {
       releaseHold(doc);
-      if (doc.languageId === "aot" && doc.fileName) reindexAot(doc.fileName, doc.getText());
+      if (doc.languageId === "aot" && doc.fileName) {
+        reindexAot(doc.fileName, doc.getText());
+        refreshPeers(doc.fileName);
+      }
       syncAotToCsv(doc);
     }),
   );
@@ -1977,10 +2284,15 @@ function activate(context) {
   const aotWatcher = vscode.workspace.createFileSystemWatcher("**/*.aot");
   const onAotFsEvent = (uri) => {
     try { reindexAot(uri.fsPath, fs.readFileSync(uri.fsPath, "utf8")); } catch { /* gone */ }
+    refreshPeers(uri.fsPath);
   };
   aotWatcher.onDidChange(onAotFsEvent);
   aotWatcher.onDidCreate(onAotFsEvent);
-  aotWatcher.onDidDelete((uri) => { workspaceIndex.delete(fileKey(uri.fsPath)); workspaceExternal = null; });
+  aotWatcher.onDidDelete((uri) => {
+    workspaceIndex.delete(fileKey(uri.fsPath));
+    workspaceExternal = null;
+    refreshPeers(uri.fsPath);
+  });
   context.subscriptions.push(aotWatcher);
 
   updateTableContext();

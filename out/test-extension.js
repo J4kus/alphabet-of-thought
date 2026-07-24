@@ -40,6 +40,7 @@ const vscode = {
   },
   Position: class { constructor(line, character) { Object.assign(this, { line, character }); } },
   Location: class { constructor(uri, range) { Object.assign(this, { uri, range }); } },
+  DiagnosticRelatedInformation: class { constructor(location, message) { Object.assign(this, { location, message }); } },
   ThemeColor: class { constructor(id) { this.id = id; } },
   languages: {
     createDiagnosticCollection: () => ({
@@ -934,6 +935,87 @@ const listed = [
   fs.rmSync(root, { recursive: true, force: true });
 })();
 
+// 6e) the same dropdown inside a table cell: a column typed by a Concept
+// offers that Concept's Examples; the name column and the header row offer
+// nothing (they declare, they don't value)
+{
+  const text = [
+    "Person",
+    "    - Socrates",
+    "Trip",
+    "    |name|person|",
+    "    |----+------|",
+    "    |T1  |      |",
+  ].join("\n");
+  const doc = makeDoc("c:\\repo\\Cells.aot", text);
+  const inCell = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(5, 11));
+  const labels = (inCell || []).map((i) => i.label);
+  console.log(labels.join(",") === "Socrates"
+    ? "PASS (value completion: a Concept-typed column's cell offers the Concept's Examples)"
+    : "UNEXPECTED table-cell completion " + JSON.stringify(labels));
+  const inName = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(5, 6));
+  const inHeader = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(3, 11));
+  console.log((inName || []).length === 0 && (inHeader || []).length === 0
+    ? "PASS (value completion: the name column and the header row are offered nothing)"
+    : "UNEXPECTED name/header completion " + JSON.stringify([inName, inHeader]));
+}
+
+// 6f) numbered Examples renumber on Format Document (and the same edits
+// ride every save): the first `N. ` opts the list in, stale and missing
+// numbers correct in listed order, and a same-file reference to a renamed
+// Example follows through the rename engine
+{
+  const text = [
+    "Recipe",
+    "    - 1. Mix",
+    "    - Bake",
+    "    - 4. Serve",
+    "Note",
+    "    recipe: 4. Serve",
+  ].join("\n");
+  const doc = makeDoc("c:\\repo\\Steps.aot", text);
+  const edits = formattingProvider.provideDocumentFormattingEdits(doc);
+  const byLine = new Map(edits.map((e) => [e.range.a[0], e.text]));
+  console.log(byLine.get(2) === "    - 2. Bake"
+    && byLine.get(3) === "    - 3. Serve"
+    && byLine.get(5) === "    recipe: 3. Serve"
+    ? "PASS (renumber: Format Document renumbers the list and its references)"
+    : "UNEXPECTED renumber edits " + JSON.stringify(edits));
+
+  // an unnumbered list is not opted in: formatting leaves it alone
+  const plain = makeDoc("c:\\repo\\Plain.aot", ["Recipe", "    - Mix", "    - Bake"].join("\n"));
+  console.log((formattingProvider.provideDocumentFormattingEdits(plain) || []).length === 0
+    ? "PASS (renumber: an unnumbered list is left exactly as written)"
+    : "UNEXPECTED renumber of an unnumbered list");
+}
+
+// 6g) Concept numbering: one `1. ` numbers every Concept on format — the
+// top level `N. `, sub-Concepts dotted — and an attribute still types by
+// the numbered Concept, because resolution strips the prefix
+{
+  const text = [
+    "1. Trip",
+    "    Day Trip",
+    "    - Weekend",
+    "Note",
+    "    trip: Weekend",
+  ].join("\n");
+  const doc = makeDoc("c:\\repo\\NumberedConcepts.aot", text);
+  const edits = formattingProvider.provideDocumentFormattingEdits(doc);
+  const byLine = new Map(edits.map((e) => [e.range.a[0], e.text]));
+  console.log(byLine.get(1) === "    1.1 Day Trip" && byLine.get(3) === "2. Note"
+    ? "PASS (concept numbering: '1. ' numbers the scope, dotted down the is-a chain)"
+    : "UNEXPECTED concept numbering " + JSON.stringify(edits));
+
+  const t = lint(text, "NumberedConcepts");
+  const links = resolve(text, t.root, t.nodes);
+  const typed = links.find((l) => l.connection === "attribute-is-a-Concept" && l.line === 5);
+  const value = links.find((l) => l.connection === "default-is-a-Example" && l.line === 5);
+  console.log(typed && typed.target.name === "1. Trip" && value && value.target.name === "Weekend"
+    ? "PASS (concept numbering: 'trip' still types by '1. Trip' — the prefix is presentation)"
+    : "UNEXPECTED numbered crosslinks " + JSON.stringify(links.map((l) => [l.connection, l.line])));
+}
+
 // 7b) cross-file: a crosslink whose target lives in another repo file
 // resolves and its go-to-definition opens that file; a Concept defined in
 // two files warns (repo-wide), without counting in V.
@@ -1561,6 +1643,17 @@ if (process.platform === "win32" || process.platform === "darwin") {
   console.log(hint && plural && acceptSpelt && acceptPlural
     ? "PASS (accept: both a spelling hint and a plural warning offer the Quick Fix)"
     : "UNEXPECTED accept actions " + JSON.stringify(actions.map((a) => a.title)));
+
+  // a suggestion also offers to be applied: one Replace fix per suggestion,
+  // preferred when it is the only one so Auto Fix applies it in a stroke
+  const replaceFixes = actions.filter((a) => a.title.startsWith("Replace with '"));
+  const lone = /did you mean '[^']+'\?$/.test(hint.message);
+  console.log(replaceFixes.length > 0
+    && replaceFixes.every((a) => a.edit && a.edit.ops[0].type === "replace" && a.edit.ops[0].range === hint.range)
+    && (!lone || (replaceFixes.length === 1 && replaceFixes[0].isPreferred === true))
+    && (lone || replaceFixes.every((a) => a.isPreferred === false))
+    ? "PASS (spelling: each suggestion offers Replace with 'X', preferred when it stands alone)"
+    : "UNEXPECTED replace fixes " + JSON.stringify(actions.map((a) => [a.title, a.isPreferred])));
 
   await plainCommands.get("aot.acceptWord")(...acceptSpelt.command.arguments);
   await plainCommands.get("aot.acceptWord")(...acceptPlural.command.arguments);

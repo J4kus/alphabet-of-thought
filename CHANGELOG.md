@@ -4,6 +4,20 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.8.0] - 2026-07-23
+
+**The editor keeps the model whole** — a duplicate shows both halves and offers to merge them, numbering maintains itself without breaking a reference, a wrapped table stays one table. Full write-up with runnable edge cases and the tests behind each: [docs/features-1.8.md](docs/features-1.8.md).
+
+- **Every duplicate reports at both of its places.** Same-file duplicate Concepts, identical siblings, shared aliases, differentia twins, case-twin Examples, Gödel clashes, and the cross-file duplicate all squiggle at **every** occurrence, each diagnostic carrying its partners as clickable related locations. Deleting one definition clears the other file's warning **live** — every open `.aot` re-analyses when the workspace index changes.
+- **A cross-file duplicate says how the two differ and reconciles on a click.** The warning ends with the computed difference (is-a home, attributes/Examples/values only one side carries, or `identical content`), and its lightbulb offers **Reconcile: keep this definition** — the other file's missing facts merge in (rows onto a table, `- ` lines otherwise), its block is deleted, both files save. A definition holding sub-Concepts refuses the automatic merge.
+- **Case never makes a second name.** Univocity, identical siblings, the file-name repeat, and the differentia signatures now compare case-insensitively, as references always resolved — `Foo`/`FOO` is one name to the checks too.
+- **Numbering** ([README](README.md#numbering)). `- 1. Mix` opts an Example list in: on save/format all siblings number sequentially and every same-file reference follows through the rename engine. `1. ` on a Concept numbers its whole scope — `1. `, `2. ` at the top, `1.1` / `1.1.1` down the is-a chain; a Concept under an Example/attribute numbers only that parent's Concepts. Deleting any one number strips the scope, parents included. Prefixes are **presentation, never identity**: resolution strips them, so `trip` still types by `1. Trip`, `@Trip@…` still resolves, and no reference is rewritten by numbering or un-numbering.
+- **A column can declare its width, and long cells wrap.** `|description <24>|` caps the column with an org-style cookie; longer plain cells wrap at word boundaries onto continuation rows (empty first cell), the value reading back joined — crosslinks, formulas, the CSV mirror, and rename all see the whole value. Name, header, and formula cells never wrap. Cookie-less tables are untouched, byte for byte.
+- **The Example dropdown works inside table cells.** A cell in a Concept-typed column offers that Concept's Examples (archived CSV values after), exactly as the line form does; `|` triggers it on entering a fresh cell.
+- **A spelling suggestion applies in one stroke.** Each suggestion is a **Replace with 'X'** Quick Fix, preferred when it stands alone — `Ctrl+.` `Enter` fixes it.
+- **Dependency arrows ride only on attributes.** The inlay chain (`→Person→Address`) appears only on attribute-is-a-Concept lines; a Concept containing or aliased to another names a kind, not a dependency, and carries no arrow.
+- **`...` quiets drift on either side.** No drift toward a Concept carrying `...` and none away from a home carrying it — Map child or `- ...` Example alike; what is missing is declared, not forgotten.
+
 ## [1.7.0] - 2026-07-19
 
 **Armstrong's axioms police the dependency graph.** The declared Concept-dependency graph — the one behind `--depends`, the hover and the inlay chains — is now held to the axioms it is named after, in the lint pass itself. Each of the six axioms is accounted for: Reflexivity and Transitivity as the rules below, Augmentation / Union / Decomposition / Pseudotransitivity documented as inexpressible over single-attribute edges (README, [Armstrong's axioms](README.md#armstrongs-axioms-dependency-inference)).

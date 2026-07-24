@@ -12,6 +12,7 @@ const {
   formulaReferences,
   valueType, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
   mergeRegistries, readValue, truthOf,
+  widthCookie, headerWidths, unwrap, unwrapWithMap,
 } = require("../src/table");
 const { lint } = require("../src/linter");
 const { conceptRegistry } = require("../src/derive");
@@ -681,6 +682,9 @@ const fresh = () => blockAt(doc, 3);
     && u.block[2] === "    |Acme|France |EUR     |");
   const same = updateTable(sheet, "Refund", ["name", "reason"], [["R1", "Damaged"]]);
   check("updateTable: an identical grid changes nothing", same.changed === false);
+  const folded = updateTable(sheet, "ORDER", ["name", "country", "currency"], [["Acme", "France", "EUR"]]);
+  check("updateTable: the Concept name matches in any case",
+    folded !== null && folded.from === 1 && folded.to === 4);
   const lone = updateTable(sheet, "Organisation", ["#", "full name"], [["1", "Acme Ltd"]]);
   check("updateTable: completes an assumed lone header",
     lone.changed && lone.from === 10 && lone.to === 10 && lone.block.length === 3);
@@ -701,6 +705,81 @@ const fresh = () => blockAt(doc, 3);
   check("align: still pads, redraws, and reports 1-based lines",
     edits.length === 3 && edits[0].line === 2 && edits[1].text === "    |-----+----|");
   check("align: still leaves lone pipe Examples alone", align("A\n    | gegeg").length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// width cookies and cell wrapping: `<N>` on a header cell caps its column,
+// over-wide plain cells wrap onto continuation rows (empty first cell)
+// ---------------------------------------------------------------------------
+{
+  check("widthCookie: '<24>' comes off the end of the cell",
+    widthCookie("description <24>").text === "description" && widthCookie("description <24>").width === 24);
+  check("widthCookie: rides after aliases and constraints alike",
+    widthCookie("desc (d) <24>").text === "desc (d)" && widthCookie("qty >=1 <8>").text === "qty >=1");
+  check("widthCookie: an unclosed '<24' is not a cookie",
+    widthCookie("desc <24").width === null);
+  check("splitConstraint: 'desc <24' without the closing '>' reads as a '<' bound (the documented edge)",
+    splitConstraint("desc <24").op === "<" && splitConstraint("desc <24").formula === "24");
+  check("splitConstraint: 'desc <24>' is never a constraint — the '>' spoils the bound",
+    splitConstraint("desc <24>").eq === -1);
+
+  const src = [
+    "Note",
+    "    |name|d <10>|qty|",
+    "    |----+------+---|",
+    "    |A   |a rather long note|3|",
+    "    |B   |short|4|",
+  ];
+  const block = blockAt(src, 3);
+  check("headerWidths: the block reads its per-column cookies",
+    JSON.stringify(headerWidths(block)) === "[null,10,null]");
+  check("widthsOf: a cookie caps its column at the cookie's width",
+    JSON.stringify(widthsOf(block)) === "[4,10,3]");
+  const drawn = render(block);
+  check("render: an over-wide plain cell wraps onto a continuation row",
+    drawn.length === 5
+    && drawn[2] === "    |A   |a rather  |3  |"
+    && drawn[3] === "    |    |long note |   |"
+    && drawn[4] === "    |B   |short     |4  |");
+  check("render: physStart maps each logical row to its first drawn line",
+    JSON.stringify(block.physStart) === "[0,1,2,4]");
+  check("render: a wrapped table re-renders to itself (idempotent)",
+    render(blockAt(drawn, 2)).join("\n") === drawn.join("\n"));
+
+  const b2 = blockAt(drawn, 2);
+  check("unwrapWithMap: continuation rows map onto their host row",
+    JSON.stringify(unwrapWithMap(b2)) === "[0,1,2,2,3]");
+  check("unwrap: fragments join back with single spaces",
+    b2.rows[2].cells[1] === "a rather long note");
+
+  const grids = tablesOf(["Note", ...drawn], "Sheet");
+  check("tablesOf: a wrapped grid answers logical rows on their first lines",
+    grids.length === 1
+    && JSON.stringify(grids[0].rows) === JSON.stringify([["A", "a rather long note", "3"], ["B", "short", "4"]])
+    && JSON.stringify(grids[0].rowLines) === "[4,6]");
+
+  // a formula over a wrapped column reads the joined value; align expresses
+  // a line-count change as one whole-block edit ({ line, to })
+  const withFormula = [
+    "Note",
+    "    |name|d <10>|len|",
+    "    |----+------+---|",
+    "    |A   |a rather long note|18 =len(@d)|",
+  ];
+  const aligned = align(withFormula.join("\n"), undefined, "Sheet");
+  check("align: wrapping that changes the line count is one whole-block edit",
+    aligned.length === 1 && aligned[0].line === 2 && aligned[0].to === 4
+    && aligned[0].text.split("\n").length === 4);
+  const applied = withFormula.slice();
+  applied.splice(aligned[0].line - 1, aligned[0].to - aligned[0].line + 1, ...aligned[0].text.split("\n"));
+  const audit = formulas(applied, undefined, "Sheet");
+  check("formulas: a formula over a wrapped column reads the joined value",
+    audit.length === 1 && !audit[0].stale && !audit[0].error);
+
+  // no cookie, no change: the old behaviour byte for byte
+  const plain = blockAt(["    |a|b|", "    |-+-|", "    |x|a much longer cell|"], 0);
+  check("render: a cookie-less block never wraps",
+    render(plain).length === 3 && headerWidths(plain) === null);
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

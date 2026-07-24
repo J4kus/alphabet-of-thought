@@ -4,7 +4,7 @@
 //
 // Plain Node script, no framework — run with: node out/test-derive.js
 const { lint } = require("../src/linter");
-const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples, formulaReferences, mirrorGrids, updateScope } = require("../src/derive");
+const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples, formulaReferences, mirrorGrids, updateScope, diffConcepts, conceptDiffClause, mergeConceptOps, renumberExamples, renumberConcepts } = require("../src/derive");
 const { mergeRegistries } = require("../src/table");
 
 let failures = 0;
@@ -786,6 +786,182 @@ const parsed = (text) => {
   check("updateExamples: the fresh Example keeps its own attributes, and only those",
     ex7 && ex7.children.filter((c) => c.name === "weight").length === 1
     && ex7.children.find((c) => c.name === "weight").value === "2");
+}
+
+// ---------------------------------------------------------------------------
+// reconcile: diffConcepts / conceptDiffClause / mergeConceptOps — the same
+// Concept defined in two files: the diff names what each alone asserts, and
+// the merge folds the other's facts into the kept definition
+// ---------------------------------------------------------------------------
+{
+  const here = parsed(aot(
+    "Vehicle",
+    "    Car",
+    "        wheels: 4",
+    "        - Beetle",
+    "            colour: blue",
+  ));
+  const thereText = aot(
+    "Fleet",
+    "    Car",
+    "        wheels: 4",
+    "        doors: 2",
+    "        - Beetle",
+    "        - Model T",
+    "            colour: black",
+  );
+  const there = lint(thereText, "Other");
+  const a = here.nodes.find((n) => n.name === "Car");
+  const b = there.nodes.find((n) => n.name === "Car");
+  const d = diffConcepts(a, b);
+  check("diffConcepts: differing homes are named (Vehicle here, Fleet there)",
+    d.parentA === "Vehicle" && d.parentB === "Fleet" && !d.sameParent && !d.identical);
+  check("diffConcepts: attributes and Examples only one side carries",
+    d.attrsOnlyA.length === 0 && d.attrsOnlyB.length === 1 && d.attrsOnlyB[0].name === "doors"
+    && d.examplesOnlyA.length === 0 && d.examplesOnlyB.length === 1 && d.examplesOnlyB[0].name === "Model T");
+  const clause = conceptDiffClause(a, b);
+  check("conceptDiffClause: says where each is filed and what only one asserts",
+    /filed under 'Vehicle' here vs under 'Fleet' there/.test(clause)
+    && /attributes only there: 'doors'/.test(clause)
+    && /Examples only there: 'Model T'/.test(clause));
+
+  const same = lint(aot("Vehicle", "    Car", "        wheels: 4"), "Other");
+  const twinA = lint(aot("Vehicle", "    Car", "        wheels: 4"), "Sheet");
+  const dSame = diffConcepts(
+    twinA.nodes.find((n) => n.name === "Car"), same.nodes.find((n) => n.name === "Car"));
+  check("diffConcepts: content-identical twins say so", dSame.identical);
+  check("conceptDiffClause: identical twins read as identical content",
+    /identical content/.test(conceptDiffClause(
+      twinA.nodes.find((n) => n.name === "Car"), same.nodes.find((n) => n.name === "Car"))));
+
+  // line-form merge: the other's own attribute and Example land under kept,
+  // re-indented, and the whole folds back into a tree that carries both
+  const ops = mergeConceptOps(here.lines, thereText.split(/\r?\n/), a, b, "Sheet");
+  check("mergeConceptOps: the missing attribute inserts under kept's own",
+    ops.some((o) => o.type === "insert" && o.afterLine === 3 && o.text === "        doors: 2"));
+  check("mergeConceptOps: the missing Example inserts after the last one's subtree",
+    ops.some((o) => o.type === "insert" && o.afterLine === 5
+      && o.text === "        - Model T\n            colour: black"));
+  const applied = here.lines.slice();
+  const lineOf = (o) => (o.type === "replace" ? o.line : o.type === "block" ? o.from + 1 : o.afterLine);
+  for (const op of [...ops].sort((x, y) => lineOf(y) - lineOf(x))) {
+    if (op.type === "replace") applied[op.line - 1] = op.text;
+    else if (op.type === "block") applied.splice(op.from, op.to - op.from + 1, ...op.block);
+    else applied.splice(op.afterLine, 0, ...op.text.split("\n"));
+  }
+  const re = lint(applied.join("\n"), "Sheet");
+  const car = re.nodes.find((n) => n.name === "Car");
+  check("mergeConceptOps: the merged tree carries both files' facts",
+    car.children.some((c) => c.name === "doors" && c.value === "2")
+    && car.children.filter((c) => c.kind === 0).map((c) => c.name).join(",") === "Beetle,Model T");
+
+  // a table-formed kept absorbs the other's flat Examples as rows
+  const gridKept = parsed(aot(
+    "Garage",
+    "    Car",
+    "        |name  |wheels|",
+    "        |------+------|",
+    "        |Beetle|4     |",
+  ));
+  const gCar = gridKept.nodes.find((n) => n.name === "Car");
+  const gOps = mergeConceptOps(gridKept.lines, thereText.split(/\r?\n/), gCar, b, "Sheet");
+  const block = gOps.find((o) => o.type === "block");
+  check("mergeConceptOps: a table-formed kept gains the other's Examples as rows",
+    block && block.block.some((l) => /\|Model T\|/.test(l)));
+  check("mergeConceptOps: an attribute the table lacks lands as a line-form declaration",
+    gOps.some((o) => o.type === "insert" && o.text === "        doors: 2"));
+
+  // sub-Concepts under the other definition refuse the automatic merge
+  const nested = lint(aot("Fleet", "    Car", "        Sports Car", "            top speed: high"), "Other");
+  check("mergeConceptOps: a sub-Concept under the other refuses (null)",
+    mergeConceptOps(here.lines, [], a, nested.nodes.find((n) => n.name === "Car"), "Sheet") === null);
+}
+
+// ---------------------------------------------------------------------------
+// renumberExamples: the first `N. ` opts a Concept's list into numbering
+// ---------------------------------------------------------------------------
+{
+  const p = parsed(aot(
+    "Recipe",
+    "    - 1. Mix",
+    "    - Bake",
+    "    - 4. Serve",
+  ));
+  const changes = renumberExamples(p.nodes.find((n) => n.name === "Recipe"));
+  check("renumberExamples: stale and missing numbers correct in listed order",
+    changes.length === 2
+    && changes[0].node.name === "Bake" && changes[0].newName === "2. Bake"
+    && changes[1].node.name === "4. Serve" && changes[1].newName === "3. Serve");
+
+  const sequential = parsed(aot("Recipe", "    - 1. Mix", "    - 2. Bake"));
+  check("renumberExamples: an already true numbering changes nothing",
+    renumberExamples(sequential.nodes.find((n) => n.name === "Recipe")).length === 0);
+
+  const unnumbered = parsed(aot("Recipe", "    - Mix", "    - Bake"));
+  check("renumberExamples: an unnumbered list is not opted in (null)",
+    renumberExamples(unnumbered.nodes.find((n) => n.name === "Recipe")) === null);
+
+  const eleven = parsed(aot("Steps",
+    ...Array.from({ length: 11 }, (_, i) => `    - ${i === 0 ? "1. " : ""}Step ${String.fromCharCode(65 + i)}`)));
+  const c11 = renumberExamples(eleven.nodes.find((n) => n.name === "Steps"));
+  check("renumberExamples: double digits number cleanly ('11. Step K')",
+    c11.length === 10 && c11[9].newName === "11. Step K");
+}
+
+// ---------------------------------------------------------------------------
+// renumberConcepts: one `1. ` numbers a whole scope (dotted beneath), one
+// deleted number strips it all
+// ---------------------------------------------------------------------------
+{
+  const say = (changes) => changes.map((c) => `${c.node.name}->${c.newName}`).join(", ");
+
+  const p = parsed(aot(
+    "1. Vehicle",
+    "    Car",
+    "        Sports Car",
+    "    Boat",
+    "Person",
+  ));
+  check("renumberConcepts: one '1. ' numbers every Concept, dotted down the is-a chain",
+    say(renumberConcepts(p.root, p.nodes))
+    === "Car->1.1 Car, Sports Car->1.1.1 Sports Car, Boat->1.2 Boat, Person->2. Person");
+
+  const moved = parsed(aot(
+    "2. Person",
+    "1. Vehicle",
+    "    1.1 Car",
+  ));
+  check("renumberConcepts: a fully numbered scope keeps its numbers true to position",
+    say(renumberConcepts(moved.root, moved.nodes))
+    === "2. Person->1. Person, 1. Vehicle->2. Vehicle, 1.1 Car->2.1 Car");
+
+  const stripped = parsed(aot(
+    "1. Vehicle",
+    "    1.1 Car",
+    "    Boat",
+    "2. Person",
+  ));
+  check("renumberConcepts: one deleted number strips the whole scope (parents too)",
+    say(renumberConcepts(stripped.root, stripped.nodes))
+    === "1. Vehicle->Vehicle, 1.1 Car->Car, 2. Person->Person");
+
+  const half = parsed(aot("Alpha", "2. Beta"));
+  check("renumberConcepts: a lone number that is not '1. ' reads as a deletion's leftover",
+    say(renumberConcepts(half.root, half.nodes)) === "2. Beta->Beta");
+
+  const scoped = parsed(aot(
+    "Process",
+    "    - run",
+    "        1. Prepare",
+    "        Execute",
+    "Outside",
+  ));
+  check("renumberConcepts: under an Example only that Example's Concepts number",
+    say(renumberConcepts(scoped.root, scoped.nodes)) === "Execute->2. Execute");
+
+  const off = parsed(aot("Vehicle", "    Car", "Person"));
+  check("renumberConcepts: an unnumbered file is left exactly as written",
+    renumberConcepts(off.root, off.nodes).length === 0);
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

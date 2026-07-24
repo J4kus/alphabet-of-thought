@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.7.3",
+  "version": "1.8.2",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -238,6 +238,12 @@
       {
         "command": "aot.addExample",
         "title": "Add Example to Concept",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.reconcileConcept",
+        "title": "Reconcile Duplicate Concept",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },
