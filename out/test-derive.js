@@ -241,11 +241,11 @@ const parsed = (text) => {
 // ---------------------------------------------------------------------------
 {
   const text = aot(
-    "Order",
-    "    |name|price|margin >=@price*0.1|",
-    "    |----+-----+-------------------|",
-    "    |A   |100  |20                 |",
-    "    |B   |100  |5                  |",
+    "|Order|price|margin >=@price*0.1|",
+    "|-----+-----+-------------------|",
+    "|A    |100  |20                 |",
+    "|B    |100  |5                  |",
+    "",
     "Loose Order",
     "    - C",
     "        margin: 1",
@@ -254,12 +254,12 @@ const parsed = (text) => {
   const { errors } = require("../src/linter").lint(text, "Sheet");
   check("scope fixture parses clean", errors.length === 0);
   const audit = auditValues(root, nodes, lines);
-  const rowB = audit.find((f) => f.line === 5 && f.warning);
+  const rowB = audit.find((f) => f.line === 4 && f.warning);
   check("audit: a column's bound is checked per row, against that row's own cells",
     rowB && /value '5' violates 'margin >= 10'/.test(rowB.message)
-    && rowB.startCol === lines[4].indexOf("5 "));
+    && rowB.startCol === lines[3].indexOf("5 "));
   check("audit: a row that satisfies its own bound stays quiet",
-    !audit.some((f) => f.line === 4 && (f.error || f.warning)));
+    !audit.some((f) => f.line === 3 && (f.error || f.warning)));
   check("audit: a value outside the declaring subtree is not governed",
     !audit.some((f) => f.line === 8 && (f.error || f.warning)));
 }
@@ -286,6 +286,62 @@ const parsed = (text) => {
     decl && decl.startCol === lines[1].indexOf(">=1"));
   check("audit: an uncomputable bound is the declaration's error, reported once",
     broken.length === 1 && broken[0].line === 2 && /cap/.test(broken[0].message));
+}
+
+// ---------------------------------------------------------------------------
+// '==' defines rather than bounds: a determinate bound on an attribute
+// declaration is the derivation for every value of that attribute, so a
+// line-form value follows it without a formula of its own
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Order",
+    "    vat ==@price*0.2",
+    "    - A",
+    "        price: 100",
+    "        vat: 5",
+    "    - B",
+    "        price: 50",
+    "        vat: 10",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const edits = recomputeValues(root, nodes, lines);
+  check("recomputeValues: a '==' declaration defines every value beneath it",
+    edits.length === 1
+    && edits[0].line === 5 && edits[0].text === "        vat: 20");
+  const audit = auditValues(root, nodes, lines);
+  const stale = audit.find((f) => f.line === 5 && f.warning);
+  check("audit: a value that differs from its definition is stale, not in violation",
+    stale && /does not match its definition 'vat ==@price\*0\.2'/.test(stale.message)
+    && /recomputes/.test(stale.message) && !/violates/.test(stale.message));
+  check("audit: a value that already matches its definition stays quiet",
+    !audit.some((f) => f.line === 8 && f.warning));
+
+  // '==or(…)' names no single value, so it stays a bound the audit checks
+  const listed = aot(
+    "Task",
+    "    status ==or(`draft`,`sent`)",
+    "    - A",
+    "        status: bogus",
+  );
+  const p2 = parsed(listed);
+  check("recomputeValues: '==or(…)' lists allowed values, so it derives nothing",
+    recomputeValues(p2.root, p2.nodes, p2.lines).length === 0);
+  check("audit: '==or(…)' still reports a value outside the list as a violation",
+    auditValues(p2.root, p2.nodes, p2.lines)
+      .some((f) => f.warning && /violates 'status == `draft` or `sent`'/.test(f.message)));
+
+  // an explicit '=' on the value is the nearer word and wins
+  const own = aot(
+    "Order",
+    "    vat ==@price*0.2",
+    "    - A",
+    "        price: 100",
+    "        vat: 30 =@price*0.3",
+  );
+  const p3 = parsed(own);
+  check("recomputeValues: an explicit '=' formula wins over the '==' definition",
+    recomputeValues(p3.root, p3.nodes, p3.lines).length === 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -512,7 +568,7 @@ const parsed = (text) => {
     "    - loose one",
     "        weight: 7",
     "    - test 1",
-    "        |name                |alias|",
+    "        |test 1              |alias|",
     "        |--------------------+-----|",
     "        |aot.files/Person.csv|Mike |",
     "Other",
@@ -522,7 +578,7 @@ const parsed = (text) => {
   const grids = mirrorGrids(root, nodes);
   const ft = grids.find((g) => g.name === "File Tester");
   check("mirror: one union grid per Concept, a table under an Example included",
-    ft && ft.header.join(",") === "name,origin,weight,alias"
+    ft && ft.header.join(",") === "File Tester,origin,weight,alias"
     && ft.rows.length === 3);
   check("mirror: a row silent on a column answers the nearest default, else blank",
     ft.rows[0].join("|") === "loose one|EU|7|"
@@ -530,7 +586,7 @@ const parsed = (text) => {
     && ft.rows[2].join("|") === "aot.files/Person.csv|EU||Mike");
   const other = grids.find((g) => g.name === "Other");
   check("mirror: a pure line-form Concept grids exactly the same way",
-    other && other.rows.length === 1 && other.header.join(",") === "name");
+    other && other.rows.length === 1 && other.header.join(",") === "Other");
 }
 
 // ---------------------------------------------------------------------------

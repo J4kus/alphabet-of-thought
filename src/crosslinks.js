@@ -381,6 +381,9 @@ function resolve(text, root, nodes, external) {
     }
 
     if (node.kind === KIND.CONCEPT) {
+      // a Concept named in a table's first header cell (1.9) knows its exact
+      // offset; a line-form Concept starts at the first non-space character
+      const cbase = node.nameCol !== undefined ? node.nameCol : nameStart;
       // each longest, non-overlapping run of words that names another
       // Concept becomes its own link, scanned left to right
       const ws = words(node.name);
@@ -394,8 +397,8 @@ function resolve(text, root, nodes, external) {
             links.push({
               connection: "concept-contains-Concept",
               line: node.line,
-              startCol: nameStart + ws[i].start,
-              endCol: nameStart + ws[j].end,
+              startCol: cbase + ws[i].start,
+              endCol: cbase + ws[j].end,
               text: span,
               target,
             });
@@ -412,10 +415,14 @@ function resolve(text, root, nodes, external) {
       if (node.alias) {
         const target = concepts.get(node.alias.toLowerCase());
         if (target && target !== node) {
-          const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
-          const open = region.lastIndexOf("(");
-          const inner = region.slice(open + 1);
-          const aliasStart = open + 1 + (inner.length - inner.trimStart().length);
+          // a table header cell recorded its alias offset at parse time
+          let aliasStart = node.aliasCol;
+          if (aliasStart === undefined) {
+            const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
+            const open = region.lastIndexOf("(");
+            const inner = region.slice(open + 1);
+            aliasStart = open + 1 + (inner.length - inner.trimStart().length);
+          }
           links.push({
             connection: "alias-is-a-Concept",
             line: node.line,

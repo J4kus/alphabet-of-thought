@@ -170,17 +170,18 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
 // ---------------------------------------------------------------------------
 {
   const text = aot(
-    "Otter",
-    "    | name   | size | colour |",
-    "    |--------+------+--------|",
-    "    | Ollie  | 5    | brown  |",
-    "    | Pebble | 3    |        |",
+    "| Otter  | size | colour |",
+    "|--------+------+--------|",
+    "| Ollie  | 5    | brown  |",
+    "| Pebble | 3    |        |",
   );
   const report = makeReport();
   const { root, nodes } = parse(text, "Zoo", report);
   const otter = node(root, nodes, "Otter");
   check("table: a well-formed table parses without errors", report.errors.length === 0);
-  check("table: header cells declare attributes on the parent",
+  check("table: the first header cell declares the Concept the table describes",
+    otter && otter.kind === CONCEPT && otter.parent === root && otter.cell === true);
+  check("table: header cells after the first declare attributes on that Concept",
     otter.children.some((c) => c.kind === ATTRIBUTE && c.name === "size")
     && otter.children.some((c) => c.kind === ATTRIBUTE && c.name === "colour"));
   const ollie = node(root, nodes, "Ollie");
@@ -207,7 +208,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   // a lone multi-cell row is a header being typed: assumed, not demanded
   {
     const r = makeReport();
-    const p = parse(aot("Organisation", "    | # | full name | sort name |"), "Zoo", r);
+    const p = parse(aot("| Organisation | full name | sort name |"), "Zoo", r);
     const org = node(p.root, p.nodes, "Organisation");
     check("table: a lone multi-cell row is assumed to be the header",
       r.errors.length === 0
@@ -217,24 +218,24 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   // a single-cell row above a separator heads a one-column table
   {
     const r = makeReport();
-    const p = parse(aot("Person", "    | name |", "    |------|", "    | John Doe |", "    | Jane Smith |"), "Zoo", r);
+    const p = parse(aot("| Person |", "|--------|", "| John Doe |", "| Jane Smith |"), "Zoo", r);
     const person = node(p.root, p.nodes, "Person");
-    check("table: a single-cell header above a separator is not an Example",
+    check("table: a single-cell header names the Concept, its rows are Examples",
       r.errors.length === 0
-      && node(p.root, p.nodes, "name") === undefined
+      && person && person.kind === CONCEPT && person.cell === true
       && person.children.filter((c) => c.kind === INDIVIDUAL).length === 2
       && node(p.root, p.nodes, "John Doe").kind === INDIVIDUAL);
   }
   // more cells than the header names
   {
     const r = makeReport();
-    parse(aot("Otter", "    | name | size |", "    |------+------|", "    | Ollie | 5 | extra |"), "Zoo", r);
+    parse(aot("| Otter | size |", "|-------+------|", "| Ollie | 5 | extra |"), "Zoo", r);
     check("table: more cells than header columns is an error", hasError(r, /but the header names 2 columns/));
   }
   // a column names an attribute, and attributes are lowercase
   {
     const r = makeReport();
-    parse(aot("Otter", "    | name | Size |", "    |------+------|", "    | Ollie | 5 |"), "Zoo", r);
+    parse(aot("| Otter | Size |", "|-------+------|", "| Ollie | 5 |"), "Zoo", r);
     check("table: a capitalised column is an error", hasError(r, /column 'Size' is capitalised/));
   }
   // a lone-cell pipe row stays a plain Example, closing pipe or not
@@ -247,10 +248,10 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   // a header cell is an attribute term, so it carries a (alias) like one
   {
     const r = makeReport();
-    const p = parse(aot("Otter", "    | name | size (length) |", "    |------+---------------|", "    | Ollie | 5 |"), "Zoo", r);
+    const p = parse(aot("| Otter | size (length) |", "|-------+---------------|", "| Ollie | 5 |"), "Zoo", r);
     const attr = p.nodes.find((n) => n.name === "size");
     check("table: a header cell's (alias) is parsed off the name",
-      attr && attr.kind === ATTRIBUTE && attr.alias === "length" && attr.aliasCol === 19);
+      attr && attr.kind === ATTRIBUTE && attr.alias === "length" && attr.aliasCol === 16);
     check("table: the row's cells still value the stripped name",
       node(p.root, p.nodes, "Ollie").children.some((c) => c.name === "size" && c.value === "5"));
     check("table: a header alias parses without errors", r.errors.length === 0);
@@ -259,11 +260,10 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   {
     const r = makeReport();
     const p = parse(aot(
-      "Order",
-      "    | name | price | total        |",
-      "    |------+-------+--------------|",
-      "    | A    | 10    | 20 =@price*2 |",
-      "    | B    | 10    | =@price*2    |",
+      "| Order | price | total        |",
+      "|-------+-------+--------------|",
+      "| A     | 10    | 20 =@price*2 |",
+      "| B     | 10    | =@price*2    |",
     ), "Zoo", r);
     const a = node(p.root, p.nodes, "A"), b = node(p.root, p.nodes, "B");
     check("table: a cell's formula is stripped from its Attribute Value",
@@ -301,10 +301,9 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     const p = parse(aot(
       "Person",
       "    age (years) >=18",
-      "    Metric",
-      "        |name|qty >=1|",
-      "        |----+-------|",
-      "        |A   |2      |",
+      "    |Metric|qty >=1|",
+      "    |------+-------|",
+      "    |A     |2      |",
     ), "Zoo", r);
     const age = node(p.root, p.nodes, "age");
     const qty = node(p.root, p.nodes, "qty");
@@ -320,16 +319,16 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   // table findings pin the offending cell, not the whole line
   {
     const r = makeReport();
-    parse(aot("Otter", "    | name | Size |", "    |------+------|", "    | Ollie | 5 |"), "Zoo", r);
+    parse(aot("| Otter | Size |", "|-------+------|", "| Ollie | 5 |"), "Zoo", r);
     const e = r.errors.find((x) => /capitalised/.test(x.message));
     check("table: the capitalised-column error carries its cell's columns",
-      e && e.startCol === 13 && e.endCol === 17);
+      e && e.startCol === 10 && e.endCol === 14);
   }
   // a blank line ends the table, as in org: rows beyond it no longer
   // belong to the header's columns
   {
     const r = makeReport();
-    parse(aot("Otter", "    | name | size |", "    |------+------|", "", "    | Ollie | 5 |", "    | Pebble | 3 |"), "Zoo", r);
+    parse(aot("| Otter | size |", "|-------+------|", "", "| Ollie | 5 |", "| Pebble | 3 |"), "Zoo", r);
     check("table: a blank line ends the table", hasError(r, /no header names its columns/));
   }
 }
@@ -338,13 +337,12 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
 // so dependency inference works straight off the grid
 {
   const ledger = aot(
-    "Order",
-    "    | name | country | currency |",
-    "    |------+---------+----------|",
-    "    | A    | France  | EUR      |",
-    "    | B    | France  | EUR      |",
-    "    | C    | Germany | EUR      |",
-    "    | D    | Japan   | JPY      |",
+    "| Order   | country | currency |",
+    "|---------+---------+----------|",
+    "| A       | France  | EUR      |",
+    "| B       | France  | EUR      |",
+    "| C       | Germany | EUR      |",
+    "| D       | Japan   | JPY      |",
   );
   const { root, nodes, errors } = lint(ledger, "Sales");
   check("table/FD: the ledger table verifies", errors.length === 0);
@@ -473,11 +471,10 @@ check("verify: an alias naming another Concept is a duplicate-identity error",
 // a cookie that row stays the error it always was
 {
   const wrapped = lintTree(aot(
-    "Note",
-    "    |name|d <10>    |",
-    "    |----+----------|",
-    "    |A   |a rather  |",
-    "    |    |long note |",
+    "|Note|d <10>    |",
+    "|----+----------|",
+    "|A   |a rather  |",
+    "|    |long note |",
   ), "Sheet");
   check("table: a width cookie is parsed off the column name",
     wrapped.nodes.some((n) => n.cell && n.name === "d" && n.maxWidth === 10));
@@ -489,11 +486,10 @@ check("verify: an alias naming another Concept is a duplicate-identity error",
   check("table: a cookie table's continuation row is no error",
     !hasError(wrapped.report, /empty first cell/));
   const plain = lintTree(aot(
-    "Note",
-    "    |name|d|",
-    "    |----+-|",
-    "    |A   |x|",
-    "    |    |y|",
+    "|Note|d|",
+    "|----+-|",
+    "|A   |x|",
+    "|    |y|",
   ), "Sheet");
   check("table: without a cookie the empty first cell stays the error it was",
     hasError(plain.report, /empty first cell/));

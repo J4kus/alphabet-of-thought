@@ -965,7 +965,10 @@ function tableNode(analysis, doc, registry, r) {
 function renameSpans(doc, analysis, registry, records, target) {
   const lower = target.name.toLowerCase();
   const set = new Set([target]);
-  if (isAttrDecl(target) || target.cell) {
+  // an attribute (line or header cell) or a value cell gathers its
+  // same-named copies; a Concept named in a header cell (1.9) renames like
+  // any Concept — through its crosslinks — so it stays out of this branch
+  if (isAttrDecl(target) || (target.cell && target.kind !== KIND.CONCEPT)) {
     const host = target.parent && target.parent.kind === KIND.INDIVIDUAL ? target.parent.parent : target.parent;
     const owners = host ? [host, ...host.children.filter((c) => c.kind === KIND.INDIVIDUAL)] : [];
     for (const o of owners) for (const c of o.children) {
@@ -2012,12 +2015,17 @@ async function maybeScaffold(event) {
   const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
   if (!editor) return;
   const indent = text.slice(0, text.indexOf("|"));
-  let columns = [];
+  // the first header cell names the Concept the table describes (1.9): the
+  // enclosing Concept when the table is filed under one (a merge-form grid),
+  // else empty for the writer to name — and then the cursor waits there.
+  let columns = [], first = "";
   try {
     const { root, nodes } = lint(doc.getText(), docRootName(doc));
-    columns = inheritedColumns(scaffoldParent(doc, at, indent.length, root, nodes));
+    const parentNode = scaffoldParent(doc, at, indent.length, root, nodes);
+    columns = inheritedColumns(parentNode);
+    if (parentNode && parentNode !== root && parentNode.name) first = parentNode.name;
   } catch { /* an unparseable document scaffolds the plain skeleton */ }
-  const header = ["name", ...columns];
+  const header = [first, ...columns];
   const block = {
     indent,
     rows: [
@@ -2032,8 +2040,11 @@ async function maybeScaffold(event) {
     await editor.edit(
       (b) => b.replace(doc.lineAt(at).range, table.render(block).join(eol)),
       { undoStopBefore: false, undoStopAfter: true });
+    // a named Concept: land in the data row to add Examples; an unnamed one:
+    // land in the header's first cell to name the Concept first
     const ch = indent.length + 1;
-    editor.selection = new vscode.Selection(at + 2, ch, at + 2, ch);
+    const line = first ? at + 2 : at;
+    editor.selection = new vscode.Selection(line, ch, line, ch);
   } finally {
     scaffolding = false;
   }

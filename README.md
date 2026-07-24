@@ -264,10 +264,9 @@ Every attribute the child adds must be a **differentia** — a fact that makes i
 When an attribute names a Concept and that Concept **lists its Examples**, the attribute's values are answerable to that list. Typing such a value pops a **dropdown of the Concept's Examples** — on a line-form value and in a typed column's table cell alike, archived CSV values listed after the live ones. `person: James`, on an attribute typed by a `Person` whose only Example is Socrates, says James is a Person while the file never says who James is. Alpha hints the value and offers the Quick Fix that closes the gap — **Add 'James' as an Example of 'Person'** — which lists James where Person is already written: a row on its table, or a `- James` line under its last Example, cursor left on the new Example so you can carry straight on. Picking from the dropdown and coining a fresh Example both keep the model whole.
 
 ```
-Person
-    |name    |nationality|
-    |--------+-----------|
-    |Socrates|RSA        |
+|Person  |nationality|
+|--------+-----------|
+|Socrates|RSA        |
 Integer
     - 1
     - 35
@@ -361,21 +360,31 @@ Whichever you use, the move is the same: generate the facts first, then branch o
 
 ## Tables
 
-Alpha recreates org-mode's plain-text spreadsheet: a pipe table the linter reads as ordinary Examples, so an axiomatic start can be written as the grid it already is.
+Alpha recreates org-mode's plain-text spreadsheet: a pipe table the linter reads as ordinary Examples, so an axiomatic start can be written as the grid it already is. **The first header cell names the Concept the table describes** — the table stands exactly where that Concept's own line would, with no separate heading above it and no extra indent:
 
 ```aot
-Order
-    |name            |country|currency|basket size|
-    |----------------+-------+--------+-----------|
-    |Acme March Order|France |EUR     |$1,200     |
-    |Bolt March Order|Germany|EUR     |$3,100     |
-    |Kite March Order|Japan  |JPY     |$780       |
+|Order           |country|currency|basket size|
+|----------------+-------+--------+-----------|
+|Acme March Order|France |EUR     |$1,200     |
+|Bolt March Order|Germany|EUR     |$3,100     |
+|Kite March Order|Japan  |JPY     |$780       |
 ```
 
-- The header row's cells after the first declare the columns as **attributes** of the parent, exactly as bare lowercase lines would — so a capitalised column is an error. The first cell only labels the name column and asserts nothing.
-- As in org, the `|---+---|` separator row directly beneath a row is what marks that row as the header; the separator is layout, never a node. A single-cell row above a separator heads a one-column table (its rows are plain Examples). A **lone** multi-cell row — nothing tabular on the line after it — is a header being typed: it is assumed, the separator and data rows still to come, so a fresh table never squiggles mid-keystroke.
-- Every data row is an **Example** named by its first cell, and every further cell is that Example's **Attribute Value** for its column. An empty cell asserts nothing. Two or more rows with no header above them, a row with more cells than the header names, and an empty name cell are all errors (in a width-capped table an empty name cell is a **continuation row** instead — see below).
-- A blank line, any non-pipe line, or a change of indent ends the table. A pipe row with a single cell stays a plain Example — the `- ` form written with `|`.
+- The header row's **first cell names the Concept** — capitalised, like any Concept — and the cells after it declare the columns as **attributes** of that Concept, exactly as bare lowercase lines would. So a capitalised column, or a lowercase first cell, is an error. *(Before 1.9 the table was indented beneath a separate `Concept` line and its first cell was a `name` label; that label is gone — write the Concept's name in its place.)*
+- **A Concept can still carry line-form facts beside its grid.** Give the Concept its own line and repeat its name in the first header cell: the table then *fills that Concept in* rather than declaring a twin, so its default values, its `- ` Examples, and the grid's rows all belong to the one Concept — and a cell formula reads the line-form defaults by name (`=@price*@tax rate`):
+
+  ```aot
+  Order
+      tax rate: 0.2
+      - Loose
+          price: 50
+      |Order|price|vat                 |
+      |-----+-----+--------------------|
+      |Acme |100  |20 =@price*@tax rate|
+  ```
+- As in org, the `|---+---|` separator row directly beneath a row is what marks that row as the header; the separator is layout, never a node. A single-cell header — just `|Concept|` — heads a one-column table: the Concept over a column of its Examples. A **lone** multi-cell row — nothing tabular on the line after it — is a header being typed: it is assumed, the separator and data rows still to come, so a fresh table never squiggles mid-keystroke.
+- Every data row is an **Example** named by its first cell — filed under the Concept the header names — and every further cell is that Example's **Attribute Value** for its column. An empty cell asserts nothing. Two or more rows with no header above them, a row with more cells than the header names, and an empty name cell are all errors (in a width-capped table an empty name cell is a **continuation row** instead — see below).
+- A blank line, any non-pipe line, or a change of indent ends the table. A pipe row with a single cell stays a plain Example — the `- ` form written with `|`. **Two standalone tables in a row need a blank line between them**, or the second's header reads as more data rows of the first.
 - **Format Document** (`Shift+Alt+F`) re-aligns every table as org's `TAB` does: each column padded to its widest cell, separator rows redrawn to match. Columns carry **no gutter spaces** around the pipes — a file's width is precious — but stay vertically aligned. Lone pipe Examples are left exactly as written.
 - **A column can declare its width.** A header cell ending in an org-style width cookie — `|description <24>|` — caps that column at 24 characters. Longer plain cells **wrap at word boundaries onto continuation rows** (data rows with an empty first cell) on the next re-render, the value reading back as its fragments joined by single spaces — so crosslinks, formulas (`len(@description)` counts the joined text), the CSV mirror, and rename all see the whole value. Never wrapped: the name column, header cells, and formula cells — a long one widens the column past its cookie. The cookie is the per-table opt-in; a table without one behaves exactly as before. One edge: `desc <24` **without** the closing `>` reads as the constraint `< 24` — the closing bracket makes it a cookie. Suffixes compose as `name (alias) >=bounds <N>`.
 
@@ -397,30 +406,29 @@ Org's table automations are built in. While the cursor is on a table row (any pi
 | `Alt+-` | Insert a separator line below the cursor's row |
 | `Tab` / `Shift+Tab` **in the leading indent** | Indent / unindent the whole table one level (4 spaces) — re-filing the table under a different parent is an indent edit, not cell travel. (A flush-left table has no indent to click into; give it a level first.) |
 
-Three more commands live in the Command Palette under **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — sorts the run of data rows around the cursor, header safe behind its separator; numeric when every key reads as a number, with `$`, `%`, and thousands commas ignored, alphabetic otherwise), *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV, or multi-space-aligned lines and they become an aligned table, the first line lowercased into the header with the separator drawn beneath), and *Copy Formula Down the Column* (see [Formulas](#formulas); also offered by the lightbulb on any formula cell).
+Three more commands live in the Command Palette under **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — sorts the run of data rows around the cursor, header safe behind its separator; numeric when every key reads as a number, with `$`, `%`, and thousands commas ignored, alphabetic otherwise), *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV, or multi-space-aligned lines and they become an aligned table, the first line the header with the separator drawn beneath: its **first cell is kept as written** — that names the Concept — and the rest are lowercased into attribute columns), and *Copy Formula Down the Column* (see [Formulas](#formulas); also offered by the lightbulb on any formula cell).
 
-**Creating a table takes one keystroke**: type `|` on an empty line and a skeleton grows in place — header, separator, and an empty data row, the cursor waiting in the data row — and one `Ctrl+Z` undoes the whole thing:
+**Creating a table takes one keystroke**: type `|` on an empty line and a skeleton grows in place — header, separator, and an empty data row — and one `Ctrl+Z` undoes the whole thing. Typed under an existing Concept line, the first header cell is **filled with that Concept's name** and the cursor waits in the data row; typed at the top level, the first cell is left empty for you to name the Concept, and the cursor waits there:
 
 ```aot
-|name|
-|----|
-|    |     <- cursor lands here
+|Otter|
+|-----|
+|     |     <- cursor lands here (the Concept 'Otter' already filled in above)
 ```
 
-Attributes the enclosing line **inherits from its ancestors arrive as ready-made columns** — under an `Otter` filed beneath an `Animal` that declares `legs` and `habitat`, the skeleton grows as `|name|legs|habitat|`. Creation-time only: a table is never re-columned when attributes are declared later, and the parent's own attribute lines stay out (they already declare — a same-named column would be a duplicate). A `|` typed beside an existing table, or mid-line, is just a pipe. The org flow still works too: type `|name|size|`, press `Enter`, type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row.
+Attributes the enclosing line **inherits from its ancestors arrive as ready-made columns** — under an `Otter` filed beneath an `Animal` that declares `legs` and `habitat`, the skeleton grows as `|Otter|legs|habitat|`. Creation-time only: a table is never re-columned when attributes are declared later, and the parent's own attribute lines stay out (they already declare — a same-named column would be a duplicate). A `|` typed beside an existing table, or mid-line, is just a pipe. The org flow still works too: type `|Otter|size|`, press `Enter`, type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row.
 
 ### Formulas
 
 A cell may derive its value — org's spreadsheet folded into the cell itself, value first, formula visible after it:
 
 ```aot
-Order
-    |name            |country|currency|basket size    |
-    |----------------+-------+--------+---------------|
-    |Acme March Order|France |EUR     |$1,200         |
-    |Bolt March Order|Germany|EUR     |$3,100         |
-    |Kite March Order|Japan  |JPY     |$780                     |
-    |Total           |       |        |$5,080 =sum(@basket size)|
+|Order           |country|currency|basket size              |
+|----------------+-------+--------+-------------------------|
+|Acme March Order|France |EUR     |$1,200                   |
+|Bolt March Order|Germany|EUR     |$3,100                   |
+|Kite March Order|Japan  |JPY     |$780                     |
+|Total           |       |        |$5,080 =sum(@basket size)|
 ```
 
 **References** work like a spreadsheet's, by **name** — in tables and free text alike:
@@ -429,7 +437,7 @@ Order
 |-----------|---------|
 | `@price`, `@basket size` | The same row's column by **name** — longest case-insensitive match, spaces allowed, a header's `(alias)` matches too |
 | `@price@Acme` / `@Acme@price` | The named Example's cell in a column — a column paired with an Example, **in either order**. A name that is both a column and an Example resolves as the longer match (a tie goes to the column). |
-| `@Order@price@Acme` / `@Order@Acme@price` | A **cross-Concept** cell: another Concept's cell, the Concept named **first** (by the Concept/Example/Attribute its table sits under, as the CSV mirror files it), then a column and Example in either order. It may live in any `.aot` in the workspace — the current file's own win a shared name. `sum(@Order@price)` (and `avg`/`min`/`max`/`count`) range over a foreign column. The **local** reading is always tried first, so no formula that resolved before changes meaning; the foreign Concept gets its turn when the local reading names nothing, **or when it cannot be completed** — so an owner with its own `person` attribute no longer swallows the lead of `@Person@alias@Socrates`. |
+| `@Order@price@Acme` / `@Order@Acme@price` | A **cross-Concept** cell: another Concept's cell, the Concept named **first** (its table's own first header cell, or — for a merge-form or line-form Concept — the line it sits under), then a column and Example in either order. It may live in any `.aot` in the workspace — the current file's own win a shared name. `sum(@Order@price)` (and `avg`/`min`/`max`/`count`) range over a foreign column. The **local** reading is always tried first, so no formula that resolved before changes meaning; the foreign Concept gets its turn when the local reading names nothing, **or when it cannot be completed** — so an owner with its own `person` attribute no longer swallows the lead of `@Person@alias@Socrates`. |
 | `@Measurement@alias` | A Concept's **own** value — the default it states on its own line, the same one its Examples inherit — whether its Examples are written as `- ` lines or as a table's rows: since 1.6 the two forms share one scope, so a table-formed Concept answers the free-text default it states above (or beside) its grid. When the Concept states no value for that attribute, the error says so and points at its Examples. |
 | `@Integer@35@is prime` | The same, on a Concept written in **line form** rather than as a table: its `- Example` children are the rows and the attribute names beneath it are the columns, so a Concept is referenced the same way whichever form it is written in. An Example silent on an attribute answers the Concept's own default (inheritance, as ever). A number after `@` names an **Example** (`- 35`), never a column position. |
 
@@ -450,7 +458,20 @@ References changed from `$` to `@` in 1.3; a `$` in a formula is now an error. P
 
 **Constraints live on the attribute; formulas live on the value.** After a value, `=formula` derives it (auto-fills and rewrites). A **constraint** is schema, so it is declared once, on the attribute — a bare line (`age >=18`) or a table header cell (`|name|qty >=1|`) — and **every value the attribute takes is validated against it**: the Concept's Examples, its table's cells, and everything deeper in the subtree (a nearer declaration shadows an outer one). **Several bounds chain on the one declaration** — `age >=18 <=65` holds the attribute both ways, in bare lines and header cells alike, each bound checked and reported on its own. A breach is a **warning** on the offending value — never counted in `V` — naming the bound and its declaring line. The bound's references resolve *per value* against its own Example or row — `|price|margin >=@price*0.1|` holds each row's margin to that row's price. An empty value asserts nothing, so it is never checked; values themselves never carry `>= <= < > ==` (`age: 25 >=18` is just the value `25 >=18`). Prose terms are safe: `speed > none noted` stays a plain name, because a constraint is only believed when its right side actually reads as a formula.
 
-**A constraint can list the allowed values** with `or()`:
+**`==` defines rather than bounds.** A `>=` says a value must be *at least* something; a `==` against a determinate expression says what the value **is** — so it is the derivation for every value of that attribute, written once where the attribute is declared. There is no reason to repeat a formula in each cell:
+
+```aot
+Order
+    tax rate: 0.2
+    |Order|price|vat ==@price*@tax rate|
+    |-----+-----+----------------------|
+    |A    |100  |20                    |
+    |B    |40   |8                     |
+```
+
+Every cell in a defined column fills itself — an **empty** one included, since the definition says what the value is — and a cell that drifts is corrected on the next recompute (Tab, Format Document, save), exactly as a stale `=` formula is. The cells carry the **value alone**: the formula lives in the header. The same holds in line form, where `vat ==@price*0.2` on the attribute fills the `vat:` of every Example beneath it. Two rules keep it predictable: a cell's or value's **own `=` formula wins** (the nearer word), and a `==` that cannot compute leaves its values untouched — an uncomputable bound is the declaration's error, reported once against the declaration. A value that differs from its definition is reported as **stale** ("it recomputes…"), not as a violation.
+
+**A constraint can list the allowed values** with `or()` — and *this* `==` is a bound, not a definition, because a list names no single value:
 
 ```
 Order
@@ -464,6 +485,8 @@ Order
 ```
 
 This is the same `or()` the logic table names, not a second one. `or()` answers with its **alternatives held together**, and that one value reads as whichever the place asks for: as a **truth** in a formula — true when any alternative is true, which is exactly logical OR, so `=if(or(@qty>5, @price>5), \`yes\`, \`no\`)` means what it looks like — and as a **set** wherever `==` compares against it, where "equals one of these" is what listing allowed values means. An ordering works the same way, distributed: `>=or(1, 9)` holds when the value is at least one of them.
+
+That is also exactly why an `==or(…)` stays a **bound** while `==@price*@tax rate` becomes a **definition**: alternatives held together name no single value to derive, so there is nothing to fill in — only membership to check. One rule, read off the value the bound computes to.
 
 **A value may hold a literal `=`** by escaping it — `note: a \= b` is the value `a = b`, not a derivation of `a`. The backslash belongs to the file, not to the model: the value is `a = b` everywhere it is read (crosslinks, Gödel numbers, a formula referencing it, a CSV export), while the line keeps its `\=` through every rewrite. Only an `=` that opens a derivation needs escaping — one *inside* a value's text (`a=b`, no space before it) was never a derivation and needs nothing.
 
@@ -530,7 +553,7 @@ Save the Concept below and it keeps `aot.files/Integer.csv` up to date; edit tha
 
 ```
 aot.files/Integer.csv          Integer
-    name,is prime                  - 1
+    Integer,is prime               - 1
     1,Yes                              is prime: Yes
     35,No                          - 35
     7,Yes      <- added                is prime: No
@@ -552,9 +575,9 @@ The tree a table parses to is identical to writing each row as a `- Example` wit
 
 Every editor feature reaches inside the cells too:
 
-- **Colouring**: header cells are painted as attributes, name cells as Examples, value cells as Attribute Values — the very colours their written-out line forms get — with the pipes and the name-column label left as quiet table chrome.
-- **Aliases**: a header cell may carry a parenthetical alias, `size (length)`, which strips, colours, and crosslinks exactly as it would on a bare attribute line.
-- **Linting in place**: a table finding pins the offending cell rather than the whole line — a capitalised column, a row's extra cells, and an empty name cell each squiggle where they sit.
+- **Colouring**: the first header cell is painted as the **Concept** it names, the header cells after it as attributes, each row's first cell as an **Example**, and the rest as Attribute Values — the very colours their written-out line forms get — with the pipes left as quiet table chrome.
+- **Aliases**: a header cell may carry a parenthetical alias, `size (length)`, which strips, colours, and crosslinks exactly as it would on a bare attribute line — the first header cell's `(alias)` naming the Concept.
+- **Linting in place**: a table finding pins the offending cell rather than the whole line — a lowercase or empty first cell, a capitalised column, a row's extra cells, and an empty name cell each squiggle where they sit.
 
 That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreadsheet re-computes derived columns; Alpha's audits them. Two rows with the same name are an identical-siblings error; two rows with identical content are a Gödel clash; a row that carries every attribute another Concept's Examples share is drift; and a column whose values are pinned down by another column — the very thing org would compute with a formula — is what the Armstrong dependency warnings flag. In Alpha a computed column is not a formula to store but a dependency to model once, against its determinant. See [`examples/spreadsheet.aot`](examples/spreadsheet.aot).
 
@@ -644,7 +667,7 @@ One more error comes from the **declared dependency graph** (`src/armstrong.js` 
 | 7 | **Differentia** | Two or more sibling sub-Concepts with an identical attribute/value *slot signature* — they are told apart by position only. Give each a distinguishing attribute or value. A sub-Concept that asserts no slot at all is excused: with no attributes its `...` is implied, so its differentia is still to come. |
 | 8 | **Case-twin Examples** | Two Examples whose names differ only in case (`- Socrates` / `- socrates`). Example references resolve case-insensitively, so they are one name to every link and audit — align the spelling. |
 | 9 | **Stale derivation** | A `=` value that no longer matches its formula (someone edited a referenced value). Recomputes by itself when the cursor leaves the line, and on save; Tab in a table, Format Document, and the *AOT: Recompute Formulas* command still force it. |
-| 10 | **Breached constraint** | A value that fails its attribute's constraint (`age: 15` under `age >=18`, `status: void` under `status ==or(\`draft\`,\`sent\`,\`paid\`)`). Pinned to the offending value, naming the bound and its declaring line — worth knowing, but data out of bounds is not a broken file, so it never counts in `V`. |
+| 10 | **Breached constraint** | A value that fails its attribute's constraint (`age: 15` under `age >=18`, `status: void` under `status ==or(\`draft\`,\`sent\`,\`paid\`)`). Pinned to the offending value, naming the bound and its declaring line — worth knowing, but data out of bounds is not a broken file, so it never counts in `V`. A determinate `==` is a **definition**, not a bound, so a value that differs from it reports as *stale* (rule 9) and recomputes instead. |
 | 11 | **Redundant dependency** | A direct dependency edge that a chain through another Concept already implies (Armstrong Transitivity): `share` on `Shares Outstanding` when `Shares Outstanding ─tensor→ Tensor ─share→ Share` already holds. The declaration adds nothing — drop the direct slot, or drop an intermediate link if the direct dependency is the one meant. Two attributes of the same type (`from node` / `to node`, both a `Node`) never imply each other: the witnessing chain must pass through an intermediate Concept. |
 
 A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten. A Map says *what is still missing, a todo, or uncertain* — it is never a description of the line above it (use a parenthetical alias to name or explain a term).

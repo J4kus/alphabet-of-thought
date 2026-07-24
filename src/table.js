@@ -412,8 +412,9 @@ function copyFormulaAcross(block, row, col) {
 }
 
 // C-c |: turn plain delimited lines (tab-, comma- or multi-space-separated)
-// into a table — first line the header, lowercased since columns name
-// attributes, with the separator drawn beneath it.
+// into a table — first line the header, with the separator drawn beneath it.
+// The header's first cell names the Concept (kept as written), the rest name
+// attributes (lowercased, since a column is an attribute of that Concept).
 function fromRegion(lines) {
   const delim = lines.some((l) => l.includes("\t")) ? "\t"
     : lines.some((l) => l.includes(",")) ? ","
@@ -423,7 +424,7 @@ function fromRegion(lines) {
     cells: l.trim().split(delim).map((s) => s.trim()),
   }));
   if (!rows.length) return null;
-  rows[0].cells = rows[0].cells.map((c) => c.toLowerCase());
+  rows[0].cells = rows[0].cells.map((c, k) => (k === 0 ? c : c.toLowerCase()));
   const block = {
     indent: lines[0].match(/^ */)[0],
     rows: [rows[0], { sep: true, cells: [] }, ...rows.slice(1)],
@@ -1028,9 +1029,13 @@ function dataRowsOf(block) {
 // The name→column candidates a header offers, for longest-match reference
 // resolution: each column's cleaned name and its `(alias)` both point at the
 // column (1-based). A trailing constraint (`qty >=1`) is not part of the name.
+// The first cell names the Concept the table describes, not an attribute
+// (1.9), so it offers no column candidate — `@Person` inside Person's own
+// grid is not a reference to its name column.
 function headerNameCands(header) {
   const cands = [];
   (header || []).forEach((cell, k) => {
+    if (k === 0) return;
     let name = splitConstraint(widthCookie(cell).text).value, alias = null;
     if (name.endsWith(")") && name.includes("(")) {
       const open = name.lastIndexOf("(");
@@ -1172,12 +1177,30 @@ function tableCtx(rows, row, header, registry, outer) {
   };
 }
 
-// The registry scope of the line a block is filed under: the nearest
-// shallower non-blank line's cleaned name — the root name at top level —
-// looked up in the registry. This is the `outer` scope tableCtx reads the
-// parent's line-form attributes and defaults through.
+// The Concept a table block itself names: its header's first cell, minus
+// width cookie and (alias) — "" when the block has no header or the cell
+// is empty. This is the name the table declares (or fills in) since 1.9.
+function ownName(block) {
+  if (!block.rows.length || block.rows[0].sep) return "";
+  return cleanName(widthCookie(block.rows[0].cells[0] || "").text);
+}
+
+// The registry scope of the Concept the table describes: the one its first
+// header cell names — the same node whether the table declared it or fills
+// in a same-named line above (the merge form), so line-form defaults and
+// '- ' Examples ride along either way. When the first cell resolves to
+// nothing (an old-format 'name' label, a header still being typed), the
+// nearest shallower non-blank line answers as it always did — the root
+// name at top level. This is the `outer` scope tableCtx reads the
+// Concept's line-form attributes and defaults through.
 function enclosingScope(lines, block, registry, rootName) {
   if (!registry) return undefined;
+  const own = ownName(block);
+  if (own) {
+    const scope = registry.scopes.get(numberless(own).toLowerCase())
+      || registry.scopes.get(own.toLowerCase());
+    if (scope) return scope;
+  }
   let name = rootName;
   for (let j = block.start - 1; j >= 0; j--) {
     if (!lines[j].trim()) continue;
@@ -1197,18 +1220,58 @@ function computeCell(rows, row, text, header, registry, outer) {
   return formatValue(evalFormula(formula.trim(), tableCtx(rows, row, header, registry, outer)), value);
 }
 
-// Recompute every '=' formula cell in the block, top-down and
-// left-to-right, so a formula may build on the column before it; extra
-// passes let a reference to a later formula converge. A cell that cannot
-// compute shows #ERR and keeps its formula. Constraint cells ('>=' and
-// kin) are never rewritten — they are checked by the audit, not computed.
+// The per-column definitions a header declares. An attribute carrying a
+// determinate `==` bound *defines* its column: `vat ==@price*@tax rate`
+// says every vat IS that, computed in its own row, so no cell need repeat
+// the formula — the derivation is written once, where the attribute is
+// declared. `==or(`draft`,`sent`)` is NOT a definition: a Choice lists the
+// allowed values rather than naming one, so it stays a bound the audit
+// checks. Determinacy is decided by the computed value, per row.
+// Indexed by cell position; null where the column defines nothing.
+function columnDefinitions(header) {
+  return (header || []).map((cell, k) => {
+    if (k === 0) return null; // the first cell names the Concept, not a column
+    const con = splitConstraint(widthCookie(cell).text);
+    const eq = con.constraints.find((c) => c.op === "==");
+    return eq ? eq.formula : null;
+  });
+}
+
+// Recompute every derived cell in the block, top-down and left-to-right,
+// so a formula may build on the column before it; extra passes let a
+// reference to a later formula converge. Two kinds of derivation:
+// a cell's own '=' formula (which cannot compute shows #ERR and keeps its
+// formula), and a column defined by a determinate '==' on its header,
+// which fills every cell that carries no formula of its own — an empty one
+// included, since the definition says what the value IS. A '==' that
+// cannot compute leaves its cells alone: an uncomputable bound is the
+// declaration's problem, reported once against the header by the audit.
+// The other constraints ('>=' and kin) are never rewritten — they are
+// checked by the audit, not computed.
 function recompute(block, registry, outer) {
   const rows = dataRowsOf(block);
   const header = rows.length ? block.rows[0].cells : [];
+  const defs = columnDefinitions(header);
   let changedAtAll = false;
   for (let pass = 0; pass < 5; pass++) {
     let changed = false;
     for (const row of rows) {
+      defs.forEach((formula, k) => {
+        if (!formula) return;
+        const text = row.cells[k] || "";
+        if (splitCell(text).eq !== -1) return; // an explicit cell formula wins
+        let out;
+        try {
+          const v = evalFormula(formula, tableCtx(rows, row, header, registry, outer));
+          if (v instanceof Choice) return; // allowed values, not a definition
+          out = formatValue(v, text);
+        } catch { return; }
+        if (out !== text) {
+          for (let j = row.cells.length; j < k; j++) row.cells[j] = "";
+          row.cells[k] = out;
+          changed = true;
+        }
+      });
       row.cells.forEach((text, k) => {
         const { value, eq, op } = splitCell(text);
         if (eq === -1 || op !== "=") return;
@@ -1409,13 +1472,23 @@ function tablesOf(lines, rootName) {
     if (!block) continue;
     i = block.end;
     if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) continue;
-    let name = rootName, nameLine = null;
-    for (let j = block.start - 1; j >= 0; j--) {
-      if (!lines[j].trim()) continue;
-      if (lines[j].match(/^ */)[0].length < block.indent.length) {
-        name = cleanName(lines[j].trim());
-        nameLine = j + 1;
-        break;
+    // the table names the Concept it describes in its first header cell
+    // (1.9); an older table (a 'name' label, or a cell that reads as no
+    // Concept) still takes its name from the nearest shallower line.
+    let name, nameLine;
+    const own = cleanName(widthCookie(block.rows[0].cells[0] || "").text);
+    if (own && /^[A-Z]/.test(own)) {
+      name = own;
+      nameLine = block.start + 1;
+    } else {
+      name = rootName; nameLine = null;
+      for (let j = block.start - 1; j >= 0; j--) {
+        if (!lines[j].trim()) continue;
+        if (lines[j].match(/^ */)[0].length < block.indent.length) {
+          name = cleanName(lines[j].trim());
+          nameLine = j + 1;
+          break;
+        }
       }
     }
     if (!name) continue;
@@ -1475,32 +1548,55 @@ function fromCsv(text) {
 // lines from..to (inclusive) become the block; to < from is a pure insert
 // before `from`. null when no line defines the named Concept.
 function updateTable(lines, name, header, rows, rootName, registry) {
-  let conceptLine = -1, conceptIndent = -1;
+  const low = name.toLowerCase();
+  let from, to, indent;
+  // 1) a table the Concept names in its own first header cell (1.9) —
+  //    standalone, or merged beneath a same-named line, and including an
+  //    assumed lone header still being typed (no separator yet), which this
+  //    completes. Its block is replaced where it stands.
+  let selfBlock = null;
   for (let i = 0; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (!t || t[0] === "|" || isSeparator(t)) continue;
-    if (cleanName(t).toLowerCase() === name.toLowerCase()) {
-      conceptLine = i;
-      conceptIndent = lines[i].match(/^ */)[0].length;
-      break;
-    }
+    const t = (lines[i] || "").trim();
+    if (!t || t[0] !== "|" || isSeparator(t)) continue;
+    const b = blockAt(lines, i);
+    i = b.end;
+    if (b.rows[0].sep) continue;
+    const cell0 = cleanName(widthCookie(b.rows[0].cells[0] || "").text);
+    if (cell0 && cell0.toLowerCase() === low) { selfBlock = b; break; }
   }
-  if (conceptLine === -1 && name !== rootName) return null;
-  const indent = " ".repeat(conceptLine === -1 ? 0 : conceptIndent + 4);
-  // the Concept's scope: up to the first shallower-or-equal non-blank
-  // line; its table is the first pipe block at exactly its child depth
-  // (a sub-Concept's own table sits deeper and is not this one)
-  let from = conceptLine + 1, to = from - 1;
-  for (let i = conceptLine + 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (!t) continue;
-    const ind = lines[i].match(/^ */)[0].length;
-    if (conceptLine !== -1 && ind <= conceptIndent) break;
-    if (t[0] === "|" && ind === indent.length) {
-      const found = blockAt(lines, i);
-      from = found.start;
-      to = found.end;
-      break;
+  if (selfBlock) {
+    from = selfBlock.start;
+    to = selfBlock.end;
+    indent = selfBlock.indent;
+  } else {
+    // 2) the Concept's own line and the table beneath it (an older grid, or
+    //    a line-form Concept gaining its first grid — inserted under its
+    //    line as a merge-form table that repeats the Concept's name).
+    let conceptLine = -1, conceptIndent = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (!t || t[0] === "|" || isSeparator(t)) continue;
+      if (cleanName(t).toLowerCase() === low) {
+        conceptLine = i;
+        conceptIndent = lines[i].match(/^ */)[0].length;
+        break;
+      }
+    }
+    if (conceptLine === -1 && name !== rootName) return null;
+    indent = " ".repeat(conceptLine === -1 ? 0 : conceptIndent + 4);
+    from = conceptLine + 1;
+    to = from - 1;
+    for (let i = conceptLine + 1; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (!t) continue;
+      const ind = lines[i].match(/^ */)[0].length;
+      if (conceptLine !== -1 && ind <= conceptIndent) break;
+      if (t[0] === "|" && ind === indent.length) {
+        const found = blockAt(lines, i);
+        from = found.start;
+        to = found.end;
+        break;
+      }
     }
   }
   const tableBlock = {
@@ -1588,5 +1684,5 @@ module.exports = {
   valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
   mergeRegistries, enclosingScope,
   widthCookie, headerWidths, isContinuation, unwrap, unwrapWithMap,
-  numberless,
+  numberless, columnDefinitions,
 };

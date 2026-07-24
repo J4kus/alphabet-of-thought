@@ -187,13 +187,50 @@ function parse(text, rootName, report) {
       const separatorBelow = isSeparator(below);
       const rowBelow = !separatorBelow && below[0] === "|";
       if (!table && (separatorBelow || (row.length > 1 && !rowBelow))) {
-        // header row: the cells after the first declare the columns as
-        // attributes of the parent, exactly as bare lowercase lines would;
-        // the first cell only labels the name column and asserts nothing
+        // header row: the FIRST cell names the Concept the table describes
+        // — the table stands where the Concept's line would stand — and the
+        // cells after it declare the columns as attributes of that Concept,
+        // exactly as bare lowercase lines would. When the line the table is
+        // filed under already bears the same name, the table fills that
+        // node in rather than declaring a twin, so a Concept can carry
+        // line-form defaults and '- ' Examples beside its grid.
         table = { depth, attrs: [], lastExample: null, hasCookies: false };
         // a width cookie on the name column is parsed but ignored — the
         // name column never wraps — yet it still opts the table in
-        if (widthCookie(row[0].text).width !== null) table.hasCookies = true;
+        let cName = row.length ? row[0].text : "", cAlias = null, cAliasCol;
+        const cCookie = widthCookie(cName);
+        if (cCookie.width !== null) {
+          table.hasCookies = true;
+          cName = cCookie.text;
+        }
+        if (cName.endsWith(")") && cName.includes("(")) {
+          const open = cName.lastIndexOf("(");
+          const inner = cName.slice(open + 1, -1);
+          cAlias = inner.trim() || null;
+          if (cAlias && row.length) cAliasCol = row[0].col + open + 1 + (inner.length - inner.trimStart().length);
+          cName = cName.slice(0, open).trim();
+        }
+        const sameAsParent = cName && parent.name
+          && numberless(cName).toLowerCase() === numberless(parent.name).toLowerCase();
+        let owner = parent;
+        if (!cName) {
+          report.error(line, "the table's first header cell is empty, expected the Concept the table describes — the first cell names the Concept whose Examples the rows are; write its name",
+            row.length ? { startCol: row[0].col, endCol: row[0].col + Math.max(row[0].text.length, 1) } : undefined);
+        } else if (sameAsParent) {
+          owner = parent; // the table fills in the line it is filed under
+        } else if (cName[0] >= "a" && cName[0] <= "z") {
+          report.error(line, `the first header cell '${cName}' is lowercase — it names the Concept the table describes (the old 'name' label was dropped in 1.9); write the Concept's name there, capitalised`,
+            { startCol: row[0].col, endCol: row[0].col + row[0].text.length });
+        } else {
+          const concept = {
+            line, depth, kind: CONCEPT, name: cName, value: null,
+            alias: cAlias, aliasCol: cAliasCol, parent, children: [], nameCol: row[0].col, cell: true,
+          };
+          parent.children.push(concept);
+          nodes.push(concept);
+          owner = concept;
+        }
+        table.owner = owner;
         let last = null;
         for (const cell of row.slice(1)) {
           // a header cell is an attribute term, so it may carry a trailing
@@ -225,22 +262,22 @@ function parse(text, rootName, report) {
             continue;
           }
           if (name[0] >= "A" && name[0] <= "Z") {
-            report.error(line, `column '${name}' is capitalised — a table column names an attribute of '${parent.name}', and attributes are lowercase; lowercase it`,
+            report.error(line, `column '${name}' is capitalised — a table column names an attribute of '${owner.name}', and attributes are lowercase; lowercase it`,
               { startCol: cell.col, endCol: cell.col + cell.text.length });
           }
           const attr = {
             line, depth, kind: ATTRIBUTE, name, value: null,
-            alias, aliasCol, parent, children: [], nameCol: cell.col, cell: true,
+            alias, aliasCol, parent: owner, children: [], nameCol: cell.col, cell: true,
           };
           if (constraints) attr.constraints = constraints;
           if (maxWidth !== null) attr.maxWidth = maxWidth;
-          parent.children.push(attr);
+          owner.children.push(attr);
           nodes.push(attr);
           table.attrs.push(attr);
           last = attr;
         }
         stack.length = depth + 1;
-        stack.push(last || parent);
+        stack.push(last || owner);
         prevDepth = depth;
         return;
       }
@@ -293,9 +330,9 @@ function parse(text, rootName, report) {
         }
         const example = {
           line, depth, kind: INDIVIDUAL, name: row[0].text, value: null,
-          alias: null, parent, children: [], nameCol: row[0].col,
+          alias: null, parent: table.owner, children: [], nameCol: row[0].col,
         };
-        parent.children.push(example);
+        table.owner.children.push(example);
         nodes.push(example);
         table.lastExample = example;
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {

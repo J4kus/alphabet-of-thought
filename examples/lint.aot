@@ -20,7 +20,7 @@ Measure Missing Target
 Measure Missing Actual
     target: 5
 Single Subtype
-    Only One Subtype
+    Only One Sub type
 Lone Example Parent
     - Solo Parent
         - Solo Child
@@ -57,10 +57,10 @@ Clean
     Balanced Measure
         actual: 9
         target: 10
-    Two Subtype Split
-        Subtype By Speed
+    Two Sub Type Split
+        Sub Type By Speed
             speed: fast
-        Subtype By Size
+        Sub Type By Size
             size: large
     Multi Example Parent
         - Branch Parent

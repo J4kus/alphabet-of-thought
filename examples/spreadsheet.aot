@@ -1,10 +1,10 @@
-Person
-    |name    |residency city|occupation |first name|father      |full name                                                           |
-    |--------+--------------+-----------+----------+------------+--------------------------------------------------------------------|
-    |Socrates|Athens        |Philosopher|Sokrates  |Sophroniscus|Sokrates son of Sophroniscus =concat(@first name,` son of `,@father)|
-    |Jakus   |George        |Engineer   |Jakus     |Paul        |Jakus son of Paul =concat(@first name,` son of `,@father)           |
-    |Tim Cook|              |           |          |            |                                                                    |
 
+
+|Person    |residence city|occupation |first name|father (person)|age          |is alive ==`No`|
+|----------+--------------+-----------+----------+---------------+-------------+---------------|
+|Aristotle |George        |Philosopher|          |               |10           |No             |
+|Socrates  |Athens        |Philosopher|Sokrates  |Sophroniscus   |20           |No             |
+|Total ages|              |           |          |               |15 =avg(@age)|No             |
 
 City
     residents known as
@@ -12,48 +12,6 @@ City
         residents known as: Athenians
     - George
     - San Francisco
-
-Population
-    number of people
-    year
-    city
-Exchange
-Price
-    - aot.files\_Price.csv
-Share
-    |name   |ticker|exchange|company name|ceo (person)|
-    |-------+------+--------+------------+------------|
-    |apple  |APPL  |NASDAQ  |Apple Inc.  |Tim Cook    |
-    |google |GOOG  |        |            |            |
-    |netflix|NFLX  |        |            |            |
-Shares Outstanding
-    volume
-    - day 1
-        share: netflix
-        open price: 148
-        high price: 149.2
-        low price: 147.5
-        close price: 148.25
-        volume: 52000000
-        date: 2026-18-12
-    - day 2
-        share: apple
-        volume: 20535343
-        open price: 4214
-Comparison
-    |shape                            |alpha|prose|alpha saves|
-    |---------------------------------+-----+-----+-----------|
-    |Taxonomy, 155 ideas              |666  |1,565|57%        |
-    |Grid, 100 Examples x 4 attributes|2,330|3,007|23%        |
-    |Grid, 5 Examples x 4 attributes  |151  |163  |7%         |
-    |Grid, 1 Example x 4 attributes   |55   |38   |-45%       |
-
-Order
-    tax rate: 0.2
-    origin: EU
-    - Loose
-        price: 50
-    |name|price|vat                 |site       |all             |
-    |----+-----+--------------------+-----------+----------------|
-    |A   |100  |20 =@price*@tax rate|EU =@origin|90 =sum(@price) |
-    |B   |40   |                    |US         |50 =@price@Loose|
+    - Macedonia
+Occupation
+    - Philosopher

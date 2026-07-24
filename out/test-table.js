@@ -12,7 +12,7 @@ const {
   formulaReferences,
   valueType, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
   mergeRegistries, readValue, truthOf,
-  widthCookie, headerWidths, unwrap, unwrapWithMap,
+  widthCookie, headerWidths, unwrap, unwrapWithMap, columnDefinitions,
 } = require("../src/table");
 const { lint } = require("../src/linter");
 const { conceptRegistry } = require("../src/derive");
@@ -155,8 +155,8 @@ const fresh = () => blockAt(doc, 3);
 // ---------------------------------------------------------------------------
 {
   const csv = fromRegion(["    Name,Size", "    Ollie,5", "    Pebble,3"]);
-  check("fromRegion: CSV becomes an aligned table with a separator",
-    csv[0] === "    |name  |size|" && csv[1] === "    |------+----|" && csv[2] === "    |Ollie |5   |");
+  check("fromRegion: CSV becomes a table, the first cell (the Concept) kept, the rest lowercased",
+    csv[0] === "    |Name  |size|" && csv[1] === "    |------+----|" && csv[2] === "    |Ollie |5   |");
   const tsv = fromRegion(["a\tb", "1\t2"]);
   check("fromRegion: tabs win over commas", tsv[0] === "|a|b|");
   const spaced = fromRegion(["name  size", "Ollie  5"]);
@@ -400,7 +400,7 @@ const fresh = () => blockAt(doc, 3);
     found[2].stale === true && found[2].message.includes("= 20"));
 
   check("align: recomputes formulas before padding",
-    align(["| name | b        |", "|------+----------|", "| 2    | =@name*2 |"].join("\n")).some((e) => e.text.includes("4 =@name*2")));
+    align(["| N | a | b     |", "|---+---+-------|", "| X | 2 | =@a*2 |"].join("\n")).some((e) => e.text.includes("4 =@a*2")));
 
   // the automatic fill: recomputeAll refreshes stale values, but a table
   // whose values are already right is left exactly as typed, ragged or not
@@ -507,6 +507,74 @@ const fresh = () => blockAt(doc, 3);
       const ctx = tableCtx(rows, rows[0], bound.rows[0].cells);
       return ctx.matchColumn("age)").id === 2 && ctx.cell(2) === "25";
     })());
+}
+
+// ---------------------------------------------------------------------------
+// '==' defines a column: a determinate bound on a header cell is the
+// derivation for every cell beneath it, so no cell repeats the formula.
+// '==or(…)' is not a definition — a Choice lists allowed values.
+// ---------------------------------------------------------------------------
+{
+  check("columnDefinitions: a determinate '==' answers its formula, the first cell never",
+    (() => {
+      const defs = columnDefinitions(["Order", "price", "vat ==@price*2", "age >=18"]);
+      return defs[0] === null && defs[1] === null && defs[2] === "@price*2" && defs[3] === null;
+    })());
+
+  const defined = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["Order", "price", "tax rate", "vat ==@price*@tax rate"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["A", "100", "0.2", ""] },     // empty: the definition fills it
+      { sep: false, cells: ["B", "40", "0.5", "999"] },   // wrong: the definition wins
+    ],
+  };
+  recompute(defined);
+  check("recompute: a '==' column fills an empty cell and corrects a wrong one",
+    defined.rows[2].cells[3] === "20" && defined.rows[3].cells[3] === "20");
+  check("recompute: a defined cell carries the value alone, never the formula",
+    !defined.rows[2].cells[3].includes("="));
+
+  // a cell's own '=' is the nearer word, so it wins over the column's '=='
+  const override = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["Order", "price", "vat ==@price*2"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["A", "10", "=@price*3"] },
+    ],
+  };
+  recompute(override);
+  check("recompute: an explicit cell formula wins over the column's definition",
+    override.rows[2].cells[2] === "30 =@price*3");
+
+  // '==or(…)' answers a Choice — allowed values, naming none, so no fill
+  const choice = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["Task", "status ==or(`draft`,`sent`)"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["A", "draft"] },
+      { sep: false, cells: ["B", ""] },
+    ],
+  };
+  recompute(choice);
+  check("recompute: '==or(…)' lists allowed values, so it never fills a cell",
+    choice.rows[2].cells[1] === "draft" && choice.rows[3].cells[1] === "");
+
+  // an uncomputable '==' is the declaration's problem: the cells stay put
+  const broken = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["Order", "vat ==@nope*2"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["A", "7"] },
+    ],
+  };
+  recompute(broken);
+  check("recompute: an uncomputable '==' leaves its cells alone (no #ERR)",
+    broken.rows[2].cells[1] === "7");
 }
 
 // ---------------------------------------------------------------------------
@@ -641,26 +709,25 @@ const fresh = () => blockAt(doc, 3);
 // ---------------------------------------------------------------------------
 {
   const sheet = [
-    "Order",
-    "    |name|country|",
-    "    |----+-------|",
-    "    |Acme|France |",
-    "    |Bolt|Germany|",
-    "Refund (Return)",
-    "    |name|reason |",
-    "    |----+-------|",
-    "    |R1  |Damaged|",
-    "Organisation",
-    "    |# |full name|",
+    "|Order|country|",
+    "|-----+-------|",
+    "|Acme |France |",
+    "|Bolt |Germany|",
+    "",
+    "|Refund (Return)|reason |",
+    "|---------------+-------|",
+    "|R1             |Damaged|",
+    "",
+    "|Organisation|full name|",
   ];
   const ts = tablesOf(sheet, "spreadsheet");
-  check("tablesOf: finds complete tables under their parent names",
+  check("tablesOf: names each table by its first header cell (the Concept)",
     ts.length === 2 && ts[0].name === "Order" && ts[1].name === "Refund");
   check("tablesOf: grid is header plus data rows",
-    ts[0].header.join(",") === "name,country" && ts[0].rows[1].join(",") === "Bolt,Germany");
+    ts[0].header.join(",") === "Order,country" && ts[0].rows[1].join(",") === "Bolt,Germany");
   check("tablesOf: an assumed lone header is skipped (still being typed)",
     !ts.some((t) => t.name === "Organisation"));
-  check("tablesOf: a top-level table is named by the root",
+  check("tablesOf: a table whose first cell names no Concept falls back to the root",
     tablesOf(["| name |", "|------|", "| Solo |"], "zoo")[0].name === "zoo");
 
   check("cleanName: strips markers, values and aliases",
@@ -675,23 +742,23 @@ const fresh = () => blockAt(doc, 3);
   check("fromCsv round-trips toCsv",
     JSON.stringify(fromCsv(toCsv([["a", "b"], ["1", "x,y"]]))) === JSON.stringify([["a", "b"], ["1", "x,y"]]));
 
-  const u = updateTable(sheet, "Order", ["name", "country", "currency"], [["Acme", "France", "EUR"]]);
+  const u = updateTable(sheet, "Order", ["Order", "country", "currency"], [["Acme", "France", "EUR"]]);
   check("updateTable: replaces the Concept's block in place",
-    u.changed && u.from === 1 && u.to === 4
-    && u.block[0] === "    |name|country|currency|"
-    && u.block[2] === "    |Acme|France |EUR     |");
-  const same = updateTable(sheet, "Refund", ["name", "reason"], [["R1", "Damaged"]]);
+    u.changed && u.from === 0 && u.to === 3
+    && u.block[0] === "|Order|country|currency|"
+    && u.block[2] === "|Acme |France |EUR     |");
+  const same = updateTable(sheet, "Refund", ["Refund (Return)", "reason"], [["R1", "Damaged"]]);
   check("updateTable: an identical grid changes nothing", same.changed === false);
-  const folded = updateTable(sheet, "ORDER", ["name", "country", "currency"], [["Acme", "France", "EUR"]]);
+  const folded = updateTable(sheet, "ORDER", ["Order", "country", "currency"], [["Acme", "France", "EUR"]]);
   check("updateTable: the Concept name matches in any case",
-    folded !== null && folded.from === 1 && folded.to === 4);
-  const lone = updateTable(sheet, "Organisation", ["#", "full name"], [["1", "Acme Ltd"]]);
+    folded !== null && folded.from === 0 && folded.to === 3);
+  const lone = updateTable(sheet, "Organisation", ["Organisation", "full name"], [["1", "Acme Ltd"]]);
   check("updateTable: completes an assumed lone header",
-    lone.changed && lone.from === 10 && lone.to === 10 && lone.block.length === 3);
-  const ins = updateTable(["Person"], "Person", ["name"], [["John"]]);
-  check("updateTable: inserts beneath a table-less Concept",
+    lone.changed && lone.from === 9 && lone.to === 9 && lone.block.length === 3);
+  const ins = updateTable(["Person"], "Person", ["Person"], [["John"]]);
+  check("updateTable: inserts a merge-form grid beneath a table-less Concept",
     ins.changed && ins.to < ins.from && ins.from === 1
-    && ins.block.length === 3 && ins.block[0] === "    |name|" && ins.block[2] === "    |John|");
+    && ins.block.length === 3 && ins.block[0] === "    |Person|" && ins.block[2] === "    |John  |");
   check("updateTable: an unknown Concept is null",
     updateTable(["Order"], "Ghost", ["a"], [], "root") === null);
 }

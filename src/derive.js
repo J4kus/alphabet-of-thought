@@ -31,8 +31,19 @@ const { KIND, INDENT } = require("./linter");
 const {
   splitCell, splitConstraint, evalFormula, formatValue, compareValues, longestMatch,
   tablesOf, updateTable, describeBound, readValue, render,
-  referenceSpans, widthCookie, numberless,
+  referenceSpans, widthCookie, numberless, Choice,
 } = require("./table");
+
+// The determinate `==` bound on an attribute declaration — the one that
+// *defines* every value of the attribute rather than bounding it. Answers
+// the formula, or null when the declaration carries no `==`. Whether the
+// bound is determinate is only known once computed (an `==or(…)` answers a
+// Choice, which lists allowed values rather than naming one), so the
+// callers check the computed value; this just finds the clause.
+function definitionOf(a) {
+  const eq = a && a.constraints && a.constraints.find((c) => c.op === "==");
+  return eq ? eq.formula : null;
+}
 
 // The line-form derivation hosts: DEFAULT nodes whose parsed value carried
 // an operator (linter.js strips it onto node.formula / node.op).
@@ -73,6 +84,13 @@ function referencesAt(nodes, line) {
 // cell/column by name, exactly as a table cell can — `@Order@price@Acme`.
 function makeCtx(d, current, registry) {
   const { host, examples } = scopeOf(d);
+  // The Concept the Examples sit under. Its own values are the defaults an
+  // Example silent on an attribute inherits, so a formula (or a `==`
+  // definition) on a value under an Example may name them beside its own
+  // siblings — `=@price*@tax rate` with `tax rate: 0.2` on the Concept.
+  // This is the reading a grid cell already gets through its enclosing
+  // scope (table.js's `outer`); the line form answers it the same way.
+  const owner = d.parent && d.parent.kind === KIND.INDIVIDUAL ? d.parent.parent : null;
   const names = new Map(); // lowercased key -> canonical attribute id
   const addName = (n) => {
     if (n.kind !== KIND.DEFAULT && n.kind !== KIND.ATTRIBUTE) return;
@@ -85,6 +103,7 @@ function makeCtx(d, current, registry) {
   };
   (d.parent ? d.parent.children : []).forEach(addName);
   for (const ex of examples) ex.children.forEach(addName);
+  if (owner) owner.children.forEach(addName);
   const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
   const rowCands = examples.map((ex) => ({ key: ex.name.toLowerCase(), id: ex }));
   // an owner's value for the attribute; undefined when the owner never
@@ -96,17 +115,21 @@ function makeCtx(d, current, registry) {
     if (!hit) return undefined;
     return hit.kind === KIND.DEFAULT ? current(hit) : "";
   };
+  // the Concept's own value for the attribute — what a silent Example inherits
+  const inherited = (id) => (owner ? valueOn(owner, id) : undefined);
+  const read = (on, id) => {
+    let v = valueOn(on, id);
+    if (v === undefined || v === "") {
+      const own = inherited(id);
+      if (own !== undefined && own !== "") return own;
+    }
+    return v === undefined ? "" : v;
+  };
   return {
     matchColumn: (rest) => longestMatch(rest, nameCands),
     matchRow: (rest) => longestMatch(rest, rowCands),
-    cell: (c) => {
-      const v = valueOn(d.parent, c);
-      return v === undefined ? "" : v;
-    },
-    cellAt: (c, ex) => {
-      const v = valueOn(ex, c);
-      return v === undefined ? "" : v;
-    },
+    cell: (c) => (d.parent ? read(d.parent, c) : ""),
+    cellAt: (c, ex) => read(ex, c),
     column: (c) =>
       examples.filter((ex) => ex !== host)
         .map((ex) => valueOn(ex, c))
@@ -174,10 +197,11 @@ function conceptScope(concept) {
     // Concept offers it: `@Measurement@alias` means the value Measurement
     // itself carries, the same one its Examples would inherit.
     self: (c) => valueOn(concept, c),
-    // the same Examples as a grid — the first column names them, as the CSV
-    // mirror writes a table's, so a line-form Concept mirrors like any other
+    // the same Examples as a grid — the first column is headed by the
+    // Concept and names its Examples, as the CSV mirror writes a table's,
+    // so a line-form Concept mirrors like any other
     grid: () => [
-      ["name", ...display.values()],
+      [concept.name, ...display.values()],
       ...examples.map((ex, r) => [ex.name, ...[...display.keys()].map((id) => valueAt(r, id))]),
     ],
   };
@@ -353,6 +377,18 @@ function auditValues(root, nodes, lines, registry) {
         }
         continue;
       }
+      // A determinate '==' *defines* the value rather than bounding it, so a
+      // value that differs is stale, not in violation: it recomputes exactly
+      // as an '=' formula does. (An '==or(…)' answers a Choice — a list of
+      // allowed values, which names no single one — and stays a bound.)
+      if (con.op === "==" && !(bound instanceof Choice) && d.formula === undefined) {
+        let computed;
+        try { computed = formatValue(bound, d.value); } catch { continue; }
+        if (computed !== d.value) {
+          violation(d, `value '${d.value}' does not match its definition '${a.name} ==${con.formula}' (= ${computed}, line ${a.line}) — it recomputes when the cursor leaves the line, or on save`);
+        }
+        continue;
+      }
       if (!compareValues(con.op, d.value, bound)) {
         violation(d, `value '${d.value}' violates '${a.name} ${con.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
       }
@@ -400,11 +436,25 @@ function formulaReferences(root, nodes, lines, registry) {
   return out;
 }
 
-// Recompute every '=' line-form formula, five fixpoint passes so a formula
-// may reference another formula's value; constraints are never rewritten.
+// Recompute every derived line-form value, five fixpoint passes so one
+// derivation may reference another's value. Two kinds: a value's own '='
+// formula, and a value whose attribute declaration *defines* it with a
+// determinate '==' (`vat ==@price*0.2`) — the declaration carries the
+// derivation, so the value follows it without one of its own, exactly as a
+// '==' column fills its cells. The other constraints are never rewritten.
+// A defined value that cannot compute is left alone (the declaration's own
+// error says why); only an '=' formula shows #ERR in its place.
 // Returns whole-line replacements as { line, text } (1-based lines).
 function recomputeValues(root, nodes, lines, registry) {
   const hosts = hostsOf(nodes).filter((n) => n.op === "=");
+  // values a '==' declaration defines: line-form, carrying no formula of
+  // their own (an explicit '=' on the value wins, being the nearer word)
+  const defined = [];
+  for (const d of nodes) {
+    if (d.kind !== KIND.DEFAULT || d.cell || d.formula !== undefined) continue;
+    const formula = definitionOf(constraintOf(d));
+    if (formula) defined.push({ d, formula });
+  }
   const values = new Map();
   const current = (n) => (values.has(n) ? values.get(n) : n.value || "");
   for (let pass = 0; pass < 5; pass++) {
@@ -413,6 +463,15 @@ function recomputeValues(root, nodes, lines, registry) {
       let out;
       try { out = formatValue(evalFormula(d.formula, makeCtx(d, current, registry)), current(d)); }
       catch { out = "#ERR"; }
+      if (out !== current(d)) { values.set(d, out); changed = true; }
+    }
+    for (const { d, formula } of defined) {
+      let out;
+      try {
+        const v = evalFormula(formula, makeCtx(d, current, registry));
+        if (v instanceof Choice) continue; // allowed values, not a definition
+        out = formatValue(v, current(d));
+      } catch { continue; }
       if (out !== current(d)) { values.set(d, out); changed = true; }
     }
     if (!changed) break;
@@ -424,6 +483,14 @@ function recomputeValues(root, nodes, lines, registry) {
     if (!s) continue;
     const text = s.raw.slice(0, s.colon + 1 + s.lead) + values.get(d) + " =" + s.formula;
     edits.push({ line: d.line, text });
+  }
+  // a defined value carries no formula, so its line is `name: value` whole
+  for (const { d } of defined) {
+    if (!values.has(d) || values.get(d) === (d.value || "")) continue;
+    const raw = lines[d.line - 1] || "";
+    const colon = raw.indexOf(":");
+    if (colon === -1) continue;
+    edits.push({ line: d.line, text: raw.slice(0, colon + 1) + " " + values.get(d) });
   }
   return edits;
 }
@@ -889,7 +956,9 @@ function mirrorGrids(root, nodes) {
     out.push({
       name: concept.name,
       node: concept,
-      header: ["name", ...names.values()],
+      // the first column is headed by the Concept (1.9) and names its
+      // Examples, mirroring the table's own `|Concept|attr…|` header
+      header: [concept.name, ...names.values()],
       rows: scopeRows.map((r) => [r.name, ...[...names.keys()].map((k) => valueAt(r, k))]),
     });
   }
