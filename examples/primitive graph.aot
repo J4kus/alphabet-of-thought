@@ -1,0 +1,37 @@
+- Meta Model
+    Entity
+        Node
+            Dependency
+                Independent Node
+                Dependent Node
+                    independent node
+            Tree (Recurring Tree)
+                Parent
+                Child
+                    tree
+            Star (Flat Tree)
+                Root
+                Peripheral
+                    root
+                Remote
+                    first peripheral
+                    second peripheral
+                    node (control)
+            ...
+        Edge
+            Directional Edge
+                from node
+                to node
+            Non Directional Edge (Many To Many Dependency)
+                first node
+                second node
+    Record
+- Example
+    Repository
+        path
+        - Source code
+            path: src/
+        - Configuration
+            path: config/
+        - Tests
+            path: tests/

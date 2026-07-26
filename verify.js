@@ -11,6 +11,8 @@
 //     node verify.js file.aot --overrides                (nodes overriding an inherited default)
 //     node verify.js file.aot --diff old.aot new.aot     (version diff as factorisation comparison)
 //     node verify.js file.aot --suggest                  (FCA: audit the tree against the concept lattice)
+//     node verify.js --workspace [dir]                   (repo: shared Concepts, contradictions; exit 1 if any)
+//     node verify.js --workspace [dir] --reconcile       (repo: write the agreement in first, then check)
 
 const fs = require("fs");
 const path = require("path");
@@ -20,6 +22,7 @@ const godel = require("./src/godel");
 const armstrong = require("./src/armstrong");
 const table = require("./src/table");
 const derive = require("./src/derive");
+const repo = require("./src/repo");
 
 // past this many Examples the lattice is no longer cheap; matches the extension
 const MAX_FCA_OBJECTS = 200;
@@ -105,32 +108,65 @@ function main() {
     process.exit(2);
   }
 
-  // --workspace [dir]: the repo-wide check — every Concept defined in more
-  // than one .aot under dir (default: the current directory) is reported.
+  // --workspace [dir]: the repo-wide check. Every Concept written in more
+  // than one .aot under dir (default: the current directory) is listed, and
+  // the disagreements no tool may settle — one attribute carrying two values,
+  // one Concept filed under two kinds — are reported as errors and exit 1, so
+  // CI can gate on them. Add --reconcile to write the agreement in first:
+  // missing attributes filled, the `...` line kept true, nothing deleted.
   let w;
   if ((w = args.indexOf("--workspace")) !== -1) {
     const root = args[w + 1] && !args[w + 1].startsWith("-") ? args[w + 1] : ".";
+    const fix = args.includes("--reconcile");
     const files = walkAot(root);
-    const byName = new Map(); // lowercased Concept -> [{ file, line, name }]
-    for (const f of files) {
-      const name = path.basename(f).replace(/\.[^.]*$/, "");
-      const { nodes } = lint(readFile(f), name);
-      for (const n of nodes) {
-        if (n.kind !== KIND.CONCEPT) continue;
-        const k = n.name.toLowerCase();
-        if (!byName.has(k)) byName.set(k, []);
-        byName.get(k).push({ file: f, line: n.line, name: n.name });
+    const read = () => files.map((f) => ({
+      file: f,
+      text: readFile(f),
+      rootName: path.basename(f).replace(/\.[^.]*$/, ""),
+    })).map((e) => ({ ...e, ...lint(e.text, e.rootName) }));
+
+    let entries = read();
+    if (fix) {
+      const all = repo.occurrences(entries);
+      const registry = table.mergeRegistries(
+        ...entries.map((e) => derive.conceptRegistry(e.root, e.nodes)));
+      let written = 0;
+      for (const e of entries) {
+        const ops = repo.reconcileFile(e.file, all, e.text.split(/\r?\n/), e.rootName, registry);
+        if (!ops.length) continue;
+        const eol = /\r\n/.test(e.text) ? "\r\n" : "\n";
+        fs.writeFileSync(e.file, repo.applyOps(e.text.split(/\r?\n/), ops).join(eol));
+        console.log(`reconciled ${e.file} (${ops.length} edit${ops.length === 1 ? "" : "s"})`);
+        written++;
       }
+      console.log(written ? `\n${written} file${written === 1 ? "" : "s"} reconciled\n`
+        : "\nevery shared Concept was already in step\n");
+      entries = read(); // judge what is now on disk, not what was
     }
-    let dups = 0;
-    for (const defs of byName.values()) {
-      const files2 = new Set(defs.map((d2) => d2.file));
-      if (files2.size < 2) continue;
-      dups++;
-      console.log(`Concept '${defs[0].name}' is defined in ${files2.size} files:`);
-      for (const d2 of defs) console.log(`  ${d2.file}:${d2.line}`);
+
+    const all = repo.occurrences(entries);
+    let shared = 0;
+    for (const [, list] of all) {
+      if (new Set(list.map((o) => o.file)).size < 2) continue;
+      shared++;
+      console.log(`Concept '${list[0].node.name}' is written in ${list.length} places:`);
+      for (const o of list) console.log(`  ${o.file}:${o.node.line}`);
     }
-    console.log(`\n${files.length} file${files.length === 1 ? "" : "s"} scanned, ${dups} name${dups === 1 ? "" : "s"} defined across more than one`);
+    // without --reconcile nothing is going to close a stale `...` line, so it
+    // is worth reporting; with it, the pass above has already made it true
+    let bad = 0;
+    for (const e of entries) {
+      const found = repo.findings(e.file, all, { autoReconcile: fix });
+      for (const f of found.errors) {
+        console.log(`\n${e.file}:${f.line}  ${f.message}`);
+        bad++;
+      }
+      for (const f of found.warnings) console.log(`\n${e.file}:${f.line}  ${f.message}`);
+    }
+    console.log(`\n${files.length} file${files.length === 1 ? "" : "s"} scanned, `
+      + `${shared} name${shared === 1 ? "" : "s"} written in more than one, `
+      + `${bad} contradiction${bad === 1 ? "" : "s"}`);
+    if (bad) process.exit(1);
     return;
   }
 

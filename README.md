@@ -215,6 +215,57 @@ Parent
 
 `Child` inherits `essential parent attribute: normal value` from `Parent`. `- Child Example` **overrides** that inherited value with `new value`, assigns a value to `essential child attribute not in parent`, and adds `child example attribute` — an accidental attribute not present on the `Child` Concept. The two `...` lines mark the model as deliberately incomplete, which is the only thing a Map does.
 
+### Concepts across files
+
+One subject per file is the rule, but a person, a system or a measure worth modelling turns up in more than one subject. When the same Concept is written in two files, Alpha reads the two halves logic already gives it and treats them differently:
+
+| | What it is | Across files |
+|---|---|---|
+| **Intension** | the definition: the attributes and values it declares, and the kind it is filed under | **must agree** — and the editor makes it agree on save. |
+| **Extension** | the Examples it lists — the individuals it vouches for | **is a partial sample.** The repo-wide truth is the union, and differences are never a conflict. |
+
+Every occurrence is a **peer**. No file owns a Concept, and none is exempt from saying it is partial. Two files each listing the motivations their own subject needs are not in conflict at all:
+
+```aot
+monthly close.aot                          bank recon.aot
+- Motivation                               - Motivation
+    Jakus                                      Jakus
+        role: financial controller                 role: financial controller
+        - Do Monthly Processing                    - All Transactions Are Reconciled
+        ... 4 more in bank recon.aot:2             - Transactions Are Reconciled Correctly
+                                                   - Incorrectly Reconciled Transactions ...
+                                                   - Future Transactions Are Reconciled ...
+                                                   ... 1 more in monthly close.aot:2
+```
+
+**Saving a file makes that file agree with the repo**, as far as agreement can be reached without a human deciding anything. It is additive: nothing you wrote is ever deleted, and no other file is touched — saving `monthly close.aot` writes to `monthly close.aot` and nothing else, so peers converge as you save each of them.
+
+| Difference | On save |
+|---|---|
+| A peer declares an attribute or value this occurrence does not have in force | **written in.** `role: financial controller` above was declared in one file and appears in both. An attribute a peer merely *inherits* is already in force here too, and is not copied. |
+| A same-named Example is given an attribute here that it lacks there | **written in** — an Example has an intension too, and the same rule settles it. |
+| The Example lists differ | **one `...` line, kept true** (below). The Examples themselves stay where they are. |
+| One attribute carries two values | **left alone, an error on every side.** Only you know which is right; the lightbulb offers *Set '`attr`' to '`value`' everywhere*. |
+| One Concept is filed under two kinds | **left alone, an error on every side.** Moving a Concept between kinds is a modelling decision. |
+
+**One side saying less is never disagreement.** A file silent about `role` does not contradict one that sets it — it simply says less, and the save fills the rest in.
+
+#### The `...` line
+
+Because the attributes are written into every file and a surviving disagreement is an error with its own squiggle, the `...` carries the one thing that cannot be filled in: how many Examples live elsewhere, and where.
+
+```aot
+... 4 more in bank recon.aot:14
+... 7 more in bank recon.aot:14, payroll.aot:9
+... 11 more in bank recon.aot:14, payroll.aot:9, vat return.aot:22, …
+```
+
+The total comes first, then `file:line` locations — Ctrl+click any of them to open that file at that Concept, and hover the line for the whole extension, every Example a link to where it is actually written. Past three peer files the line stops growing and the rest moves to the hover.
+
+A `...` line **you** wrote is never touched: only the maintained shape (`N more in …`) is rewritten, so `... still to do` sits beside it untouched. Turn the whole thing off with `aot.autoReconcile`, and the drift is reported as a warning instead of being closed for you. Files that were never open when a peer changed catch up with **AOT: Reconcile Concepts Across Files**, or `node verify.js --workspace --reconcile`.
+
+**A Concept written as a standalone table gets no `...` line**, because there is nowhere to put one: the table's first header cell *is* the Concept, so the Concept and its rows sit at the same depth, and a line one level in would attach to the last row rather than to the Concept. Give the Concept its own line above the grid — the [merge form](#tables) — and the `...` has its usual slot, one level in, alongside the rows. Everything else still applies to a table either way: attributes a peer declares arrive as new columns, and a row gains the values its Example was given elsewhere.
+
 ### Aliases and Maps
 
 Alpha is **not a word-explanation language**: a definition terminates in Examples and data, never in words explaining other words — a dictionary chain of synonyms proves nothing and checks nothing. What *is* possible is renaming: an alias gives the same idea a second name without pretending to define it.
@@ -222,7 +273,7 @@ Alpha is **not a word-explanation language**: a definition terminates in Example
 | Notation | Syntax | Purpose |
 |----------|--------|---------|
 | **Alias** (has-another-name) | Parentheses after a term: `Human (Natural Person)` | Provides an alternative or derived name for an idea. If some or all of an attribute's trailing words match a Concept, those words already act as an alias — no parentheses required. |
-| **Map** | An indented `...` line, optionally followed by a note: `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never** a plain description of the line above it. To explain or rename a term, use an alias instead. A Map excuses its parent from the completeness checks (see [Verification](#verification-the-tooling)). |
+| **Map** | An indented `...` line, optionally followed by a note: `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never** a plain description of the line above it. To explain or rename a term, use an alias instead. A Map excuses its parent from the completeness checks (see [Verification](#verification-the-tooling)). One shape, `... N more in file.aot:12`, is [maintained for you](#concepts-across-files) and says where the rest of a Concept's Examples live; every other Map is yours alone. |
 
 ### Numbering
 
@@ -296,7 +347,7 @@ Each primitive's names are always modelled as Examples (not said of, not present
 
 The primitives can — and are encouraged to — link to one another: a Motivation's measurement may name a Workflow's worker, a Graph's entity may type a Function's argument, and every such crosslink makes the model more connected and more checkable. What no primitive may do is *terminate* in another: each remains a complete tree of its own, its cause fully answered in its own terms, never reduced to a pointer into its neighbour. A complete explanation holds all four in balance — linked freely, each still standing on its own.
 
-See [`examples/example.aot`](examples/example.aot) for one subject — thinking itself — modelled through all four primitives.
+See [`examples/thought.aot`](examples/thought.aot) for one subject — thinking itself — modelled through all four primitives.
 
 ### Motivation
 
@@ -343,7 +394,7 @@ The questions in a Function tree run in different directions. Ask **How** downwa
 
 Focus: **who acts, in what order.**
 
-Who works on what, in what order, including concurrency: locks, queues, race conditions, and where the bottleneck is. [`examples/example.aot`](examples/example.aot) models intuition versus deliberation this way — deliberation is the synchronous bottleneck that waits on a condition, holds working memory, and loses races to bias.
+Who works on what, in what order, including concurrency: locks, queues, race conditions, and where the bottleneck is. [`examples/thought.aot`](examples/thought.aot) models intuition versus deliberation this way — deliberation is the synchronous bottleneck that waits on a condition, holds working memory, and loses races to bias.
 
 ## Starting a model
 
@@ -654,6 +705,13 @@ One more error comes from the **declared dependency graph** (`src/armstrong.js` 
 |---|------|------------------|
 | 21 | **Dependency cycle** | A Concept rests on itself through other Concepts — `Shares Outstanding ─tensor→ Tensor ─shares outstanding→ Shares Outstanding`. A dependency chain must ground out, and a loop derives only `X → X` (Reflexivity, trivially true), so it asserts nothing while leaving every member defined through the others. One error per attribute carrying an edge of the loop — removing any one breaks it. An attribute of a Concept's **own** kind (`parent measurement` on `Measurement`) is direct self-reference: legitimate recursion, never flagged. |
 
+Two more come from the **repo** (`src/repo.js` — see [Concepts across files](#concepts-across-files)). They apply only when the caller supplies the rest of the workspace, so a file judged on its own never sees them, and they are the only two disagreements a save does not simply close:
+
+| # | Rule | What triggers it |
+|---|------|------------------|
+| 22 | **Contradicted value** | The same Concept, written in two files, carries two values for one attribute — `Jakus` with `role: analyst` here and `role: bookkeeper` there. One name means one thing, so it cannot mean both. Reported on every side, at the line that disagrees, each pointing at the others. One side saying nothing about the attribute is **not** this rule — silence is filled in on save, not flagged. |
+| 23 | **Contradicted kind** | The same Concept filed under two different kinds — `Jakus` under `Motivation` here and `Team` there. A Concept is one kind. Only the *nearest* named ancestor is compared (how deeply each file nests its own subject is its own business), and a Concept at the top of one file contradicts nothing: that is silence again, not a second kind. |
+
 ### Warnings — yellow squiggle, in the Problems panel, but not counted in `V`
 
 | # | Rule | What triggers it |
@@ -707,14 +765,19 @@ The six axioms, and what the linter does with each. **Reflexivity** (`Y ⊆ X �
 
 **Declared by the crosslinks.** A dependency is a Concept resting on another through an **attribute** — an attribute whose name ends in a Concept, or a **value that names another Concept's Example** (`person: Socrates` with Socrates under `Human`; the value edge matters, or linking through a value would hide the dependency it creates). A Concept that merely *contains* another in its name (`Recurring Tree`), or is *aliased* to one, is a **kind** of that Concept, not a dependency on it — those crosslinks still navigate, but they are not dependency edges. The transitive closure (Armstrong transitivity) gives what a Concept rests on directly and what it inherits through a chain — `node verify.js <file> --depends "X"` prints both, each transitive dependency with one witnessing path. In the editor the chains are visible twice over: **hovering** a Concept (or any crosslink) lists every chain in full (`Trip ─driver person→ Person ─home address→ Address — 3 Concepts`), and an **inlay hint** writes the first chain in small print at the end of each **attribute** crosslink's line (`→Person→Address`, off with `aot.chainHints`) — only an attribute typed by a Concept *depends* on it, so a Concept that merely contains or aliases another carries no arrow. The same graph is held to the axioms in the lint pass, current file only: a chain leading back to its start is a **dependency cycle** (error rule 21, counted in `V`, one error on each attribute carrying the loop), and a direct edge a chain through another Concept already implies is a **redundant dependency** (warning rule 11, on the declaring attribute).
 
-**Across files.** Every `.aot` in the workspace is indexed, so all of the above resolves repo-wide and a Concept defined in two files is a **warning** on each (not counted in `V` — a repo may legitimately hold independent models). The warning says **how the two definitions differ** — where each is filed, the attributes and Examples only one carries, the values they set differently, or `identical content` — with the other file's line as a clickable related location, and its lightbulb offers **Reconcile: keep this definition**: the other file's missing facts merge into the definition you clicked (rows onto its table, `- ` lines otherwise) and its block is deleted there, both files saved. Deleting a duplicate by hand clears the other file's warning live — every open `.aot` re-analyses when the index changes. `node verify.js --workspace [dir]` reports the same from the terminal.
+**Across files.** Every `.aot` in the workspace is indexed, so all of the above resolves repo-wide, and a Concept written in two files is held to [one meaning](#concepts-across-files). Most of what used to be reported is now simply closed on save — an attribute one file declares is written into the other, and the `...` line saying where the rest of the Examples live is kept true — so only the two decisions a tool may not take for you reach the Problems panel, as **errors counted in `V`**, on every file involved and with each other's lines as clickable related locations:
+
+- **one attribute carrying two values** (rule 22) — the lightbulb offers *Set '`attr`' to '`value`' everywhere*, which rewrites every file at once;
+- **one Concept filed under two kinds** (rule 23) — the lightbulb offers the rename, for when two different ideas merely collided on a word.
+
+`V` is therefore the file's violations *given the repo it sits in*: a repo-wide error is always reported on both sides, at the lines that disagree, never inferred from a file you cannot see. A file linted on its own — a lone file outside a workspace, or `lint(text, rootName)` with no repo argument — is judged entirely on its own terms, exactly as before. Every open `.aot` re-analyses when the index changes, so resolving a disagreement clears it live on both sides. `node verify.js --workspace [dir]` reports the same from the terminal and exits `1` on a contradiction; `--reconcile` writes the agreement in first.
 
 ### The command line
 
 `verify.js` is the extension's referee without the editor: it wraps the same `src/` modules, applies the same gates and filters, and prints every finding with its `file:line`. The whole-file check ends in a verdict and an exit code, which makes `V = 0` scriptable — in CI, in a git hook, or as the acceptance test in an LLM loop:
 
 ```
-$ node verify.js examples/example.aot
+$ node verify.js examples/thought.aot
 127 nodes, 127 edges, largest prime 719, violations V = 0
 subsumption: 13 derived is-a edges, hierarchy consistent
 V = 0: true — the file verifies
@@ -740,19 +803,21 @@ The flags turn the arithmetic into queries:
 | `--depends X` | A Concept's declared dependencies, direct and transitive with a witnessing path |
 | `--diff old new` | Version diff as factorisation comparison: added, removed, and changed nodes per attribute |
 | `--suggest` | The FCA audit, plus the positive report the editor never shows: which Concepts the Examples' attributes *confirm* |
-| `--workspace [dir]` | The repo-wide check: every Concept defined in more than one `.aot` under `dir` (default the current directory) is reported, file and line — the headless form of the [cross-file duplicate warning](#armstrongs-axioms-dependency-inference) |
+| `--workspace [dir]` | The repo-wide check: every Concept written in more than one `.aot` under `dir` (default the current directory) is listed, file and line, and every [contradiction](#concepts-across-files) — one attribute with two values, one Concept under two kinds — is reported on both sides. **Exits `1` when there is one**, so CI can gate on it |
+| `--workspace [dir] --reconcile` | Writes the agreement in first, then checks: attributes a peer declares are filled in, the `...` line saying where the rest of a Concept's Examples live is kept true. Additive — nothing is ever deleted — and idempotent, so a second run over a repo already in step changes nothing. The headless form of what a save does in the editor |
 
 Two views are CLI-exclusive: `--suggest`'s `confirmed` line (the lattice agreeing with your tree is worth seeing, but it is not a squiggle), and the full `--fd` / `--clashes` sets (the editor surfaces only the confident, strong cases).
 
 ### The conformance examples
 
-The prose above describes the rules; four files in [`examples/`](examples/) *are* the rules — the linter's specification of record:
+The prose above describes the rules; a handful of files in [`examples/`](examples/) *are* the rules — the linter's specification of record:
 
 - [`examples/lint.aot`](examples/lint.aot) plants one violation per syntactic and style rule: a tab, a six-space indent, a depth jump, an empty value, a `-nospace` Example, the file name repeated as a line, an "and" Concept, a duplicated Concept name, identical siblings, a Map that leaks content, plural Concept names, a target-less and an actual-less measurement, a ninth sub-Concept, lone subtypes, and sibling sub-Concepts told apart by position only. It ends with a `Clean` subtree that must stay squiggle-free.
 - [`examples/warning.aot`](examples/warning.aot) exercises the analytical passes: a Gödel content clash (two Examples with identical attributes and values), FCA drift (a Goldfish filed under `Fowl` while carrying `Fish`'s attributes), an exhaustion gap (a Sponge matching no sub-Concept), differentia twins, and dependency pairs with enough witnessed repeats to trip the Armstrong warnings.
-- [`examples/example.aot`](examples/example.aot) and [`examples/spreadsheet.aot`](examples/spreadsheet.aot) are the clean pair: real models (all four primitives; tables with formulas and the CSV mirror) that must verify at `V = 0`.
+- [`examples/thought.aot`](examples/thought.aot) and [`examples/spreadsheet.aot`](examples/spreadsheet.aot) are the clean pair: real models (all four primitives; tables with formulas and the CSV mirror) that must verify at `V = 0`.
+- [`examples/monthly close.aot`](examples/monthly%20close.aot) and [`examples/bank recon.aot`](examples/bank%20recon.aot) are the clean *repo* pair: one Concept, `Jakus`, written in two files — the same definition in both, the Examples split between them, and a maintained `...` line in each. Both must verify at `V = 0`, and `node verify.js --workspace examples --reconcile` must leave them exactly as they stand.
 
-A change to the linter is correct when it flags every planted violation in the first two files and nothing in the clean pair. The check is one command per file: `node verify.js examples/example.aot` must exit `0`, `node verify.js examples/lint.aot` must not — and `node out/test-<module>.js` runs each module's smoke tests.
+A change to the linter is correct when it flags every planted violation in the first two files and nothing in the clean pair. The check is one command per file: `node verify.js examples/thought.aot` must exit `0`, `node verify.js examples/lint.aot` must not — and `node out/test-<module>.js` runs each module's smoke tests.
 
 ## Style rules
 
@@ -854,7 +919,7 @@ Alpha's discipline pays off most when more than one mind works the same model:
 - **One subject per file, and the file name is the root Concept** — so ownership maps cleanly onto files, and a model's scope is visible in the repository tree.
 - **Models are reviewed like code.** A `.aot` file diffs line by line, so a pull request shows exactly which idea changed, and a review comment lands on a specific parent, attribute, or value — the "disagreements become locatable" promise, operationalised.
 - **The linter is the first reviewer.** A contributor — human or LLM — cannot merge a structural contradiction past `V = 0`. The referee runs in the editor as you type and headless in CI: `node verify.js <file>` exits `0` exactly when the file verifies, so a one-line pipeline step blocks unverified models from merging.
-- **Univocity is governance.** One Concept name, one definition, one place to change it. When a team disputes a term, the dispute has an address, and the resolution is a single edit everyone inherits.
+- **Univocity is governance.** One Concept name, one meaning — enforced by the checker rather than by a single location. A term may be written in as many files as need it; what a save guarantees is that they all say the same thing, and what `V` guarantees is that any real disagreement is an error on every side at once. When a team disputes a term, the dispute has an address — every place the term is written, all of them squiggling until it is settled, and one lightbulb that settles it everywhere.
 - **Stakeholders who live in Excel still contribute.** The [CSV mirror](#the-csv-mirror) means a domain expert can edit `tables.Sales/Order.csv` in a spreadsheet; saving folds it back into the model, where the linter re-audits it like any other edit.
 
 ## Repository layout
@@ -872,11 +937,13 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`src/derive.js`](src/derive.js) | Formulas on line-form values; validates every value against its attribute's constraint |
 | [`src/urls.js`](src/urls.js) | URL and file-path spans, their hover metadata, and image detection |
 | [`src/hold.js`](src/hold.js) | Hold-near-cursor: squiggles wait for the line to be finished |
-| [`examples/example.aot`](examples/example.aot), [`examples/spreadsheet.aot`](examples/spreadsheet.aot) | Worked models that verify at `V = 0` (all four primitives; tables and formulas) |
+| [`src/repo.js`](src/repo.js) | [Concepts across files](#concepts-across-files): the save-time reconcile and the two contradictions (error rules 22–23) |
+| [`examples/thought.aot`](examples/thought.aot), [`examples/spreadsheet.aot`](examples/spreadsheet.aot) | Worked models that verify at `V = 0` (all four primitives; tables and formulas) |
 | [`examples/features.aot`](examples/features.aot) | A `V = 0` showcase of the 1.3 additions — `@` references, cross-cell formulas, constraints, string functions — as runnable Alpha |
 | [`examples/lint.aot`](examples/lint.aot), [`examples/warning.aot`](examples/warning.aot) | The [conformance examples](#the-conformance-examples) — one planted violation per rule |
 | [`examples/numbering.aot`](examples/numbering.aot) | A file to try [Numbering](#numbering) on: save it and watch the Examples and Concepts number themselves |
-| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all nine) |
+| [`examples/monthly close.aot`](examples/monthly%20close.aot), [`examples/bank recon.aot`](examples/bank%20recon.aot) | One Concept written in two files: the same definition in both, the Examples split, a maintained `...` line in each |
+| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all ten) |
 | [`docs/features-1.1-1.2.md`](docs/features-1.1-1.2.md) | Per-feature reference for the 1.1 → 1.2 line: what changed, a snippet to exercise it, and its edge cases |
 | [`docs/features-1.3-1.5.md`](docs/features-1.3-1.5.md) | The same for 1.3 → 1.5: how each feature worked *before*, a snippet for the case that works and the neighbouring one that does not, and the test that holds it |
 | [`docs/features-1.6.md`](docs/features-1.6.md) | The same for 1.6: tables and free text as one notation — the unified registry, the outer scope, the union CSV mirror, chained constraints |

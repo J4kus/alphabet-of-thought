@@ -626,7 +626,15 @@ function verify(root, nodes, report, accepted) {
 // Full lint pass over a document's text. Returns the numbered tree along
 // with errors and warnings as { line, message } (lines are 1-based).
 // accepted (optional) is the user's accepted-words Set, see verify.
-function lint(text, rootName, accepted) {
+//
+// repo (optional) is { file, others, autoReconcile } — this file's path and
+// every *other* .aot in the workspace as [{ file, text, root, nodes }]. Given
+// it, a Concept this file shares with another is held to one meaning and the
+// disagreements that no tool may settle — one attribute carrying two values,
+// one Concept filed under two kinds — are errors counted in V. Without it
+// nothing cross-file is checked and V is the file's own number, exactly as
+// before: a lone file, or a smoke test, is judged on its own terms.
+function lint(text, rootName, accepted, repo) {
   const report = makeReport();
   const { root, nodes } = parse(text, rootName, report);
   number(root, nodes);
@@ -646,6 +654,19 @@ function lint(text, rootName, accepted) {
   const ax = axioms(root, nodes);
   for (const { line, message } of ax.errors) report.error(line, message);
   for (const { line, message } of ax.warnings) report.warn(line, message);
+  // The repo pass, when the caller supplied one (lazy for the same reason).
+  // This file's own occurrences come from the tree just parsed, never from
+  // the caller's index, so an unsaved edit is judged as it stands.
+  if (repo && repo.file) {
+    const { occurrences, findings } = require("./repo");
+    const all = occurrences([
+      ...(repo.others || []),
+      { file: repo.file, text, root, nodes },
+    ]);
+    const found = findings(repo.file, all, { autoReconcile: repo.autoReconcile !== false });
+    for (const f of found.errors) report.error(f.line, f.message, { related: f.related });
+    for (const f of found.warnings) report.warn(f.line, f.message, { related: f.related });
+  }
   const byLine = (a, b) => a.line - b.line;
   return {
     root, nodes,

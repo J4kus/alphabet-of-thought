@@ -1,0 +1,102 @@
+- Meta Model
+    Worker (Agent)
+        is bottleneck: yes
+        is tangible: no
+        useful life: infinite
+        write off method: not applicable
+        maximum worker pool: 1
+        thread
+            Concurrent (Single-Threading)
+                - Synchronise
+                - Re-entrant Lock
+                - Event
+                - Condition
+                - Barrier
+                fixes
+                    - shared state
+                        - delete (design away)
+                        - clamp into single complex (no shared medium)
+                        - coordinate once, offline, by convention
+                        - pass messages and isolate (guard)
+                            - separate service
+                            - hide information
+                        - reduce costs
+                            - free riding
+                            - unreliable channels sacrifice consistency or availability
+                    - externalise
+                        - pre-computed
+                        - parallelised
+                        - asynchronised
+                        - defer
+                    - add cheaper resources
+                        - diversified copies
+                            - multi-version concurrency
+                            - readers never block writers
+                            - (no lock at all)
+                            - validate on commit only
+                        - buffer ("Slack")
+                            - me
+                            - another party
+                        - fastest gun redundancy
+                            - fire at several replicas and take first answer
+                            - multiple nodes with same data
+                        - optimistic concurrency (speculate then reconcile on rare miss)
+
+                    - de-correlate the need from the specific resource
+                    - satisficing (good enough optimisation of requirements)
+                        - net and clear
+                        - collapse the obligation graph
+                    - outsource dependency to whoever can handle it better
+                    - substitute collateral
+            Async
+                wrapped concurrent
+                waiting for: external instrument
+                suspension event
+                awaiting event
+                wrapped co routine
+            Parallel (Multi Threading)
+                maximum worker pool: many
+                is worker pool count known: no
+                processing rule
+                    - Queue
+                        has lock: yes
+                    - Dedicated
+                        has lock: no
+                    - Semaphore
+                        permit count
+                is memory shared in pool of workers
+                    - Thread
+                    - Process
+                risk
+                    - Race Condition
+                    - Deadlock
+
+
+    Time
+        Milestone
+            precision
+            interval count: 0
+            format
+                - Time Only
+                    seconds precision: no seconds
+                    date precision: no date
+                - Date
+                    precision: no time
+                - Date Time
+                    precision: no seconds
+                - Precise Date Time
+                    precision: microseconds
+        Duration
+            interval count: 1
+        Cycle
+            interval count: 2 or more
+        result
+        is done
+        exception
+        start condition (after)
+        interval: 5 seconds
+        interval count
+        timeout
+        polling duration
+        precision: up to minutes
+        displacement from greenwich meridian hours: +0

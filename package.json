@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.9.2",
+  "version": "1.10.1",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -23,7 +23,7 @@
   ],
   "main": "./src/extension.js",
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-urls.js && node out/test-hold.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js"
   },
   "contributes": {
     "languages": [
@@ -63,6 +63,11 @@
           "type": "boolean",
           "default": true,
           "description": "Hint a value that names no Example of the Concept typing its attribute \u2014 'person: James' where Person's Examples are Socrates alone. Only Concepts that list Examples are held to, and only values of the same kind as those Examples (a truth value or a measurement never counts). Hints show on their span and on hover, never in the Problems panel; the Quick Fix lists the Example."
+        },
+        "aot.autoReconcile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep a Concept that appears in more than one .aot in step, on save. An attribute a peer declares and this file does not have in force is written in, and the '...' line saying how many Examples live elsewhere is kept true. Additive only: nothing you wrote is deleted, and no other file is touched. The disagreements no tool may settle \u2014 one attribute carrying two values, one Concept filed under two kinds \u2014 stay put as errors. Off, the drift is reported as a warning instead."
         },
         "aot.acceptedWords": {
           "type": "array",
@@ -242,8 +247,13 @@
         "enablement": "editorLangId == aot"
       },
       {
-        "command": "aot.reconcileConcept",
-        "title": "Reconcile Duplicate Concept",
+        "command": "aot.reconcileAcrossFiles",
+        "title": "Reconcile Concepts Across Files",
+        "category": "AOT"
+      },
+      {
+        "command": "aot.setValueEverywhere",
+        "title": "Set Attribute Value Everywhere",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },

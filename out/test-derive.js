@@ -4,7 +4,7 @@
 //
 // Plain Node script, no framework — run with: node out/test-derive.js
 const { lint } = require("../src/linter");
-const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples, formulaReferences, mirrorGrids, updateScope, diffConcepts, conceptDiffClause, mergeConceptOps, renumberExamples, renumberConcepts } = require("../src/derive");
+const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples, formulaReferences, mirrorGrids, updateScope, renumberExamples, renumberConcepts } = require("../src/derive");
 const { mergeRegistries } = require("../src/table");
 
 let failures = 0;
@@ -842,95 +842,6 @@ const parsed = (text) => {
   check("updateExamples: the fresh Example keeps its own attributes, and only those",
     ex7 && ex7.children.filter((c) => c.name === "weight").length === 1
     && ex7.children.find((c) => c.name === "weight").value === "2");
-}
-
-// ---------------------------------------------------------------------------
-// reconcile: diffConcepts / conceptDiffClause / mergeConceptOps — the same
-// Concept defined in two files: the diff names what each alone asserts, and
-// the merge folds the other's facts into the kept definition
-// ---------------------------------------------------------------------------
-{
-  const here = parsed(aot(
-    "Vehicle",
-    "    Car",
-    "        wheels: 4",
-    "        - Beetle",
-    "            colour: blue",
-  ));
-  const thereText = aot(
-    "Fleet",
-    "    Car",
-    "        wheels: 4",
-    "        doors: 2",
-    "        - Beetle",
-    "        - Model T",
-    "            colour: black",
-  );
-  const there = lint(thereText, "Other");
-  const a = here.nodes.find((n) => n.name === "Car");
-  const b = there.nodes.find((n) => n.name === "Car");
-  const d = diffConcepts(a, b);
-  check("diffConcepts: differing homes are named (Vehicle here, Fleet there)",
-    d.parentA === "Vehicle" && d.parentB === "Fleet" && !d.sameParent && !d.identical);
-  check("diffConcepts: attributes and Examples only one side carries",
-    d.attrsOnlyA.length === 0 && d.attrsOnlyB.length === 1 && d.attrsOnlyB[0].name === "doors"
-    && d.examplesOnlyA.length === 0 && d.examplesOnlyB.length === 1 && d.examplesOnlyB[0].name === "Model T");
-  const clause = conceptDiffClause(a, b);
-  check("conceptDiffClause: says where each is filed and what only one asserts",
-    /filed under 'Vehicle' here vs under 'Fleet' there/.test(clause)
-    && /attributes only there: 'doors'/.test(clause)
-    && /Examples only there: 'Model T'/.test(clause));
-
-  const same = lint(aot("Vehicle", "    Car", "        wheels: 4"), "Other");
-  const twinA = lint(aot("Vehicle", "    Car", "        wheels: 4"), "Sheet");
-  const dSame = diffConcepts(
-    twinA.nodes.find((n) => n.name === "Car"), same.nodes.find((n) => n.name === "Car"));
-  check("diffConcepts: content-identical twins say so", dSame.identical);
-  check("conceptDiffClause: identical twins read as identical content",
-    /identical content/.test(conceptDiffClause(
-      twinA.nodes.find((n) => n.name === "Car"), same.nodes.find((n) => n.name === "Car"))));
-
-  // line-form merge: the other's own attribute and Example land under kept,
-  // re-indented, and the whole folds back into a tree that carries both
-  const ops = mergeConceptOps(here.lines, thereText.split(/\r?\n/), a, b, "Sheet");
-  check("mergeConceptOps: the missing attribute inserts under kept's own",
-    ops.some((o) => o.type === "insert" && o.afterLine === 3 && o.text === "        doors: 2"));
-  check("mergeConceptOps: the missing Example inserts after the last one's subtree",
-    ops.some((o) => o.type === "insert" && o.afterLine === 5
-      && o.text === "        - Model T\n            colour: black"));
-  const applied = here.lines.slice();
-  const lineOf = (o) => (o.type === "replace" ? o.line : o.type === "block" ? o.from + 1 : o.afterLine);
-  for (const op of [...ops].sort((x, y) => lineOf(y) - lineOf(x))) {
-    if (op.type === "replace") applied[op.line - 1] = op.text;
-    else if (op.type === "block") applied.splice(op.from, op.to - op.from + 1, ...op.block);
-    else applied.splice(op.afterLine, 0, ...op.text.split("\n"));
-  }
-  const re = lint(applied.join("\n"), "Sheet");
-  const car = re.nodes.find((n) => n.name === "Car");
-  check("mergeConceptOps: the merged tree carries both files' facts",
-    car.children.some((c) => c.name === "doors" && c.value === "2")
-    && car.children.filter((c) => c.kind === 0).map((c) => c.name).join(",") === "Beetle,Model T");
-
-  // a table-formed kept absorbs the other's flat Examples as rows
-  const gridKept = parsed(aot(
-    "Garage",
-    "    Car",
-    "        |name  |wheels|",
-    "        |------+------|",
-    "        |Beetle|4     |",
-  ));
-  const gCar = gridKept.nodes.find((n) => n.name === "Car");
-  const gOps = mergeConceptOps(gridKept.lines, thereText.split(/\r?\n/), gCar, b, "Sheet");
-  const block = gOps.find((o) => o.type === "block");
-  check("mergeConceptOps: a table-formed kept gains the other's Examples as rows",
-    block && block.block.some((l) => /\|Model T\|/.test(l)));
-  check("mergeConceptOps: an attribute the table lacks lands as a line-form declaration",
-    gOps.some((o) => o.type === "insert" && o.text === "        doors: 2"));
-
-  // sub-Concepts under the other definition refuse the automatic merge
-  const nested = lint(aot("Fleet", "    Car", "        Sports Car", "            top speed: high"), "Other");
-  check("mergeConceptOps: a sub-Concept under the other refuses (null)",
-    mergeConceptOps(here.lines, [], a, nested.nodes.find((n) => n.name === "Car"), "Sheet") === null);
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ const { clashes } = require("./godel");
 const armstrong = require("./armstrong");
 const spelling = require("./spelling");
 const derive = require("./derive");
+const repo = require("./repo");
 const urls = require("./urls");
 const hold = require("./hold");
 
@@ -54,7 +55,10 @@ function acceptedWords() {
 // file's real `fsPath` — the key identifies, the fsPath is what a link
 // opens and what a message names, and folding the two would open
 // 'people.aot' on a disk that spells it 'People.aot'.
-const workspaceIndex = new Map(); // fileKey -> { fsPath, root, nodes, tables, concepts }
+// Each entry keeps the file's text as well as its tree: reconciling a Concept
+// across files copies a peer's lines verbatim, so aliases, constraints and
+// formulas survive the trip (src/repo.js).
+const workspaceIndex = new Map(); // fileKey -> { fsPath, text, root, nodes, tables, concepts }
 let workspaceExternal = null;     // cached externalIndex over the whole repo
 
 // Whether the platform's file system holds names case-blind. Windows and
@@ -85,7 +89,7 @@ function reindexAot(fsPath, text) {
     const rootName = path.basename(fsPath).replace(/\.[^.]*$/, "");
     const { root, nodes } = lint(text, rootName);
     const concepts = derive.conceptRegistry(root, nodes);
-    workspaceIndex.set(fileKey(fsPath), { fsPath, root, nodes, concepts });
+    workspaceIndex.set(fileKey(fsPath), { fsPath, text, root, nodes, concepts });
   } catch { workspaceIndex.delete(fileKey(fsPath)); }
   workspaceExternal = null; // invalidate; rebuilt lazily
 }
@@ -128,49 +132,56 @@ function underWorkspace(doc) {
   return folders.some((w) => isInside(w.uri.fsPath, doc.fileName));
 }
 
-// A Concept the current file defines that another file also defines (ci):
-// a warning, not a violation — one name should mean one thing across a repo.
-function duplicateConceptWarnings(doc, nodes) {
+// Whether the editor keeps a shared Concept in step for you, rather than
+// only reporting where it drifted (aot.autoReconcile).
+const autoReconcile = () => vscode.workspace.getConfiguration("aot").get("autoReconcile", true);
+
+// Every *other* .aot in the repo, in the shape src/repo.js takes. The current
+// file is left out on purpose: its own occurrences are read from the tree
+// just parsed, so an unsaved edit is judged as it stands rather than as the
+// index last saw it.
+function repoOthers(doc) {
   const here = fileKey(doc.fileName || "");
-  const elsewhere = new Map(); // lowercased name -> { fsPath, line, node }
-  for (const [fsPath, v] of workspaceIndex) {
-    if (fsPath === here) continue;
-    for (const n of v.nodes) {
-      if (n.kind !== KIND.CONCEPT) continue;
-      const k = table.numberless(n.name).toLowerCase();
-      if (!elsewhere.has(k)) elsewhere.set(k, { fsPath: v.fsPath, line: n.line, node: n });
-    }
-  }
   const out = [];
-  for (const n of nodes) {
-    if (n.kind !== KIND.CONCEPT) continue;
-    const dup = elsewhere.get(table.numberless(n.name).toLowerCase());
-    if (dup) {
-      const file = path.basename(dup.fsPath);
-      out.push({
-        line: n.line,
-        message: `Concept '${n.name}' is also defined in ${file}:${dup.line} — one name should mean one thing across the repo; qualify one, or make them the same idea in a shared file.`
-          + derive.conceptDiffClause(n, dup.node),
-        related: [{ file: dup.fsPath, line: dup.line, message: `'${dup.node.name}' defined in ${file}` }],
-      });
-    }
+  for (const [key, v] of workspaceIndex) {
+    if (key === here || v.text === undefined) continue;
+    out.push({ file: v.fsPath, text: v.text, root: v.root, nodes: v.nodes });
   }
   return out;
+}
+
+// The repo option for lint, or undefined outside a workspace — where there
+// are no other files, there is nothing cross-file to say.
+const repoOptionFor = (doc) => (underWorkspace(doc)
+  ? { file: doc.fileName, others: repoOthers(doc), autoReconcile: autoReconcile() }
+  : undefined);
+
+// The real path of the peer a maintained `...` line names by base name. The
+// note carries the base name because that is what reads well in the file; the
+// index knows which path on disk it stands for.
+function peerPathFor(doc, base) {
+  const here = fileKey(doc.fileName || "");
+  const want = base.toLowerCase();
+  for (const [key, v] of workspaceIndex) {
+    if (key !== here && path.basename(v.fsPath).toLowerCase() === want) return v.fsPath;
+  }
+  return null;
 }
 
 function analyse(doc) {
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   const accepted = acceptedWords();
-  const { root, nodes, errors, warnings } = lint(doc.getText(), rootName, accepted);
+  // the repo option is read before the lint so this file's own entry, which
+  // the lint is about to refresh, can never be mistaken for one of its peers
+  const { root, nodes, errors, warnings } = lint(doc.getText(), rootName, accepted, repoOptionFor(doc));
   const inWs = underWorkspace(doc);
   // keep this file's entry current so other files resolve against its edits
   if (inWs) {
     const concepts = derive.conceptRegistry(root, nodes);
-    workspaceIndex.set(fileKey(doc.fileName), { fsPath: doc.fileName, root, nodes, concepts });
+    workspaceIndex.set(fileKey(doc.fileName), { fsPath: doc.fileName, text: doc.getText(), root, nodes, concepts });
     workspaceExternal = null;
   }
   const links = resolve(doc.getText(), root, nodes, inWs ? externalFor() : undefined);
-  const repoWarnings = inWs ? duplicateConceptWarnings(doc, nodes) : [];
   // the links reversed: every place a node is referenced, for the "used at"
   // hover sections and Find All References
   const usagesOf = new Map();
@@ -235,7 +246,7 @@ function analyse(doc) {
   }
   return {
     errors: errors.concat(deepErrors, formulaErrors),
-    warnings: warnings.concat(depWarnings, formulaWarnings, repoWarnings),
+    warnings: warnings.concat(depWarnings, formulaWarnings),
     hints,
     links,
     root,
@@ -797,12 +808,45 @@ function linkHoverAt(doc, position) {
 //     where it is used;
 //   - an Example's defining name -> its details plus where it is used as a
 //     value.
+// The hover on a maintained `...` line: the Concept's whole extension, this
+// file's share first and then each peer's, every Example a link to where it
+// is actually written. The line itself only has room for the count.
+function crossFileHover(doc, analysis, position) {
+  if (!underWorkspace(doc)) return null;
+  const node = (analysis.nodes || []).find((n) =>
+    n.kind === KIND.MAP && repo.NOTE_RE.test(n.name) && n.line - 1 === position.line);
+  if (!node || !node.parent) return null;
+  const concept = node.parent;
+  const all = repo.occurrences([
+    ...repoOthers(doc),
+    { file: doc.fileName, text: doc.getText(), root: analysis.root, nodes: analysis.nodes },
+  ]);
+  const list = all.get(table.numberless(concept.name).trim().toLowerCase()) || [];
+  if (list.length < 2) return null;
+  const md = new vscode.MarkdownString();
+  md.isTrusted = true;
+  const total = repo.unionExamples(list).length;
+  md.appendMarkdown(`**${concept.name}** — ${total} Example${total === 1 ? "" : "s"} across ${list.length} files\n\n`);
+  for (const occ of list) {
+    const here = occ.file === doc.fileName;
+    const names = occ.node.children.filter((c) => c.kind === KIND.INDIVIDUAL).map((c) => c.name);
+    const where = here ? "here" : path.basename(occ.file);
+    const open = `[${where}](${vscode.Uri.file(occ.file).with({ fragment: `L${occ.node.line}` })})`;
+    md.appendMarkdown(`- ${open} (${names.length}): ${names.length ? names.join(", ") : "_none_"}\n`);
+  }
+  return new vscode.Hover(md, doc.lineAt(position.line).range);
+}
+
 const hoverProvider = {
   provideHover(doc, position) {
     // a URL or file path answers (metadata / picture) before anything else
     const link = linkHoverAt(doc, position);
     if (link) return link;
     const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+    // a maintained `...` line answers with the whole extension: what this
+    // file lists and what every peer lists, each one a place you can go
+    const spread = crossFileHover(doc, analysis, position);
+    if (spread) return spread;
     // a link to an Example: show the Example itself
     for (const link of analysis.links) {
       if (link.target.kind === KIND.INDIVIDUAL && linkRange(link).contains(position)) {
@@ -1215,10 +1259,14 @@ const SPELLING_SUGGEST = /^'.+' is not in the dictionary — did you mean (.+)\?
 // that types its attribute; both names are read back out of the message,
 // which is this extension's own (crosslinks.unlistedValues)
 const UNLISTED_VALUE = /^'(.+)' is not an Example of Concept '(.+)' —/;
-// the lightbulb on a repo-wide duplicate Concept reconciles the two: the
-// definition the Fix is invoked on stays the main one, the other file's
-// facts merge into it and its definition is deleted there (aot.reconcileConcept)
-const DUP_CONCEPT = /^Concept '(.+)' is also defined in /;
+// The repo-wide findings (src/repo.js). Everything a shared Concept can be
+// made to agree on is already agreed by the time these show — save does it —
+// so each lightbulb here offers the decision a tool may not take for you:
+// which of two values is the right one, and whether two ideas that collided
+// on a word are really the same idea at all.
+const REPO_VALUE_CLASH = /^'(.+?)' sets '(.+?)' to '(.+?)' here but '(.+?)' in /;
+const REPO_GENUS_CLASH = /^'(.+?)' is filed under '.+?' here but '.+?' in /;
+const REPO_STALE_NOTE = /^'.+?' lists \d+ of its Examples here and the rest live elsewhere/;
 const codeActionProvider = {
   provideCodeActions(doc, range, context) {
     const actions = [];
@@ -1266,14 +1314,44 @@ const codeActionProvider = {
     }
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
-      const dup = DUP_CONCEPT.exec(diagnostic.message);
-      if (!dup) continue;
-      const action = new vscode.CodeAction(
-        `Reconcile: keep this '${dup[1]}' (merge the other file's facts here, delete it there)`,
-        vscode.CodeActionKind.QuickFix);
-      action.diagnostics = [diagnostic];
-      action.command = { command: "aot.reconcileConcept", title: `Reconcile '${dup[1]}'`, arguments: [dup[1]] };
-      actions.push(action);
+      const clash = REPO_VALUE_CLASH.exec(diagnostic.message);
+      if (clash) {
+        const [, concept, attr, ours, theirs] = clash;
+        // one action per candidate, this file's own first: the value you are
+        // looking at is the likelier keeper, and picking either settles it
+        // for every file at once
+        for (const value of [ours, theirs]) {
+          const action = new vscode.CodeAction(
+            `Set '${attr}' to '${value}' everywhere`, vscode.CodeActionKind.QuickFix);
+          action.diagnostics = [diagnostic];
+          action.command = {
+            command: "aot.setValueEverywhere",
+            title: `Set '${attr}' to '${value}' everywhere`,
+            arguments: [concept, attr, value],
+          };
+          actions.push(action);
+        }
+        continue;
+      }
+      const genus = REPO_GENUS_CLASH.exec(diagnostic.message);
+      if (genus) {
+        const action = new vscode.CodeAction(
+          `Qualify this '${genus[1]}' (rename, so the two names stop colliding)`,
+          vscode.CodeActionKind.QuickFix);
+        action.diagnostics = [diagnostic];
+        action.command = { command: "editor.action.rename", title: `Rename '${genus[1]}'` };
+        actions.push(action);
+        continue;
+      }
+      if (REPO_STALE_NOTE.test(diagnostic.message)) {
+        const action = new vscode.CodeAction(
+          "Reconcile Concepts across files", vscode.CodeActionKind.QuickFix);
+        action.diagnostics = [diagnostic];
+        action.command = {
+          command: "aot.reconcileAcrossFiles", title: "Reconcile Concepts across files",
+        };
+        actions.push(action);
+      }
     }
     // a stale formula/value offers the one command that fixes them all
     for (const diagnostic of context.diagnostics || []) {
@@ -1377,93 +1455,131 @@ async function addExample(value, conceptName) {
     `AOT: '${value}' listed as an Example of '${concept.name}' (line ${at + 1})`, 5000);
 }
 
-// AOT: Reconcile Concept — the lightbulb on a repo-wide duplicate. The
-// definition in the current file becomes the main one: everything the other
-// file's definition asserts that this one does not (attributes, values,
-// Examples) merges here, the other definition is deleted there, and both
-// files save — the saves reindex and refresh peers, so both warnings clear.
-async function reconcileConcept(conceptName) {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.languageId !== "aot") return;
-  const doc = editor.document;
-  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-  const { root, nodes } = lint(doc.getText(), rootName);
-  const key = conceptName.toLowerCase();
-  const kept = nodes.find((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === key);
-  if (!kept) {
-    vscode.window.showWarningMessage(`AOT: this file no longer defines the Concept '${conceptName}'.`);
-    return;
-  }
-  // the other definers, fresh from the index — the diagnostic may be stale
-  const here = fileKey(doc.fileName || "");
-  const definers = [];
-  for (const [k, v] of workspaceIndex) {
-    if (k === here) continue;
-    if (v.nodes.some((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === key)) definers.push(v.fsPath);
-  }
-  if (!definers.length) {
-    vscode.window.showInformationMessage(`AOT: no other file defines '${conceptName}' any more.`);
-    return;
-  }
-  let otherPath = definers[0];
-  if (definers.length > 1) {
-    const pick = await vscode.window.showQuickPick(
-      definers.map((p) => ({ label: path.basename(p), description: p })),
-      { placeHolder: `'${conceptName}' is defined in ${definers.length} other files — absorb which one?` });
-    if (!pick) return;
-    otherPath = pick.description;
-  }
-  // the other file's live text: an open dirty buffer beats the index's copy
-  const otherDoc = await vscode.workspace.openTextDocument(otherPath);
-  const otherRootName = path.basename(otherDoc.fileName).replace(/\.[^.]*$/, "");
-  const otherParsed = lint(otherDoc.getText(), otherRootName);
-  const other = otherParsed.nodes.find((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === key);
-  if (!other) {
-    vscode.window.showInformationMessage(`AOT: ${path.basename(otherPath)} no longer defines '${conceptName}'.`);
-    return;
-  }
-  const lines = doc.getText().split(/\r?\n/);
-  const otherLines = otherDoc.getText().split(/\r?\n/);
-  const ops = derive.mergeConceptOps(
-    lines, otherLines, kept, other, rootName, formulaRegistry(doc, { root, nodes }));
-  if (!ops) {
-    vscode.window.showWarningMessage(
-      `AOT: '${other.name}' in ${path.basename(otherPath)} has sub-Concepts — move those out by hand before reconciling.`);
-    return;
-  }
+// --- reconciling a Concept across files -------------------------------------
+// A Concept in two files is one idea seen twice, so the two are held to one
+// definition and the editor closes the gap for you rather than reporting it:
+// on save, an attribute a peer declares and this file does not have in force
+// is written in, and the `...` line saying how many Examples live elsewhere
+// is kept true. Nothing you wrote is ever deleted and no peer's file is ever
+// touched — saving a file reconciles that file. The disagreements no tool may
+// settle (one attribute with two values, one Concept under two kinds) stay
+// put, as errors with their own lightbulbs. See src/repo.js.
+
+// repo ops as edits on `doc`. An insert lands at the start of the line below
+// its anchor, a delete takes the whole line with it, so applying these and
+// applying them through repo.applyOps come to the same text.
+function opsToTextEdits(doc, ops) {
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const edit = new vscode.WorkspaceEdit();
-  // merge into this file, bottom-up so no op shifts the lines under another
-  const lineOf = (op) => (op.type === "replace" ? op.line : op.type === "block" ? op.from + 1 : op.afterLine);
-  for (const op of [...ops].sort((a, b) => lineOf(b) - lineOf(a))) {
+  const out = [];
+  for (const op of ops) {
     if (op.type === "block") {
-      const range = new vscode.Range(op.from, 0, op.to, doc.lineAt(op.to).text.length);
-      edit.replace(doc.uri, range, op.block.join(eol));
+      out.push(vscode.TextEdit.replace(
+        new vscode.Range(op.from, 0, op.to, doc.lineAt(op.to).text.length), op.block.join(eol)));
     } else if (op.type === "replace") {
-      edit.replace(doc.uri, doc.lineAt(op.line - 1).range, op.text);
+      out.push(vscode.TextEdit.replace(doc.lineAt(op.line - 1).range, op.text));
+    } else if (op.type === "delete") {
+      const at = op.line - 1;
+      out.push(vscode.TextEdit.delete(at + 1 < doc.lineCount
+        ? new vscode.Range(at, 0, at + 1, 0)
+        : new vscode.Range(at > 0 ? at - 1 : at, at > 0 ? doc.lineAt(at - 1).text.length : 0,
+          at, doc.lineAt(at).text.length)));
     } else if (op.afterLine >= doc.lineCount) {
       const last = doc.lineCount - 1;
-      edit.replace(doc.uri, doc.lineAt(last).range, doc.lineAt(last).text + eol + op.text);
+      out.push(vscode.TextEdit.insert(
+        new vscode.Position(last, doc.lineAt(last).text.length), eol + op.text));
     } else {
-      edit.insert(doc.uri, new vscode.Position(op.afterLine, 0), op.text + eol);
+      out.push(vscode.TextEdit.insert(new vscode.Position(op.afterLine, 0), op.text + eol));
     }
   }
-  // delete the other definition's whole subtree there (its trailing newline
-  // too, or the preceding one when the subtree ends the file)
-  const from = other.line - 1;
-  const to = derive.lastLineOf(other) - 1;
-  const range = to + 1 < otherDoc.lineCount
-    ? new vscode.Range(from, 0, to + 1, 0)
-    : new vscode.Range(
-      from > 0 ? from - 1 : from,
-      from > 0 ? otherDoc.lineAt(from - 1).text.length : 0,
-      to, otherDoc.lineAt(to).text.length);
-  edit.delete(otherDoc.uri, range);
-  await vscode.workspace.applyEdit(edit);
-  await doc.save();
-  await otherDoc.save();
+  return out;
+}
+
+// The reconcile ops for one document, or [] when there is nothing to do —
+// outside a workspace, with aot.autoReconcile off, or in a file whose text
+// will not parse.
+function reconcileOpsFor(doc) {
+  if (!underWorkspace(doc) || !autoReconcile()) return [];
+  try {
+    const rootName = docRootName(doc);
+    const text = doc.getText();
+    const { root, nodes } = lint(text, rootName);
+    const all = repo.occurrences([...repoOthers(doc), { file: doc.fileName, text, root, nodes }]);
+    return repo.reconcileFile(
+      doc.fileName, all, text.split(/\r?\n/), rootName, formulaRegistry(doc, { root, nodes }));
+  } catch { return []; }
+}
+
+// AOT: Reconcile Concepts Across Files — the repo-wide sweep, for the files
+// that were never open when a peer changed. Every .aot is re-read from disk,
+// reconciled against the whole repo and saved. The same additive ops a save
+// applies, so a file already in step is left untouched.
+async function reconcileAcrossFiles() {
+  if (!(vscode.workspace.workspaceFolders || []).length) {
+    vscode.window.showInformationMessage("AOT: reconciling across files needs an open workspace.");
+    return;
+  }
+  buildWorkspaceIndex(); // from disk, so a closed file is judged as it stands
+  const entries = [...workspaceIndex.values()]
+    .filter((v) => v.text !== undefined)
+    .map((v) => ({ file: v.fsPath, text: v.text, root: v.root, nodes: v.nodes }));
+  const all = repo.occurrences(entries);
+  const registry = table.mergeRegistries(
+    ...entries.map((e) => derive.conceptRegistry(e.root, e.nodes)));
+  let changed = 0;
+  for (const entry of entries) {
+    const rootName = path.basename(entry.file).replace(/\.[^.]*$/, "");
+    const ops = repo.reconcileFile(
+      entry.file, all, entry.text.split(/\r?\n/), rootName, registry);
+    if (!ops.length) continue;
+    const doc = await vscode.workspace.openTextDocument(entry.file);
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(doc.uri, opsToTextEdits(doc, ops));
+    if (await vscode.workspace.applyEdit(edit)) {
+      await doc.save();
+      changed++;
+    }
+  }
+  vscode.window.setStatusBarMessage(changed
+    ? `AOT: reconciled ${changed} file${changed === 1 ? "" : "s"} across the repo`
+    : "AOT: every shared Concept is already in step", 5000);
+}
+
+// AOT: Set Value Everywhere — the lightbulb on a value two files disagree
+// about. One name means one thing, so once you say which value is right it
+// is written to every file that names the attribute on that Concept.
+async function setValueEverywhere(conceptName, attr, value) {
+  const key = table.numberless(String(conceptName)).trim().toLowerCase();
+  const want = String(attr).toLowerCase();
+  buildWorkspaceIndex();
+  let changed = 0;
+  for (const entry of [...workspaceIndex.values()]) {
+    if (entry.text === undefined) continue;
+    const targets = entry.nodes.filter((n) =>
+      n.kind === KIND.CONCEPT && table.numberless(n.name).trim().toLowerCase() === key);
+    if (!targets.length) continue;
+    const doc = await vscode.workspace.openTextDocument(entry.fsPath);
+    const edits = [];
+    for (const node of targets) {
+      const hit = repo.declared(node).get(want);
+      // a table cell is the grid's business, not a line's; those follow from
+      // the CSV mirror and the table editor rather than a line rewrite
+      if (!hit || hit.cell || (hit.value != null && String(hit.value) === String(value))) continue;
+      const raw = doc.lineAt(hit.line - 1).text;
+      const colon = raw.indexOf(":");
+      edits.push(vscode.TextEdit.replace(
+        doc.lineAt(hit.line - 1).range,
+        colon === -1 ? `${raw.trimEnd()}: ${value}` : `${raw.slice(0, colon + 1)} ${value}`));
+    }
+    if (!edits.length) continue;
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(doc.uri, edits);
+    if (await vscode.workspace.applyEdit(edit)) {
+      await doc.save();
+      changed++;
+    }
+  }
   vscode.window.setStatusBarMessage(
-    `AOT: '${kept.name}' reconciled — merged from ${path.basename(otherPath)} and deleted there`, 5000);
+    `AOT: '${attr}' set to '${value}' in ${changed} file${changed === 1 ? "" : "s"}`, 5000);
 }
 
 // AOT: Recompute Formulas — one pass over the whole document: every table
@@ -2171,6 +2287,20 @@ function activate(context) {
             new vscode.Range(f.line - 1, f.startCol, f.line - 1, f.endCol),
             vscode.Uri.file(repoCopyOf(doc, f.fsPath) || f.fsPath)));
         }
+        // every `file.aot:12` in a maintained `...` line opens that file at
+        // that Concept, so a split extension is one click from the rest of it
+        const analysis = analysisByDoc.get(doc.uri.toString());
+        if (analysis) {
+          for (const s of repo.noteSpans(doc.getText().split(/\r?\n/), analysis.root, analysis.nodes)) {
+            const target = peerPathFor(doc, s.file);
+            if (!target) continue;
+            const link = new vscode.DocumentLink(
+              new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
+              vscode.Uri.file(target).with({ fragment: `L${s.target}` }));
+            link.tooltip = `${s.file} line ${s.target}`;
+            links.push(link);
+          }
+        }
         return links;
       },
     }),
@@ -2181,8 +2311,10 @@ function activate(context) {
     vscode.commands.registerCommand("aot.acceptWord", acceptWord),
     // the Quick Fix that lists an unlisted value as an Example of its Concept
     vscode.commands.registerCommand("aot.addExample", addExample),
-    // the Quick Fix that reconciles a repo-wide duplicate Concept
-    vscode.commands.registerCommand("aot.reconcileConcept", reconcileConcept),
+    // the repo-wide sweep, and the lightbulb that settles a value two files
+    // disagree about (src/repo.js)
+    vscode.commands.registerCommand("aot.reconcileAcrossFiles", reconcileAcrossFiles),
+    vscode.commands.registerCommand("aot.setValueEverywhere", setValueEverywhere),
     // the Quick Fix that brings a cited file into the repo's own file store
     vscode.commands.registerCommand("aot.copyFileIntoRepo", copyFileIntoRepo),
     // a settings change (accepted words, spelling toggle, ...) re-lints
@@ -2247,9 +2379,10 @@ function activate(context) {
       renameHint(event.textEditor);
     }),
     vscode.window.onDidChangeActiveTextEditor(updateTableContext),
-    // saving persists computed values and true numbering: the recompute and
-    // renumber edits ride the save itself, so the file on disk always
-    // carries fresh values and sequential `N. ` Examples
+    // saving persists computed values, true numbering and agreement with the
+    // rest of the repo: the recompute, renumber and reconcile edits all ride
+    // the save itself, so the file on disk carries fresh values, sequential
+    // `N. ` Examples, and whatever a shared Concept says elsewhere
     vscode.workspace.onWillSaveTextDocument((event) => {
       const doc = event.document;
       if (doc.languageId !== "aot") return;
@@ -2263,13 +2396,28 @@ function activate(context) {
           for (let l = e.line; l <= (e.to || e.line); l++) if (renumbered.has(l)) return true;
           return false;
         };
+        // reconcile last and only where nothing else is already rewriting:
+        // three passes over one document must not land two edits on one line,
+        // and the other two own the lines they touch
+        const claimed = new Set(renumbered);
+        const value = [
+          ...derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), reg),
+          ...table.recomputeAll(doc.getText(), reg, rootName),
+        ].filter((e) => !overlaps(e));
+        for (const e of value) for (let l = e.line; l <= (e.to || e.line); l++) claimed.add(l);
+        const free = (op) => {
+          if (op.type === "insert") return !claimed.has(op.afterLine) && !claimed.has(op.afterLine + 1);
+          if (op.type === "block") {
+            for (let l = op.from + 1; l <= op.to + 1; l++) if (claimed.has(l)) return false;
+            return true;
+          }
+          return !claimed.has(op.line);
+        };
         return [
-          ...[
-            ...derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), reg),
-            ...table.recomputeAll(doc.getText(), reg, rootName),
-          ].filter((e) => !overlaps(e)),
-          ...renumber,
-        ].map((e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e)));
+          ...[...value, ...renumber].map(
+            (e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e))),
+          ...opsToTextEdits(doc, reconcileOpsFor(doc).filter(free)),
+        ];
       }));
     }),
     // the CSV mirror: .aot saves write the CSVs, CSV edits fold back in;

@@ -1,0 +1,141 @@
+- Meta Model
+    Beneficiary
+        interest (How much the stakeholder cares about the outcome)
+        influence  (Their ability to affect decisions, resources, or outcomes)
+        Human (Natural Person)
+            - Jakus
+            first name: Joe
+            surname: Slim
+            title
+            date of birth
+            gender
+            home language
+            nationality (country)
+            is living: yes
+        Organisation
+            ...
+            Business
+            Government
+            N G O
+            Foundation
+            trading name
+            no terminology name
+            is business unit
+            is user classified
+            incorporated country
+            nickname
+            tax number
+    Measurement
+        parent measurement: None
+        name
+        expected value
+        actual value
+        measurement operation used
+            - Observation
+                characteristic (trait)
+                class
+                stereotype
+            - Formula
+                - Arithmetic
+                    - Addition (Sum)
+                    - Subtraction
+                    - Multiplication (Product)
+                    - Division
+                        - Ratio
+                        - ...
+                    - ...
+                - Statistical
+                    - Maximum
+                    - Minimum
+                    - Average
+                        - Mean
+                        - Mode
+                        - Median
+                    - Standard Deviation
+                    - Sample Size
+                    - ...
+            - Grading
+                grade interval minimum
+                grade interval maximum
+                number of grades
+            - Re-scaled Measurement
+                - Fahrenheit to Celsius
+                - ...
+                multiplier measurement: 1
+                offset scaling magnitude: 0
+                exponent (power): 1
+            - Ranking
+                minimum ranking
+                maximum ranking
+                is minimum ranking open: false
+                is maximum ranking open: false
+
+            - Refinement
+        data type
+            Numeric
+                - Amount
+                    - Cyclomatic Complexity
+                    - Lines Of Code
+                - Current
+                    - Amps
+                    - ...
+                - Length
+                    - Meter
+                    - ...
+                - Light
+                    - Candela
+                    - ...
+                - Mass
+                    - Kilogram
+                    - ...
+                - Temperature Unit
+                    - Kelvin
+                    - ...
+                - Time
+                    - Second
+                    - ...
+                - ...
+                is integer: No
+                offset scaling magnitude
+                    - 0
+                        is integer: Yes
+                    - ... anything other than 0
+                        is integer: No
+                numeric base: 10
+                is signed: true
+                relative zero point
+
+            - Text (characters)
+            - Audio
+            - Video
+            - Image
+            - Ignore
+            offset scaling magnitude
+            numeric base
+            numeric base: 10
+            is signed: true
+            multiplier measurement
+            minimum number of elements: 1
+            maximum number of elements (length): 1
+                - 1
+                - container
+                    - 2
+                    - ...
+                - stream
+                    end of stream
+            validation rule
+                - Valid Value Enumeration
+                - ...
+            minimum bit count: 0
+            maximum bit count: infinite
+            is constant value: No
+        parent measurement influence
+            - Red
+            - Amber
+            - Green
+            - None
+        instrument
+        author
+        start time
+        updated time
+        updating author

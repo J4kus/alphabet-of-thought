@@ -2,7 +2,7 @@
 
 |Person    |residence city|occupation |first name|father (person)|age          |is alive ==`No`|
 |----------+--------------+-----------+----------+---------------+-------------+---------------|
-|Aristotle |George        |Philosopher|          |               |10           |No             |
+|Aristotle |Pella        |Philosopher|          |               |10           |No             |
 |Socrates  |Athens        |Philosopher|Sokrates  |Sophroniscus   |20           |No             |
 |Total ages|              |           |          |               |15 =avg(@age)|No             |
 
@@ -13,5 +13,6 @@ City
     - George
     - San Francisco
     - Macedonia
+    - Pella
 Occupation
     - Philosopher
