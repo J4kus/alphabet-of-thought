@@ -306,7 +306,7 @@ function parse(text, rootName, report) {
             } else {
               const cellValue = {
                 line, depth: depth + 1, kind: DEFAULT, name: attr.name,
-                value: frag, alias: null, parent: table.lastExample, children: [],
+                value: frag, alias: attr.alias, parent: table.lastExample, children: [],
                 valueCol: row[c].col, cell: true,
               };
               table.lastExample.children.push(cellValue);
@@ -342,9 +342,15 @@ function parse(text, rootName, report) {
           // audited and coloured by the editor, invisible to the model
           const { value } = splitCell(row[c].text);
           if (!attr || !value) continue;
+          // the column's (alias) types every value in it, exactly as it does
+          // in the line form: a cell of `beneficiary (person)` is written out
+          // `beneficiary (person): Socrates`, so it must be typed by `Person`
+          // too — without the alias the cell would resolve nothing and its
+          // value would not crosslink. Only the alias travels, not aliasCol:
+          // the alias text is on the header line, not this one.
           const cellValue = {
             line, depth: depth + 1, kind: DEFAULT, name: attr.name,
-            value: readValue(value), alias: null, parent: example, children: [],
+            value: readValue(value), alias: attr.alias, parent: example, children: [],
             valueCol: row[c].col, cell: true,
           };
           example.children.push(cellValue);

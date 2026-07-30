@@ -452,6 +452,24 @@ const listed = [
     ? "PASS (table: header cell links to its Concept, value cell to its Example)"
     : "UNEXPECTED table crosslinks");
 
+  // an (alias) on the column types every cell under it, exactly as it does
+  // in the line form: `beneficiary (person)` writes out as
+  // `beneficiary (person): Socrates`, so the cell links to the Person
+  const aliased = [
+    "Person",
+    "    - Socrates",
+    "Known For",
+    "    | Known For | beneficiary (person) |",
+    "    |-----------+----------------------|",
+    "    | Ethics | Socrates |",
+  ].join("\n");
+  const a = lint(aliased, "World");
+  const aLinks = resolve(aliased, a.root, a.nodes);
+  const aCell = aLinks.find((l) => l.connection === "default-is-a-Example" && l.line === 6);
+  console.log(aCell && aCell.text === "Socrates" && aCell.target.line === 2
+    ? "PASS (table: a cell of an aliased column links through the alias' Concept)"
+    : "UNEXPECTED aliased-column cell crosslink " + JSON.stringify(aCell || null));
+
   const doc3 = makeDoc("c:\repo\World.aot", table);
   const edits = formattingProvider.provideDocumentFormattingEdits(doc3);
   const aligned = edits.some((e) => e.text === "    |Speed|Ratio                |");

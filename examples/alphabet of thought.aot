@@ -34,51 +34,48 @@
         confidence
     Token
         Idea
-            recognise
-            example
-            Schema Line (Acting On)
-                - Concept (Universal Substance)
-                    recognise: first letter is capitalised
-                    present in: False
-                    example: Human
-                - Attribute (Universal Accident)
-                    characters: lowercase
-                    ordering: Most Essential To Most Accidental
-                    recognise: all lowercase
-                    present in: True
-                    example: full name
-            Content Line (Being Acted Upon)
-                - Example (Individual Substance)
-                    recognise: must start with dash and space
-                    present in: False
-                    is: Content
-                    predicate: Is An Example Of
-                    begin
-                        - Dash
-                        - End of Line
-                        - ` inside a concept or attribute
-                    end: end of line
-                    allow special value override
-                        - Ellipsis
-                        - Boolean
-                - Default Value (Individual Accident)
-                    start: :
-                    end: End of line
-                    recognise: colon separated value
-                    present in: True
-                    example: colour: red
-                    allow special value override
-                        - Boolean
-                        - Ellipses
-                    allow folding: Yes
-                    allow special value override: No
-                    predicate: Detailed By
-                - Map
-                    recognise: starts with ellipsis
-                    begin: ...
-                    end: End Of Line
-                    is special value override: Yes
-                    predicate: Explained By
+            - Concept (Universal Substance)
+                recognise: first letter is capitalised
+                present in: False
+                example: Human
+            - Attribute (Universal Accident)
+                characters: lowercase
+                ordering: Most Essential To Most Accidental
+                recognise: all lowercase
+                present in: True
+                example: full name
+            
+            - Example (Individual Substance)
+                recognise: must start with dash and space
+                present in: False
+                is: Content
+                predicate: Is An Example Of
+                begin
+                    - Dash
+                    - End of Line
+                    - ` inside a concept or attribute
+                end: end of line
+                allow special value override
+                    - Ellipsis
+                    - Boolean
+            - Default Value (Individual Accident)
+                start: :
+                end: End of line
+                recognise: colon separated value
+                present in: True
+                example: colour: red
+                allow special value override
+                    - Boolean
+                    - Ellipses
+                allow folding: Yes
+                allow special value override: No
+                predicate: Detailed By
+            - Map
+                recognise: starts with ellipsis
+                begin: ...
+                end: End Of Line
+                is special value override: Yes
+                predicate: Explained By
         Connection
             Indented Hierarchy
                 ...
