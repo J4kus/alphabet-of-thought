@@ -589,6 +589,27 @@ const parsed = (text) => {
     other && other.rows.length === 1 && other.header.join(",") === "Other");
 }
 
+// An Example under an attribute is an Example *of that attribute* — the
+// values it is allowed to take — not another Example of the Concept, so it
+// is no row of the Concept's CSV. Nor are the refinements listed under it.
+{
+  const text = aot(
+    "Invoice",
+    "    - INV-1",
+    "        amount: 10",
+    "    status",
+    "        - draft",
+    "            - part paid",
+    "        - sent",
+  );
+  const { root, nodes } = parsed(text);
+  const inv = mirrorGrids(root, nodes).find((g) => g.name === "Invoice");
+  check("mirror: an attribute's Examples are the attribute's allowed values, not rows",
+    inv && inv.rows.length === 1 && inv.rows[0][0] === "INV-1");
+  check("mirror: the attribute still heads a column of its own",
+    inv && inv.header.join(",") === "Invoice,status,amount");
+}
+
 // ---------------------------------------------------------------------------
 // updateScope: the union CSV folds back by Example name, wherever it lives
 // ---------------------------------------------------------------------------

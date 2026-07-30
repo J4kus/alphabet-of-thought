@@ -411,6 +411,90 @@ function copyFormulaAcross(block, row, col) {
   return { row, col };
 }
 
+// --- copying and cutting in a direction ------------------------------------
+// The formula copies above move a *derivation* and keep each cell's own
+// value. These four move the text itself, which is what building a table by
+// hand actually needs: the next Example is usually the last one with two
+// fields changed, and a value typed into the wrong column wants moving, not
+// retyping. Each is a copy or a cut in one of the four directions, and each
+// carries the cursor to what it just wrote, so holding the key fills a run.
+//
+// Nothing here is clever about content: a cell arrives exactly as it was
+// written, formula and all. A copy that makes a duplicate Example name or a
+// second column of one attribute is reported by the linter as it always is —
+// refusing the movement would be the worse answer, since the copy is usually
+// the fastest way *to* the row you meant.
+
+// The cell one step from (row, col) in a direction, or null when the table
+// has no such cell. Vertical steps skip separator rows, exactly as TAB and
+// RET do; a step down past the last row appends one, since a column is
+// usually filled downward into a table that is still growing. Horizontal
+// steps never grow the table: a new column needs an attribute name of its
+// own, so there is nothing sensible to widen into.
+function neighbourCell(block, row, col, dRow, dCol) {
+  if (dRow) {
+    const other = dataRow(block, row, dRow);
+    if (other !== -1) return { row: other, col };
+    if (dRow < 0) return null;
+    block.rows.push({ sep: false, cells: [] });
+    return { row: block.rows.length - 1, col };
+  }
+  const other = col + dCol;
+  if (other < 0 || other >= widthsOf(block).length) return null;
+  return { row, col: other };
+}
+
+// Copy the cursor's cell into its neighbour, leaving this one as written.
+function copyCell(block, row, col, dRow, dCol) {
+  const here = block.rows[row];
+  if (!here || here.sep) return null;
+  const to = neighbourCell(block, row, col, dRow, dCol);
+  if (!to) return null;
+  padRows(block);
+  block.rows[to.row].cells[to.col] = here.cells[col] || "";
+  return to;
+}
+
+// Cut the cursor's cell into its neighbour: the same move, with this cell
+// left empty behind it.
+function moveCell(block, row, col, dRow, dCol) {
+  const here = block.rows[row];
+  if (!here || here.sep) return null;
+  const to = neighbourCell(block, row, col, dRow, dCol);
+  if (!to) return null;
+  padRows(block);
+  block.rows[to.row].cells[to.col] = here.cells[col] || "";
+  here.cells[col] = "";
+  return to;
+}
+
+// Duplicate the cursor's whole data row, above it or below it. The header is
+// not a row to duplicate — a table has one — so the cursor must stand in the
+// data; the copy takes the cursor with it.
+function copyRow(block, row, col, dir) {
+  const here = block.rows[row];
+  if (!here || here.sep || !dataRowsOf(block).includes(here)) return null;
+  padRows(block);
+  const at = dir < 0 ? row : row + 1;
+  block.rows.splice(at, 0, { sep: false, cells: here.cells.slice() });
+  return { row: at, col };
+}
+
+// Duplicate the cursor's whole column, to its left or its right — header,
+// every value, and the separator's own width all follow. The new column
+// carries the old one's attribute name, which the linter will report as a
+// repeat until you rename it: that rename is the point of the copy.
+function copyColumn(block, row, col, dir) {
+  const numCols = widthsOf(block).length;
+  if (col >= numCols) return null;
+  padRows(block);
+  const at = dir < 0 ? col : col + 1;
+  for (const r of block.rows) {
+    if (!r.sep) r.cells.splice(at, 0, r.cells[col] || "");
+  }
+  return { row, col: at };
+}
+
 // C-c |: turn plain delimited lines (tab-, comma- or multi-space-separated)
 // into a table — first line the header, with the separator drawn beneath it.
 // The header's first cell names the Concept (kept as written), the rest name
@@ -1676,6 +1760,7 @@ module.exports = {
   cells, isSeparator, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, insertSeparator, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
+  copyCell, moveCell, copyRow, copyColumn,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas,
   referenceSpans, formulaReferences,

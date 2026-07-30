@@ -504,6 +504,20 @@ check("verify: a plural Concept name warns",
 check("verify: an accepted word is not flagged plural",
   !lint(aot("Animals"), "Zoo", new Set(["animals"])).warnings.some((w) => /appears plural/.test(w.message)));
 
+// a possessive is not a plural: the 's says whose the idea is, not how many
+// there are, so it comes off before the number is judged
+check("verify: a possessive Concept name is not read as plural",
+  !lintTree(aot("Aristotle's"), "Zoo").report.warnings.some((w) => /appears plural/.test(w.message)));
+
+// and taking it off catches the plural possessive pluralize misses whole
+// ("Farmers'" is not a word it knows; "Farmers" is)
+check("verify: a plural possessive still warns",
+  lintTree(aot("Farmers'"), "Zoo").report.warnings.some((w) => /appears plural/.test(w.message)));
+
+// the Quick Fix accepts the word as written, apostrophe and all
+check("verify: an accepted possessive is not flagged plural",
+  !lint(aot("Farmers'"), "Zoo", new Set(["farmers'"])).warnings.some((w) => /appears plural/.test(w.message)));
+
 // actual without target / target without actual (warnings)
 check("verify: 'actual' without 'target' warns",
   lintTree(aot("Metric", "    actual: 5")).report.warnings.some((w) => /'actual' without 'target'/.test(w.message)));

@@ -4,9 +4,9 @@
     "fileTypes": ["aot"],
 	"patterns": [
 		{
-            "comment": "Concept: a type / class, the structural backbone",
+            "comment": "Concept: a type / class, the structural backbone. A quote ends the name, but an apostrophe inside a word is a letter of it — 'Aristotle's Ethics' is one name, so a ' followed by a letter is consumed rather than closing the run",
             "name": "entity.name.type.concept.aot",
-            "match": "[A-Z][^(:\"'`]*(?=[(:\"'`]|$)"
+            "match": "[A-Z](?:[^(:\"'`]|'(?=[A-Za-z]))*(?=[(:\"`]|'(?![A-Za-z])|$)"
         },
         {
             "comment": "attribute: a property / slot",
@@ -57,7 +57,7 @@
                 { "match": "[|+]|(?<=[\\s|])-+(?=[\\s|])", "name": "punctuation.definition.table.aot" },
                 { "match": "`[^`]*`", "name": "markup.inline.raw.literal.aot" },
                 { "match": "\\([^)|]*\\)", "name": "entity.other.attribute-name.alias.aot" },
-                { "match": "[A-Z][^|(:\"'`]*", "name": "entity.name.type.concept.aot" },
+                { "match": "[A-Z](?:[^|(:\"'`]|'(?=[A-Za-z]))*", "name": "entity.name.type.concept.aot" },
                 { "match": "\\b[a-z]\\w*\\b", "name": "variable.other.property.aot" }
             ]
         }

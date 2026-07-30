@@ -762,12 +762,21 @@ function headerColName(cell) {
 }
 
 // The Examples in a Concept's scope, document order: every INDIVIDUAL in
-// its subtree that no deeper Concept claims.
+// its subtree that no deeper Concept claims — and that no attribute claims.
+//
+// An Example written under an attribute is an Example *of that attribute*:
+// the values `status` is allowed to take, the operations a `measurement
+// operation used` ranges over. It is not another Example of the Concept, so
+// it is no row of the Concept's CSV — mirroring `Invoice` must not put
+// 'draft' and 'sent' beside 'INV-1' as if they were invoices. The walk
+// therefore stops at an attribute rather than descending through it, which
+// also drops the Examples nested further under those (an allowed value's own
+// refinements belong to the attribute too).
 function scopeRowsOf(concept) {
   const out = [];
   const walk = (n) => {
     for (const c of n.children) {
-      if (c.kind === KIND.CONCEPT) continue;
+      if (c.kind === KIND.CONCEPT || isAttrKind(c)) continue;
       if (c.kind === KIND.INDIVIDUAL) out.push(c);
       walk(c);
     }

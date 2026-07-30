@@ -18,6 +18,8 @@ const { suggest } = require("./fca");
 const { clashes } = require("./godel");
 const armstrong = require("./armstrong");
 const spelling = require("./spelling");
+const synonyms = require("./synonyms");
+const park = require("./park");
 const derive = require("./derive");
 const repo = require("./repo");
 const urls = require("./urls");
@@ -44,6 +46,48 @@ const holdState = new Map();
 function acceptedWords() {
   const config = vscode.workspace.getConfiguration("aot");
   return new Set((config.get("acceptedWords", []) || []).map((w) => String(w).toLowerCase()));
+}
+
+// The pairs of Concept names the writer has declared genuinely different
+// (aot.distinctConcepts), as synonyms.pairKey strings. The Quick Fix on a
+// synonym warning appends to the list, and the pair is never asked about
+// again — in any file, because the question is repo-wide.
+function distinctConcepts() {
+  const config = vscode.workspace.getConfiguration("aot");
+  const out = new Set();
+  for (const entry of config.get("distinctConcepts", []) || []) {
+    const [a, b] = String(entry).split("|");
+    if (a && b) out.add(synonyms.pairKey(a.trim(), b.trim()));
+  }
+  return out;
+}
+
+// Two names for one idea, over this file and every peer that is indexed.
+//
+// Advisory and repo-wide: 'Client' here and 'Customer' in the file next door
+// is exactly the collision worth catching, and it is invisible to a file
+// reading only itself. Only *this* file's side is reported (the other file
+// reports its own when it is open), and the peer rides along as a related
+// location so Ctrl+click reaches it. Off with aot.synonymWarnings.
+function synonymWarnings(doc, root, nodes) {
+  const config = vscode.workspace.getConfiguration("aot");
+  if (!config.get("synonymWarnings", true)) return [];
+  const here = doc.fileName || "";
+  const concepts = [];
+  const add = (list, file) => {
+    for (const n of list) {
+      if (n.kind === KIND.CONCEPT && n.name) concepts.push({ name: n.name, line: n.line, file, alias: n.alias });
+    }
+  };
+  // the root is the file name, and it carries no line to squiggle: renaming
+  // a file is not a Quick Fix, so the roots stay out of the comparison
+  add(nodes, here);
+  if (underWorkspace(doc)) {
+    for (const other of repoOthers(doc)) add(other.nodes, other.file);
+  }
+  return synonyms.findings(concepts, distinctConcepts())
+    .filter((f) => fileKey(f.file) === fileKey(here))
+    .map((f) => ({ line: f.line, message: f.message, related: f.related }));
 }
 
 // --- the workspace index ----------------------------------------------------
@@ -246,7 +290,7 @@ function analyse(doc) {
   }
   return {
     errors: errors.concat(deepErrors, formulaErrors),
-    warnings: warnings.concat(depWarnings, formulaWarnings),
+    warnings: warnings.concat(depWarnings, formulaWarnings, synonymWarnings(doc, root, nodes)),
     hints,
     links,
     root,
@@ -1259,6 +1303,9 @@ const SPELLING_SUGGEST = /^'.+' is not in the dictionary — did you mean (.+)\?
 // that types its attribute; both names are read back out of the message,
 // which is this extension's own (crosslinks.unlistedValues)
 const UNLISTED_VALUE = /^'(.+)' is not an Example of Concept '(.+)' —/;
+// the lightbulb on a synonym warning records that the two names are two
+// ideas, not one, and the pair is never raised again (src/synonyms.js)
+const SYNONYM_PAIR = /^'(.+?)' and '(.+?)' \((?:line \d+|[^)]+)\) are (?:two words for one idea|one word with two endings)/;
 // The repo-wide findings (src/repo.js). Everything a shared Concept can be
 // made to agree on is already agreed by the time these show — save does it —
 // so each lightbulb here offers the decision a tool may not take for you:
@@ -1311,6 +1358,35 @@ const codeActionProvider = {
         arguments: [value, concept],
       };
       actions.push(action);
+    }
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot") continue;
+      const pair = SYNONYM_PAIR.exec(diagnostic.message);
+      if (!pair) continue;
+      const [, mine, other] = pair;
+      // the two ways out. Renaming is the usual one, so it comes first and is
+      // preferred; declaring them distinct is the dismissal, and it is
+      // remembered rather than repeated.
+      const rename = new vscode.CodeAction(
+        `Rename '${mine}' to '${other}'`, vscode.CodeActionKind.QuickFix);
+      rename.diagnostics = [diagnostic];
+      rename.isPreferred = true;
+      rename.command = {
+        command: "aot.renameConcept",
+        title: `Rename '${mine}' to '${other}'`,
+        arguments: [mine, other],
+      };
+      actions.push(rename);
+      const distinct = new vscode.CodeAction(
+        `Keep '${mine}' and '${other}' as different ideas (add to aot.distinctConcepts)`,
+        vscode.CodeActionKind.QuickFix);
+      distinct.diagnostics = [diagnostic];
+      distinct.command = {
+        command: "aot.acceptDistinct",
+        title: `Keep '${mine}' and '${other}' apart`,
+        arguments: [mine, other],
+      };
+      actions.push(distinct);
     }
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
@@ -1598,6 +1674,110 @@ function recomputeFormulas(editor) {
   });
 }
 
+// --- parking the derivations (Ctrl+Shift+`) ----------------------------------
+// One key takes every '=' derivation out of the data and puts it in a store
+// beside the file; the same key puts them back.
+//
+// The order is the whole design. **The recompute runs first**, so every
+// derived value is materialised in the data, and only then do the formulas
+// leave. What is left in the .aot is a complete set of values that still says
+// exactly what it said and still verifies on its own terms — `node verify.js`
+// judges what is in front of it and never reads the store, because there is
+// nothing in the store it needs. A parked file is not a file with holes in
+// it; it is a file whose arithmetic has already been done.
+//
+// The store is `aot.files/<file>.formulas`, beside the CSV mirror. Its
+// existence is the state: a file is parked when it has one.
+
+const parkPath = (doc) =>
+  path.join(aotFilesDir(doc), path.basename(doc.fileName).replace(/\.aot$/i, "") + ".formulas");
+
+// Apply { line, to?, text } line edits to an array of lines, last first so
+// earlier indices stay true while a multi-line edit changes the count.
+function applyLineEdits(lines, edits) {
+  const out = lines.slice();
+  for (const e of [...edits].sort((a, b) => (b.line - a.line))) {
+    const from = e.line - 1, to = (e.to || e.line) - 1;
+    out.splice(from, to - from + 1, ...e.text.split("\n"));
+  }
+  return out;
+}
+
+// Replace the whole document with `lines`, re-aligned, in one undoable edit.
+function rewriteDocument(editor, lines) {
+  const doc = editor.document;
+  const rootName = docRootName(doc);
+  let text = lines.join("\n");
+  try {
+    const aligned = table.align(text, formulaRegistry(doc), rootName);
+    if (aligned.length) text = applyLineEdits(text.split("\n"), aligned).join("\n");
+  } catch { /* an unalignable document is rewritten as it stands */ }
+  const last = doc.lineCount - 1;
+  const whole = new vscode.Range(0, 0, last, doc.lineAt(last).text.length);
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  return editor.edit((b) => b.replace(whole, text.replace(/\n/g, eol)));
+}
+
+async function parkFormulas(editor, store) {
+  const doc = editor.document;
+  // the values first: a derivation may only leave once the number it
+  // computes is written where it stood
+  await recomputeFormulas(editor);
+  const rootName = docRootName(doc);
+  const lines = doc.getText().split(/\r?\n/);
+  let tree;
+  try { tree = lint(doc.getText(), rootName); }
+  catch { return vscode.window.showWarningMessage("AOT: the file does not parse — fix it before parking its formulas."); }
+  const { lines: parkedLines, parked } = park.park(lines, tree.nodes, rootName);
+  if (!parked.length) {
+    return vscode.window.setStatusBarMessage("AOT: no derivations to park.", 3000);
+  }
+  await rewriteDocument(editor, parkedLines);
+  try {
+    fs.mkdirSync(path.dirname(store), { recursive: true });
+    fs.writeFileSync(store, park.serialise(parked));
+  } catch (e) {
+    return vscode.window.showErrorMessage(`AOT: could not write ${path.basename(store)} — ${e.message}`);
+  }
+  vscode.window.setStatusBarMessage(
+    `AOT: ${parked.length} derivation${parked.length === 1 ? "" : "s"} parked in ${path.basename(store)} — Ctrl+Shift+\` puts them back.`, 5000);
+}
+
+async function unparkFormulas(editor, store) {
+  const doc = editor.document;
+  let parked;
+  try { parked = park.parse(fs.readFileSync(store, "utf8")); }
+  catch (e) { return vscode.window.showErrorMessage(`AOT: could not read ${path.basename(store)} — ${e.message}`); }
+  const rootName = docRootName(doc);
+  let tree;
+  try { tree = lint(doc.getText(), rootName); }
+  catch { return vscode.window.showWarningMessage("AOT: the file does not parse — fix it before putting its formulas back."); }
+  const lines = doc.getText().split(/\r?\n/);
+  const { lines: back, missing } = park.unpark(lines, tree.nodes, rootName, parked);
+  await rewriteDocument(editor, back);
+  // a derivation whose row was renamed or deleted while it was parked is
+  // never invented back: it stays in the store, and the store stays
+  try {
+    if (missing.length) {
+      fs.writeFileSync(store, park.serialise(parked.filter((p) => missing.includes(p.address))));
+      vscode.window.showWarningMessage(
+        `AOT: ${missing.length} derivation${missing.length === 1 ? "" : "s"} no longer name anything in the file `
+        + `(${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", …" : ""}) — they are kept in ${path.basename(store)}.`);
+    } else {
+      fs.unlinkSync(store);
+    }
+  } catch (e) {
+    vscode.window.showErrorMessage(`AOT: the formulas are back, but ${path.basename(store)} could not be updated — ${e.message}`);
+  }
+}
+
+function toggleFormulaPark(editor) {
+  const doc = editor.document;
+  if (doc.languageId !== "aot" || !doc.fileName) return;
+  const store = parkPath(doc);
+  return fs.existsSync(store) ? unparkFormulas(editor, store) : parkFormulas(editor, store);
+}
+
 // AOT: Copy Formula to Sibling Examples — the line-form copy-down: the
 // derivation under the cursor lands on the same attribute of every sibling
 // Example (adding the line where the attribute is absent), then recomputes.
@@ -1640,6 +1820,46 @@ async function acceptWord(word) {
   const low = String(word).toLowerCase();
   if (words.some((w) => String(w).toLowerCase() === low)) return;
   await config.update("acceptedWords", [...words, low], vscode.ConfigurationTarget.Global);
+}
+
+// Record that two Concept names are two ideas (aot.distinctConcepts, user
+// settings). The pair is stored order-free and lowercased, so it is dismissed
+// whichever of the two the lightbulb was opened on. The configuration change
+// re-lints every open document, so the warning clears on both sides at once.
+async function acceptDistinct(a, b) {
+  const config = vscode.workspace.getConfiguration("aot");
+  const pairs = config.get("distinctConcepts", []) || [];
+  const key = synonyms.pairKey(a, b);
+  if (pairs.some((p) => {
+    const [x, y] = String(p).split("|");
+    return x && y && synonyms.pairKey(x.trim(), y.trim()) === key;
+  })) return;
+  await config.update("distinctConcepts", [...pairs, key], vscode.ConfigurationTarget.Global);
+}
+
+// Rename a Concept in the active document through the rename engine, so every
+// reference to it follows exactly as F2 would move them. The lightbulb on a
+// synonym warning uses it to fold one of the two names into the other.
+async function renameConcept(from, to) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "aot") return;
+  const doc = editor.document;
+  const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+  const low = String(from).toLowerCase();
+  const node = (analysis.nodes || []).find(
+    (n) => n.kind === KIND.CONCEPT && n.line && String(n.name).toLowerCase() === low);
+  if (!node) return;
+  const text = doc.lineAt(node.line - 1).text;
+  const col = text.indexOf(node.name);
+  if (col === -1) return;
+  let edit;
+  try {
+    edit = renameProvider.provideRenameEdits(doc, new vscode.Position(node.line - 1, col), to);
+  } catch (e) {
+    vscode.window.showWarningMessage(`AOT: could not rename '${from}' — ${e.message}`);
+    return;
+  }
+  if (edit) await vscode.workspace.applyEdit(edit);
 }
 
 // --- the CSV mirror -----------------------------------------------------------
@@ -1999,6 +2219,20 @@ const tableOps = {
   "aot.table.sortRows": table.sortRows,
   "aot.table.copyFormulaDown": table.copyFormulaDown,
   "aot.table.copyFormulaAcross": table.copyFormulaAcross,
+  // copying and cutting the text itself, in each of the four directions —
+  // the cell, the whole row, the whole column
+  "aot.table.copyCellDown": (b, r, c) => table.copyCell(b, r, c, 1, 0),
+  "aot.table.copyCellUp": (b, r, c) => table.copyCell(b, r, c, -1, 0),
+  "aot.table.copyCellLeft": (b, r, c) => table.copyCell(b, r, c, 0, -1),
+  "aot.table.copyCellRight": (b, r, c) => table.copyCell(b, r, c, 0, 1),
+  "aot.table.moveCellDown": (b, r, c) => table.moveCell(b, r, c, 1, 0),
+  "aot.table.moveCellUp": (b, r, c) => table.moveCell(b, r, c, -1, 0),
+  "aot.table.moveCellLeft": (b, r, c) => table.moveCell(b, r, c, 0, -1),
+  "aot.table.moveCellRight": (b, r, c) => table.moveCell(b, r, c, 0, 1),
+  "aot.table.copyRowDown": (b, r, c) => table.copyRow(b, r, c, 1),
+  "aot.table.copyRowUp": (b, r, c) => table.copyRow(b, r, c, -1),
+  "aot.table.copyColumnLeft": (b, r, c) => table.copyColumn(b, r, c, -1),
+  "aot.table.copyColumnRight": (b, r, c) => table.copyColumn(b, r, c, 1),
 };
 
 // Turn the selected delimited lines (CSV, TSV, or multi-space columns) into
@@ -2062,12 +2296,179 @@ function updateTableContext() {
   vscode.commands.executeCommand("setContext", "aot.inTable", inTable);
 }
 
-// Typing a first '|' on an otherwise empty line scaffolds a fresh table —
-// header, separator, empty data row — with the cursor in the data row:
+// --- keeping your place in a wide or long table -----------------------------
+// A text editor cannot freeze a column the way a spreadsheet does: there is
+// one scroll surface and it carries the whole line. Two things stand in for
+// it, and between them they answer both directions.
 //
-//     |name|
-//     |----|
-//     |    |     <- cursor lands here
+// Down the table, the **document symbols** below make the header line the
+// parent of its rows, so VS Code's own sticky scroll pins it to the top of
+// the viewport exactly as it pins an enclosing Concept. That is the freeze,
+// done by the editor rather than faked by the extension — and it costs
+// nothing, because the tree is already parsed.
+//
+// Across the table, nothing can pin the name column, so the status bar says
+// what the frozen column would have shown and then some: the Concept, the
+// Example the cursor's row names, and the attribute its column declares.
+// `Person ▸ Socrates ▸ occupation` reads the same however far right you are.
+
+let cellStatus = null;
+
+// The cell address at the cursor, or null when the cursor is not in a table
+// with a readable header.
+function cellAddress(editor) {
+  const doc = editor.document;
+  if (!doc || doc.languageId !== "aot") return null;
+  const at = editor.selection.active;
+  if (at.line >= doc.lineCount) return null;
+  const lines = doc.getText().split(/\r?\n/);
+  const block = table.blockAt(lines, at.line);
+  if (!block) return null;
+  const header = block.rows.find((r) => !r.sep);
+  if (!header) return null;
+  const row = block.rows[at.line - block.start];
+  if (!row || row.sep) return null;
+  const col = table.colAt(doc.lineAt(at.line).text, at.character);
+  const concept = table.cleanName(table.widthCookie(header.cells[0] || "").text) || "";
+  // the header row addresses its own column; a data row also names its Example
+  const example = row === header ? null : (row.cells[0] || "").trim();
+  const attribute = col > 0 ? table.cleanName(table.widthCookie(header.cells[col] || "").text) : null;
+  const parts = [concept, example, col === 0 ? null : attribute].filter(Boolean);
+  return parts.length ? parts.join(" ▸ ") : null;
+}
+
+function updateCellStatus() {
+  if (!cellStatus) return;
+  const editor = vscode.window.activeTextEditor;
+  const address = editor ? cellAddress(editor) : null;
+  if (!address) return cellStatus.hide();
+  cellStatus.text = `$(table) ${address}`;
+  cellStatus.tooltip = "The cell at the cursor: Concept ▸ Example ▸ attribute";
+  cellStatus.show();
+}
+
+// The document's outline: the parsed tree as symbols, so breadcrumbs, the
+// Outline view, and — the reason this exists — **sticky scroll** all follow
+// the model rather than guessing from indentation. A node's range runs from
+// its own line to the last line of its subtree, which is what makes a table's
+// header the parent of its rows and pins it while you scroll them.
+const SYMBOL_KIND = {
+  [KIND.CONCEPT]: () => vscode.SymbolKind.Class,
+  [KIND.INDIVIDUAL]: () => vscode.SymbolKind.Constant,
+  [KIND.ATTRIBUTE]: () => vscode.SymbolKind.Property,
+  [KIND.DEFAULT]: () => vscode.SymbolKind.Field,
+};
+
+const symbolProvider = {
+  provideDocumentSymbols(doc) {
+    let analysis;
+    try { analysis = analysisByDoc.get(doc.uri.toString()) || lint(doc.getText(), docRootName(doc)); }
+    catch { return []; }
+    const { root, nodes } = analysis;
+    if (!root) return [];
+    const lastLine = (node) => {
+      let last = node.line || 0;
+      for (const c of node.children) last = Math.max(last, lastLine(c));
+      return last;
+    };
+    const clamp = (line) => Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
+
+    // The table block a line belongs to, with the line its header row sits
+    // on — cached per block, since every row of a grid asks the same
+    // question. Written as a table the Concept *is* the header cell and the
+    // tree already nests the rows under it; written in the merge form the
+    // Concept has its own line above the grid, and the header row is just
+    // another line among the Concept's children. The wrapper below restores
+    // the nesting in that case, so the header pins either way.
+    const lines = doc.getText().split(/\r?\n/);
+    const blocks = new Map(); // line index -> block info or null
+    const blockOf = (at) => {
+      if (blocks.has(at)) return blocks.get(at);
+      const block = table.blockAt(lines, at);
+      let info = null;
+      if (block) {
+        const headerAt = block.rows.findIndex((r) => !r.sep);
+        if (headerAt !== -1) {
+          const header = block.rows[headerAt];
+          info = {
+            start: block.start,
+            end: block.end,
+            headerLine: block.start + headerAt,
+            name: table.cleanName(table.widthCookie(header.cells[0] || "").text) || "table",
+          };
+        }
+      }
+      for (let i = block ? block.start : at; i <= (block ? block.end : at); i++) blocks.set(i, info);
+      return info;
+    };
+    const headerSymbol = (info) => new vscode.DocumentSymbol(
+      info.name, "", vscode.SymbolKind.Class,
+      new vscode.Range(info.headerLine, 0, info.end, doc.lineAt(info.end).text.length),
+      new vscode.Range(info.headerLine, 0, info.headerLine, doc.lineAt(info.headerLine).text.length));
+
+    // Anything sharing its parent's line is nothing to navigate *to*: a
+    // table cell's value, the Example that rode in on a `Concept: value`
+    // line. It is skipped, and whatever hangs off it is lifted to where it
+    // was, so no branch of the tree is lost with it.
+    const childrenOf = (node) => {
+      const out = [];
+      let open = null; // the header symbol currently collecting a grid's rows
+      const own = node.line ? node.line - 1 : -1;
+      for (const child of node.children) {
+        const built = build(child);
+        for (const symbol of built ? [built] : childrenOf(child)) {
+          const at = symbol.range.start.line;
+          const info = blockOf(at);
+          // a row of a grid whose header line is neither this node's own line
+          // nor the row's own: the header row is a line of its own, so it
+          // becomes the parent it reads as
+          if (info && info.headerLine !== own && info.headerLine !== at) {
+            if (!open || open.start !== info.start) {
+              open = { start: info.start, symbol: headerSymbol(info) };
+              out.push(open.symbol);
+            }
+            open.symbol.children.push(symbol);
+            continue;
+          }
+          open = null;
+          out.push(symbol);
+        }
+      }
+      return out;
+    };
+    const build = (node) => {
+      // a Map marks what is missing; it names nothing to navigate to
+      if (node.kind === KIND.MAP || !node.line || !node.name) return null;
+      if (node.parent && node.parent.line === node.line) return null;
+      const kindOf = SYMBOL_KIND[node.kind];
+      const at = clamp(node.line);
+      const end = clamp(lastLine(node));
+      const line = doc.lineAt(at);
+      const symbol = new vscode.DocumentSymbol(
+        node.name,
+        node.kind === KIND.DEFAULT && node.value != null ? String(node.value) : "",
+        kindOf ? kindOf() : vscode.SymbolKind.Variable,
+        new vscode.Range(at, 0, end, doc.lineAt(end).text.length),
+        // the selection range must sit inside the range, so it is this line
+        new vscode.Range(at, line.firstNonWhitespaceCharacterIndex || 0, at, line.text.length));
+      symbol.children = childrenOf(node);
+      return symbol;
+    };
+    void nodes;
+    return childrenOf(root);
+  },
+};
+
+// Typing a first '|' on an otherwise empty line scaffolds a fresh table —
+// header, separator, empty data row — with the cursor in the data row when
+// the enclosing Concept has already named the first header cell:
+//
+//     |Otter|
+//     |-----|
+//     |     |     <- cursor lands here
+//
+// At the top level nothing names it, so the first cell is left empty and the
+// cursor waits in the header instead.
 //
 // Attributes the enclosing line inherits from its ancestors arrive as
 // ready-made columns (creation-time only — a table is never re-columned
@@ -2309,6 +2710,10 @@ function activate(context) {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     }),
     vscode.commands.registerCommand("aot.acceptWord", acceptWord),
+    // the two lightbulbs on a synonym warning: fold one name into the other,
+    // or record that the two names are two ideas and stop being asked
+    vscode.commands.registerCommand("aot.renameConcept", renameConcept),
+    vscode.commands.registerCommand("aot.acceptDistinct", acceptDistinct),
     // the Quick Fix that lists an unlisted value as an Example of its Concept
     vscode.commands.registerCommand("aot.addExample", addExample),
     // the repo-wide sweep, and the lightbulb that settles a value two files
@@ -2347,6 +2752,9 @@ function activate(context) {
     }),
     // table cells coloured by their parsed kind, as their line forms are
     vscode.languages.registerDocumentSemanticTokensProvider({ language: "aot" }, semanticProvider, semanticLegend),
+    // the tree as symbols: breadcrumbs, the Outline view, and sticky scroll —
+    // which is what pins a table's header line while you scroll its rows
+    vscode.languages.registerDocumentSymbolProvider({ language: "aot" }, symbolProvider),
     // the org table editor's commands and its aot.inTable keybinding gate
     ...Object.entries(tableOps).map(([id, op]) =>
       vscode.commands.registerTextEditorCommand(id, (editor) => {
@@ -2359,8 +2767,11 @@ function activate(context) {
     // the formula commands: whole-document recompute, and the copy-downs
     vscode.commands.registerTextEditorCommand("aot.recomputeFormulas", recomputeFormulas),
     vscode.commands.registerTextEditorCommand("aot.copyFormulaToSiblings", copyFormulaToSiblings),
+    // Ctrl+Shift+`: the derivations out of the data, and back
+    vscode.commands.registerTextEditorCommand("aot.toggleFormulaPark", toggleFormulaPark),
     vscode.window.onDidChangeTextEditorSelection((event) => {
       updateTableContext();
+      updateCellStatus();
       const doc = event && event.textEditor && event.textEditor.document;
       if (!doc || doc.languageId !== "aot") return;
       const key = doc.uri.toString();
@@ -2454,7 +2865,15 @@ function activate(context) {
   });
   context.subscriptions.push(aotWatcher);
 
+  // the cell address, for when the header row and the name column have both
+  // scrolled out of sight
+  if (vscode.window.createStatusBarItem) {
+    cellStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    context.subscriptions.push(cellStatus);
+  }
+
   updateTableContext();
+  updateCellStatus();
 }
 
 // Parse every .aot under the workspace root(s) into the index. Skipped when

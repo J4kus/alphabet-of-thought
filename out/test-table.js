@@ -11,6 +11,7 @@ const {
   splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas, tableCtx,
   formulaReferences,
   valueType, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
+  copyCell, moveCell, copyRow, copyColumn,
   mergeRegistries, readValue, truthOf,
   widthCookie, headerWidths, unwrap, unwrapWithMap, columnDefinitions,
 } = require("../src/table");
@@ -702,6 +703,85 @@ const fresh = () => blockAt(doc, 3);
   const names = referenceNames(grid());
   check("referenceNames: columns (header, minus name) then rows (first column)",
     names.columns.join(",") === "a,b,c" && names.rows.join(",") === "R1,R2");
+}
+
+// ---------------------------------------------------------------------------
+// copying and cutting the text itself: copyCell / moveCell / copyRow / copyColumn
+// ---------------------------------------------------------------------------
+{
+  const grid = () => ({
+    indent: "",
+    rows: [
+      { sep: false, cells: ["Order", "price", "note"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["R1", "10 =@price", "keep"] },
+      { sep: false, cells: ["R2", "5", ""] },
+    ],
+  });
+
+  // the cell, in each of the four directions — formula and all
+  let b = grid();
+  let at = copyCell(b, 2, 1, 1, 0);
+  check("copyCell: down writes the neighbour and takes the cursor with it",
+    b.rows[3].cells[1] === "10 =@price" && b.rows[2].cells[1] === "10 =@price"
+    && at.row === 3 && at.col === 1);
+  b = grid();
+  at = copyCell(b, 3, 1, -1, 0);
+  check("copyCell: up copies the other way", b.rows[2].cells[1] === "5" && at.row === 2);
+  b = grid();
+  copyCell(b, 2, 1, 0, 1);
+  check("copyCell: right copies across the row", b.rows[2].cells[2] === "10 =@price");
+  b = grid();
+  copyCell(b, 2, 2, 0, -1);
+  check("copyCell: left copies back, name column included",
+    b.rows[2].cells[1] === "keep");
+
+  // the separator is skipped, as TAB and RET skip it
+  b = grid();
+  copyCell(b, 2, 0, -1, 0);
+  check("copyCell: a vertical step skips the separator and lands on the header",
+    b.rows[0].cells[0] === "R1");
+
+  // down past the last row grows the table; up past the first does not
+  b = grid();
+  at = copyCell(b, 3, 1, 1, 0);
+  check("copyCell: down past the last row appends one, as TAB does",
+    b.rows.length === 5 && b.rows[4].cells[1] === "5" && at.row === 4);
+  check("copyCell: up from the top row has nowhere to go",
+    copyCell(grid(), 0, 1, -1, 0) === null);
+  check("copyCell: sideways never grows the table — a column needs a name",
+    copyCell(grid(), 2, 2, 0, 1) === null && copyCell(grid(), 2, 0, 0, -1) === null);
+
+  // the cut leaves the cell empty behind it
+  b = grid();
+  at = moveCell(b, 2, 1, 0, 1);
+  check("moveCell: the value arrives and the cell it left is empty",
+    b.rows[2].cells[2] === "10 =@price" && b.rows[2].cells[1] === "" && at.col === 2);
+
+  // the whole row
+  b = grid();
+  at = copyRow(b, 2, 1, 1);
+  check("copyRow: down duplicates the row beneath it, cursor on the copy",
+    b.rows.length === 5 && b.rows[3].cells.join("|") === "R1|10 =@price|keep"
+    && b.rows[2].cells.join("|") === "R1|10 =@price|keep" && at.row === 3 && at.col === 1);
+  b = grid();
+  at = copyRow(b, 3, 0, -1);
+  check("copyRow: up duplicates it above, and the original follows down",
+    b.rows[3].cells[0] === "R2" && b.rows[4].cells[0] === "R2" && at.row === 3);
+  check("copyRow: the header is not a row to duplicate",
+    copyRow(grid(), 0, 0, 1) === null && copyRow(grid(), 1, 0, 1) === null);
+
+  // the whole column, header and all
+  b = grid();
+  at = copyColumn(b, 2, 1, 1);
+  check("copyColumn: right duplicates header and every value, cursor on the copy",
+    b.rows[0].cells.join("|") === "Order|price|price|note"
+    && b.rows[2].cells.join("|") === "R1|10 =@price|10 =@price|keep"
+    && at.col === 2);
+  b = grid();
+  at = copyColumn(b, 2, 2, -1);
+  check("copyColumn: left duplicates it before the original",
+    b.rows[0].cells.join("|") === "Order|price|note|note" && at.col === 2);
 }
 
 // ---------------------------------------------------------------------------

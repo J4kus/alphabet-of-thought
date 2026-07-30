@@ -18,6 +18,7 @@ let inlayProvider = null;
 let documentLinkProvider = null;
 let completionProvider = null;      // the '@' reference completion
 let valueCompletionProvider = null; // the value completion (no trigger char)
+let symbolProvider = null;          // the outline, which sticky scroll reads
 const plainCommands = new Map();
 const configStore = {};
 const vscode = {
@@ -27,6 +28,13 @@ const vscode = {
   Hover: class { constructor(contents, range) { Object.assign(this, { contents, range }); } },
   CodeAction: class { constructor(title, kind) { Object.assign(this, { title, kind }); } },
   CodeActionKind: { QuickFix: "quickfix" },
+  SymbolKind: { Class: 4, Property: 6, Field: 7, Constant: 13, Variable: 12 },
+  DocumentSymbol: class {
+    constructor(name, detail, kind, range, selectionRange) {
+      Object.assign(this, { name, detail, kind, range, selectionRange, children: [] });
+    }
+  },
+  StatusBarAlignment: { Left: 1, Right: 2 },
   ConfigurationTarget: { Global: 1, Workspace: 2 },
   Range: class {
     constructor(...a) { this.a = a; }
@@ -54,6 +62,7 @@ const vscode = {
     registerCodeActionsProvider: (selector, provider) => { codeActionsProvider = provider; return { dispose() {} }; },
     registerDocumentFormattingEditProvider: (selector, provider) => { formattingProvider = provider; return { dispose() {} }; },
     registerDocumentSemanticTokensProvider: (selector, provider) => { semanticProvider = provider; return { dispose() {} }; },
+    registerDocumentSymbolProvider: (selector, provider) => { symbolProvider = provider; return { dispose() {} }; },
     registerReferenceProvider: (selector, provider) => { referenceProvider = provider; return { dispose() {} }; },
     registerRenameProvider: (selector, provider) => { renameProvider = provider; return { dispose() {} }; },
     registerInlayHintsProvider: (selector, provider) => { inlayProvider = provider; return { dispose() {} }; },
@@ -104,6 +113,11 @@ const vscode = {
     showInformationMessage: (m) => { vscode.window._info.push(m); return Promise.resolve(); },
     showErrorMessage: (m) => { vscode.window._errors.push(m); return Promise.resolve(); },
     setStatusBarMessage: (m) => { vscode.window._status = m; return { dispose() {} }; },
+    createStatusBarItem: () => {
+      const item = { text: "", tooltip: "", shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} };
+      vscode.window._statusItem = item;
+      return item;
+    },
   },
   WorkspaceEdit: class {
     constructor() { this.ops = []; }
@@ -629,8 +643,8 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[2] === "    |Ollie|5   |"
       && editor.selection.active.line === 3 && editor.selection.active.character === 11;
-    console.log(ok && registeredCommands.size === 18
-      ? "PASS (table editor: 18 commands; Tab aligns and moves to the next cell)"
+    console.log(ok && registeredCommands.size === 31
+      ? "PASS (table editor: 31 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -703,15 +717,29 @@ const listed = [
     contentChanges: [{ text: "|", range: new vscode.Range(line, 0, line, 0) }],
   });
 
+  // at the top level nothing names the Concept, so the first header cell is
+  // left empty and the cursor waits there to name it (1.9: the first header
+  // cell *is* the Concept)
   const grow = ["Otter", "|"];
   const { doc: docG, editor: edG } = makeLive(grow, "Grow.aot");
   typedPipe(docG, 1);
   await new Promise((r) => setImmediate(r));
-  const grown = grow.join("\n") === ["Otter", "|name|", "|----|", "|    |"].join("\n");
-  const cursorOk = edG.selection.active.line === 3 && edG.selection.active.character === 1;
+  const grown = grow.join("\n") === ["Otter", "||", "||", "||"].join("\n");
+  const cursorOk = edG.selection.active.line === 1 && edG.selection.active.character === 1;
   console.log(grown && cursorOk
-    ? "PASS (scaffold: a first '|' grows header, separator and data row, cursor in the data row)"
+    ? "PASS (scaffold: a top-level '|' grows the skeleton, cursor in the header to name the Concept)"
     : "UNEXPECTED scaffold " + JSON.stringify({ grow, sel: edG.selection.a }));
+
+  // typed *under* a Concept the first cell arrives already naming it, and
+  // the cursor lands in the data row to start listing Examples
+  const under = ["Otter", "    |"];
+  const { doc: docU, editor: edU } = makeLive(under, "Under.aot");
+  typedPipe(docU, 1);
+  await new Promise((r) => setImmediate(r));
+  const named = under.join("\n") === ["Otter", "    |Otter|", "    |-----|", "    |     |"].join("\n");
+  console.log(named && edU.selection.active.line === 3 && edU.selection.active.character === 5
+    ? "PASS (scaffold: under a Concept the header cell names it, cursor in the data row)"
+    : "UNEXPECTED scaffold under a Concept " + JSON.stringify({ under, sel: edU.selection.a }));
 
   // inherited attributes arrive as ready-made columns: the ancestors'
   // declarations become the header, the parent's own lines stay out
@@ -727,9 +755,9 @@ const listed = [
   typedPipe(docN, 5);
   await new Promise((r) => setImmediate(r));
   const inherited = nested.slice(5).join("\n") === [
-    "        |name|legs|habitat|",
-    "        |----+----+-------|",
-    "        |    |    |       |",
+    "        |Otter|legs|habitat|",
+    "        |-----+----+-------|",
+    "        |     |    |       |",
   ].join("\n");
   console.log(inherited
     ? "PASS (scaffold: inherited attributes pre-fill the header, the parent's own stay out)"
@@ -795,7 +823,7 @@ const listed = [
   const aotPath = path.join(tmp, "World.aot");
   const aotText = [
     "Otter",
-    "    | name  | size |",
+    "    | Otter | size |",
     "    |-------+------|",
     "    | Ollie | 5    |",
   ].join("\n");
@@ -813,7 +841,7 @@ const listed = [
   const dir = path.join(tmp, "aot.files");
   const csvPath = path.join(dir, "Otter.csv");
   const written = fs.existsSync(csvPath) && fs.readFileSync(csvPath, "utf8");
-  console.log(written === "name,size\nOllie,5\n"
+  console.log(written === "Otter,size\nOllie,5\n"
     ? "PASS (csv mirror: saving writes aot.files/<Concept>.csv at the workspace root)"
     : "UNEXPECTED csv written: " + JSON.stringify(written));
   console.log(!fs.existsSync(legacyDir) && !fs.existsSync(path.join(dir, "Ghost.csv"))
@@ -822,7 +850,7 @@ const listed = [
     : "UNEXPECTED migration state " + JSON.stringify(fs.existsSync(dir) && fs.readdirSync(dir)));
 
   // edit the CSV -> the owning .aot's table gains the row, aligned, and saves
-  fs.writeFileSync(csvPath, "name,size\nOllie,5\nPebble,3\n");
+  fs.writeFileSync(csvPath, "Otter,size\nOllie,5\nPebble,3\n");
   await vscode.workspace._csvChanged({ fsPath: csvPath });
   const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
   console.log(after[3] === "    |Ollie |5   |" && after[4] === "    |Pebble|3   |"
@@ -862,7 +890,7 @@ const listed = [
 
   // renaming the Concept: the fresh save writes Beaver.csv and archives the
   // now-orphaned Otter.csv as _Otter.csv (never deleted)
-  const renamed = aotText.replace("Otter", "Beaver");
+  const renamed = aotText.replace(/Otter/g, "Beaver"); // the Concept line and the header cell that names it
   fs.writeFileSync(aotPath, renamed);
   vscode.workspace._save(makeDoc(aotPath, renamed));
   console.log(fs.existsSync(path.join(dir, "Beaver.csv")) && !fs.existsSync(csvPath) && fs.existsSync(path.join(dir, "_Otter.csv"))
@@ -889,7 +917,7 @@ const listed = [
   // no CSV yet, but the Examples carry values: the first save mirrors out
   vscode.workspace._save(makeDoc(aotPath, aotText));
   let written; try { written = fs.readFileSync(path.join(dir, "Integer.csv"), "utf8"); } catch { written = null; }
-  console.log(written === "name,is prime\n1,Yes\n35,No\n"
+  console.log(written === "Integer,is prime\n1,Yes\n35,No\n"
     ? "PASS (csv mirror: a line-form Concept with attribute values mirrors out unbidden)"
     : "UNEXPECTED line-form mirror " + JSON.stringify({ written }));
 
@@ -900,12 +928,12 @@ const listed = [
   fs.writeFileSync(namesPath, namesText);
   vscode.workspace._save(makeDoc(namesPath, namesText));
   let colours; try { colours = fs.readFileSync(path.join(dir, "Colour.csv"), "utf8"); } catch { colours = null; }
-  console.log(colours === "name\nRed\nBlue\n"
+  console.log(colours === "Colour\nRed\nBlue\n"
     ? "PASS (csv mirror: a name-only line-form Concept mirrors out unbidden, as a table would)"
     : "UNEXPECTED name-only mirror " + JSON.stringify({ colours }));
 
   // and back: a new row folds in as a '- Example', line form kept
-  fs.writeFileSync(path.join(dir, "Integer.csv"), "name,is prime\n1,Yes\n35,No\n7,Yes\n");
+  fs.writeFileSync(path.join(dir, "Integer.csv"), "Integer,is prime\n1,Yes\n35,No\n7,Yes\n");
   await vscode.workspace._csvChanged({ fsPath: path.join(dir, "Integer.csv") });
   const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
   const folded = after[5] === "    - 7" && after[6] === "        is prime: Yes";
@@ -1035,8 +1063,9 @@ const listed = [
 }
 
 // 7b) cross-file: a crosslink whose target lives in another repo file
-// resolves and its go-to-definition opens that file; a Concept defined in
-// two files warns (repo-wide), without counting in V.
+// resolves and its go-to-definition opens that file; a Concept written in
+// two files is one idea in two places and reports nothing (1.10 — every
+// occurrence is a peer, and no file owns a Concept).
 {
   const tmp = path.join(__dirname, "tmp-xfile");
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -1060,10 +1089,11 @@ const listed = [
     ? "PASS (cross-file: a value resolves to an Example in another file; go-to-definition opens it)"
     : "UNEXPECTED cross-file definition " + JSON.stringify(defB && defB.uri.toString()));
 
-  // 'Human' is defined in both People.aot and Census.aot -> a repo warning
+  // 'Human' is written in both People.aot and Census.aot — two peers, not a
+  // duplicate: nothing is reported about the repeat itself
   const bDiags = published.get(docB.uri.toString()) || [];
-  console.log(bDiags.some((d) => d.severity === vscode.DiagnosticSeverity.Warning && /also defined in People\.aot/.test(d.message))
-    ? "PASS (cross-file: a Concept defined in two files warns repo-wide, not counted in V)"
+  console.log(!bDiags.some((d) => /also defined in|defined twice|duplicate/i.test(d.message))
+    ? "PASS (cross-file: a Concept written in two files is one idea, and reports nothing)"
     : "UNEXPECTED repo duplicate " + JSON.stringify(bDiags.map((d) => d.message)));
 
   vscode.workspace.workspaceFolders = undefined;
@@ -1099,6 +1129,190 @@ if (process.platform === "win32" || process.platform === "darwin") {
   vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(tmp, { recursive: true, force: true });
 }
+
+// 7d) two names for one idea: an advisory warning with a lightbulb on each
+// of the two ways out, and a dismissal that is remembered.
+{
+  const twain = ["Client", "    - Acme", "Customer", "    - Globex"].join("\n");
+  const docS = makeDoc("c:\repo\Twain.aot", twain);
+  vscode.workspace._open(docS);
+  const sDiags = published.get(docS.uri.toString()) || [];
+  const synonym = sDiags.find((d) => /'Client' and 'Customer'.*two words for one idea/.test(d.message));
+  console.log(synonym && synonym.severity === vscode.DiagnosticSeverity.Warning
+    ? "PASS (synonyms: two words for one idea warn, advisory and never in V)"
+    : "UNEXPECTED synonym diagnostics " + JSON.stringify(sDiags.map((d) => d.message)));
+  console.log(sDiags.filter((d) => /two words for one idea/.test(d.message)).length === 2
+    ? "PASS (synonyms: the pair reports at both of its places)"
+    : "UNEXPECTED synonym sides " + sDiags.filter((d) => /two words for one idea/.test(d.message)).length);
+
+  const fixes = codeActionsProvider.provideCodeActions(docS, synonym.range, { diagnostics: [synonym] });
+  const rename = fixes.find((f) => /^Rename '/.test(f.title));
+  const keep = fixes.find((f) => /different ideas/.test(f.title));
+  console.log(rename && rename.isPreferred && rename.command.command === "aot.renameConcept"
+    && keep && keep.command.command === "aot.acceptDistinct"
+    ? "PASS (synonyms: the lightbulb offers the rename first, and the dismissal beside it)"
+    : "UNEXPECTED synonym fixes " + JSON.stringify(fixes.map((f) => f.title)));
+
+  // dismissing the pair clears it, whichever order it is written in
+  configStore.distinctConcepts = ["Customer|Client"];
+  vscode.workspace._open(docS);
+  const after = published.get(docS.uri.toString()) || [];
+  console.log(!after.some((d) => /two words for one idea/.test(d.message))
+    ? "PASS (synonyms: a pair declared distinct is never raised again, in either order)"
+    : "UNEXPECTED synonym after dismissal " + JSON.stringify(after.map((d) => d.message)));
+  delete configStore.distinctConcepts;
+
+  // and the lightbulb's own command writes exactly that entry
+  plainCommands.get("aot.acceptDistinct")("Customer", "Client");
+  console.log(JSON.stringify(configStore.distinctConcepts) === JSON.stringify(["client|customer"])
+    ? "PASS (synonyms: the dismissal is stored order-free and case-free)"
+    : "UNEXPECTED distinctConcepts " + JSON.stringify(configStore.distinctConcepts));
+  delete configStore.distinctConcepts;
+}
+
+// 7e) keeping your place in a long or wide table: the outline makes the
+// header line the parent of its rows (which is what sticky scroll pins),
+// and the status bar names the cell the cursor stands in.
+{
+  const sheet = [
+    "Person",
+    "    |Person|occupation|",
+    "    |------+----------|",
+    "    |Socrates|philosopher|",
+    "    |Plato   |philosopher|",
+  ].join("\n");
+  const docT = makeDoc("c:\repo\Sheet.aot", sheet);
+  const symbols = symbolProvider.provideDocumentSymbols(docT);
+  const person = symbols.find((s) => s.name === "Person");
+  console.log(person && person.range.a[0] === 0 && person.range.a[2] === 4
+    ? "PASS (outline: a Concept's range runs to the last line of its subtree)"
+    : "UNEXPECTED outline root " + JSON.stringify(symbols.map((s) => [s.name, s.range && s.range.a])));
+
+  // the table's own Concept (its first header cell) is a symbol whose range
+  // covers the grid, so its rows sit *inside* it — sticky scroll then pins
+  // the header line while you scroll them, which is the freeze asked for
+  const grid = person && person.children.find((s) => s.range.a[0] === 1 && s.children.length);
+  console.log(grid && grid.name === "Person" && grid.range.a[2] === 4
+    && grid.children.some((r) => r.name === "Socrates") && grid.children.some((r) => r.name === "Plato")
+    ? "PASS (outline: the header line is the parent of its rows — what sticky scroll pins)"
+    : "UNEXPECTED table symbol " + JSON.stringify(grid && { n: grid.name, r: grid.range.a, kids: grid.children.map((k) => k.name) }));
+
+  // a cell's own value shares its row's line, so it is no symbol of its own
+  const socrates = grid && grid.children.find((r) => r.name === "Socrates");
+  console.log(socrates && socrates.children.length === 0
+    ? "PASS (outline: a cell value shares its row's line and is nothing to navigate to)"
+    : "UNEXPECTED row children " + JSON.stringify(socrates && socrates.children.map((c) => c.name)));
+
+  // the status bar: Concept, the row's Example, the column's attribute
+  const item = vscode.window._statusItem;
+  vscode.window.activeTextEditor = {
+    document: docT, selection: new vscode.Selection(3, 15, 3, 15),
+    setDecorations: () => {}, revealRange: () => {},
+  };
+  vscode.window._selectionChanged({
+    textEditor: vscode.window.activeTextEditor,
+    selections: [vscode.window.activeTextEditor.selection],
+  });
+  console.log(item && item.shown && /Person ▸ Socrates ▸ occupation/.test(item.text)
+    ? "PASS (status bar: the cell address reads the same however far right you have scrolled)"
+    : "UNEXPECTED cell address " + JSON.stringify(item && { shown: item.shown, text: item.text }));
+
+  // off a table it says nothing
+  vscode.window.activeTextEditor = {
+    document: docT, selection: new vscode.Selection(0, 2, 0, 2),
+    setDecorations: () => {}, revealRange: () => {},
+  };
+  vscode.window._selectionChanged({
+    textEditor: vscode.window.activeTextEditor,
+    selections: [vscode.window.activeTextEditor.selection],
+  });
+  console.log(item && !item.shown
+    ? "PASS (status bar: away from a table the address hides)"
+    : "UNEXPECTED cell address off-table " + JSON.stringify(item && item.text));
+  vscode.window.activeTextEditor = undefined;
+}
+
+// 7f) Ctrl+Shift+`: the derivations out of the data and back, end to end.
+// The values are written first, so the parked file still stands on its own —
+// which is exactly why verify.js never needs to read the store.
+(async () => {
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-park-"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const aotPath = path.join(root, "Ledger.aot");
+  const lines = [
+    "Invoice",
+    "    tax rate: 0.2",
+    "    |Invoice|price|vat           |",
+    "    |-------+-----+--------------|",
+    "    |INV-1  |100  |=@price*0.2   |",
+    "    - INV-9",
+    "        price: 50",
+    "        vat: 10 =@price*0.2",
+  ];
+  fs.writeFileSync(aotPath, lines.join("\n"));
+  const doc = makeDoc(aotPath, lines.join("\n"));
+  doc.eol = vscode.EndOfLine.LF;
+  let text = lines.join("\n");
+  doc.getText = () => text;
+  doc.lineAt = (i) => {
+    const ls = text.split("\n");
+    return { range: new vscode.Range(i, 0, i, ls[i].length), text: ls[i], firstNonWhitespaceCharacterIndex: ls[i].length - ls[i].trimStart().length };
+  };
+  Object.defineProperty(doc, "lineCount", { get: () => text.split("\n").length });
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(0, 0, 0, 0),
+    edit: (cb) => {
+      cb({ replace: (range, t) => {
+        const ls = text.split("\n");
+        const [sl, sc, el] = range.a;
+        ls.splice(sl, el - sl + 1, ...t.split("\n"));
+        text = ls.join("\n");
+        void sc;
+      } });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {}, setDecorations: () => {},
+  };
+
+  const store = path.join(root, "aot.files", "Ledger.formulas");
+  await registeredCommands.get("aot.toggleFormulaPark")(editor);
+  const parkedLines = text.split("\n");
+  // the empty-valued cell got its number before the formula left, and the
+  // line-form value kept the one it already had
+  console.log(parkedLines[2] === "    |Invoice|price|vat|" && parkedLines[4] === "    |INV-1  |100  |20 |"
+    ? "PASS (park: the recompute writes the value first, the derivation leaves, the grid narrows)"
+    : "UNEXPECTED parked grid " + JSON.stringify(parkedLines));
+  console.log(parkedLines[7] === "        vat: 10" && !/=/.test(text)
+    ? "PASS (park: no '=' is left anywhere in the data)"
+    : "UNEXPECTED parked line form " + JSON.stringify(parkedLines[7]));
+
+  const stored = fs.existsSync(store) && fs.readFileSync(store, "utf8");
+  console.log(stored && /@Invoice@vat@INV-1: =@price\*0\.2/.test(stored) && /@Invoice@vat@INV-9: =@price\*0\.2/.test(stored)
+    ? "PASS (park: both notations are addressed the same way in the store)"
+    : "UNEXPECTED store " + JSON.stringify(stored));
+
+  // the parked file still verifies on its own: every value is present, and
+  // nothing in it refers to the store
+  const parkedTree = lint(text, "Ledger");
+  console.log(parkedTree.errors.length === 0
+    ? "PASS (park: the parked file still verifies on its own terms — V is unchanged)"
+    : "UNEXPECTED parked errors " + JSON.stringify(parkedTree.errors.map((e) => e.message)));
+
+  // and back: the same key restores every derivation and removes the store
+  await registeredCommands.get("aot.toggleFormulaPark")(editor);
+  const backLines = text.split("\n");
+  console.log(/=@price\*0\.2/.test(backLines[4]) && backLines[7] === "        vat: 10 =@price*0.2"
+    ? "PASS (park: the same key puts every derivation back where it came from)"
+    : "UNEXPECTED unparked " + JSON.stringify(backLines));
+  console.log(!fs.existsSync(store)
+    ? "PASS (park: the store is the state — it is gone once the formulas are home)"
+    : "UNEXPECTED store still there");
+
+  vscode.workspace.workspaceFolders = undefined;
+  fs.rmSync(root, { recursive: true, force: true });
+})();
 
 // 8) formulas: the span after the '=' is coloured as its own token, a
 // stale value publishes a pinned warning, and Tab recomputes it.

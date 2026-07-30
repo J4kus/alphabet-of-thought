@@ -8,7 +8,7 @@ If your thoughts need to be bigger than one brain can hold at a time — or you 
 
 ![A Sales.aot file in VS Code: syntax colouring, a red squiggle on an "and" Concept, a yellow squiggle on a target-less measurement, a dotted crosslink under an Example reference, and the violation total V in the status bar](docs/edit-loop.png)
 
-**Contents:** [Why Alpha](#why-alpha) · [Alpha in sixty seconds](#alpha-in-sixty-seconds) · [Quick start](#quick-start) · [Case study](#case-study-a-quarterly-business-review) · [Language reference](#language-reference) · [Numbering](#numbering) · [The four primitives](#the-four-primitives) · [Starting a model](#starting-a-model) · [Tables](#tables) · [Verification: the tooling](#verification-the-tooling) · [Style rules](#style-rules) · [Design principles](#design-principles) · [Using Alpha with an LLM](#using-alpha-with-an-llm) · [Alpha in a team](#alpha-in-a-team) · [Repository layout](#repository-layout)
+**Contents:** [Why Alpha](#why-alpha) · [Alpha in sixty seconds](#alpha-in-sixty-seconds) · [Quick start](#quick-start) · [Case study](#case-study-a-quarterly-business-review) · [Language reference](#language-reference) · [Incompleteness is a feature](#incompleteness-is-a-feature) · [Numbering](#numbering) · [The four primitives](#the-four-primitives) · [Starting a model](#starting-a-model) · [Tables](#tables) · [Formulas](#formulas) · [Parking the derivations](#parking-the-derivations) · [Verification: the tooling](#verification-the-tooling) · [Style rules](#style-rules) · [Design principles](#design-principles) · [Using Alpha with an LLM](#using-alpha-with-an-llm) · [Alpha in a team](#alpha-in-a-team) · [Repository layout](#repository-layout)
 
 ## Why Alpha
 
@@ -275,6 +275,25 @@ Alpha is **not a word-explanation language**: a definition terminates in Example
 | **Alias** (has-another-name) | Parentheses after a term: `Human (Natural Person)` | Provides an alternative or derived name for an idea. If some or all of an attribute's trailing words match a Concept, those words already act as an alias — no parentheses required. |
 | **Map** | An indented `...` line, optionally followed by a note: `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never** a plain description of the line above it. To explain or rename a term, use an alias instead. A Map excuses its parent from the completeness checks (see [Verification](#verification-the-tooling)). One shape, `... N more in file.aot:12`, is [maintained for you](#concepts-across-files) and says where the rest of a Concept's Examples live; every other Map is yours alone. |
 
+### Incompleteness is a feature
+
+No model is ever finished, and Alpha is built so that an unfinished one still **verifies**. `V = 0` is not a claim that everything is written down — it is the claim that **nothing written down contradicts anything else**. Consistency is the property a machine can check; completeness is not, and a notation that demanded both would be unusable on the first day of any real subject.
+
+That is a deliberate choice, and it is the oldest result in the toolbox. Gödel (1931) showed that a system rich enough to say interesting things cannot be both complete and consistent. Alpha keeps consistency and hands completeness back to you as something you *declare* rather than something you are *caught* lacking. The [Gödel numbers](#gödel-numbering) say the same thing arithmetically: exponent **0** means the attribute is simply absent. Silence is representable. A half-described idea is a well-formed number, not an error.
+
+Four places in the language make this concrete:
+
+| Where | What it means |
+|---|---|
+| **The `...` Map** | The one line whose whole job is to say *there is more here*. It marks what is intentionally omitted, still a todo, or held at low confidence — and it **excuses its parent** from the completeness checks: a lone sub-Concept, a Concept that would otherwise look like it had drifted from its kind. Missing is not the same as forgotten, and the `...` is how you tell the difference. |
+| **Extension is a partial sample** | A Concept's Examples are never claimed to be all of them. Two files listing different Examples of one Concept are both right, the repo-wide truth is the [union](#concepts-across-files), and the `... N more in bank recon.aot:14` line is maintained for you rather than reported against you. |
+| **Advisory findings never count in `V`** | Spelling hints, Example hints, FCA suggestions, dependency findings — everything that says *you might be missing something* is a hint or a warning, never an error. Only the file's own contradictions reach `V`. |
+| **Attributes are optional by default** | An attribute declared on a Concept and left unvalued on an Example is `present but unvalued`, a first-class state (exponent 1), not a hole to be filled before the file will pass. |
+
+What incompleteness never excuses is **contradiction**. One attribute carrying two values, one Concept filed under two kinds, an `and` in a Concept name, a dependency cycle — those are errors wherever they appear, `...` or no `...`, because they are not gaps. A gap is a place you have not been yet; a contradiction is a place that cannot exist.
+
+The practical consequence is the working style Alpha is built for: **write the part you know, mark the part you don't, and keep the file green the whole way**. A model that had to be finished before it was correct would never be started.
+
 ### Numbering
 
 Lists and taxonomies often want visible order, so Alpha maintains it for you — on **save** and on **Format Document**, never mid-keystroke:
@@ -348,6 +367,21 @@ Each primitive's names are always modelled as Examples (not said of, not present
 The primitives can — and are encouraged to — link to one another: a Motivation's measurement may name a Workflow's worker, a Graph's entity may type a Function's argument, and every such crosslink makes the model more connected and more checkable. What no primitive may do is *terminate* in another: each remains a complete tree of its own, its cause fully answered in its own terms, never reduced to a pointer into its neighbour. A complete explanation holds all four in balance — linked freely, each still standing on its own.
 
 See [`examples/thought.aot`](examples/thought.aot) for one subject — thinking itself — modelled through all four primitives.
+
+### The model is unbalanced until all four are used
+
+The four causes are Aristotle's *complete* answer to why a thing is: drop one and the explanation is not merely shorter, it is **lopsided**. The missing cause's work does not disappear — it is smuggled into the primitives that remain, where it reads as noise, and the model quietly starts answering a question nobody asked.
+
+| Missing primitive | How the imbalance shows |
+|---|---|
+| **Motivation** | Objectives with no *why* above them and measurements with no one who benefits. The tree grows detail nobody can prioritise, because nothing says what it is worth. |
+| **Graph** | Records masquerading as Concepts. Attributes multiply on ideas that should have been Examples of an entity, and the same fact ends up written in three places with nothing to reconcile it. |
+| **Function** | The *how* hides inside workflow steps: the order of work stands in for the arrangement of work, so you cannot tell which capability a step realises, or what would break if it were removed. |
+| **Workflow** | Everything reads as simultaneous and unowned. No agent, no order, no contention — so no bottleneck is visible and no schedule can be derived. |
+
+A file using one primitive can still reach `V = 0`. That is not a loophole: consistency is what the linter checks, and coverage is [something you declare, not something you are caught lacking](#incompleteness-is-a-feature). **Balance is the reader's check, not the linter's** — and it is the one worth making a habit. If you cannot produce all four for a subject, you do not yet understand it; the primitive you cannot write is exactly the part you have been assuming.
+
+The counsel of perfection is not "finish all four before you write anything". It is: start where the knowledge is, and treat each primitive you have not reached yet as a `...` — a declared gap, in the model and in your understanding of the subject alike.
 
 ### Motivation
 
@@ -455,7 +489,14 @@ Org's table automations are built in. While the cursor is on a table row (any pi
 | `Alt+Shift+↓` | Insert an empty row above the cursor's |
 | `Alt+Shift+↑` | Delete the cursor's row |
 | `Alt+-` | Insert a separator line below the cursor's row |
+| `Ctrl+Alt+↑` / `Ctrl+Alt+↓` | **Copy** the cursor's whole row above / below it — the next Example is usually the last one with two fields changed |
+| `Ctrl+Alt+←` / `Ctrl+Alt+→` | **Copy** the cursor's whole column to its left / right, header and every value |
+| `Ctrl+Alt+Shift+` arrow | **Copy the cell** into its neighbour in that direction and follow it there, so holding the key fills a run |
 | `Tab` / `Shift+Tab` **in the leading indent** | Indent / unindent the whole table one level (4 spaces) — re-filing the table under a different parent is an indent edit, not cell travel. (A flush-left table has no indent to click into; give it a level first.) |
+
+**Copy, cut, and move are three different keys.** `Alt+`arrow **moves** a row or column, `Ctrl+Alt+`arrow **copies** it, and `Ctrl+Alt+Shift+`arrow copies the **cell** — text and formula exactly as written, unlike the formula copies below, which move only the derivation and leave each cell's own value. Cutting a *cell* into its neighbour (the value typed into the wrong column) is four more Command Palette entries, **AOT Table: Cut Cell Up / Down / Left / Right**, unbound by default. Nothing here is clever about what it copies: a duplicated row or column will report as a repeated Example name or a repeated attribute until you rename it, and that rename is usually the point of the copy.
+
+A vertical copy skips the separator exactly as `Tab` and `Enter` do, and copying a cell **down past the last row appends one**, so a column fills into a table that is still growing. Sideways never grows the table — a new column needs an attribute name of its own.
 
 Three more commands live in the Command Palette under **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — sorts the run of data rows around the cursor, header safe behind its separator; numeric when every key reads as a number, with `$`, `%`, and thousands commas ignored, alphabetic otherwise), *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV, or multi-space-aligned lines and they become an aligned table, the first line the header with the separator drawn beneath: its **first cell is kept as written** — that names the Concept — and the rest are lowercased into attribute columns), and *Copy Formula Down the Column* (see [Formulas](#formulas); also offered by the lightbulb on any formula cell).
 
@@ -469,9 +510,19 @@ Three more commands live in the Command Palette under **AOT Table**: *Sort Rows 
 
 Attributes the enclosing line **inherits from its ancestors arrive as ready-made columns** — under an `Otter` filed beneath an `Animal` that declares `legs` and `habitat`, the skeleton grows as `|Otter|legs|habitat|`. Creation-time only: a table is never re-columned when attributes are declared later, and the parent's own attribute lines stay out (they already declare — a same-named column would be a duplicate). A `|` typed beside an existing table, or mid-line, is just a pipe. The org flow still works too: type `|Otter|size|`, press `Enter`, type `-`, press `Tab` — the half-typed rule becomes a full separator and the cursor lands in the first cell of a new data row.
 
+#### Keeping your place in a long or wide table
+
+A text editor cannot freeze a column the way a spreadsheet does: there is one scroll surface and it carries the whole line. Two things stand in for it, and between them they answer both directions.
+
+**Down the table, the header pins itself.** The extension publishes the parsed tree as document symbols, which makes a grid's header line the **parent** of its rows — so VS Code's own **sticky scroll** holds it at the top of the viewport while you scroll the rows, exactly as it holds an enclosing Concept. That is the freeze, done by the editor rather than faked, and it costs nothing because the tree is already parsed. Turn it on with `editor.stickyScroll.enabled` (VS Code ≥ 1.84 has it on by default); the same symbols also fill the **Outline** view and the **breadcrumbs**, which are worth having on an indented tree in their own right.
+
+**Across the table, the status bar says where you are.** Nothing can pin the name column, so the right-hand end of the status bar names the cell instead — `Person ▸ Socrates ▸ occupation`: the Concept, the Example the row names, and the attribute the column declares. It reads the same however far right you have scrolled, and it tells you the *column* too, which a frozen name column never would.
+
+If a table is wide because one column is long rather than because it has many, the [width cookie](#working-with-text) (`|description <24>|`) caps that column and wraps the overflow, which keeps the grid inside the viewport in the first place.
+
 ### Formulas
 
-A cell may derive its value — org's spreadsheet folded into the cell itself, value first, formula visible after it:
+A cell may derive its value — org's spreadsheet folded into the cell itself, value first, formula visible after it. (When you have finished writing them and want the data back, `Ctrl+Shift+`` [parks every derivation](#parking-the-derivations) out of the grid and the same key puts them back.)
 
 ```aot
 |Order           |country|currency|basket size              |
@@ -541,6 +592,39 @@ That is also exactly why an `==or(…)` stays a **bound** while `==@price*@tax r
 
 **A value may hold a literal `=`** by escaping it — `note: a \= b` is the value `a = b`, not a derivation of `a`. The backslash belongs to the file, not to the model: the value is `a = b` everywhere it is read (crosslinks, Gödel numbers, a formula referencing it, a CSV export), while the line keeps its `\=` through every rewrite. Only an `=` that opens a derivation needs escaping — one *inside* a value's text (`a=b`, no space before it) was never a derivation and needs nothing.
 
+#### Parking the derivations
+
+A grid that computes holds two things in one place: the **values**, which are what you read, and the **derivations**, which you wrote once and mostly never want to look at again. `20 =@price*@tax rate` in every cell of a column makes it three times as wide as its data and buries the number under the arithmetic that produced it.
+
+**`Ctrl+Shift+`` takes every `=` derivation out of the data**, and the same key puts them back. The order is the whole design:
+
+1. The **recompute runs first**, so every derived value is materialised where it stood.
+2. Only then do the formulas leave, for `aot.files/<file>.formulas`.
+3. The tables re-align, so the columns narrow to their data. One `Ctrl+Z` undoes the lot.
+
+```aot
+before                                    after Ctrl+Shift+`
+|Invoice|price|vat           |            |Invoice|price|vat|
+|-------+-----+--------------|            |-------+-----+---|
+|INV-1  |100  |20 =@price*0.2|            |INV-1  |100  |20 |
+|INV-2  |250  |50 =@price*0.2|            |INV-2  |250  |50 |
+```
+
+```
+aot.files/Ledger.formulas
+    @Invoice@vat@INV-1: =@price*0.2
+    @Invoice@vat@INV-2: =@price*0.2
+```
+
+**The parked file still stands on its own.** Every value is present, so it still says exactly what it said and still reaches the same `V` — `node verify.js` judges what is in front of it and **never reads the store**, because there is nothing in the store it needs. A parked file is not a file with holes in it; it is a file whose arithmetic has already been done. Nothing in the linter, the CSV mirror, or the cross-file reconcile knows the store exists.
+
+Each derivation is addressed with the **`@` path the language already uses for references**. `@Invoice@vat@INV-1` is the `vat` of the Example `INV-1` of the Concept `Invoice` — and because [a table and a `- ` list are one idea in two spellings](#tables-are-pure-shorthand), that one address finds the Example whichever way it is written. A value on the Concept itself is two segments (`@Invoice@tax rate`); an Example nested inside another adds a segment, outermost first.
+
+- **Bounds never park.** `age >=18` is a rule about values, not a recipe for one, and there is nothing to write in its place. A `==` definition on an attribute declaration does not park either: it is already written once, where the attribute is declared — which is where parking is trying to get everything else to.
+- **A cell holding only a formula parks too**, and leaves its computed value behind: that is what step 1 is for.
+- **Nothing is ever invented back.** Rename or delete a row while its derivation is parked and that address no longer names anything; it is reported and **kept in the store** rather than guessed at, and the store stays until it resolves.
+- **The store's existence is the state.** A file is parked when it has one; putting the formulas back deletes it. Commit it beside the `.aot` — it is the only copy of the derivations while they are out.
+
 ### Working with text
 
 Most of what a model holds is words, so the formula language treats text as a first-class thing rather than a numeric afterthought. A literal is written `` `in backticks` ``; `&` joins two values; every function below takes a reference, a literal, or another formula.
@@ -595,6 +679,7 @@ Every Concept with Examples lives twice: as the notation in the `.aot` — a tab
 
 - **Saving the `.aot`** writes one CSV per Concept with Examples in its scope — a table, `- ` lines, or both (an assumed lone header still being typed is left alone). Cells holding commas, quotes, or newlines are quoted per RFC 4180.
 - **Saving also tidies**: a CSV whose Concept no file *anywhere in the repo* still speaks for is not deleted — it is archived with a `_` prefix (`_Order.csv`) and skipped by the fold-back watcher. Legacy `tables.<file>` / `<file>.tables` folders from earlier versions fold in automatically.
+- **Only `.csv` files are the mirror's business.** `aot.files` is the repo's one side-folder, so it also holds the [`.formulas` stores](#parking-the-derivations) and any file a value cites by path. The mirror writes, archives, and folds back `*.csv` and nothing else.
 - **Editing a CSV** — in Excel, a script, anything — folds the rows back **by Example name, wherever each lives**: a table row updates cell by cell within its table's own columns (redrawn aligned), a line-form Example updates attribute by attribute, and a fresh name lands in the Concept's own shape — a row of its table when it has one, else a `- ` block. A valued cell whose table lacks the column is left to the tree: columns arrive when a table is created, never from the mirror. Nothing is ever deleted by the fold.
 - Both directions write only when the content genuinely differs, so the two mirrors never chase each other. Line endings are not a difference: a CSV that came back from Excel or git with CRLF is the same data, and is left alone. A CSV you have open with **unsaved edits** is never overwritten — you get a warning to save or revert it first. A pipe typed into a CSV cell is bent to a broken bar (`¦`), since it cannot survive inside a pipe grid. Two files with a same-named Concept share one CSV — the repo-wide duplicate-Concept warning makes that visible; two same-named Examples at different levels of one Concept's scope merge by name on the fold, first one wins.
 
@@ -639,6 +724,8 @@ The VS Code extension adds syntax colouring for `.aot` files and an arithmetic l
 - **Syntax and arithmetic** (`src/linter.js`) — tabs, broken indentation, depth jumps, a Concept defined twice, and identical siblings all appear as squiggles in the Problems panel. A finding that names two places — a duplicate, a clash, a case-twin — squiggles **at both**, each diagnostic carrying the other location as clickable related information.
 - **Crosslinks** (`src/crosslinks.js`) — an attribute whose trailing words match a Concept, or an Attribute Value that names an Example (case-insensitive, like every link), is underlined as a link; Ctrl+click jumps to the defining line, Shift+F12 lists every place a Concept or Example is referenced, hovering a linked Example shows its full details (owner, defining line, every value it carries), and hovering an Example's own `- ` line adds where it is used. A `https://` URL in a value is Ctrl+clickable too, and hovering it fetches its status, content type, and last-modified date (off with `aot.urlMetadata`). A value that resolves to a **real file** — an absolute path, one relative to the `.aot`, one relative to the workspace root, or a `~/` path from your home directory — is Ctrl+clickable as well, and so is a **`- ` Example whose name is such a path** (an Example may *be* a file, exactly as a table row may). A cited file living outside `aot.files` whose name is also held there clicks and hovers through to the **copy in `aot.files`** — the one that travels with the repo. Hovering an **image** (a `.png` or the like, whether URL, file value, cell, or `- ` Example) previews the picture inline.
 - **Rename that keeps the model whole** — F2 on a Concept, an Example, or an attribute (line-form or a table's header or first-column cell) renames it everywhere it is meant: the declaration, every crosslink that resolves to it, and every formula reference — the rename walks the evaluator itself, so `@price`, `@total@Acme` and `@Order@price@Acme` all follow their declaration and no formula is left pointing at yesterday's name. An attribute renames with its whole scope (the same-named copies its host's Examples carry, and the ancestor constraint that governs it); an attribute wearing a renamed Concept's name follows it, and the formulas reading that attribute follow in turn. Case follows the span: a span that is lowercase today (an attribute name, its alias) takes the new name lowercased, every other span takes it as typed — so Concepts stay capitalised and attributes stay lowercase through any rename. A span that resolves by another text — an alias, a plural — keeps its own spelling. Standing in a name that is used elsewhere shows faint ghost text at the end of the line — *2 uses elsewhere — F2 renames them all* — so a hand edit never strands references unwarned; standing in a usage (an attribute wearing a Concept's name, a value naming an Example), where typing is the right move when this one reference should point somewhere else, the ghost text presents the choice instead: *names 'Person' — F2 renames its 2 uses, typing changes just this one*. Current file only: a reference from another file keeps its name and shows its own finding there.
+- **Parking the derivations** (`src/park.js`) — `Ctrl+Shift+`` recomputes every formula, writes the values it computed where they stood, and *then* lifts the formulas out to `aot.files/<file>.formulas`, each addressed with the `@` path the language already uses. The grid narrows to its data; the same key puts them back. The parked file still stands on its own, so nothing else in this list — nor `verify.js` — knows the store exists. See [Parking the derivations](#parking-the-derivations).
+- **Two names for one idea** (`src/synonyms.js`) — the one half of univocity a linter cannot prove: two *different* names may still be one idea, and nothing in the tree records that `Client` and `Customer` are the same word in two dialects. So it asks, repo-wide and on both sides, with a lightbulb to rename one into the other or to record that they are genuinely different. Advisory, never in `V` (see [Two names for one idea](#two-names-for-one-idea)).
 - **Subsumption** (`src/subsumption.js`) — a reasoner re-derives the Concept hierarchy from the facts each Concept declares and holds the written tree to it.
 - **Formal Concept Analysis** (`src/fca.js`) — the linter treats the Examples and their attributes as a formal context, computes the concept lattice, and flags groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
 - **Gödel numbering** (`src/godel.js`) — where a line's characteristic number encodes only *where* it sits, a second Gödel number encodes *what it says* — one prime per attribute, raised to a power that encodes the value — and the linter compares those numbers to catch content clashes (see [Gödel numbering](#gödel-numbering)).
@@ -656,6 +743,8 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | `aot.spellingHints` | `true` | Hint words no English dialect knows, on their span and on hover, never in the Problems panel. A lowercase word passes if its Capitalised form is known (`december` / `December`). Each suggestion is a **Replace with 'X'** Quick Fix; a lone suggestion is preferred, so `Ctrl+.` `Enter` applies it in one stroke. |
 | `aot.acceptedWords` | `[]` | Your own vocabulary, case-insensitive — fed by the Quick Fix on a spelling hint or a plural warning. |
 | `aot.exampleHints` | `true` | Hint a value that names no Example of the Concept typing its attribute, with a Quick Fix that lists it. See [Values against their Concept](#values-against-their-concept). |
+| `aot.synonymWarnings` | `true` | Warn when two Concepts look like two names for one idea (rule 14). Repo-wide. |
+| `aot.distinctConcepts` | `[]` | Pairs you have declared genuinely different, written `client\|customer` — fed by the Quick Fix on a synonym warning. |
 | `aot.dependencyFindings` | `false` | Surface the inferred functional-dependency warnings (rules 12–13) as squiggles. Off by default: correlated attributes are allowed; `verify.js --fd` always prints the full set. |
 | `aot.chainHints` | `true` | Write the first dependency chain in small print (an inlay hint) at the end of each crosslinked line; the full chains stay on hover. |
 | `aot.urlMetadata` | `true` | Hovering a URL fetches its status, content type, and last-modified date (one cached HEAD request); Ctrl+click opens it regardless. |
@@ -739,6 +828,24 @@ Two more warnings come from the dependency inference in `src/armstrong.js`. They
 
 Each finding carries a **confidence**: the number of *confirming repeats* (Examples beyond the first that share a value and still agree). A pure one-to-one **covariation** — every Example distinct on both sides, so no value ever repeats — has confidence 0: the attributes track each other but no collapse is witnessed, so it could be coincidence. The editor (when `aot.dependencyFindings` is on) flags only findings at or above `MIN_CONFIDENCE` (2) — a single confirming repeat is not enough, so a 3-Example case never squiggles; weaker and covariation-only pairs stay off the squiggle channel. An ellipsis marker among the Examples — a `...` Map or a `- ...` Example — declares the sample intentionally incomplete (the same marker that excuses warnings 4–7), so any dependency read off those Examples is **provisional**: it is never flagged, however high its confidence, since more data is openly still to come.
 
+#### Two names for one idea
+
+One name, one meaning is the first rule, and the linter proves the half that can be proved: the *same* name written twice must mean the same thing. The other half is not provable at all — two *different* names may still be one idea, and no arithmetic over the tree will ever say so, because nothing in the tree records that `Client` and `Customer` are the same word in two dialects. That is a fact about English, not about the model.
+
+So the check does the only honest thing available offline: it recognises the collisions that actually happen when people model, and it **asks**. It is repo-wide — `Client` here and `Customer` in the file next door is exactly the pair worth catching — and it reports on **both** sides, each carrying a Ctrl+clickable link to the other.
+
+| # | Rule | What triggers it |
+|---|------|------------------|
+| 14 | **Two names for one idea** | Two Concepts whose names match word for word once each word is mapped to its synonym group (`Sales Client` / `Sales Customer`, `Fix Defect` / `Repair Bug`), or once each word is cut to a shared prefix of six characters or more (`Governance` / `Government`, `Reconciled Item` / `Reconciliation Item`). |
+
+Three things end the question, and each is a decision only you can make:
+
+- **Rename one to the other** — the lightbulb's first, preferred fix. It goes through the rename engine, so every reference follows exactly as `F2` would move them.
+- **Write the alias**: `Human (Natural Person)` *declares* that the two names are one idea, which is the supported way to say what the check is asking about. A pair where one is the other's alias is never raised.
+- **Say they are different**: the second lightbulb records the pair in `aot.distinctConcepts` and never asks again, in either order and in any file.
+
+It is advisory and never counted in `V` — a naming collision is a question, not a contradiction — and it is off entirely with `aot.synonymWarnings`. The vocabulary (`src/synonyms.js`) is deliberately small and domain-shaped rather than a thesaurus: a general thesaurus makes near-synonyms of words a model needs to keep apart (`cost` and `price`, `target` and `goal`), and every false finding spends the reader's attention. Names that differ only in **number** (`Person` / `People`) are left to the singular-Concept warning above, and names that differ only in **case** are univocity's business.
+
 **The nagging warnings wait a breath.** Every squiggle appears as soon as the linter settles — *except* the two lone-child warnings (`'X' has 1 sub-Concept` / `sub-Example`), which fire on the parent the instant its first child is typed, before the second can exist. Those wait until typing has been quiet for a moment (a little past the usual debounce), by which point the sibling either exists — so no warning was ever right — or you have genuinely paused. Pressing Enter to add the sibling never flashes them. A lone-child warning that was already on screen keeps showing; everything else, including real errors, is immediate.
 
 Earlier versions surfaced three advisory hint kinds with no squiggle: the FCA audit (after Wille, 1982), the content clash, and the dependency inference. The FCA audit and the content clash are now **errors** counted in `V` (rules 17–20); the dependencies are now opt-in **warnings** (rules 12–13). Spelling is the one finding that maps to the editor's Hint severity.
@@ -774,7 +881,7 @@ The six axioms, and what the linter does with each. **Reflexivity** (`Y ⊆ X �
 
 ### The command line
 
-`verify.js` is the extension's referee without the editor: it wraps the same `src/` modules, applies the same gates and filters, and prints every finding with its `file:line`. The whole-file check ends in a verdict and an exit code, which makes `V = 0` scriptable — in CI, in a git hook, or as the acceptance test in an LLM loop:
+`verify.js` is the extension's referee without the editor: it wraps the same `src/` modules, applies the same gates and filters, and prints every finding with its `file:line`. The whole-file check ends in a verdict and an exit code, which makes `V = 0` scriptable — in CI, in a git hook, or as the acceptance test in an LLM loop. It judges **what is in front of it** and nothing else — a file whose derivations are [parked](#parking-the-derivations) is judged on the values it carries, and the store is never read:
 
 ```
 $ node verify.js examples/thought.aot
@@ -852,6 +959,7 @@ The following principles govern how Alpha handles inheritance, incomplete models
 - **Plain text holds its shape**: prose hides structure, and diagrams don't scale.
 - **Truth shows in consequences**: a definition is good when it lets two actors work on with the same meaning and verify it.
 - **Content over structure**: prefer Examples, attributes, and values over new Concepts. Keep the Concept tree lean.
+- **[Incompleteness is a feature](#incompleteness-is-a-feature)**: the referee checks for contradiction, never for coverage. Write the part you know, mark the part you don't with a `...`, and the file stays green the whole way.
 
 ## What it costs to think in Alpha
 
@@ -932,6 +1040,8 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`src/fca.js`](src/fca.js) | Formal Concept Analysis audit (error rules 17–19) |
 | [`src/godel.js`](src/godel.js) | Gödel numbering and the content clash (error rule 20) |
 | [`src/armstrong.js`](src/armstrong.js) | Dependency inference (warning rules 12–13), the declared dependency graph, and the axiom checks (error rule 21, warning rule 11) |
+| [`src/synonyms.js`](src/synonyms.js) | Two names for one idea (warning rule 14): the synonym vocabulary, the stem rule, and the dismissal key |
+| [`src/park.js`](src/park.js) | Taking the `=` derivations out of the data and putting them back: the `@` addresses, the round trip, and the `.formulas` store |
 | [`src/crosslinks.js`](src/crosslinks.js) | Underlines, hover, references, and go-to-definition for crosslinks |
 | [`src/table.js`](src/table.js) | The table editor, the formula/constraint engine, and the CSV mirror |
 | [`src/derive.js`](src/derive.js) | Formulas on line-form values; validates every value against its attribute's constraint |

@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.10.3",
+  "version": "1.11.1",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -23,7 +23,7 @@
   ],
   "main": "./src/extension.js",
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js"
   },
   "contributes": {
     "languages": [
@@ -68,6 +68,19 @@
           "type": "boolean",
           "default": true,
           "description": "Keep a Concept that appears in more than one .aot in step, on save. An attribute a peer declares and this file does not have in force is written in, and the '...' line saying how many Examples live elsewhere is kept true. Additive only: nothing you wrote is deleted, and no other file is touched. The disagreements no tool may settle \u2014 one attribute carrying two values, one Concept filed under two kinds \u2014 stay put as errors. Off, the drift is reported as a warning instead."
+        },
+        "aot.synonymWarnings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when two Concepts look like two names for one idea \u2014 'Client' beside 'Customer' (two words for one idea), 'Governance' beside 'Government' (one word with two endings). Repo-wide: a peer in another .aot counts, and the warning carries a link to it. Advisory, never counted in V; the lightbulb either renames one to the other or records the pair in aot.distinctConcepts and stops asking."
+        },
+        "aot.distinctConcepts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Pairs of Concept names you have declared genuinely different, written 'client|customer'. The synonym warning skips them, in either order and in any file. The Quick Fix on the warning adds the pair here."
         },
         "aot.acceptedWords": {
           "type": "array",
@@ -229,6 +242,84 @@
         "enablement": "editorLangId == aot"
       },
       {
+        "command": "aot.table.copyRowDown",
+        "title": "Copy Row Down",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyRowUp",
+        "title": "Copy Row Up",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyColumnLeft",
+        "title": "Copy Column Left",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyColumnRight",
+        "title": "Copy Column Right",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyCellDown",
+        "title": "Copy Cell Down",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyCellUp",
+        "title": "Copy Cell Up",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyCellLeft",
+        "title": "Copy Cell Left",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyCellRight",
+        "title": "Copy Cell Right",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveCellDown",
+        "title": "Cut Cell Down",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveCellUp",
+        "title": "Cut Cell Up",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveCellLeft",
+        "title": "Cut Cell Left",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.moveCellRight",
+        "title": "Cut Cell Right",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.toggleFormulaPark",
+        "title": "Park / Unpark Formulas",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
         "command": "aot.recomputeFormulas",
         "title": "Recompute Formulas",
         "category": "AOT",
@@ -254,6 +345,18 @@
       {
         "command": "aot.setValueEverywhere",
         "title": "Set Attribute Value Everywhere",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.renameConcept",
+        "title": "Rename Concept",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.acceptDistinct",
+        "title": "Keep Two Concept Names Apart",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },
@@ -323,6 +426,51 @@
       {
         "command": "aot.table.insertSeparator",
         "key": "alt+-",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.copyRowUp",
+        "key": "ctrl+alt+up",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.copyRowDown",
+        "key": "ctrl+alt+down",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.copyColumnLeft",
+        "key": "ctrl+alt+left",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.copyColumnRight",
+        "key": "ctrl+alt+right",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.toggleFormulaPark",
+        "key": "ctrl+shift+`",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot"
+      },
+      {
+        "command": "aot.table.copyCellUp",
+        "key": "ctrl+alt+shift+up",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.copyCellDown",
+        "key": "ctrl+alt+shift+down",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.copyCellLeft",
+        "key": "ctrl+alt+shift+left",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.copyCellRight",
+        "key": "ctrl+alt+shift+right",
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
       }
     ]

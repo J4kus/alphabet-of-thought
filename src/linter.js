@@ -543,9 +543,20 @@ function verify(root, nodes, report, accepted) {
   // knows irregulars ('People', 'Categories') a suffix test would miss. Still
   // a warning: pluralize guesses, and words that are the same either way
   // (e.g. 'Series') can go either way.
+  //
+  // A possessive is not a number: the 's' of `Aristotle's` marks whose the
+  // idea is, not how many there are, so the possessive comes off before the
+  // word is judged — `Aristotle's Ethics` is one kind, and `Farmers' Market`
+  // is judged on 'Farmers' (plural) rather than on 'Farmers'' (which
+  // pluralize does not recognise as a word at all). Straight and curly
+  // apostrophes alike; a name is prose, and editors substitute one for the
+  // other freely.
+  const possessive = (word) => word.replace(/['’]s$/i, "").replace(/s['’]$/i, "s");
   const looksPlural = (name) => {
-    const last = name.split(/\s+/).pop();
-    if (accepted && accepted.has(last.toLowerCase())) return false;
+    const written = name.split(/\s+/).pop();
+    const last = possessive(written);
+    // the Quick Fix accepts the word as written, so either spelling counts
+    if (accepted && (accepted.has(written.toLowerCase()) || accepted.has(last.toLowerCase()))) return false;
     return pluralize.isPlural(last);
   };
   for (const node of nodes) {
