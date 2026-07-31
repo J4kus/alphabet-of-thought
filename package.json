@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.5",
+  "version": "1.11.6",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -344,6 +344,12 @@
         "enablement": "editorLangId == aot"
       },
       {
+        "command": "aot.toggleTableForm",
+        "title": "Flip Concept Between Table and Free Text",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
         "command": "aot.recomputeFormulas",
         "title": "Recompute Formulas",
         "category": "AOT",
@@ -475,6 +481,11 @@
       {
         "command": "aot.toggleFormulaPark",
         "key": "ctrl+shift+`",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot"
+      },
+      {
+        "command": "aot.toggleTableForm",
+        "key": "ctrl+alt+t",
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot"
       },
       {

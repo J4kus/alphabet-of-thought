@@ -642,8 +642,8 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[2] === "    |Ollie|5   |"
       && editor.selection.active.line === 3 && editor.selection.active.character === 11;
-    console.log(ok && registeredCommands.size === 35
-      ? "PASS (table editor: 35 commands; Tab aligns and moves to the next cell)"
+    console.log(ok && registeredCommands.size === 36
+      ? "PASS (table editor: 36 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -1899,3 +1899,83 @@ if (process.platform === "win32" || process.platform === "darwin") {
     ? "PASS (accept: a word already accepted is not duplicated)"
     : "UNEXPECTED duplicate accept " + JSON.stringify(configStore.acceptedWords));
 })();
+
+// Ctrl+Alt+T: the Concept at the cursor written out in its other form, end
+// to end — the cursor standing anywhere inside it, and the re-align that
+// follows computing the formulas where they have landed.
+//
+// Last, and on a timer: the command names what it did in the status bar,
+// which is one shared global here, so running it after every other block has
+// settled keeps its message out of another test's assertion.
+setTimeout(async () => {
+  const start = [
+    "Invoice",
+    "    tax rate: 0.2",
+    "    price",
+    "    - INV-1",
+    "        price: 100",
+    "        vat: 20 =@price*@tax rate",
+    "    - INV-9",
+    "        price: 50",
+    "        vat: 10 =@price*@tax rate",
+  ];
+  let text = start.join("\n");
+  const doc = makeDoc("c:\repo\Books.aot", text);
+  doc.eol = vscode.EndOfLine.LF;
+  doc.getText = () => text;
+  doc.lineAt = (i) => {
+    const ls = text.split("\n");
+    return { range: new vscode.Range(i, 0, i, ls[i].length), text: ls[i], firstNonWhitespaceCharacterIndex: ls[i].length - ls[i].trimStart().length };
+  };
+  Object.defineProperty(doc, "lineCount", { get: () => text.split("\n").length });
+  const editor = {
+    document: doc,
+    // the cursor on a value line deep inside the Concept, not on its own line
+    selection: new vscode.Selection(5, 10, 5, 10),
+    edit: (cb) => {
+      cb({ replace: (range, t) => {
+        const ls = text.split("\n");
+        const [sl, , el] = range.a;
+        ls.splice(sl, el - sl + 1, ...t.split("\n"));
+        text = ls.join("\n");
+      } });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {}, setDecorations: () => {},
+  };
+
+  await registeredCommands.get("aot.toggleTableForm")(editor);
+  const gridLines = text.split("\n");
+  console.log(gridLines[0] === "Invoice" && gridLines[1] === "    tax rate: 0.2"
+    && gridLines[2] === "    |Invoice|price|vat                 |"
+    && gridLines[4] === "    |INV-1  |100  |20 =@price*@tax rate|"
+    && gridLines[5] === "    |INV-9  |50   |10 =@price*@tax rate|"
+    ? "PASS (flip: a cursor inside the Concept writes the whole Concept out as a grid)"
+    : "UNEXPECTED flip grid " + JSON.stringify(gridLines));
+  console.log(lint(text, "Books").errors.length === 0
+    ? "PASS (flip: the flipped file verifies — V is unchanged by a re-spelling)"
+    : "UNEXPECTED flip errors " + JSON.stringify(lint(text, "Books").errors.map((e) => e.message)));
+  console.log(editor.selection.a[0] === 0
+    ? "PASS (flip: the cursor lands on the Concept's first line in its new form)"
+    : "UNEXPECTED flip cursor " + JSON.stringify(editor.selection.a));
+
+  // and back, the same key from inside the grid: every Example, value and
+  // derivation returns — and the grid's header, which is a declaration,
+  // returns as the attribute lines that declare the same columns
+  editor.selection = new vscode.Selection(4, 12, 4, 12);
+  await registeredCommands.get("aot.toggleTableForm")(editor);
+  console.log(text === [
+    "Invoice",
+    "    tax rate: 0.2",
+    "    price",
+    "    vat",
+    "    - INV-1",
+    "        price: 100",
+    "        vat: 20 =@price*@tax rate",
+    "    - INV-9",
+    "        price: 50",
+    "        vat: 10 =@price*@tax rate",
+  ].join("\n")
+    ? "PASS (flip: the same key writes it back, every value and derivation intact)"
+    : "UNEXPECTED unflipped " + JSON.stringify(text.split("\n")));
+}, 2000);

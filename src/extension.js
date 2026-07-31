@@ -1778,6 +1778,69 @@ function toggleFormulaPark(editor) {
   return fs.existsSync(store) ? unparkFormulas(editor, store) : parkFormulas(editor, store);
 }
 
+// --- flipping a Concept between its two forms --------------------------------
+// A table is pure shorthand for the '- Example' lines it parses to, so one
+// Concept has two spellings and the choice between them is about how the
+// data reads, not about what it says. This key writes the Concept under the
+// cursor out in the other one. The conversion itself is pure (derive.js);
+// what lives here is finding the Concept the cursor is standing in and
+// putting the edit — and the cursor — where the writer expects them.
+
+// The Concept the cursor is in: the nearest one at or above the cursor's
+// line, so standing on a row, a cell, an attribute, a value, or the
+// Concept's own line all name the same Concept. A separator row carries no
+// node, so a cursor on one is read from its table's header line instead.
+function conceptAtCursor(root, nodes, lines, line) {
+  let at = line + 1; // the parse counts lines from 1
+  if (!nodes.some((n) => n.line === at)) {
+    const block = table.blockAt(lines, line);
+    if (block) at = block.start + 1;
+  }
+  const here = nodes.filter((n) => n.line === at);
+  // a table header line holds the Concept it names and its columns: the
+  // Concept is the one to take
+  const start = here.find((n) => n.kind === KIND.CONCEPT) || here[0];
+  if (!start) return null;
+  for (let n = start; n; n = n.parent) if (n.kind === KIND.CONCEPT && n.line > 0) return n;
+  return null;
+}
+
+async function toggleTableForm(editor) {
+  const doc = editor.document;
+  if (doc.languageId !== "aot") return;
+  const rootName = docRootName(doc);
+  let tree;
+  try { tree = lint(doc.getText(), rootName); }
+  catch { return vscode.window.showWarningMessage("AOT: the file does not parse — fix it before flipping a Concept's form."); }
+  const lines = doc.getText().split(/\r?\n/);
+  const concept = conceptAtCursor(tree.root, tree.nodes, lines, editor.selection.active.line);
+  if (!concept) {
+    return vscode.window.showWarningMessage(
+      "AOT: put the cursor on a Concept — its line, its table, or one of its Examples — to flip between a table and free text.");
+  }
+  const edit = derive.flipForm(lines, concept, rootName);
+  if (!edit) {
+    return vscode.window.showWarningMessage(
+      `AOT: '${concept.name}' has no Examples to flip — a table and a list of '- ' Examples are the same rows written two ways.`);
+  }
+  // the whole document is rewritten so the re-align that follows computes
+  // the formulas where they have landed: a cell reading the Concept's
+  // line-form default only resolves once the grid is in the file
+  const next = lines.slice();
+  next.splice(edit.from, edit.to - edit.from + 1, ...edit.block);
+  await rewriteDocument(editor, next);
+  // the cursor lands on the Concept's first line in its new form — the
+  // header of the fresh grid, or the first line the grid became
+  const at = Math.min(edit.from, editor.document.lineCount - 1);
+  const character = editor.document.lineAt(at).firstNonWhitespaceCharacterIndex;
+  editor.selection = new vscode.Selection(at, character, at, character);
+  editor.revealRange(new vscode.Range(at, character, at, character));
+  vscode.window.setStatusBarMessage(
+    edit.form === "table"
+      ? `AOT: '${concept.name}' written as a table — the same key writes it back as free text.`
+      : `AOT: '${concept.name}' written as free text — the same key writes it back as a table.`, 5000);
+}
+
 // AOT: Copy Formula to Sibling Examples — the line-form copy-down: the
 // derivation under the cursor lands on the same attribute of every sibling
 // Example (adding the line where the attribute is absent), then recomputes.
@@ -2774,6 +2837,8 @@ function activate(context) {
     vscode.commands.registerTextEditorCommand("aot.copyFormulaToSiblings", copyFormulaToSiblings),
     // Ctrl+Shift+`: the derivations out of the data, and back
     vscode.commands.registerTextEditorCommand("aot.toggleFormulaPark", toggleFormulaPark),
+    // Ctrl+Alt+T: the Concept at the cursor as a table, and back as lines
+    vscode.commands.registerTextEditorCommand("aot.toggleTableForm", toggleTableForm),
     vscode.window.onDidChangeTextEditorSelection((event) => {
       updateTableContext();
       updateCellStatus();

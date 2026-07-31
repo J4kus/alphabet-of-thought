@@ -934,9 +934,239 @@ function updateScope(lines, root, nodes, concept, header, rows, rootName) {
   return ops;
 }
 
+// --- flipping a Concept between its two forms --------------------------------
+// A table is pure shorthand: the tree it parses to is identical to writing
+// each row as a '- Example' with 'attribute: value' children. So a Concept
+// has two spellings of one idea, and which one reads better is a question
+// about the data, not about the model — a wide grid of short values wants to
+// be a table, a handful of long prose values wants to be lines. `flipForm`
+// is the edit that writes the Concept out in the other spelling.
+//
+// No Example and no value is ever lost, in either direction, and a
+// derivation moves exactly as typed (`10 =sum(@age)` travels whole), as do
+// each attribute's (alias) and its constraints. What is presentation of a
+// grid and has nowhere to live in line form — a width cookie, a column's
+// alignment colons — is dropped on the way out of a table, as its own kind
+// of formatting.
+//
+// One reading does move, because a grid has no way to hold it: an attribute
+// a single Example only *declares* (a bare `nickname` under `- Socrates`,
+// no value) becomes a column of the Concept with that Example's cell left
+// empty — a header is a table's only place for an attribute name, so the
+// declaration widens from the one Example to all of them.
+//
+// One thing the flip never does is restructure what it did not convert: a
+// Concept's own defaults, its '...' Maps, its sub-Concepts and any Example
+// too deep to be a row (one with children of its own) are copied through
+// verbatim and the grid joins them, which is the merge form the language
+// already has.
+
+// The complete table the Concept is written as, or null when it is written
+// in line form. A grid belongs to the Concept when its header names it and
+// it stands inside the Concept's own lines — the standalone form (the
+// header *is* the Concept's line) and the merge form (a grid beneath it)
+// both answer here.
+function gridOfConcept(lines, concept, rootName) {
+  if (!concept || !concept.name) return null;
+  const end = lastLineOf(concept);
+  const id = numberless(concept.name).toLowerCase();
+  return tablesOf(lines, rootName).find((t) =>
+    t.start + 1 >= concept.line && t.start + 1 <= end
+    && numberless(t.name).toLowerCase() === id) || null;
+}
+
+// A value line's text exactly as typed, from the colon on: the value with
+// its derivation, its escapes, its spacing. The model splits those apart
+// (node.value, node.formula); the flip must not, because it is moving the
+// writing rather than reading it.
+function rawValueOf(lines, node) {
+  const raw = lines[node.line - 1] || "";
+  const colon = raw.indexOf(":");
+  return colon === -1 ? "" : raw.slice(colon + 1).trim();
+}
+
+// The Concept's Examples that can be rows: a row is a name and a flat list
+// of values, so an Example carrying structure of its own (a sub-Example, a
+// Map, a Concept) cannot be one, and neither can the inline Example riding
+// on the Concept's own line ('Colour: red').
+const rowableExamples = (concept) => concept.children.filter((c) =>
+  c.kind === KIND.INDIVIDUAL && c.line !== concept.line
+  && c.children.every((g) => isAttrKind(g) && !g.children.length));
+
+// A bare attribute line under the Concept declares a column and nothing
+// else, so the grid's header takes over from it. One with children of its
+// own (an attribute listing the values it may take) is not a column: it
+// stays a line.
+const columnAttributes = (concept) => concept.children.filter((c) =>
+  c.kind === KIND.ATTRIBUTE && !c.children.length);
+
+// Write the Concept as a table. The header's first cell names the Concept
+// (1.9) and the cells after it are its attributes: the bare attribute lines
+// it declares, as written — (alias) and constraints and all — then any
+// further attribute only its Examples carry. Every Example becomes a row.
+//
+// Everything else the Concept holds keeps its line: when that is nothing at
+// all the table stands alone where the Concept's line stood, and when it is
+// not the Concept keeps its line and the grid is filed beneath it, repeating
+// its name in the first cell — the merge form, which is what lets a default
+// or a Map survive the flip.
+//
+// Returns { form: "table", from, to, block } with 0-based inclusive lines,
+// or null when the Concept has no Example to make a row of.
+function toTableForm(lines, concept) {
+  const examples = rowableExamples(concept);
+  if (!examples.length) return null;
+  const declared = columnAttributes(concept);
+  const columns = []; // { at, cell } — the header cell as it will be drawn
+  // A column is identified by the attribute's **name** and nothing else,
+  // exactly as the CSV mirror identifies one (mirrorGrids). An (alias) is a
+  // crosslink to the Concept the attribute points at, not a second name for
+  // the attribute — `father (person)`, `mother (person)` and `beneficiary
+  // (person)` are three attributes that happen to point at one Concept, so
+  // keying a column by its alias would fold all three into one and lose two
+  // columns' worth of values.
+  const seen = new Map(); // lowercased attribute name -> the column it names
+  const claim = (node, cell) => {
+    const key = node.name.toLowerCase();
+    if (seen.has(key)) return;
+    const fresh = { at: columns.length, cell };
+    columns.push(fresh);
+    seen.set(key, fresh);
+  };
+  // the declarations first, in the order they are written, so the columns
+  // read left to right as the lines read top to bottom
+  for (const attr of declared) claim(attr, (lines[attr.line - 1] || "").trim());
+  // then any attribute only an Example carries. It has no declaration line
+  // to copy, so its header cell is written from the node: the name and the
+  // (alias) that crosslinks it, which is all such an attribute ever states.
+  for (const ex of examples) {
+    for (const child of ex.children) {
+      claim(child, child.name + (child.alias ? ` (${child.alias})` : ""));
+    }
+  }
+  // a pipe cannot survive inside a pipe table, so it bends to a broken bar
+  // exactly as an arriving CSV's does
+  const cell = (text) => String(text).replace(/\|/g, "¦");
+  const consumed = new Set([...declared, ...examples]);
+  const kept = concept.children.filter((c) => !consumed.has(c) && c.line !== concept.line);
+  const standalone = !kept.length && !concept.value && concept.line > 0;
+  const indent = " ".repeat(INDENT * (concept.depth + (standalone ? 0 : 1)));
+  const first = standalone
+    // the Concept's line becomes the header's first cell, so its name — and
+    // the (alias) that names the same idea — move into the grid
+    ? concept.name + (concept.alias ? ` (${concept.alias})` : "")
+    : concept.name;
+  // each value placed in the column its own name claimed, rather than each
+  // column hunting for a value: one map decided both, so every value has a
+  // column and no column can quietly take another's
+  const rows = examples.map((ex) => {
+    const cells = [cell(ex.name), ...columns.map(() => "")];
+    for (const child of ex.children) {
+      if (child.kind !== KIND.DEFAULT) continue; // a declaration states no value
+      const col = seen.get(child.name.toLowerCase());
+      if (col) cells[col.at + 1] = cell(rawValueOf(lines, child));
+    }
+    return cells;
+  });
+  const block = {
+    indent,
+    rows: [
+      { sep: false, cells: [cell(first), ...columns.map((c) => cell(c.cell))] },
+      { sep: true, cells: [] },
+      ...rows.map((cells) => ({ sep: false, cells })),
+    ],
+  };
+  // no recompute here: a flip is a re-spelling, not a recalculation, and
+  // the grid is not in the document yet — a formula reading the Concept's
+  // line-form default has no scope to read it from and would write #ERR
+  // over a value that was right. The caller's own re-align computes them
+  // where they land, with the whole file around them.
+  const drawn = render(block);
+  // the lines that are kept travel whole — each with the subtree beneath it
+  // — and the grid is filed last, after everything still written as lines
+  const before = standalone ? [] : [
+    lines[concept.line - 1],
+    ...kept.flatMap((c) => lines.slice(c.line - 1, lastLineOf(c))),
+  ];
+  return {
+    form: "table",
+    from: concept.line - 1,
+    to: lastLineOf(concept) - 1,
+    block: [...before, ...drawn],
+  };
+}
+
+// Write the Concept's table out as lines: the Concept, then a bare
+// attribute line per column, then a '- Example' per row with a value line
+// for each cell that says something. An empty cell asserts nothing, so it
+// writes no line.
+//
+// A standalone grid is replaced by the Concept's line and its subtree; a
+// merge-form grid is replaced in place, beneath the line it already has —
+// and a column the Concept already declares as a line keeps that line
+// rather than gaining a second one.
+//
+// Returns { form: "lines", from, to, block } with 0-based inclusive lines.
+function toLineForm(lines, concept, grid) {
+  const standalone = grid.start + 1 === concept.line;
+  // a column the Concept states outside the grid is declared already: its
+  // line stays where it is and the flip does not repeat it
+  const outside = new Set(concept.children
+    .filter((c) => isAttrKind(c) && !c.cell)
+    .map((c) => c.name.toLowerCase()));
+  const columns = grid.header.slice(1).map((cell) => {
+    const bare = widthCookie(cell).text.trim();
+    return {
+      name: headerColName(cell),
+      // the term as written, minus only the width cookie — a cap on a
+      // column that no longer exists
+      term: bare,
+      // what a value line writes before its colon: the name with the
+      // (alias) that crosslinks it, but never the constraint — a bound
+      // belongs to the declaration, not to each value it governs
+      label: splitConstraint(bare).value.trim() || bare,
+    };
+  }).filter((c) => c.name);
+  const out = [];
+  // a standalone grid stands where the Concept's line stands, so the flip
+  // writes that line first and files everything a level under it; a merge
+  // form already has its line above, and the grid's own indent is the level
+  // its children belong at
+  if (standalone) out.push(grid.indent + widthCookie(grid.header[0] || "").text.trim());
+  const declIndent = grid.indent + (standalone ? " ".repeat(INDENT) : "");
+  const valueIndent = declIndent + " ".repeat(INDENT);
+  for (const col of columns) {
+    if (outside.has(col.name.toLowerCase())) continue;
+    out.push(declIndent + col.term);
+  }
+  for (const row of grid.rows) {
+    const name = (row[0] || "").trim();
+    if (!name) continue;
+    out.push(declIndent + `- ${name}`);
+    columns.forEach((col, k) => {
+      const value = (row[k + 1] || "").trim();
+      if (value) out.push(valueIndent + `${col.label}: ${value}`);
+    });
+  }
+  return { form: "lines", from: grid.start, to: grid.end, block: out };
+}
+
+// The edit that writes the Concept out in its other form — a table where it
+// is lines today, lines where it is a table. Returns { form, from, to,
+// block } with 0-based inclusive lines (lines from..to become `block`), or
+// null when the Concept has nothing to flip: no Examples at all, or a table
+// with no rows yet.
+function flipForm(lines, concept, rootName) {
+  if (!concept || !concept.name || concept.line < 1) return null;
+  const grid = gridOfConcept(lines, concept, rootName);
+  if (grid) return grid.rows.length ? toLineForm(lines, concept, grid) : null;
+  return toTableForm(lines, concept);
+}
+
 module.exports = {
   auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
   formulaReferences, mirrorGrids, updateScope,
   lastLineOf, headerColName, renumberExamples, renumberConcepts,
+  flipForm, gridOfConcept, toTableForm, toLineForm,
 };

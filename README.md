@@ -493,6 +493,7 @@ Org's table automations are built in. While the cursor is on a table row (any pi
 | `Ctrl+Alt+←` / `Ctrl+Alt+→` | **Copy** the cursor's whole column to its left / right, header and every value |
 | `Ctrl+Alt+Shift+` arrow | **Copy the cell** into its neighbour in that direction and follow it there, so holding the key fills a run |
 | `Tab` / `Shift+Tab` **in the leading indent** | Indent / unindent the whole table one level (4 spaces) — re-filing the table under a different parent is an indent edit, not cell travel. (A flush-left table has no indent to click into; give it a level first.) |
+| `Ctrl+Alt+T` | Write the Concept at the cursor out as free text, and the same key writes it back as a table — see [Flipping between a table and free text](#flipping-between-a-table-and-free-text) |
 
 **A column can declare its alignment**, with markdown's colons in the separator:
 
@@ -761,6 +762,29 @@ Every editor feature reaches inside the cells too:
 - **Linting in place**: a table finding pins the offending cell rather than the whole line — a lowercase or empty first cell, a capitalised column, a row's extra cells, and an empty name cell each squiggle where they sit.
 
 That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreadsheet re-computes derived columns; Alpha's audits them. Two rows with the same name are an identical-siblings error; two rows with identical content are a Gödel clash; a row that carries every attribute another Concept's Examples share is drift; and a column whose values are pinned down by another column — the very thing org would compute with a formula — is what the Armstrong dependency warnings flag. In Alpha a computed column is not a formula to store but a dependency to model once, against its determinant. See [`examples/spreadsheet.aot`](examples/spreadsheet.aot).
+
+### Flipping between a table and free text
+
+If the two forms say the same thing, the choice between them is a question about the *data*, not about the model — and it is a question you answer differently as the data grows. Six short attributes across twenty Examples want to be a grid; two Examples carrying a paragraph each want to be lines. **`Ctrl+Alt+T` writes the Concept at the cursor out in the other form, and the same key writes it back.** The cursor may stand anywhere inside the Concept — its own line, a header cell, a row, an attribute name, a value — and it lands on the Concept's first line in the new form.
+
+```aot
+Person                                  |Person   |first name|age      |
+    first name                          |---------+----------+---------|
+    age                        <-->     |Aristotle|A         |10       |
+    - Aristotle                         |Socrates |Sokrates  |20 =10+10|
+        first name: A
+        age: 10
+    - Socrates
+        first name: Sokrates
+        age: 20 =10+10
+```
+
+- **No Example and no value is ever lost**, and a derivation moves exactly as typed — `20 =@price*@tax rate` travels whole. An attribute's `(alias)` and its constraints ride on the header cell going out and on the declaration line coming back; a bound never lands on a value line, because it governs the attribute rather than each value of it. A `|` inside a value bends to a broken bar, as an arriving CSV's does.
+- **One thing does move: an attribute a single Example only *declares*.** A bare `nickname` under `- Socrates` states an attribute without giving it a value, and a table has exactly one place for an attribute name — the header — so it becomes a column of the Concept with Socrates's cell empty. The declaration widens from the one Example to all of them; the empty cell still asserts nothing. It is the one reading a grid cannot express, and it is why the flip tells you what it did rather than doing it silently.
+- **What is presentation of a grid comes off with it** — a [width cookie](#working-with-text), a column's [alignment colons](#the-table-editor). They cap and align a column, and in free text there is no column to cap.
+- **The flip never recomputes.** A value that was right stays exactly as it was written; the re-align that follows computes the formulas where they have landed. That order matters: a cell reading the Concept's line-form default (`=@price*@tax rate`) can only resolve it once the grid is in the file, so computing any earlier would write `#ERR` over a good number.
+- **Nothing the flip cannot convert is restructured.** A Concept's own defaults, its `...` Maps, its sub-Concepts, and any Example carrying children of its own (a row is a name and a flat list of values, so an Example with a sub-Concept under it is no row) keep their lines, and the grid is filed beneath them — the [merge form](#tables) the language already has. Only a Concept whose subtree is nothing but attributes and flat Examples flips to a **standalone** table, naming itself in its first header cell exactly where its line stood.
+- Coming back, **a header cell is a declaration**, so it returns as the attribute line that declares the same column — which is why a Concept whose attributes were only ever stated on its Examples gains those declarations on the way back. That is the tree the table always parsed to, now written down.
 
 ## Verification: the tooling
 

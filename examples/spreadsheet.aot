@@ -19,14 +19,15 @@ Life Event
         father (person)
         mother (person)
         birth place (city)
+        beneficiary (person)
         - Socrates Birth
-            beneficiary (person): Socrates
-            father: Sophroniscus
+            father (person): Sophroniscus
             birth place (city): Athens
+            beneficiary (person): Socrates
         - Aristotle Birth
-            beneficiary (person): Aristotle
-            father: ...
+            father (person): ...
             birth place (city): Pella
+            beneficiary (person): Aristotle
     Residence
         resident (person)
         city: Athens

@@ -3,8 +3,8 @@
 // the audit spans, the recompute fixpoint, and the copy-to-siblings edit.
 //
 // Plain Node script, no framework — run with: node out/test-derive.js
-const { lint } = require("../src/linter");
-const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples, formulaReferences, mirrorGrids, updateScope, renumberExamples, renumberConcepts } = require("../src/derive");
+const { lint, KIND } = require("../src/linter");
+const { auditValues, recomputeValues, copyToSiblings, conceptRegistry, addExample, updateExamples, formulaReferences, mirrorGrids, updateScope, renumberExamples, renumberConcepts, flipForm, gridOfConcept } = require("../src/derive");
 const { mergeRegistries } = require("../src/table");
 
 let failures = 0;
@@ -987,6 +987,149 @@ const parsed = (text) => {
   const off = parsed(aot("Vehicle", "    Car", "Person"));
   check("renumberConcepts: an unnumbered file is left exactly as written",
     renumberConcepts(off.root, off.nodes).length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// flipForm: one Concept, two spellings — the table and the '- ' lines it is
+// shorthand for, each written out as the other
+// ---------------------------------------------------------------------------
+{
+  // the edit applied, so a test reads the file the writer would see
+  const flip = (text, name) => {
+    const { root, nodes, lines } = parsed(text);
+    const concept = [root, ...nodes].find((n) => n && n.kind === KIND.CONCEPT && n.name === name);
+    const edit = flipForm(lines, concept, "Sheet");
+    if (!edit) return null;
+    const out = lines.slice();
+    out.splice(edit.from, edit.to - edit.from + 1, ...edit.block);
+    return { form: edit.form, text: out.join("\n") };
+  };
+
+  const lineForm = aot(
+    "Person",
+    "    first name",
+    "    age",
+    "    - Aristotle",
+    "        first name: A",
+    "        age: 10",
+    "    - Socrates",
+    "        first name: Sokrates",
+    "        age: 20 =10+10",
+  );
+  const asTable = flip(lineForm, "Person");
+  check("flipForm: a line-form Concept becomes a standalone table naming itself",
+    asTable.form === "table" && asTable.text === aot(
+      "|Person   |first name|age      |",
+      "|---------+----------+---------|",
+      "|Aristotle|A         |10       |",
+      "|Socrates |Sokrates  |20 =10+10|",
+    ));
+  check("flipForm: a derivation moves into its cell exactly as it was typed",
+    asTable.text.includes("20 =10+10"));
+  const backAgain = flip(asTable.text, "Person");
+  check("flipForm: flipping the table back gives the lines it was written from",
+    backAgain.form === "lines" && backAgain.text === lineForm);
+
+  // an attribute's (alias) and its constraint belong to the declaration, so
+  // the header cell carries both and only the alias reaches a value line
+  const suffixed = aot(
+    "Life Event",
+    "    beneficiary (person)",
+    "    age >=18",
+    "    - Socrates Birth",
+    "        beneficiary (person): Socrates",
+    "        age: 20",
+  );
+  const suffixedTable = flip(suffixed, "Life Event");
+  check("flipForm: a column header keeps the attribute's (alias) and its constraint",
+    suffixedTable.text.includes("|beneficiary (person)|age >=18|"));
+  check("flipForm: a constraint never lands on a value line, an alias does",
+    flip(suffixedTable.text, "Life Event").text === suffixed);
+
+  // the merge form is what carries everything a row cannot hold
+  const mixed = aot(
+    "Order",
+    "    tax rate: 0.2",
+    "    price",
+    "    ... more to come",
+    "    - Acme",
+    "        price: 100",
+    "        vat: 20 =@price*@tax rate",
+  );
+  const mixedTable = flip(mixed, "Order");
+  const mixedLines = mixedTable.text.split("\n");
+  check("flipForm: a Concept with a default or a Map keeps its own line and files the grid under it",
+    mixedLines[0] === "Order" && mixedLines[1] === "    tax rate: 0.2"
+    && mixedLines[2] === "    ... more to come" && mixedLines[3].startsWith("    |Order|price|vat"));
+  check("flipForm: the flip never recomputes — a cell reading a line-form default keeps its value",
+    mixedTable.text.includes("|Acme |100  |20 =@price*@tax rate|"));
+  check("flipForm: an attribute the Concept declares beside the grid is not declared twice on the way back",
+    flip(mixedTable.text, "Order").text.split("\n").filter((l) => /^ *tax rate/.test(l)).length === 1);
+
+  // an Example carrying structure of its own is no row, so it stays a line
+  const nested = flip(aot(
+    "City",
+    "    residents known as",
+    "    - Athens",
+    "        residents known as: Athenians",
+    "    - Pella",
+    "        residents known as: Pellans",
+    "        Landmark",
+    "            - Palace",
+  ), "City");
+  check("flipForm: an Example with children of its own is left as a line beside the grid",
+    nested.text.includes("        Landmark") && nested.text.includes("            - Palace")
+    && nested.text.includes("|Athens|Athenians         |"));
+
+  // a pipe cannot survive inside a pipe table
+  check("flipForm: a '|' in a value bends to a broken bar, as an arriving CSV's does",
+    flip(aot("Sign", "    reads", "    - Gate", "        reads: in | out"), "Sign")
+      .text.includes("in ¦ out"));
+
+  check("flipForm: a Concept with no Examples has nothing to flip",
+    flip(aot("Colour", "    hue"), "Colour") === null);
+
+  // an (alias) crosslinks to a Concept; it is not a second name for the
+  // attribute, so attributes sharing one must stay separate columns
+  check("flipForm: attributes sharing an (alias) stay separate columns, each keeping its values",
+    flip(aot(
+      "Birth",
+      "    father (person)",
+      "    mother (person)",
+      "    - Socrates Birth",
+      "        father (person): Sophroniscus",
+      "        mother (person): Phaenarete",
+    ), "Birth").text === aot(
+      "|Birth         |father (person)|mother (person)|",
+      "|--------------+---------------+---------------|",
+      "|Socrates Birth|Sophroniscus   |Phaenarete     |",
+    ));
+
+  // the one reading a grid cannot hold: an attribute an Example only
+  // declares becomes a column, its cell left empty
+  const declared = flip(aot(
+    "Belief",
+    "    - Introduced",
+    "        timing: Async",
+    "        use intuition",
+  ), "Belief");
+  check("flipForm: an attribute an Example only declares becomes a column with an empty cell",
+    declared.text === aot(
+      "|Belief    |timing|use intuition|",
+      "|----------+------+-------------|",
+      "|Introduced|Async |             |",
+    ));
+
+  // a cursor anywhere in the Concept's subtree names the same Concept, so
+  // the grid is found from the Concept whatever form it is written in
+  const { root: gRoot, nodes: gNodes, lines: gLines } = parsed(aot(
+    "|Known For      |beneficiary|",
+    "|---------------+-----------|",
+    "|Socratic Method|Socrates   |",
+  ));
+  const known = [gRoot, ...gNodes].find((n) => n.name === "Known For");
+  check("gridOfConcept: a standalone table is found from the Concept its header names",
+    (gridOfConcept(gLines, known, "Sheet") || {}).start === 0);
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
