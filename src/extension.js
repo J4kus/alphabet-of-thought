@@ -319,6 +319,54 @@ function decorate(editor, decorationTypes) {
   }
   editor.setDecorations(decorationTypes.concept, concepts);
   editor.setDecorations(decorationTypes.individual, individuals);
+  editor.setDecorations(decorationTypes.parked, parkedMarks(editor.document));
+}
+
+// A formula carries the language's own backtick literals — `` =xlookup(`A`,
+// @k,@v) `` — so the markdown code span showing it is fenced with one more
+// backtick than the formula holds, and padded, which is exactly what
+// CommonMark asks for. Fencing a formula in a bare pair would end the span
+// at its first literal.
+function codeSpan(text) {
+  const s = String(text);
+  const longest = (s.match(/`+/g) || []).reduce((n, run) => Math.max(n, run.length), 0);
+  const fence = "`".repeat(longest + 1);
+  return longest ? `${fence} ${s} ${fence}` : `${fence}${s}${fence}`;
+}
+
+// A parked file reads as plain values — which is what makes it safe to lint,
+// and what makes it easy to overwrite by hand. Every value whose derivation
+// is sitting in the `.formulas` store is marked where it stands and says, on
+// hover, what computes it and how to get at that. The mark is a *background*
+// rather than an underline: the two underline styles already mean "this is a
+// crosslink", and a decoration that added text would push a grid's cells out
+// of alignment on the one line it marked.
+function parkedMarks(doc) {
+  if (doc.languageId !== "aot") return [];
+  if (!vscode.workspace.getConfiguration("aot").get("parkedValueMarks", true)) return [];
+  const parked = parkedFormulas(doc);
+  if (!parked.length) return [];
+  const analysis = analysisByDoc.get(doc.uri.toString());
+  const lines = doc.getText().split(/\r?\n/);
+  let spans;
+  try {
+    const nodes = (analysis && analysis.nodes) || lint(doc.getText(), docRootName(doc)).nodes;
+    spans = park.parkedSpans(lines, nodes, docRootName(doc), parked);
+  } catch { return []; } // an unparseable file marks nothing rather than guessing
+  const store = path.basename(parkPath(doc));
+  return spans.map((s) => {
+    const md = new vscode.MarkdownString();
+    md.isTrusted = true;
+    md.appendMarkdown(`**Computed** — ${codeSpan(s.formula)}\n\n`);
+    md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`. `);
+    md.appendMarkdown("A value typed over this one stands only until the derivations come home, "
+      + "which recomputes it — change the formula instead: "
+      + "[put the formulas back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``).");
+    return {
+      range: new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
+      hoverMessage: md,
+    };
+  });
 }
 
 // Fill computed values in place — line-form '=' values and stale table
@@ -1692,6 +1740,25 @@ function recomputeFormulas(editor) {
 const parkPath = (doc) =>
   path.join(aotFilesDir(doc), path.basename(doc.fileName).replace(/\.aot$/i, "") + ".formulas");
 
+// The derivations parked out of a document, or []. Read from the store and
+// remembered until the store itself changes, because the mark on a parked
+// value is recomputed on every keystroke and the file system should not be
+// asked twice for an answer that has not moved.
+const parkCache = new Map(); // store path -> { mtimeMs, size, parked }
+function parkedFormulas(doc) {
+  if (!doc.fileName) return [];
+  let store;
+  try { store = parkPath(doc); } catch { return []; }
+  let stat;
+  try { stat = fs.statSync(store); } catch { parkCache.delete(store); return []; }
+  const seen = parkCache.get(store);
+  if (seen && seen.mtimeMs === stat.mtimeMs && seen.size === stat.size) return seen.parked;
+  let parked = [];
+  try { parked = park.parse(fs.readFileSync(store, "utf8")); } catch { /* unreadable: nothing is marked */ }
+  parkCache.set(store, { mtimeMs: stat.mtimeMs, size: stat.size, parked });
+  return parked;
+}
+
 // Apply { line, to?, text } line edits to an array of lines, last first so
 // earlier indices stay true while a multi-line edit changes the count.
 function applyLineEdits(lines, edits) {
@@ -1736,6 +1803,7 @@ async function parkFormulas(editor, store) {
   try {
     fs.mkdirSync(path.dirname(store), { recursive: true });
     fs.writeFileSync(store, park.serialise(parked));
+    parkCache.delete(store); // the marks read the store the moment it lands
   } catch (e) {
     return vscode.window.showErrorMessage(`AOT: could not write ${path.basename(store)} — ${e.message}`);
   }
@@ -1758,6 +1826,7 @@ async function unparkFormulas(editor, store) {
   // a derivation whose row was renamed or deleted while it was parked is
   // never invented back: it stays in the store, and the store stays
   try {
+    parkCache.delete(store);
     if (missing.length) {
       fs.writeFileSync(store, park.serialise(parked.filter((p) => missing.includes(p.address))));
       vscode.window.showWarningMessage(
@@ -2652,12 +2721,25 @@ function activate(context) {
     individual: vscode.window.createTextEditorDecorationType({
       textDecoration: "underline dotted",
     }),
+    // a value whose derivation is parked: the inlay-hint colours, because
+    // that is exactly what it is — a number the editor is showing you rather
+    // than one you wrote. A tinted span, never added text, so a marked cell
+    // stays the width its column aligned it to.
+    parked: vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor("editorInlayHint.background"),
+      borderColor: new vscode.ThemeColor("editorInlayHint.foreground"),
+      borderStyle: "none none dashed none",
+      borderWidth: "0 0 1px 0",
+      borderRadius: "2px",
+      rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    }),
   };
   // the F2 nudge's ghost text, in the editor's native ghost-text colour
   renameHintType = vscode.window.createTextEditorDecorationType({
     after: { color: new vscode.ThemeColor("editorGhostText.foreground"), margin: "0 0 0 2em" },
   });
-  context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual, renameHintType);
+  context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual,
+    decorationTypes.parked, renameHintType);
 
   const timers = new Map();
   const lastCursorLine = new Map(); // uri -> the cursor's last line, per doc
@@ -2916,6 +2998,20 @@ function activate(context) {
   csvWatcher.onDidChange(syncCsvIntoAot);
   csvWatcher.onDidCreate(syncCsvIntoAot);
   context.subscriptions.push(csvWatcher);
+
+  // the store's existence is the state, so a store edited, written or deleted
+  // outside the editor changes which values are marked as computed. Parking
+  // from the key already redraws (the document changes with it); this is for
+  // the pull, the hand edit, and the delete.
+  const parkWatcher = vscode.workspace.createFileSystemWatcher("**/aot.files/*.formulas");
+  const onParkFsEvent = (uri) => {
+    parkCache.delete(uri.fsPath);
+    for (const editor of vscode.window.visibleTextEditors) decorate(editor, decorationTypes);
+  };
+  parkWatcher.onDidChange(onParkFsEvent);
+  parkWatcher.onDidCreate(onParkFsEvent);
+  parkWatcher.onDidDelete(onParkFsEvent);
+  context.subscriptions.push(parkWatcher);
 
   // the workspace index: every .aot parsed, so crosslinks resolve across
   // files and repo-wide duplicates surface. Built once, kept fresh by a

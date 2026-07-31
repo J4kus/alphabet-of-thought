@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.6",
+  "version": "1.11.7",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -104,6 +104,11 @@
           "type": "boolean",
           "default": true,
           "description": "Hovering a URL in a value fetches light metadata (status, content type, last modified) with a HEAD request, cached for a few minutes. Ctrl+click always opens the URL, metadata or not."
+        },
+        "aot.parkedValueMarks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Tint every value whose derivation is parked in 'aot.files/<file>.formulas', so a computed number is never mistaken for a typed one. Hover names the formula and offers to put the derivations back. The mark is a background only \u2014 no text is added, so a marked cell keeps the width its column aligned it to."
         }
       }
     },

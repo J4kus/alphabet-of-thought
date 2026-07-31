@@ -3,7 +3,7 @@
 // and the store's own format.
 //
 // Plain Node script, no framework — run with: node out/test-park.js
-const { park, unpark, addressOf, nodeAt, serialise, parse } = require("../src/park");
+const { park, unpark, parkedSpans, addressOf, nodeAt, serialise, parse } = require("../src/park");
 const { lint, KIND } = require("../src/linter");
 
 let failures = 0;
@@ -137,6 +137,50 @@ const parsed = (lines, rootName) => {
   check("unpark: an address whose row was renamed is reported, never invented",
     back.missing.length === 1 && back.missing[0] === "@Invoice@vat@INV-1"
     && back.lines.join("\n") === renamed.join("\n"));
+}
+
+// ---------------------------------------------------------------------------
+// where the parked values sit: the spans an editor marks, so a computed
+// number is never mistaken for a typed one
+// ---------------------------------------------------------------------------
+{
+  const lines = [
+    "Invoice",
+    "    tax rate: 0.2",
+    "    |Invoice|price|vat|",
+    "    |-------+-----+---|",
+    "    |INV-1  |100  |20 |",
+    "    - INV-9",
+    "        price: 50",
+    "        vat: 10",
+  ];
+  const { nodes } = parsed(lines);
+  const parked = [
+    { address: "@Invoice@vat@INV-1", formula: "=@price*0.2" },
+    { address: "@Invoice@vat@INV-9", formula: "=@price*0.2" },
+  ];
+  const spans = parkedSpans(lines, nodes, "Sheet", parked);
+  const cell = spans.find((s) => s.address === "@Invoice@vat@INV-1");
+  const line = spans.find((s) => s.address === "@Invoice@vat@INV-9");
+  check("spans: a grid cell's span covers the value, not the padding around it",
+    cell && cell.line === 5 && lines[4].slice(cell.startCol, cell.endCol) === "20");
+  check("spans: a line-form value's span starts after the colon",
+    line && line.line === 8 && lines[7].slice(line.startCol, line.endCol) === "10");
+  check("spans: each span carries the formula that computes it",
+    spans.length === 2 && spans.every((s) => s.formula === "=@price*0.2"));
+  check("spans: document order, whichever order the store lists them in",
+    parkedSpans(lines, nodes, "Sheet", parked.slice().reverse()).map((s) => s.line).join() === "5,8");
+
+  // the same silence unpark keeps: an address naming nothing has no span
+  check("spans: an address that no longer names anything is skipped, never guessed",
+    parkedSpans(lines, nodes, "Sheet", [{ address: "@Invoice@vat@INV-404", formula: "=1" }]).length === 0);
+
+  // a cell whose derivation computed nothing is the one most worth marking
+  const empty = lines.slice();
+  empty[4] = "    |INV-1  |100  |   |";
+  const blank = parkedSpans(empty, parsed(empty).nodes, "Sheet", [parked[0]])[0];
+  check("spans: a cell left empty by its formula is marked across its interior",
+    blank && empty[4].slice(blank.startCol, blank.endCol) === "   ");
 }
 
 // ---------------------------------------------------------------------------

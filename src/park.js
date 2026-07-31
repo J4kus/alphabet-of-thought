@@ -235,6 +235,61 @@ function unpark(lines, nodes, rootName, parked) {
   return { lines: out, missing };
 }
 
+// --- saying which values are not yours to type over --------------------------
+// A parked file reads as plain values. That is the point of it, and also the
+// one risk it carries: a number a formula owns looks exactly like a number
+// somebody typed, so it invites being typed over — and the edit stands only
+// until the derivations come home and overwrite it. So the spans those values
+// occupy are handed out, and the editor marks them.
+//
+// The resolution is unpark's, exactly: a grid cell by the grid, a line-form
+// value by its node. An address that no longer names anything simply has no
+// span — the same silence unpark keeps, for the same reason.
+
+// The value's own columns inside a grid cell. A cell whose derivation
+// computed nothing is marked across its whole interior instead: an empty
+// cell that is empty *by formula* is the one most worth pointing at.
+function cellSpan(text, col) {
+  const cell = cells(text)[col];
+  if (!cell) return null;
+  if (cell.text) return { start: cell.col, end: cell.col + cell.text.length };
+  const pipes = [];
+  for (let i = 0; i < text.length; i++) if (text[i] === "|") pipes.push(i);
+  return pipes[col] !== undefined && pipes[col + 1] > pipes[col] + 1
+    ? { start: pipes[col] + 1, end: pipes[col + 1] }
+    : null;
+}
+
+// The value's own columns on a line-form line. With no value written the
+// colon stands in for it: something is computed here, and it is not here yet.
+function lineSpan(text) {
+  const span = valueSpan(text);
+  if (!span) return null;
+  if (!span.value) return { start: span.colon, end: span.colon + 1 };
+  const start = text.indexOf(span.value, span.colon + 1);
+  return start === -1 ? null : { start, end: start + span.value.length };
+}
+
+// Where each parked derivation's value sits now: [{ line, startCol, endCol,
+// address, formula }], in document order. Columns are 0-based, as the editor
+// counts them; the line is 1-based, as the parse counts them.
+function parkedSpans(lines, nodes, rootName, parked) {
+  const out = [];
+  const index = cellIndex(lines, nodes, rootName);
+  for (const entry of parked || []) {
+    const cell = index.get(entry.address);
+    const node = cell ? null : nodeAt(nodes, rootName, entry.address);
+    if (!cell && !node) continue;
+    const line = cell ? cell.line : node.line;
+    const text = lines[line - 1];
+    if (text === undefined) continue;
+    const span = cell ? cellSpan(text, cell.col) : lineSpan(text);
+    if (!span || span.end <= span.start) continue;
+    out.push({ line, startCol: span.start, endCol: span.end, address: entry.address, formula: entry.formula });
+  }
+  return out.sort((a, b) => (a.line - b.line) || (a.startCol - b.startCol));
+}
+
 // --- the store ---------------------------------------------------------------
 // One line per derivation, written exactly as it reads in the file:
 //
@@ -270,4 +325,4 @@ function parse(text) {
   return out;
 }
 
-module.exports = { park, unpark, addressOf, nodeAt, serialise, parse, NOTICE };
+module.exports = { park, unpark, parkedSpans, addressOf, nodeAt, serialise, parse, NOTICE };

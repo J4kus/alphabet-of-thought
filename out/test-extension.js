@@ -94,6 +94,7 @@ const vscode = {
   TextEdit: { replace: (range, text) => ({ range, text }) },
   Selection: class { constructor(...a) { this.a = a; this.active = { line: a[0], character: a[1] }; } },
   EndOfLine: { LF: 1, CRLF: 2 },
+  DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   commands: {
     registerTextEditorCommand: (id, fn) => { registeredCommands.set(id, fn); return { dispose() {} }; },
     registerCommand: (id, fn) => { plainCommands.set(id, fn); return { dispose() {} }; },
@@ -134,12 +135,17 @@ const vscode = {
     onDidSaveTextDocument: (fn) => { vscode.workspace._save = fn; return { dispose() {} }; },
     onWillSaveTextDocument: (fn) => { vscode.workspace._willSave = fn; return { dispose() {} }; },
     onDidChangeConfiguration: (fn) => { vscode.workspace._configChanged = fn; return { dispose() {} }; },
+    // three watchers live in aot.files or beside it: the CSV mirror, the
+    // .formulas stores, and the .aot files themselves. They are told apart
+    // by their glob, so one never takes another's handlers.
     createFileSystemWatcher: (glob) => {
-      const csv = /aot\.files/.test(glob || "");
+      const slot = /\.formulas/.test(glob || "") ? "_park"
+        : /aot\.files/.test(glob || "") ? "_csv"
+        : "_aot";
       return {
-        onDidChange: (fn) => { if (csv) vscode.workspace._csvChanged = fn; else vscode.workspace._aotChanged = fn; },
-        onDidCreate: (fn) => { if (csv) vscode.workspace._csvCreated = fn; else vscode.workspace._aotCreated = fn; },
-        onDidDelete: (fn) => { if (!csv) vscode.workspace._aotDeleted = fn; },
+        onDidChange: (fn) => { vscode.workspace[slot + "Changed"] = fn; },
+        onDidCreate: (fn) => { vscode.workspace[slot + "Created"] = fn; },
+        onDidDelete: (fn) => { vscode.workspace[slot + "Deleted"] = fn; },
         dispose() {},
       };
     },
@@ -1272,7 +1278,19 @@ if (process.platform === "win32" || process.platform === "darwin") {
       } });
       return Promise.resolve(true);
     },
-    revealRange: () => {}, setDecorations: () => {},
+    revealRange: () => {},
+    setDecorations: (type, ranges) => parkDecorated.set(type, ranges),
+  };
+  const parkDecorated = new Map(); // decoration type -> ranges
+  // decorate() runs over the visible editors, so the document is re-opened
+  // with this one visible and the rest of the suite's editors left alone
+  const redraw = () => {
+    const visible = vscode.window.visibleTextEditors;
+    vscode.window.visibleTextEditors = [editor];
+    parkDecorated.clear();
+    vscode.workspace._open(doc);
+    vscode.window.visibleTextEditors = visible;
+    return [...parkDecorated.values()].find((set) => set.some((d) => /\*\*Computed\*\*/.test(d.hoverMessage.value))) || [];
   };
 
   const store = path.join(root, "aot.files", "Ledger.formulas");
@@ -1299,6 +1317,43 @@ if (process.platform === "win32" || process.platform === "darwin") {
     ? "PASS (park: the parked file still verifies on its own terms — V is unchanged)"
     : "UNEXPECTED parked errors " + JSON.stringify(parkedTree.errors.map((e) => e.message)));
 
+  // ...and the values it computed say so. A parked file reads as plain
+  // values, which is what makes it lintable and what makes it easy to type
+  // over: every value the store owns is marked where it stands.
+  {
+    const marks = redraw();
+    const parkedText = text.split("\n");
+    const at = (line) => marks.find((d) => d.range.a[0] === line - 1);
+    const spanOf = (d) => parkedText[d.range.a[0]].slice(d.range.a[1], d.range.a[3]);
+    const cell = at(5), lineForm = at(8);
+    console.log(marks.length === 2 && cell && spanOf(cell) === "20" && lineForm && spanOf(lineForm) === "10"
+      ? "PASS (park: every parked value is marked where it stands, in both notations)"
+      : "UNEXPECTED parked marks " + JSON.stringify(marks.map((d) => [d.range.a, spanOf(d)])));
+    console.log(cell && /=@price\*0\.2/.test(cell.hoverMessage.value)
+      && /Ledger\.formulas/.test(cell.hoverMessage.value)
+      && /@Invoice@vat@INV-1/.test(cell.hoverMessage.value)
+      && /command:aot\.toggleFormulaPark/.test(cell.hoverMessage.value) && cell.hoverMessage.isTrusted
+      ? "PASS (park: the mark names its formula, its store and its address, and offers the key back)"
+      : "UNEXPECTED parked hover " + JSON.stringify(cell && cell.hoverMessage.value));
+
+    // a formula carries the language's own backtick literals, so the code
+    // span that shows it must be fenced wider than the formula itself
+    const parkModule = require("../src/park");
+    fs.writeFileSync(store, parkModule.serialise(
+      [{ address: "@Invoice@vat@INV-1", formula: "=xlookup(`A`,@Person@name,@Person@age)" }]));
+    const quoted = redraw()[0];
+    console.log(quoted && quoted.hoverMessage.value.includes("`` =xlookup(`A`,@Person@name,@Person@age) ``")
+      ? "PASS (park: a formula quoting the language's backticks survives the hover's code span)"
+      : "UNEXPECTED quoted hover " + JSON.stringify(quoted && quoted.hoverMessage.value));
+    fs.writeFileSync(store, stored); // the store as parking left it
+
+    configStore.parkedValueMarks = false;
+    console.log(redraw().length === 0
+      ? "PASS (park: aot.parkedValueMarks off leaves the values unmarked)"
+      : "UNEXPECTED marks with aot.parkedValueMarks off");
+    delete configStore.parkedValueMarks;
+  }
+
   // and back: the same key restores every derivation and removes the store
   await registeredCommands.get("aot.toggleFormulaPark")(editor);
   const backLines = text.split("\n");
@@ -1308,6 +1363,9 @@ if (process.platform === "win32" || process.platform === "darwin") {
   console.log(!fs.existsSync(store)
     ? "PASS (park: the store is the state — it is gone once the formulas are home)"
     : "UNEXPECTED store still there");
+  console.log(redraw().length === 0
+    ? "PASS (park: the marks go with the store — a formula in the data needs no mark)"
+    : "UNEXPECTED marks after unparking");
 
   vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(root, { recursive: true, force: true });
