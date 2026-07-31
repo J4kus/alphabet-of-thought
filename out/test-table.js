@@ -11,7 +11,7 @@ const {
   splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas, tableCtx,
   formulaReferences,
   valueType, compareValues, copyFormulaDown, copyFormulaAcross, referenceNames,
-  copyCell, moveCell, copyRow, copyColumn,
+  copyCell, moveCell, copyRow, copyColumn, alignColumn, alignmentsOf,
   mergeRegistries, readValue, truthOf,
   widthCookie, headerWidths, unwrap, unwrapWithMap, columnDefinitions,
 } = require("../src/table");
@@ -205,6 +205,15 @@ const fresh = () => blockAt(doc, 3);
       const c = splitConstraint("status ==or(`a <= b`,`sent`)");
       return c.constraints.length === 1 && c.constraints[0].formula === "or(`a <= b`,`sent`)";
     })());
+  check("splitConstraint: an operator quoted inside a reference-bearing bound never splits it",
+    (() => {
+      const c = splitConstraint("n ==countifs(@note, `a > b`)");
+      const d = splitConstraint("v ==@price*or(`a <= b`,1)");
+      return c.value === "n" && c.constraints.length === 1
+        && d.value === "v" && d.constraints.length === 1;
+    })());
+  check("splitConstraint: a bound that cannot compute is still a bound (its error is reported, not swallowed)",
+    splitConstraint("v ==@price*(2").constraints.length === 1);
   check("splitConstraint: a single bound still answers a one-entry chain",
     (() => {
       const c = splitConstraint("age >=18");
@@ -675,6 +684,109 @@ const fresh = () => blockAt(doc, 3);
 }
 
 // ---------------------------------------------------------------------------
+// the lookups: xlookup, sumifs, countifs — the whole column, this row
+// included, where the aggregates range over the other rows
+// ---------------------------------------------------------------------------
+{
+  // a mock ctx whose two columns line up row for row: @country / @price
+  const cols = [{ key: "country", id: 1 }, { key: "price", id: 2 }, { key: "status", id: 3 }];
+  const data = { 1: ["FR", "DE", "FR"], 2: ["10", "20", "30"], 3: ["paid", "draft", "paid"] };
+  const ctx = {
+    matchColumn: (rest) => {
+      const low = rest.toLowerCase();
+      const hit = cols.find((c) => low.startsWith(c.key));
+      return hit ? { id: hit.id, length: hit.key.length } : null;
+    },
+    matchRow: () => null,
+    cell: (c) => data[c][0], cellAt: (c) => data[c][0],
+    column: (c) => data[c].slice(1),  // the aggregates' reading: the others
+    columnAll: (c) => data[c],        // the lookups' reading: every row
+  };
+  const throws = (f, re) => {
+    try { evalFormula(f, ctx); return false; } catch (e) { return re ? re.test(e.message) : true; }
+  };
+
+  check("xlookup: answers the first matching row's cell in the other column",
+    evalFormula("xlookup(`DE`,@country,@price)", ctx) === "20"
+    && evalFormula("xlookup(`FR`,@country,@price)", ctx) === "10");
+  check("xlookup: the answer composes as any value does",
+    evalFormula("xlookup(`DE`,@country,@price)*2", ctx) === 40);
+  check("xlookup: a miss is an error, saying a fourth argument answers it",
+    throws("xlookup(`ZZ`,@country,@price)", /found no 'ZZ'.*fourth argument/));
+  check("xlookup: the fourth argument is the answer when nothing matches",
+    evalFormula("xlookup(`ZZ`,@country,@price,0)", ctx) === 0
+    && evalFormula("xlookup(`ZZ`,@country,@price,`none`)", ctx) === "none");
+  check("xlookup: matching is the language's own comparison (10 == `10`)",
+    evalFormula("xlookup(20,@price,@country)", ctx) === "DE");
+
+  check("sumifs: adds the rows meeting the test, this row included",
+    evalFormula("sumifs(@price,@country,`FR`)", ctx) === 40);
+  check("sumifs: several tests must all hold",
+    evalFormula("sumifs(@price,@country,`FR`,@status,`paid`)", ctx) === 40
+    && evalFormula("sumifs(@price,@country,`DE`,@status,`paid`)", ctx) === 0);
+  check("sumifs: nothing matching is 0, not an error",
+    evalFormula("sumifs(@price,@country,`ZZ`)", ctx) === 0);
+  check("countifs: tallies the rows meeting every test",
+    evalFormula("countifs(@country,`FR`)", ctx) === 2
+    && evalFormula("countifs(@country,`FR`,@price,`>10`)", ctx) === 1);
+  check("a criterion may open with a comparison operator",
+    evalFormula("countifs(@price,`>=20`)", ctx) === 2
+    && evalFormula("countifs(@price,`<20`)", ctx) === 1
+    && evalFormula("countifs(@country,`<>FR`)", ctx) === 1
+    && evalFormula("countifs(@country,`=FR`)", ctx) === 2);
+  check("a plain criterion matches by equality, an or() list matches any of them",
+    evalFormula("countifs(@country,`FR`)", ctx) === 2
+    && evalFormula("countifs(@country,or(`FR`,`DE`))", ctx) === 3
+    && evalFormula("countifs(@price,10)", ctx) === 1);
+  check("a criterion may be computed — sumifs(@price,@country,@country) totals this row's group",
+    evalFormula("sumifs(@price,@country,@country)", ctx) === 40);
+
+  check("the lookups take a column, never one row's cell",
+    throws("sumifs(@price,@country@x,`FR`)", /ranges over a column/)
+    && throws("countifs(2,`FR`)", /takes a column reference/));
+  check("countifs wants a criterion after each column",
+    throws("countifs(@country)", /criterion after each column/));
+  check("columns that do not line up are an error, not a silent mismatch",
+    (() => {
+      const ragged = { ...ctx, columnAll: (c) => (c === 1 ? ["FR"] : data[c]) };
+      try { evalFormula("countifs(@country,`FR`,@price,`>1`)", ragged); return false; }
+      catch (e) { return /different lengths/.test(e.message); }
+    })());
+  check("the lookups compute inside an untaken if() branch without ranging",
+    evalFormula("if(0,xlookup(`ZZ`,@country,@price),7)", ctx) === 7);
+  check("the aggregates keep their own reading — the other rows",
+    evalFormula("sum(@price)", ctx) === 50 && evalFormula("count(@price)", ctx) === 2);
+
+  // end to end, in a real grid: the whole column includes the formula's own
+  // row, which is exactly what a conditional total needs
+  const block = {
+    indent: "",
+    rows: [
+      { sep: false, cells: ["Order", "country", "price", "group", "rate"] },
+      { sep: true, cells: [] },
+      { sep: false, cells: ["Acme", "FR", "100", "=sumifs(@price,@country,@country)", "=xlookup(@country,@Rate@code,@Rate@pct)"] },
+      { sep: false, cells: ["Bolt", "DE", "200", "=sumifs(@price,@country,@country)", "=xlookup(@country,@Rate@code,@Rate@pct)"] },
+      { sep: false, cells: ["Kite", "FR", "50", "=sumifs(@price,@country,@country)", "=xlookup(@country,@Rate@code,@Rate@pct)"] },
+    ],
+  };
+  const reg = regOf([
+    "Rate",
+    "    |Rate|code|pct|",
+    "    |----+----+---|",
+    "    |a   |FR  |20 |",
+    "    |b   |DE  |19 |",
+  ], "Sheet");
+  recompute(block, reg);
+  check("recompute: a conditional total counts the row it stands in",
+    block.rows[2].cells[3].startsWith("150 =")
+    && block.rows[3].cells[3].startsWith("200 =")
+    && block.rows[4].cells[3].startsWith("150 ="));
+  check("recompute: xlookup reaches another Concept's grid through the registry",
+    block.rows[2].cells[4].startsWith("20 =")
+    && block.rows[3].cells[4].startsWith("19 ="));
+}
+
+// ---------------------------------------------------------------------------
 // copyFormulaDown / copyFormulaAcross / referenceNames
 // ---------------------------------------------------------------------------
 {
@@ -703,6 +815,80 @@ const fresh = () => blockAt(doc, 3);
   const names = referenceNames(grid());
   check("referenceNames: columns (header, minus name) then rows (first column)",
     names.columns.join(",") === "a,b,c" && names.rows.join(",") === "R1,R2");
+}
+
+// ---------------------------------------------------------------------------
+// column alignment: markdown's colons in the separator
+// ---------------------------------------------------------------------------
+{
+  const written = [
+    "|default|left align|right align|center align|",
+    "|-------|:---------|----------:|:----------:|",
+    "|1|1|1|1|",
+    "|2|2|2|2|",
+  ];
+  const b = blockAt(written, 0);
+  check("alignment: read off the rule, '|' dividers and all",
+    alignmentsOf(b).join(",") === ",left,right,center");
+
+  const drawn = render(b);
+  check("alignment: each column is padded on the side its marker asks for",
+    drawn[2] === "|1      |1         |          1|     1      |");
+  check("alignment: the rule is redrawn with its markers, '+' dividers",
+    drawn[1] === "|-------+:---------+----------:+:----------:|");
+  check("alignment: a column with no marker is left as it always was",
+    drawn[0] === "|default|left align|right align|center align|");
+
+  // the formatter must not churn: drawing an aligned table again changes
+  // nothing, or every save would rewrite the file
+  check("alignment: rendering is idempotent",
+    render(blockAt(drawn, 0)).join("\n") === drawn.join("\n"));
+
+  // a marker needs room: ':-:' would overhang a one-character column
+  const narrow = blockAt(["|a|b|", "|:-:|-|", "|1|2|"], 0);
+  check("alignment: a column is never drawn narrower than its own marker",
+    widthsOf(narrow)[0] === 3 && render(narrow)[1] === "|:-:+-|");
+
+  // the alignment belongs to the column, so every column operation carries it
+  let moved = blockAt(written, 0);
+  moveColumn(moved, 2, 1, 1);
+  check("alignment: moving a column takes its marker with it",
+    alignmentsOf(moved).join(",") === ",right,left,center");
+  let cut = blockAt(written, 0);
+  deleteColumn(cut, 2, 1);
+  check("alignment: deleting a column drops its marker",
+    alignmentsOf(cut).join(",") === ",right,center");
+  let grown = blockAt(written, 0);
+  insertColumn(grown, 2, 1);
+  check("alignment: an inserted column starts with no preference",
+    alignmentsOf(grown).join(",") === ",,left,right,center");
+  let copied = blockAt(written, 0);
+  copyColumn(copied, 2, 3, 1);
+  check("alignment: a copied column is aligned like the one it came from",
+    alignmentsOf(copied).join(",") === ",left,right,center,center");
+
+  // setting it from a command
+  let set = blockAt(written, 0);
+  check("alignColumn: sets the cursor column and reports where the cursor lands",
+    JSON.stringify(alignColumn(set, 2, 0, "center")) === '{"row":2,"col":0}'
+    && alignmentsOf(set)[0] === "center");
+  alignColumn(set, 2, 0, null);
+  check("alignColumn: null clears it back to no preference",
+    alignmentsOf(set).length === 0 || alignmentsOf(set)[0] === null);
+  check("alignColumn: a rule-less block has nowhere to declare one",
+    alignColumn(blockAt(["|a|b|"], 0), 0, 0, "left") === null);
+  check("alignColumn: an unknown alignment is refused",
+    alignColumn(blockAt(written, 0), 2, 0, "sideways") === null);
+
+  // the cursor lands on the text, not in the padding before it
+  check("cellStart: a right-aligned cell starts where its text does",
+    cellStart(b, 2, 2) === "|default|left align|          ".length);
+  check("cellStart: without a row it is still the column's own edge",
+    cellStart(b, 2) === "|default|left align|".length);
+
+  // and the model cannot tell: every reader trims its cells
+  check("alignment: the padding is presentation — the cells read the same",
+    cells(drawn[2]).map((c) => c.text).join(",") === "1,1,1,1");
 }
 
 // ---------------------------------------------------------------------------

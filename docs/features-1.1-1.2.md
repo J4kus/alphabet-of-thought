@@ -65,7 +65,7 @@ Measurement
 - **attribute-is-a-Concept** (solid underline): the **longest trailing run** of an attribute's words that names a Concept links. `age integer` links `integer`; `age` alone would not.
 - **value-is-an-Example** (dotted underline): a value that matches an Example name links. **⚠️ 1.3**: originally case-**sensitive**; now case-insensitive (`subject: socrates` still finds `- Socrates`).
 - **Ctrl+click** (Go to Definition) jumps to the defining line; **hover** shows the target and its line.
-- Edge: a value that names an Example filed under an *unrelated* attribute does not link — the Example must instantiate the attribute (or the Concept typing it). `subject: Socrates` links only when Socrates sits under a `subject`/`Person` ancestor.
+- Edge: a value only links to an Example **of a Concept**. **⚠️ 1.11.2**: the Example must be one of the Concept the attribute (or its alias) names — `subject: Socrates` links only when `subject` names the `Person` Concept and Socrates is one of Person's Examples. Examples listed beneath an *attribute* are that frame's own vocabulary and are no longer reachable, so an attribute that names no Concept links none of its values.
 
 ---
 

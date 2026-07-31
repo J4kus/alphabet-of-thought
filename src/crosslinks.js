@@ -3,9 +3,14 @@
 //   attribute-is-a-Concept   an attribute's (or default's) trailing words
 //                            match a Concept name, case-insensitively:
 //                            `age integer: 5` links to the `Integer` Concept
-//   default-is-a-Example  a default value matches an Example name,
+//   default-is-a-Example  a default value names an Example of the Concept
+//                            its attribute is typed by (attribute-is-a-Concept,
+//                            through the alias when it carries one),
 //                            case-insensitively:
-//                            `person: socrates` links to `- Socrates`
+//                            `person: socrates` links to the `Person` Concept's
+//                            `- Socrates`. Only Examples of a Concept are
+//                            linkable: the Examples listed beneath an attribute
+//                            are that frame's own, and no value reaches them.
 //   example-is-a-Example  an Example listed under an attribute that names
 //                            a Concept (attribute-is-a-Concept) matches an
 //                            Example of that Concept: `shade hue` typed by
@@ -99,9 +104,22 @@ function conceptType(node, concepts) {
   return null;
 }
 
-// Whether anc is an ancestor of node (node sits somewhere beneath it).
-function descendsFrom(node, anc) {
-  for (let p = node.parent; p; p = p.parent) if (p === anc) return true;
+// Whether an Example is one of a Concept's own — an Example *of the Concept*,
+// not of some attribute. The walk up from it to the named Concept may pass
+// through Examples and narrower Concepts only: `- Crimson` under `- Red` under
+// `Hue` is a Hue. An attribute on the way stops the walk, because the Examples
+// listed beneath an attribute are that attribute's own vocabulary, in that
+// frame — the `- Ellipsis` under one frame's `allow special value override` is
+// not a value another frame's attribute may name. Matched by name (with an
+// alias, and past a numbering prefix) so a Concept and its Examples may live
+// in different files.
+function exampleOfConcept(node, conceptName) {
+  const want = numberless(conceptName).toLowerCase();
+  for (let a = node.parent; a; a = a.parent) {
+    if (a.kind === KIND.ATTRIBUTE || a.kind === KIND.DEFAULT) return false;
+    if (numberless(a.name).toLowerCase() === want
+      || (a.alias && a.alias.toLowerCase() === want)) return true;
+  }
   return false;
 }
 
@@ -131,24 +149,26 @@ function individualsIndex(nodes) {
 }
 
 // The Example a default's value names (default-is-a-Example), or null: the
-// named Example must instantiate the attribute, or the Concept typing it.
+// attribute (or its alias) must name a Concept, and the value must be an
+// Example of that Concept. An attribute that names no Concept states no
+// vocabulary for its values, so nothing links.
 function valueTarget(node, concepts, byName) {
   if (node.kind !== KIND.DEFAULT || !node.value) return null;
   const type = conceptType(node, concepts);
+  if (!type) return null;
   return (byName.get(node.value.toLowerCase()) || []).find(
-    (cand) => cand !== node
-      && (instantiates(cand, node.name) || (type && instantiates(cand, type.name)))
+    (cand) => cand !== node && exampleOfConcept(cand, type.name)
   ) || null;
 }
 
 // The defining Example a listed Example references (example-is-a-Example),
-// or null: the target must descend from the Concept typing the attribute.
+// or null: the target must be an Example of the Concept typing the attribute.
 function listedTarget(node, concepts, byName) {
   if (node.kind !== KIND.INDIVIDUAL || !node.parent) return null;
   if (node.parent.kind !== KIND.ATTRIBUTE && node.parent.kind !== KIND.DEFAULT) return null;
   const type = conceptType(node.parent, concepts);
   return (type && (byName.get(node.name.toLowerCase()) || []).find(
-    (cand) => cand !== node && descendsFrom(cand, type)
+    (cand) => cand !== node && exampleOfConcept(cand, type.name)
   )) || null;
 }
 
@@ -436,14 +456,14 @@ function resolve(text, root, nodes, external) {
     }
 
     if (node.kind === KIND.DEFAULT && node.value) {
-      // Only a genuine value of the attribute links: the named Example must
-      // instantiate the attribute, either because the attribute directly holds
-      // it (`operation: Ratio`, Ratio filed beneath `operation`) or because the
-      // attribute names the Concept it lives under (attribute-is-a-Concept,
-      // `person: Socrates` typed by `Person`, `interval count: 1` typed by the
-      // `Interval Count` Concept). Among Examples of that name the in-scope one
-      // is chosen, so a same-named Example filed under an unrelated attribute —
-      // the `- 1` under `maximum number of elements` — is never picked.
+      // Only a genuine value of the attribute links: the attribute must name a
+      // Concept (attribute-is-a-Concept, through its alias when it carries one
+      // — `person: Socrates` typed by `Person`, `interval count: 1` typed by
+      // the `Interval Count` Concept), and the value must name an Example of
+      // that Concept. Among Examples of that name the in-scope one is chosen,
+      // so a same-named Example filed under an attribute — the `- 1` under
+      // `maximum number of elements` — is never picked: an attribute's listed
+      // Examples are its own frame's vocabulary, not a Concept's.
       const target = valueTarget(node, concepts, individualsByName);
       if (target) {
         // a table cell knows its exact offset; a 'name: value' line finds
@@ -471,8 +491,9 @@ function resolve(text, root, nodes, external) {
     // form of `attribute: Example`: link it to that Concept's Example, just as
     // default-is-a-Example links the value. The defining Example is the first
     // of its name (target !== node skips it); a later same-named Example under
-    // the typed attribute is the reference. Requiring the target to descend
-    // from the attribute's Concept keeps it to genuine values of that type.
+    // the typed attribute is the reference. Requiring the target to be an
+    // Example of the attribute's Concept keeps it to genuine values of that
+    // type, and off another attribute's listed Examples.
     if (node.kind === KIND.INDIVIDUAL && node.parent
         && (node.parent.kind === KIND.ATTRIBUTE || node.parent.kind === KIND.DEFAULT)) {
       const target = listedTarget(node, concepts, individualsByName);
@@ -502,6 +523,6 @@ function resolve(text, root, nodes, external) {
 
 module.exports = {
   resolve, index, externalIndex, conceptType, wordStarts, instantiates,
-  individualsIndex, valueTarget, listedTarget, owningConcept,
+  exampleOfConcept, individualsIndex, valueTarget, listedTarget, owningConcept,
   unlistedValues, listedExamples,
 };

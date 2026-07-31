@@ -44,9 +44,9 @@ node verify.js <file>	Whole-file check with a V = 0 verdict + exit code (0 = ver
 --suggest	FCA audit + the positive confirmed report (only surfaced here, not in the editor)
 
 ## Linter / diagnostics
-- [ ] Example linknig may only be to examples of concepts not exampels of attributes
+- [x] Example linking may only be to Examples of Concepts, not Examples of attributes — **done 2026-07-30**: `default-is-a-Example` and `example-is-a-Example` now require the attribute (or its alias) to name a Concept, and the target to be an Example *of that Concept*. The walk up from the target may pass through Examples and narrower Concepts only; an attribute on the way stops it, so one frame's `allow special value override: Ellipsis` no longer reaches another frame's `- Ellipsis`
 - [x] Make example/value matching not capitalisation-specific — **done 2026-07-12 (1.2.0)**: all Example links resolve case-insensitively (crosslinks, FCA, subsumption); case-only twin Examples warn
-- [ ] `default-is-a-Example` now requires the Example to instantiate the attribute being valued: some ancestor of the Example must carry the attribute's name (or a trailing run of its words, the alias rule). `exponent: 1` no longer links to an unrelated `- 1` filed under another attribute; the same guard applies to the FCA value-ancestry expansion... Example value matching should only be allowed if the example is one that is the same concept as the one defined (need to carry the highlighting in the file even if it is partial)
+- [x] `default-is-a-Example` value matching is allowed only when the Example is one of the Concept the attribute names — **done 2026-07-30** (see above). The attribute-name ancestry route is gone: an attribute that names no Concept states no vocabulary, so its values link to nothing. The FCA / subsumption value-ancestry expansion still walks by attribute name (a reasoner's generalisation, not a navigable link) — revisit if the two should agree
 - [ ] Reword the "Concept defined twice" diagnostic (say something more useful instead)
 - [ ] Have a javascript file that can highlight wording differences
 - [ ] Show how far an Concept is on the dependency tree (depth indicator) when you hover over it

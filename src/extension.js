@@ -2197,7 +2197,7 @@ function runTableOp(editor, op) {
     const phys = block.physStart && block.physStart[target.row] !== undefined
       ? block.physStart[target.row] : target.row;
     const line = block.start + phys;
-    const character = table.cellStart(block, target.col);
+    const character = table.cellStart(block, target.col, target.row);
     editor.selection = new vscode.Selection(line, character, line, character);
     editor.revealRange(new vscode.Range(line, character, line, character));
   });
@@ -2233,6 +2233,11 @@ const tableOps = {
   "aot.table.copyRowUp": (b, r, c) => table.copyRow(b, r, c, -1),
   "aot.table.copyColumnLeft": (b, r, c) => table.copyColumn(b, r, c, -1),
   "aot.table.copyColumnRight": (b, r, c) => table.copyColumn(b, r, c, 1),
+  // the column's alignment, written as markdown's colons in the separator
+  "aot.table.alignLeft": (b, r, c) => table.alignColumn(b, r, c, "left"),
+  "aot.table.alignRight": (b, r, c) => table.alignColumn(b, r, c, "right"),
+  "aot.table.alignCenter": (b, r, c) => table.alignColumn(b, r, c, "center"),
+  "aot.table.alignDefault": (b, r, c) => table.alignColumn(b, r, c, null),
 };
 
 // Turn the selected delimited lines (CSV, TSV, or multi-space columns) into

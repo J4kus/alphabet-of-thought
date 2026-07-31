@@ -18,6 +18,80 @@
 // one dash: '|---+---|', '|-', '| --- | --- |' all count.
 const isSeparator = (text) => /^\|[\s\-+:|]*$/.test(text) && text.includes("-");
 
+// --- column alignment --------------------------------------------------------
+// A separator cell may carry markdown's alignment colons, and the column is
+// drawn that way:
+//
+//     |default|left align|right align|center align|
+//     |-------+:---------+----------:+:----------:|
+//     |1      |1         |          1|     1      |
+//
+// The colon is presentation, exactly as the width cookie and the numbering
+// prefix are: every reader of a table trims its cells, so no crosslink,
+// formula, CSV row or Gödel number can tell an aligned column from a plain
+// one. It is written where the shape of the table is already written — the
+// separator — rather than on the header, which names the attribute.
+const ALIGNMENTS = ["left", "right", "center"];
+
+// The alignment each separator cell declares: ':---' left, '---:' right,
+// ':--:' centre, a plain rule none. A lone ':' reads as left, since it opens
+// with one and never closes.
+function alignmentsFrom(line) {
+  // a rule divides its columns with '+' when this renderer drew it and with
+  // '|' when a hand (or a markdown table) typed it — both are the same rule
+  return cells(String(line).replace(/\+/g, "|")).map(({ text }) => {
+    const opens = text.startsWith(":");
+    const closes = text.length > 1 && text.endsWith(":");
+    return opens && closes ? "center" : opens ? "left" : closes ? "right" : null;
+  });
+}
+
+// The block's alignments: the first separator row that declares any. A table
+// with several rules is one table, so the first one speaks for it.
+function alignmentsOf(block) {
+  for (const row of block.rows) {
+    if (row.sep && row.align && row.align.some(Boolean)) return row.align;
+  }
+  return [];
+}
+
+// The narrowest a column can be drawn and still show its marker: ':-:' needs
+// three characters, ':-' and '-:' two. Without this a one-character column
+// would draw a rule wider than its cells and the grid would shear.
+const alignMin = (how) => (how === "center" ? 3 : how ? 2 : 0);
+
+// A cell padded to its column's width, on the side its alignment asks for.
+// An over-long cell is never truncated — the column widens instead.
+function padCell(text, width, how) {
+  const gap = width - text.length;
+  if (gap <= 0) return text;
+  if (how === "right") return " ".repeat(gap) + text;
+  if (how === "center") {
+    const left = Math.floor(gap / 2);
+    return " ".repeat(left) + text + " ".repeat(gap - left);
+  }
+  return text + " ".repeat(gap);
+}
+
+// One separator cell, drawn to the column's width with its marker kept.
+function sepCell(width, how) {
+  if (how === "center") return ":" + "-".repeat(Math.max(1, width - 2)) + ":";
+  if (how === "left") return ":" + "-".repeat(Math.max(1, width - 1));
+  if (how === "right") return "-".repeat(Math.max(1, width - 1)) + ":";
+  return "-".repeat(width);
+}
+
+// Run fn over every separator row's alignment list, each first grown to the
+// table's column count so a column operation can splice it beside the cells.
+function eachSepAlign(block, columns, fn) {
+  for (const row of block.rows) {
+    if (!row.sep) continue;
+    row.align = row.align || [];
+    while (row.align.length < columns) row.align.push(null);
+    fn(row.align);
+  }
+}
+
 // Split a pipe row into its cells with their column offsets in the line.
 // The content between consecutive pipes is one cell; a trailing pipe closes
 // the last cell rather than opening an empty one.
@@ -54,7 +128,10 @@ function blockAt(lines, lineIdx) {
     // and dashes, so isSeparator already reads it as a separator being
     // typed — org's '|-' creation flow: the next redraw completes the rule
     const sep = isSeparator(lines[i].trim());
-    rows.push({ sep, cells: sep ? [] : cells(lines[i]).map((c) => c.text) });
+    // a separator carries no cells, but it does carry the columns' alignment
+    rows.push(sep
+      ? { sep, cells: [], align: alignmentsFrom(lines[i]) }
+      : { sep, cells: cells(lines[i]).map((c) => c.text) });
   }
   return { start, end, indent, rows };
 }
@@ -177,6 +254,13 @@ function widthsOf(block) {
       widths[k] = Math.max(widths[k] || 0, w);
     });
   });
+  // a column that declares an alignment is never drawn narrower than its own
+  // marker: ':-:' would otherwise overhang a one-character column and shear
+  // the grid line by line
+  const aligns = alignmentsOf(block);
+  for (let k = 0; k < widths.length; k++) {
+    widths[k] = Math.max(widths[k], alignMin(aligns[k]));
+  }
   return widths.length ? widths : [0];
 }
 
@@ -187,11 +271,13 @@ function widthsOf(block) {
 // widths; block.physStart maps each logical row to its first drawn line.
 function render(block) {
   const caps = headerWidths(block);
+  const aligns = alignmentsOf(block);
+  const rule = (widths) => block.indent + "|" + widths.map((w, k) => sepCell(w, aligns[k])).join("+") + "|";
   if (!caps) {
     const widths = widthsOf(block);
     return block.rows.map((row) => row.sep
-      ? block.indent + "|" + widths.map((w) => "-".repeat(w)).join("+") + "|"
-      : block.indent + "|" + widths.map((w, k) => (row.cells[k] || "").padEnd(w)).join("|") + "|");
+      ? rule(widths)
+      : block.indent + "|" + widths.map((w, k) => padCell(row.cells[k] || "", w, aligns[k])).join("|") + "|");
   }
   unwrap(block);
   const widths = widthsOf(block);
@@ -200,7 +286,7 @@ function render(block) {
   block.rows.forEach((row, i) => {
     physStart[i] = out.length;
     if (row.sep) {
-      out.push(block.indent + "|" + widths.map((w) => "-".repeat(w)).join("+") + "|");
+      out.push(rule(widths));
       return;
     }
     const isHeader = i === 0 && block.rows[1] && block.rows[1].sep;
@@ -211,7 +297,7 @@ function render(block) {
     });
     const depth = Math.max(1, ...frags.map((f) => f.length));
     for (let d = 0; d < depth; d++) {
-      out.push(block.indent + "|" + widths.map((w, k) => (frags[k][d] || "").padEnd(w)).join("|") + "|");
+      out.push(block.indent + "|" + widths.map((w, k) => padCell(frags[k][d] || "", w, aligns[k])).join("|") + "|");
     }
   });
   block.physStart = physStart;
@@ -220,10 +306,19 @@ function render(block) {
 
 // Where a cell's text begins on an aligned line, so a command can land the
 // cursor at the start of a field, as org does.
-function cellStart(block, col) {
+function cellStart(block, col, rowIdx) {
   const widths = widthsOf(block);
   let x = block.indent.length + 1;
   for (let k = 0; k < Math.min(col, widths.length); k++) x += widths[k] + 1;
+  // a right- or centre-aligned cell carries its padding in front of the
+  // text, so without the row we would land the cursor in the gap and any
+  // typing would go before the value rather than into it
+  const aligns = alignmentsOf(block);
+  const row = rowIdx === undefined ? null : block.rows[rowIdx];
+  if (row && !row.sep && col < widths.length && aligns[col] && aligns[col] !== "left") {
+    const gap = Math.max(0, widths[col] - (row.cells[col] || "").length);
+    x += aligns[col] === "right" ? gap : Math.floor(gap / 2);
+  }
   return x;
 }
 
@@ -300,6 +395,8 @@ function moveColumn(block, row, col, dir) {
   for (const r of block.rows) {
     if (!r.sep) [r.cells[col], r.cells[other]] = [r.cells[other], r.cells[col]];
   }
+  // the alignment is the column's, so it travels with it
+  eachSepAlign(block, numCols, (a) => { [a[col], a[other]] = [a[other], a[col]]; });
   return { row, col: other };
 }
 
@@ -314,10 +411,12 @@ function moveRow(block, row, col, dir) {
 
 // M-S-right: a new empty column where the cursor stands, pushing it right.
 function insertColumn(block, row, col) {
+  const numCols = widthsOf(block).length;
   padRows(block);
   for (const r of block.rows) {
     if (!r.sep) r.cells.splice(Math.min(col, r.cells.length), 0, "");
   }
+  eachSepAlign(block, numCols, (a) => a.splice(Math.min(col, a.length), 0, null));
   return { row, col };
 }
 
@@ -329,6 +428,7 @@ function deleteColumn(block, row, col) {
   for (const r of block.rows) {
     if (!r.sep) r.cells.splice(col, 1);
   }
+  eachSepAlign(block, numCols, (a) => a.splice(col, 1));
   return { row, col: Math.max(0, Math.min(col, numCols - 2)) };
 }
 
@@ -492,7 +592,20 @@ function copyColumn(block, row, col, dir) {
   for (const r of block.rows) {
     if (!r.sep) r.cells.splice(at, 0, r.cells[col] || "");
   }
+  eachSepAlign(block, numCols, (a) => a.splice(at, 0, a[col] || null));
   return { row, col: at };
+}
+
+// Set (or clear, with null) the cursor column's alignment, writing the
+// colons into every separator the table has. A table with no separator is
+// not yet a table — its shape is still being typed — so there is nowhere to
+// declare an alignment and nothing happens.
+function alignColumn(block, row, col, how) {
+  const numCols = widthsOf(block).length;
+  if (col >= numCols || !block.rows.some((r) => r.sep)) return null;
+  if (how !== null && !ALIGNMENTS.includes(how)) return null;
+  eachSepAlign(block, numCols, (a) => { a[col] = how; });
+  return { row, col };
 }
 
 // C-c |: turn plain delimited lines (tab-, comma- or multi-space-separated)
@@ -534,6 +647,17 @@ function fromRegion(lines) {
 //                              (a tie goes to the column)
 //   sum avg min max count      over the table's other data rows: sum(@price),
 //                              count(@price) — count tallies non-empty cells
+//   xlookup(v,@key,@answer)    the answer column's cell on the first row
+//                              whose key cell is v; a fourth argument says
+//                              what to answer when nothing matches
+//   sumifs(@add,@c,crit,…)     add up / tally the rows meeting every test:
+//   countifs(@c,crit,…)        sumifs(@price,@country,`FR`). Unlike the
+//                              aggregates these range over ALL the rows,
+//                              this one included, as a spreadsheet range
+//                              does — and every column must line up
+//   a criterion                a plain value matches by equality; a string
+//                              opening with a comparison operator compares
+//                              (`>=10`, `<>paid`); an or() list matches any
 //   round(x,n) abs(x) ln(x)    numeric helpers; ln() wants a positive number
 //   upper lower trim len       string helpers; left(x,n) right(x,n)
 //   left right mid replace     mid(x,i,n) is 1-based, replace(x,a,b) is all
@@ -605,6 +729,20 @@ function splitConstraint(text) {
   return { value: text, eq: -1, op: null, formula: "", constraints: [] };
 }
 
+// Whether a segment could be a formula on its own: its brackets and its
+// backticks close. Text cut off inside either is a fragment, whatever else
+// it holds.
+function standsWhole(text) {
+  let depth = 0, quoted = false;
+  for (const ch of text) {
+    if (ch === "`") { quoted = !quoted; continue; }
+    if (quoted) continue;
+    if (ch === "(") depth++;
+    else if (ch === ")" && --depth < 0) return false;
+  }
+  return depth === 0 && !quoted;
+}
+
 // The bounds chained from `from` (which indexes an operator) to the end of
 // the text: each further space-preceded operator whose preceding segment
 // stands as a formula of its own starts a new bound — so 'age >=18 <=65'
@@ -625,7 +763,11 @@ function chainOf(text, from) {
       if (!next) continue;
     }
     const seg = text.slice(segStart, boundary ? text.length : j).trim();
-    if (!seg || !(seg.includes("@") || triesAsFormula(seg))) {
+    // An '@' vouches for a segment the dry run cannot evaluate — but only
+    // where the segment stands whole. Mid-text, a cut inside a string or a
+    // bracket is the middle of the bound already being read, never a new
+    // one, so '==countifs(@note, `a > b`)' keeps its quoted operator.
+    if (!seg || !(seg.includes("@") || triesAsFormula(seg)) || (!boundary && !standsWhole(seg))) {
       if (boundary) return null; // every bound must read as a formula
       continue;                  // an in-formula operator, not a new bound
     }
@@ -657,7 +799,7 @@ function valueType(v) {
 // here — an '@' already vouches for them in splitConstraint.
 const DRY_CTX = {
   matchColumn: () => null, matchRow: () => null,
-  cell: () => "0", cellAt: () => "0", column: () => ["0"],
+  cell: () => "0", cellAt: () => "0", column: () => ["0"], columnAll: () => ["0"],
 };
 function triesAsFormula(src) {
   try { evalFormula(src.trim(), DRY_CTX); return true; } catch { return false; }
@@ -741,6 +883,26 @@ function compareValues(op, a, b) {
   if (op === ">=") return x >= y;
   if (op === "<") return x < y;
   return x > y;
+}
+
+// A criterion, the way a spreadsheet writes one: a plain value matches by
+// equality, while a string opening with a comparison operator compares —
+// `>=10`, `<>paid`, `<2026-01-01`. `<>` and `!=` both say 'not'. Answers
+// the test a cell's value is put to. An or() list needs no rule of its
+// own: compareValues already distributes over its alternatives, so
+// `or(`sent`,`paid`)` matches either.
+const CRITERION_OPS = [">=", "<=", "<>", "!=", "==", ">", "<", "="]; // longest first
+function criterionTest(crit) {
+  if (typeof crit === "string") {
+    const op = CRITERION_OPS.find((o) => crit.startsWith(o));
+    if (op) {
+      const rhs = crit.slice(op.length).trim();
+      const negated = op === "<>" || op === "!=";
+      const cmp = negated || op === "=" ? "==" : op;
+      return (v) => compareValues(cmp, v, rhs) !== negated;
+    }
+  }
+  return (v) => compareValues("==", v, crit);
 }
 
 // Evaluate a formula against ctx (computeCell builds the table's ctx):
@@ -898,6 +1060,30 @@ function evalFormula(src, ctx) {
     max: (a) => Math.max(...a),
   };
 
+  // One column argument of a lookup — the same reading colRef gives an
+  // aggregate, with the same refusal of a paired Example, since a column is
+  // what these range over too.
+  const columnArg = (name) => {
+    ws();
+    if (src[i] !== "@") err(`${name}() takes a column reference like @price`);
+    const c = colRef(name);
+    if (src[i] === "@") err(`${name}() ranges over a column, not one row's cell`);
+    return c;
+  };
+  // The whole of a column — every row in order, this row included. The
+  // aggregates deliberately range over the OTHER rows (org's reading: a
+  // total sits in a row of its own), but a lookup asks a spreadsheet
+  // question, where a range is every row and two columns line up row for
+  // row. A scope written before columnAll existed still answers with its
+  // aggregate reading rather than failing.
+  const wholeColumn = ({ scope, col }) =>
+    (scope.columnAll ? scope.columnAll(col) : scope.column(col));
+  const aligned = (name, a, b) => {
+    if (a.length !== b.length) {
+      err(`${name}() ranges over columns of different lengths (${a.length} and ${b.length}) — its columns must be rows of the same table`);
+    }
+  };
+
   function call(name, skip) {
     i += skip; // the name and its '('
     if (name in AGG || name === "count") {
@@ -912,6 +1098,63 @@ function evalFormula(src, ctx) {
       const values = raw.map((v) => numericValue(v)).filter((n) => !isNaN(n));
       if (!values.length) err(`column @${col} has no numeric values`);
       return AGG[name](values);
+    }
+    // xlookup(value, @key column, @answer column [, when there is no match]):
+    // the answer column's cell on the FIRST row whose key cell equals the
+    // value — a Concept looked up in another Concept's grid, which is what
+    // a foreign key is. Without a fourth argument a miss is an error (the
+    // cell shows #ERR), since a lookup that found nothing has no value to
+    // stand in for; with one, that argument is the answer.
+    if (name === "xlookup") {
+      const wants = "xlookup() takes a value, the column to search and the column to answer from";
+      const needle = cmp();
+      expect(",", wants);
+      const search = columnArg(name);
+      expect(",", wants);
+      const answer = columnArg(name);
+      let fallback, hasFallback = false;
+      ws();
+      if (src[i] === ",") { i++; fallback = cmp(); hasFallback = true; }
+      expect(")");
+      if (dead) return 0;
+      const keys = wholeColumn(search), values = wholeColumn(answer);
+      aligned(name, keys, values);
+      const at = keys.findIndex((v) => compareValues("==", v, needle));
+      if (at !== -1) return values[at];
+      if (hasFallback) return fallback;
+      err(`xlookup() found no '${toStr(needle)}' in the column it searched — a fourth argument says what to answer when there is no match`);
+    }
+    // sumifs(@column to add, @column, criterion, …) and countifs(@column,
+    // criterion, …): every row meeting EVERY test, added up or tallied.
+    // Both range over the whole column, this row included — a conditional
+    // total is about the data, not about the other rows — so a row may
+    // total its own group: sumifs(@price, @country, @country).
+    if (name === "sumifs" || name === "countifs") {
+      const adds = name === "sumifs" ? columnArg(name) : null;
+      if (adds) expect(",", "sumifs() takes the column to add, then a column and a criterion for each test");
+      const tests = [];
+      for (;;) {
+        const col = columnArg(name);
+        expect(",", `${name}() takes a criterion after each column, like ${name}(…, @status, \`paid\`)`);
+        tests.push({ col, crit: cmp() });
+        ws();
+        if (src[i] !== ",") break;
+        i++;
+      }
+      expect(")");
+      if (dead) return 0;
+      const columns = tests.map((t) => wholeColumn(t.col));
+      const over = adds ? wholeColumn(adds) : columns[0];
+      for (const c of columns) aligned(name, over, c);
+      const holds = tests.map((t) => criterionTest(t.crit));
+      let total = 0, tally = 0;
+      for (let r = 0; r < over.length; r++) {
+        if (!columns.every((c, k) => holds[k](c[r]))) continue;
+        tally++;
+        const v = numericValue(over[r]);
+        if (!isNaN(v)) total += v;
+      }
+      return adds ? total : tally;
     }
     if (name === "if") {
       // lazy: the untaken branch is parsed (syntax still checked) with its
@@ -1030,7 +1273,7 @@ function evalFormula(src, ctx) {
       i = close + 1;
       return v;
     }
-    const fn = /^(sum|avg|min|max|count|round|abs|ln|upper|lower|trim|len|left|right|mid|replace|if|and|or|xor|not|concat|substitute|find|contains|starts|ends|proper|repeat|pad|split|text|value)\s*\(/i.exec(src.slice(i));
+    const fn = /^(xlookup|sumifs|countifs|sum|avg|min|max|count|round|abs|ln|upper|lower|trim|len|left|right|mid|replace|if|and|or|xor|not|concat|substitute|find|contains|starts|ends|proper|repeat|pad|split|text|value)\s*\(/i.exec(src.slice(i));
     if (fn) return call(fn[1].toLowerCase(), fn[0].length);
     const num = /^\d+(\.\d+)?/.exec(src.slice(i));
     if (num) { i += num[0].length; return +num[0]; }
@@ -1254,6 +1497,24 @@ function tableCtx(rows, row, header, registry, outer) {
         .map((name, k) => ({ name: String(name).toLowerCase(), k }))
         .filter((e) => !held.has(e.name))
         .map((e) => outer.cellAt(key, e.k));
+      return [...grid, ...extras];
+    },
+    // Every row's value in row order, this row included — what a lookup
+    // ranges over, where column() answers the other rows the aggregates
+    // mean. The parent's line-form Examples ride along exactly as they do
+    // there, and a column the parent does not know contributes an empty
+    // value for them rather than dropping out, so any two columns of the
+    // one table line up row for row.
+    columnAll: (c) => {
+      const numbered = typeof c === "number";
+      const grid = rows.map((r) => (numbered ? read(r, c) : throughOuter(c, gridName(r))));
+      if (!outer) return grid;
+      const key = numbered ? outerCol(c) : c;
+      const held = new Set(rows.map((r) => gridName(r).toLowerCase()));
+      const extras = (outer.rows || [])
+        .map((name, k) => ({ name: String(name).toLowerCase(), k }))
+        .filter((e) => !held.has(e.name))
+        .map((e) => (key === null ? "" : outer.cellAt(key, e.k)));
       return [...grid, ...extras];
     },
     matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
@@ -1761,10 +2022,11 @@ module.exports = {
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, insertSeparator, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
   copyCell, moveCell, copyRow, copyColumn,
+  alignColumn, alignmentsOf, alignmentsFrom, padCell, sepCell, ALIGNMENTS,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas,
   referenceSpans, formulaReferences,
-  compareValues, longestMatch, numericValue, tableCtx,
+  compareValues, criterionTest, longestMatch, numericValue, tableCtx,
   readValue, Choice, truthOf, describeBound,
   valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
   mergeRegistries, enclosingScope,

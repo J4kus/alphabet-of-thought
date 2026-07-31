@@ -340,11 +340,11 @@ const listed = [
     ? "PASS (example-is-a-Example: a wrong-typed listed Example does not link)"
     : "UNEXPECTED stray example-is-a-Example");
 
-  // default-is-a-Example: a value only links when it names an Example the
-  // attribute genuinely ranges over — either held directly beneath it, or
-  // under the Concept it is typed to. A value merely sharing a name with an
-  // unrelated Example ('interval count: 1' matching a '- 1' filed elsewhere)
-  // must not link, but the same value naming the attribute's own '- 1' must.
+  // default-is-a-Example: a value only links when it names an Example of the
+  // Concept its attribute is typed by. An Example listed beneath an attribute
+  // is that frame's own vocabulary, not a Concept's, so no value reaches it:
+  // neither 'interval count: 1' nor a second 'maximum number of elements: 1'
+  // elsewhere may name the '- 1' filed under Length's attribute.
   const values = [
     "Length",
     "    maximum number of elements",
@@ -357,11 +357,10 @@ const listed = [
   ].join("\n");
   const v = lint(values, "World");
   const valueLinks = resolve(values, v.root, v.nodes).filter((l) => l.connection === "default-is-a-Example");
-  const strayValue = valueLinks.some((l) => l.line === 6); // Duration's interval count: 1
-  const ownValue = valueLinks.some((l) => l.line === 8);   // maximum number of elements: 1
-  console.log(!strayValue && ownValue
-    ? "PASS (default-is-a-Example: unrelated same-named Example does not link; the attribute's own does)"
-    : "UNEXPECTED default-is-a-Example value linking");
+  console.log(!valueLinks.length
+    ? "PASS (default-is-a-Example: an Example of an attribute is not a value any attribute may name)"
+    : "UNEXPECTED default-is-a-Example value linking "
+      + JSON.stringify(valueLinks.map((l) => [l.line, l.text])));
 
   // Among several same-named Examples, a concept-typed value picks the one
   // under its Concept, not the document's first: 'interval count: 1' links to
@@ -643,8 +642,8 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[2] === "    |Ollie|5   |"
       && editor.selection.active.line === 3 && editor.selection.active.character === 11;
-    console.log(ok && registeredCommands.size === 31
-      ? "PASS (table editor: 31 commands; Tab aligns and moves to the next cell)"
+    console.log(ok && registeredCommands.size === 35
+      ? "PASS (table editor: 35 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }

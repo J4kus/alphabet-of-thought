@@ -17,26 +17,31 @@
         indent
         encoding
         newline
-    Aristotelian Category
-        Said Of
-            - Is Said Of
-            - Not Said Of
-                start time
-                end time
-                created time
-                updated time
-                is active
-                created author
-                updated author
-        Present in
-            - Is Present In
-            - Not Present In
-        confidence
+    
+
     Token
         Idea
+            is present in
+            is said of
+            - Example (Individual Substance)
+                recognise: must start with dash and space
+                is present in: no
+                is said of: no
+                is: content
+                predicate: Is An Example Of
+                begin
+                    - Dash
+                    - End of Line
+                    - : after concept
+                    - ` inside a concept or attribute
+                end: end of line
+                allow special value override
+                    - Ellipsis
+                    - Boolean
             - Concept (Universal Substance)
                 recognise: first letter is capitalised
-                present in: False
+                is present in: no
+                is said of: yes
                 example: Human
             - Attribute (Universal Accident)
                 characters: lowercase
@@ -45,19 +50,6 @@
                 present in: True
                 example: full name
             
-            - Example (Individual Substance)
-                recognise: must start with dash and space
-                present in: False
-                is: Content
-                predicate: Is An Example Of
-                begin
-                    - Dash
-                    - End of Line
-                    - ` inside a concept or attribute
-                end: end of line
-                allow special value override
-                    - Ellipsis
-                    - Boolean
             - Default Value (Individual Accident)
                 start: :
                 end: End of line
@@ -100,7 +92,6 @@
                         - All Siblings Have The Same Granularity
                         - Siblings May Have The Same Slot If Default Values Are Different
                         - New Lines
-
             Same Line Connection
                 - value-is
                 - has-another-name

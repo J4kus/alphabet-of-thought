@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.1",
+  "version": "1.11.5",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -262,6 +262,30 @@
       {
         "command": "aot.table.copyColumnRight",
         "title": "Copy Column Right",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.alignLeft",
+        "title": "Align Column Left",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.alignRight",
+        "title": "Align Column Right",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.alignCenter",
+        "title": "Align Column Center",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.alignDefault",
+        "title": "Clear Column Alignment",
         "category": "AOT Table",
         "enablement": "editorLangId == aot"
       },

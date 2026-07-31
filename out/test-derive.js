@@ -117,6 +117,43 @@ const parsed = (text) => {
 }
 
 // ---------------------------------------------------------------------------
+// the lookups range over EVERY Example, this one included — a conditional
+// total is about the data, not about the other rows
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Order",
+    "    paid: =sumifs(@price,@status,`paid`)",
+    "    open: =countifs(@status,`<>paid`)",
+    "    de rate: =xlookup(`DE`,@Rate@code,@Rate@pct)",
+    "    - A",
+    "        price: 10",
+    "        status: paid",
+    "        group: =sumifs(@price,@status,@status)",
+    "    - B",
+    "        price: 20",
+    "        status: draft",
+    "    - C",
+    "        price: 30",
+    "        status: paid",
+    "Rate",
+    "    - eu",
+    "        code: DE",
+    "        pct: 19",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const reg = mergeRegistries(conceptRegistry(root, nodes));
+  const edits = recomputeValues(root, nodes, lines, reg);
+  const at = (line) => (edits.find((e) => e.line === line) || {}).text || "";
+  check("recompute: sumifs/countifs over a Concept's Examples",
+    at(2).includes("paid: 40 =") && at(3).includes("open: 1 ="));
+  check("recompute: xlookup reaches another Concept written in line form",
+    at(4).includes("de rate: 19 ="));
+  check("recompute: an Example's own conditional total counts itself",
+    at(8).includes("group: 40 ="));
+}
+
+// ---------------------------------------------------------------------------
 // the fixpoint: a formula referencing another formula's value converges
 // ---------------------------------------------------------------------------
 {

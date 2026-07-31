@@ -2,9 +2,14 @@
 
 |Person      |first name|age          |is alive|
 |------------+----------+-------------+--------|
-|Aristotle   |          |10           |No      |
+|Aristotle   |A         |10           |No      |
 |Socrates    |Sokrates  |20           |No      |
 |Sophroniscus|          |30 =sum(@age)|No      |
+
+xlookup test: 10 =xlookup(`A`,@Person@first name,@Person@age)
+direct lookup:  A =@Person@first name@Aristotle
+sum if test: 60 =sumifs(@Person@age,@Person@is alive,`No`)
+
 
 
 Life Event

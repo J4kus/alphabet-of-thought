@@ -494,6 +494,19 @@ Org's table automations are built in. While the cursor is on a table row (any pi
 | `Ctrl+Alt+Shift+` arrow | **Copy the cell** into its neighbour in that direction and follow it there, so holding the key fills a run |
 | `Tab` / `Shift+Tab` **in the leading indent** | Indent / unindent the whole table one level (4 spaces) — re-filing the table under a different parent is an indent edit, not cell travel. (A flush-left table has no indent to click into; give it a level first.) |
 
+**A column can declare its alignment**, with markdown's colons in the separator:
+
+```aot
+|default|left align|right align|center align|
+|-------+:---------+----------:+:----------:|
+|1      |1         |          1|     1      |
+|2      |2         |          2|     2      |
+```
+
+`:---` left, `---:` right, `:--:` centre, a plain rule no preference. Write them by hand — `|` dividers as markdown does, or the `+` this editor draws — or use **AOT Table: Align Column Left / Right / Center / Clear Column Alignment** on the column at the cursor, which writes the colons for you. The alignment belongs to the **column**, so it travels with it: move a column and its marker moves, copy one and the copy is aligned the same, delete one and its marker goes too.
+
+Like the [width cookie](#working-with-text) and the [numbering prefix](#numbering), the colon is **presentation only**. Every reader of a table trims its cells, so no crosslink, formula, CSV row, or Gödel number can tell an aligned column from a plain one — `|     1      |` is the value `1`. It is written on the separator rather than the header because the separator is where the table's *shape* is already written; the header names the attribute. A column is never drawn narrower than its own marker (`:-:` needs three characters), and the cursor lands on a right- or centre-aligned cell's **text**, not in the padding in front of it.
+
 **Copy, cut, and move are three different keys.** `Alt+`arrow **moves** a row or column, `Ctrl+Alt+`arrow **copies** it, and `Ctrl+Alt+Shift+`arrow copies the **cell** — text and formula exactly as written, unlike the formula copies below, which move only the derivation and leave each cell's own value. Cutting a *cell* into its neighbour (the value typed into the wrong column) is four more Command Palette entries, **AOT Table: Cut Cell Up / Down / Left / Right**, unbound by default. Nothing here is clever about what it copies: a duplicated row or column will report as a repeated Example name or a repeated attribute until you rename it, and that rename is usually the point of the copy.
 
 A vertical copy skips the separator exactly as `Tab` and `Enter` do, and copying a cell **down past the last row appends one**, so a column fills into a table that is still growing. Sideways never grows the table — a new column needs an attribute name of its own.
@@ -539,7 +552,7 @@ A cell may derive its value — org's spreadsheet folded into the cell itself, v
 |-----------|---------|
 | `@price`, `@basket size` | The same row's column by **name** — longest case-insensitive match, spaces allowed, a header's `(alias)` matches too |
 | `@price@Acme` / `@Acme@price` | The named Example's cell in a column — a column paired with an Example, **in either order**. A name that is both a column and an Example resolves as the longer match (a tie goes to the column). |
-| `@Order@price@Acme` / `@Order@Acme@price` | A **cross-Concept** cell: another Concept's cell, the Concept named **first** (its table's own first header cell, or — for a merge-form or line-form Concept — the line it sits under), then a column and Example in either order. It may live in any `.aot` in the workspace — the current file's own win a shared name. `sum(@Order@price)` (and `avg`/`min`/`max`/`count`) range over a foreign column. The **local** reading is always tried first, so no formula that resolved before changes meaning; the foreign Concept gets its turn when the local reading names nothing, **or when it cannot be completed** — so an owner with its own `person` attribute no longer swallows the lead of `@Person@alias@Socrates`. |
+| `@Order@price@Acme` / `@Order@Acme@price` | A **cross-Concept** cell: another Concept's cell, the Concept named **first** (its table's own first header cell, or — for a merge-form or line-form Concept — the line it sits under), then a column and Example in either order. It may live in any `.aot` in the workspace — the current file's own win a shared name. `sum(@Order@price)` (and `avg`/`min`/`max`/`count`, and the lookups below) range over a foreign column. The **local** reading is always tried first, so no formula that resolved before changes meaning; the foreign Concept gets its turn when the local reading names nothing, **or when it cannot be completed** — so an owner with its own `person` attribute no longer swallows the lead of `@Person@alias@Socrates`. |
 | `@Measurement@alias` | A Concept's **own** value — the default it states on its own line, the same one its Examples inherit — whether its Examples are written as `- ` lines or as a table's rows: since 1.6 the two forms share one scope, so a table-formed Concept answers the free-text default it states above (or beside) its grid. When the Concept states no value for that attribute, the error says so and points at its Examples. |
 | `@Integer@35@is prime` | The same, on a Concept written in **line form** rather than as a table: its `- Example` children are the rows and the attribute names beneath it are the columns, so a Concept is referenced the same way whichever form it is written in. An Example silent on an attribute answers the Concept's own default (inheritance, as ever). A number after `@` names an **Example** (`- 35`), never a column position. |
 
@@ -551,12 +564,44 @@ References changed from `$` to `@` in 1.3; a `$` in a formula is now an error. P
 |------|-----------------|
 | Arithmetic | `+ - * / ^ ( )`, unary `-`, plain numbers — `^` is power, binding tighter than `*` and associating right (`2^3^2` is `512`; `-2^2` is `4`, the unary minus binding tightest) |
 | Aggregates | `sum(@c)` `avg(@c)` `min(@c)` `max(@c)` over the column's *other* data rows; `count(@c)` tallies its non-empty cells |
+| Lookups | `xlookup(v, @key, @answer)` finds a row by one column and answers from another; `sumifs(@add, @c, crit, …)` and `countifs(@c, crit, …)` add up or tally the rows meeting every test. These range over **all** the rows, this one included — see [Lookups and conditional totals](#lookups-and-conditional-totals) |
 | Numeric | `round(x)` `round(x,n)` `abs(x)` `ln(x)` (natural log, of a positive number) `value(x)` (read text as its number) |
 | Strings | `` `literals in backticks` ``, `&` concatenates — see [Working with text](#working-with-text) for the full set |
 | Comparisons | `== <= >= < >` yield `1` or `0`; `if(cond, then, else)` is lazy — only the taken branch is evaluated, so `if(count(@price)>0, avg(@price), 0)` works over an empty column |
 | Logic | `and(a,b,…)` `or(a,b,…)` `not(a)` `xor(a,b,…)`. A value is **true** when it is a non-zero number, or `yes`/`true`, or any other non-empty text; **false** when it is `0`, or `no`/`false`, or empty. `or()` also lists the allowed values of a constraint — see below |
 
 **Coercion is crisp**: a referenced cell is text at rest. Arithmetic and the numeric functions coerce their operands to numbers — `$` signs, thousands commas, and `%` are ignored, so a money column reads as its number, and a genuinely non-numeric operand is an error. `&` coerces to text. A comparison is numeric when **both** sides read as numbers, chronological when both read as **dates** (ISO `YYYY-MM-DD`), else an exact, case-sensitive text comparison. Equality *inside* a formula is `==`; a single `=` is the cell operator alone. Typing `@` inside a formula pops a completion of the columns (first), then the Examples, then the repo's **tables** last (by the name each sits under); pick a table and the suggestions reopen on its own columns.
+
+#### Lookups and conditional totals
+
+Three functions answer the questions a spreadsheet is usually opened for — *what does this key map to*, and *how much of this meets that test* — spelled as Excel spells them:
+
+| Function | Answers |
+|----------|---------|
+| `xlookup(v, @key, @answer)` | The `@answer` cell of the **first** row whose `@key` cell is `v`. A fourth argument says what to answer when nothing matches; without one, a miss is an error (the cell shows `#ERR`), because a lookup that found nothing has no value to stand in for |
+| `sumifs(@add, @c, crit, …)` | The total of `@add` over the rows where **every** column-and-criterion pair holds |
+| `countifs(@c, crit, …)` | How many rows meet every pair. Nothing matching is `0`, never an error |
+
+```aot
+Rate
+    |Rate|code|pct|
+    |----+----+---|
+    |eu  |FR  |20 |
+    |de  |DE  |19 |
+
+Order
+    |Order|country|price|status|vat rate                                  |country total                        |
+    |-----+-------+-----+------+------------------------------------------+-------------------------------------|
+    |Acme |FR     |100  |paid  |20 =xlookup(@country,@Rate@code,@Rate@pct)|150 =sumifs(@price,@country,@country)|
+    |Bolt |DE     |200  |draft |19 =xlookup(@country,@Rate@code,@Rate@pct)|200 =sumifs(@price,@country,@country)|
+    |Kite |FR     |50   |paid  |20 =xlookup(@country,@Rate@code,@Rate@pct)|150 =sumifs(@price,@country,@country)|
+```
+
+Because a column can be named on another Concept (`@Rate@code`), `xlookup` is how one Concept reads a value **keyed** by another — a foreign key, written as a formula. The columns of one call must line up row for row, and they always do when they belong to the one Concept; columns of different lengths are an error rather than a silent mismatch.
+
+**A criterion is a value or a comparison.** A plain value matches by equality — `` sumifs(@price, @status, `paid`) `` — and a string opening with a comparison operator compares: `` `>=10` ``, `` `<2026-01-01` ``, `` `<>paid` `` (`!=` says the same). The comparison is the language's own, so dates compare chronologically and numbers numerically. An `or()` list matches **any** of its alternatives — `` countifs(@status, or(`sent`, `paid`)) `` — which is the same `or()` a constraint lists allowed values with, read here as the same set. A criterion may be computed rather than written: `sumifs(@price, @country, @country)` totals *this row's* country, whatever it is, so the one formula copies down the column.
+
+**These three range over the whole column, the row they stand in included** — where `sum` and its kin deliberately range over the **other** rows, so a total may sit in a row of its own. The readings differ because the questions do: a grand total in a `Total` row must not count itself, while a conditional total is a fact about the data and would be wrong to leave its own row out. In free text the same holds Example for Example: a `group:` under `- A` counts `A` itself.
 
 **Constraints live on the attribute; formulas live on the value.** After a value, `=formula` derives it (auto-fills and rewrites). A **constraint** is schema, so it is declared once, on the attribute — a bare line (`age >=18`) or a table header cell (`|name|qty >=1|`) — and **every value the attribute takes is validated against it**: the Concept's Examples, its table's cells, and everything deeper in the subtree (a nearer declaration shadows an outer one). **Several bounds chain on the one declaration** — `age >=18 <=65` holds the attribute both ways, in bare lines and header cells alike, each bound checked and reported on its own. A breach is a **warning** on the offending value — never counted in `V` — naming the bound and its declaring line. The bound's references resolve *per value* against its own Example or row — `|price|margin >=@price*0.1|` holds each row's margin to that row's price. An empty value asserts nothing, so it is never checked; values themselves never carry `>= <= < > ==` (`age: 25 >=18` is just the value `25 >=18`). Prose terms are safe: `speed > none noted` stays a plain name, because a constraint is only believed when its right side actually reads as a formula.
 

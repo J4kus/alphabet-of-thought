@@ -17,7 +17,9 @@
 // Reference semantics: `@attribute name` is the same owner's attribute
 // (longest case-insensitive match, aliases included); aggregates and
 // count() range over the *other* sibling Examples under the same parent;
-// `@attr@Example` reads the named sibling Example's value. References are
+// `@attr@Example` reads the named sibling Example's value; the lookups
+// (xlookup, sumifs, countifs) range over *every* Example, this one
+// included, as a spreadsheet range does. References are
 // name-only — a digits lead can name an Example ('- 35'), never a column
 // position (positional @N was removed in 1.6). A constraint's references
 // resolve per value, against that value's own Example or row — so
@@ -134,6 +136,11 @@ function makeCtx(d, current, registry) {
       examples.filter((ex) => ex !== host)
         .map((ex) => valueOn(ex, c))
         .filter((v) => v !== undefined),
+    // every Example in order, this one included and none dropped — the
+    // whole column a lookup ranges over, read as a cell reference reads
+    // (an Example silent on the attribute answering the Concept's default),
+    // so two columns line up Example for Example
+    columnAll: (c) => examples.map((ex) => read(ex, c)),
     matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
     table: registry ? (id) => registry.scopes.get(id) : undefined,
   };
@@ -191,6 +198,9 @@ function conceptScope(concept) {
     matchRow: (rest) => longestMatch(rest, rowCands),
     cellAt: (c, r) => valueAt(r, c),
     column: (c) => examples.map((_, r) => valueAt(r, c)),
+    // a Concept's aggregates already range over every Example, so a lookup
+    // reads the same column — named apart because the local scopes differ
+    columnAll: (c) => examples.map((_, r) => valueAt(r, c)),
     // The Concept's *own* value for an attribute — the default it states on
     // its own line — or undefined where it states none. A grid has no such
     // reading (a table is rows and nothing else), which is why only a
