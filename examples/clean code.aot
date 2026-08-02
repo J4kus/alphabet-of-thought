@@ -1,58 +1,58 @@
-Clean code
-    Clean code Category
-        - Item A
-            - Item A1
-            - Item A2
-        - Item B
-        - Item C
-        - Item D
-        - Item E
-        - Item F
-        - Item J
-        - Item K
-            attribute one: 0
-            attribute two: 3
-            attribute three: 2
-            attribute four
-            attribute five
-            attribute six
-            attribute seven
-            attribute eight
-            attribute nine
-            attribute ten
-            attribute eleven
-            attribute twelve
-        - Item L
-            attribute one: 0
-            attribute two: 1
-            attribute three
-            attribute four
-            attribute five
-            attribute six
-            attribute seven
-            attribute eight
-            attribute nine
-            attribute ten
-            attribute eleven
-            attribute twelve
-        - Item M
-            attribute one: 1
-            attribute two: 2
-            attribute three
-            attribute four
-            attribute five
-            attribute six
-            attribute seven
-            attribute eight
-            attribute nine
-            attribute ten
-            attribute eleven
-            attribute twelve
-    Clean Code Entry
-        - First Entry
-            sample category: Item A
-        - Second Entry
-            sample category: Item B      
+
+Clean code Category
+    - Item A
+        - Item A1
+        - Item A2
+    - Item B
+    - Item C
+    - Item D
+    - Item E
+    - Item F
+    - Item J
+    - Item K
+        attribute one: 0
+        attribute two: 3
+        attribute three: 2
+        attribute four
+        attribute five
+        attribute six
+        attribute seven
+        attribute eight
+        attribute nine
+        attribute ten
+        attribute eleven
+        attribute twelve
+    - Item L
+        attribute one: 0
+        attribute two: 1
+        attribute three
+        attribute four
+        attribute five
+        attribute six
+        attribute seven
+        attribute eight
+        attribute nine
+        attribute ten
+        attribute eleven
+        attribute twelve
+    - Item M
+        attribute one: 1
+        attribute two: 2
+        attribute three
+        attribute four
+        attribute five
+        attribute six
+        attribute seven
+        attribute eight
+        attribute nine
+        attribute ten
+        attribute eleven
+        attribute twelve
+Clean Code Entry
+    - First Entry
+        sample category: Item A
+    - Second Entry
+        sample category: Item B      
 - Clean code correct crosslink of example to example
     is correct: yes
     clean code category

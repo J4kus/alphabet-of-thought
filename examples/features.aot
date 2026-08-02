@@ -1,4 +1,4 @@
-Language Feature
+- Feature list
     Reference
         syntax
         reach
@@ -57,7 +57,7 @@ Language Feature
             written: a \= b
             reads as: a \= b
 
-Working Demonstration
+- Working Demonstration
     |Sales Ledger|price        |qty >=1|total          |
     |------------+-------------+-------+---------------|
     |Alpha       |10           |2      |20 =@price*@qty|
@@ -85,7 +85,7 @@ Working Demonstration
         - Gadget Label
             base: gadget
             code: GADGET =upper(@base)
-    Documentation
-        repository page: https://github.com/Jakus23/alphabet-of-thought
-        readme file: README.md
-        change log entry: 1.3.0
+- Documentation
+    repository page: https://github.com/Jakus23/alphabet-of-thought
+    readme file: README.md
+    change log entry: 1.3.0

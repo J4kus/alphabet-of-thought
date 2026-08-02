@@ -1,0 +1,148 @@
+
+
+- Formal ontology / knowledge representation
+    - the aspect taxonomy comes from Aristotle's Categories
+    - The concept/instance/property split and the "is-a vs has-a" discipline is classic KR. Key names
+    
+    author: John F. Sowa 
+    - Conceptual graphs
+    - Knowledge Representation
+    
+    author: Nicola Guarino 
+    - OntoClean
+    - formal ontology
+    
+    author: Barry Smith 
+    - Basic Formal Ontology
+    
+    author: Tom Gruber 
+    - the standard definition of "ontology" in CS
+
+
+- Fact-based / conceptual data modelling
+    - "Model data as sets of facts"
+    - "each Concept = one record type"
+    -  "no many-to-many on attributes — use Event Associations"
+    - Armstrong's Axioms named explicitly.
+    author: William W. Armstrong 
+    - the axioms
+    author: E.F. Codd
+    - relational model
+    - normalisation
+    
+    author: Peter Chen
+    - entity-relationship
+    
+    author: Sjir Nijssen and Terry Halpin 
+    - NIAM/ORM, fact-based modelling
+    
+    author: Bill Kent 
+    - Data and Reality
+    
+    author: Graeme Simsion and David Hay
+    - data modelling practice
+    - patterns
+
+- Enterprise architecture
+    
+    author: John Zachman
+    - The six aspects line up almost one-to-one with Zachman's interrogatives
+    
+    author: Marc Lankhorst 
+    - ArchiMate
+    
+    author: Jan Hoogervors
+
+
+- Structured analysis / functional decomposition (SADT/IDEF0 and structured analysis)
+    - The naming rules (verb + object, one verb, no "and", no "manage/ensure", no flow words)
+    - the 3-7 sub-functions with why-up/how-down
+
+    author: Douglas T. Ross
+    - SADT
+
+    author
+        - Tom DeMarco
+        - Ed Yourdon
+        - Michael Jackson
+    - JSD
+    - Problem Frames, David Marca.
+
+- Measurement (measurement scale theory fused with scorecard practice)
+    - theory
+        -  actual vs target
+        -  measurement operation
+        -  grading/ranking/rescaling
+        -  dimensional units
+        -  influence on superordinate measure
+    - performance measurement 
+    - The Measurement concept
+
+        
+    author: S.S. Stevens 
+    - nominal/ordinal/interval/ratio scales
+    
+    author: Norman Fenton
+    - software metrics
+    
+    author: Victor Basili
+    - Goal-Question-Metric 
+    
+    author: Robert Kaplan and David Norton
+    - Balanced Scorecard
+    
+    author: and the metrology community
+    - VIM/SI unit definitions.
+
+- Knowledge structures cognitive psychology (schema theory)
+    - you never think from nothing, every thought extends existing structures
+    - an idea isn't an idea until it connects
+    - the design rule literally called "Assimilate facts" borrows Piaget's vocabulary. 
+    
+    author: Frederic Bartlett and Jean Piaget
+    - schemas
+    - assimilation/accommodation
+    
+    author: David Ausubel 
+    - subsumption
+    - meaningful learning
+    
+    author: Joseph D. Novak
+    - concept maps
+    
+    author: George Kelly 
+    - personal construct psychology
+    
+    author: Marvin Minsky
+    - frames
+    
+    author: Allan Collins and Ross Quillian
+    - semantic networks 
+
+- Outliners and personal knowledge management
+    - The tree-of-indented-text-as-thinking-tool
+    
+    author: Douglas Engelbart
+        - NLS
+        - augmenting human intellect
+        
+    author: Ted Nelson, Niklas Luhmann
+        - Zettelkasten
+
+    author: Dave Winer
+        - outliners
+        - OPML
+    author
+        - Andy Matuschak
+        - Tiago Forte
+    - modern practitioners
+
+- Terminology and controlled vocabulary work. "Full words, no abbreviations, one name per thing, no synonyms, always singular, most general accurate term" is textbook terminology standardisation (ISO 704 / ISO 1087). Names: Eugen Wüster (general theory of terminology), Juan Sager, and the thesaurus-construction tradition behind ISO 25964.
+
+- Lightweight syntax design. Significant 4-space indentation, no keywords, meaning carried by capitalisation and punctuation. Names: Guido van Rossum (Python's indentation), Clark Evans / Oren Ben-Kiki / Ingy döt Net (YAML), John Gruber (Markdown).
+
+- Universal-language philosophy — and this is where the name comes from. "Alphabet of thought" is Leibniz's alphabetum cogitationum humanarum, the alphabet of human thought underpinning his characteristica universalis. The example in the docs even uses "Gottfried Leibniz" as a value. Predecessors and successors: Ramon Llull (Ars Magna), John Wilkins (philosophical language, 1668), Gottlob Frege (Begriffsschrift), Rudolf Carnap (Aufbau).
+
+- LLM context engineering. The pitch that "AI can do the synthesis with you instead of guessing" plus the name's rhyme with Chain-of-Thought puts it in conversation with Jason Wei (chain-of-thought prompting) and Shunyu Yao (tree of thoughts), and with the broader retrieval/structured-context work.
+
+- If you want the shortest reading list to understand the intellectual core: Sowa's Knowledge Representation for the ontology half, Halpin's Information Modeling and Relational Databases for the fact-modelling half, Zachman's framework papers for the aspects, and Bill Kent's Data and Reality for why any of it is hard.

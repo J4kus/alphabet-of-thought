@@ -188,13 +188,14 @@ An `attribute: value` line is **two** ideas, not one: the attribute (`colour`) �
     is alive: No
 ```
 
-### Classifying correctly: three tests
+### Classifying correctly: four tests
 
 A model only communicates when its ideas are classified correctly (Concept vs. Example vs. attribute). Apply these tests in order:
 
-1. **Exhaustion test (Concept vs. Example).** If the children together **partition** the parent — every child is a subtype, no two overlap, nothing of the parent is left over — they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
+1. **Unity test (Concept vs. Example).** If the children together **partition** the parent — every child is a subtype, no two overlap, nothing of the parent is left over — they are **Concepts** (subtypes). If the children are merely a selection of items drawn from the world, they are **Examples**.
 2. **Abstraction test (Concept vs. Example).** Concepts are abstract groupings humans invent to organise thinking; Examples are concrete instances you could point at or name. When in doubt: has someone defined a grouping? → Concept. Could you meet it, touch it, or look it up? → Example.
 3. **Attributes describe, they don't classify.** If a lowercase line is telling you *what kind* the parent is, it is a misfiled Concept. If a capitalised line is telling you a property the parent *has*, it is a misfiled attribute.
+4. **Rigidity subtype test**: Must every instance always be this? a Person is always a Person; a Manager isn't always a Manager, so it is not a kind of Person
 
 ### Attribute inheritance
 
@@ -357,7 +358,7 @@ Alpha is aimed at knowledge workers — analysts, architects, anyone whose job i
 
 | Cause | Aristotle's phrase | Native question | Primitive | Said of | Not said of |
 |-------|--------------------|-----------------|-----------|---------|-------------|
-| **Final** | for the sake of which | Why, and for whom | **Motivation** | Stakeholder (Who) | Measurement (How much) |
+| **Final** | for the sake of which | Why, and for whom | **Motivation** | Party (Who) | Measurement (How much) |
 | **Material** | that out of which | made of What | **Graph** | Entity (Where: the boundary that fixes where the record resides in reality) | Record (What) |
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | **Function** | Objective (How) | Class (Which) |
 | **Efficient** | the agent and the means | by Whom, in what order | **Workflow** | Worker (Agent) | Time (When) |
@@ -1086,7 +1087,9 @@ Concepts define essence: their attributes are inherited by all children. Example
 may override inherited values and add accidental attributes, never essential ones.
 Every idea has exactly one parent; model relationships as their own Concepts whose
 attributes name the linked Concepts (lowercase) and whose Example values name the
-linked Examples (case-insensitive). No "and" in a Concept name. Never define the same
+linked Examples (case-insensitive). File an Example only under a kind nothing stops
+being (Human, not Manager); write roles and phases as Examples of their own Concept,
+joined by a relation Concept. No "and" in a Concept name. Never define the same
 Concept name twice. Singular Concept names. 3–7 children per objective; at most 8
 sub-Concepts per node. Give every pair of sibling sub-Concepts a distinguishing
 attribute or value (a differentia). Mark anything intentionally incomplete with an
