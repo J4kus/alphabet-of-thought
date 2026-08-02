@@ -1,8 +1,0 @@
-- not sure have constraints work in values, should work in attributes rather.
-- i don't like the italic of the table, is that something we can change
-- unable to put words in formulas
-- maybe make the spreadsheet work like pnadas rather then excel
-- the dependecy linking is great the way the things display, but it doesn't work as expected
-- Alias should also pass check if there is another concept like it
-- allow string to be used inside a formual like lisp macros
-- urls clicking on them does not work

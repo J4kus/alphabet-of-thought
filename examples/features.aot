@@ -1,5 +1,8 @@
 Language Feature
     Reference
+        syntax
+        reach
+        note
         - Named Column
             syntax: @price
             reach: tables and line values
@@ -25,7 +28,7 @@ Language Feature
             example: age >=0
         - Listed Value
             keyword: or
-            example: status ==or(`draft`, `sent`, `paid`)
+            example: 0 =or(0>=1,1==0)
     String Function
         - upper
             turns: widget into WIDGET
@@ -60,7 +63,7 @@ Working Demonstration
     |Alpha       |10           |2      |20 =@price*@qty|
     |Beta        |2 =@Alpha@qty|4      |5              |
     |Total       |             |       |25 =sum(@total)|
-
+    
     |Ledger Check|from the ledger              |
     |------------+-----------------------------|
     |alpha total |20 =@Sales Ledger@total@Alpha|
@@ -68,12 +71,13 @@ Working Demonstration
 
     Person Record
         age >=0
+        birth date
         - Ada Lovelace
-            birth date: 1815-12-10
             age: 36
+            birth date: 1815-12-10
         - Alan Turing
-            birth date: 1912-06-23
             age: 41
+            birth date: 1912-06-23
     Label Builder
         - Widget Label
             base: widget
