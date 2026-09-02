@@ -817,13 +817,17 @@ const listed = [
 }
 
 // 7) the CSV mirror, end to end: saving the .aot writes each table's CSV
-// into one 'aot.files' folder at the workspace root, named after the
+// into one 'aot.files' folder at the repository root, named after the
 // Concept; a CSV edit folds back; legacy per-file folders migrate; an
 // orphaned CSV is archived with '_' (never deleted).
 (async () => {
   const tmp = path.join(__dirname, "tmp-sync");
   fs.rmSync(tmp, { recursive: true, force: true });
   fs.mkdirSync(tmp, { recursive: true });
+  // the fixture is a repository of its own: 'aot.files' hangs off the root
+  // the '.git' marks, and without one the walk would climb out of the
+  // fixture and into the repository this test file itself lives in
+  fs.mkdirSync(path.join(tmp, ".git"), { recursive: true });
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
   const aotPath = path.join(tmp, "World.aot");
   const aotText = [
@@ -903,6 +907,81 @@ const listed = [
     : "UNEXPECTED rename cleanup " + JSON.stringify(fs.readdirSync(dir)));
   vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(tmp, { recursive: true, force: true });
+})();
+
+// 7a) one 'aot.files' per repository. The folder hangs off the repository
+// root - the nearest '.git' above the file - so a subfolder opened on its
+// own, and a file opened with no folder at all, both write to the one
+// place. An 'aot.files' an older release left elsewhere folds into it on
+// the next save, everything in it and not the CSVs alone; a name already
+// taken at the destination is never overwritten, and its folder stays.
+(async () => {
+  const os = require("os");
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "aot-onefolder-"));
+  fs.mkdirSync(path.join(repo, ".git"));
+  const sub = path.join(repo, "sub");
+  fs.mkdirSync(sub);
+
+  // what the old rule left at the opened folder: a CSV, a parked
+  // store, a copied-in file, and one name the repository already has
+  const stray = path.join(sub, "aot.files");
+  fs.mkdirSync(stray);
+  fs.writeFileSync(path.join(stray, "Ghost.csv"), "name\nBoo\n");
+  fs.writeFileSync(path.join(stray, "Deep.formulas"), "@Otter@size@Ollie\t=1+4\n");
+  fs.writeFileSync(path.join(stray, "note.txt"), "the stray copy");
+  const dir = path.join(repo, "aot.files");
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, "note.txt"), "the repo's own");
+
+  const aotPath = path.join(sub, "Deep.aot");
+  const aotText = ["Otter", "    | Otter | size |", "    |-------+------|", "    | Ollie | 5    |"].join("\n");
+  fs.writeFileSync(aotPath, aotText);
+
+  // the workspace is the subfolder, so the old rule would have written here
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: sub } }];
+  vscode.workspace._save(makeDoc(aotPath, aotText));
+
+  console.log(fs.existsSync(path.join(dir, "Otter.csv")) && !fs.existsSync(path.join(stray, "Otter.csv"))
+    ? "PASS (one folder: the CSV lands at the repository root, not at the opened subfolder)"
+    : "UNEXPECTED mirror location " + JSON.stringify(fs.readdirSync(repo)));
+
+  // folded in whole, and the CSV no Concept claims archived as the orphan
+  // it is, in the same save
+  const moved = fs.existsSync(path.join(dir, "Deep.formulas"))
+    && !fs.existsSync(path.join(stray, "Deep.formulas"))
+    && fs.existsSync(path.join(dir, "_Ghost.csv"));
+  console.log(moved
+    ? "PASS (one folder: a stray aot.files folds in whole - the store and the orphan CSV with it)"
+    : "UNEXPECTED stray fold " + JSON.stringify({ repo: fs.readdirSync(dir), stray: fs.readdirSync(stray) }));
+
+  console.log(fs.readFileSync(path.join(dir, "note.txt"), "utf8") === "the repo's own"
+    && fs.readFileSync(path.join(stray, "note.txt"), "utf8") === "the stray copy"
+    && fs.readdirSync(stray).length === 1
+    ? "PASS (one folder: a name already taken is never overwritten, and its folder stays)"
+    : "UNEXPECTED overwrite " + JSON.stringify(fs.readdirSync(stray)));
+
+  // the clash resolved by hand: the next save takes the last file, and the
+  // emptied folder goes with it
+  fs.unlinkSync(path.join(stray, "note.txt"));
+  vscode.workspace._save(makeDoc(aotPath, aotText));
+  console.log(!fs.existsSync(stray)
+    ? "PASS (one folder: the emptied stray folder is removed)"
+    : "UNEXPECTED stray survives " + JSON.stringify(fs.readdirSync(stray)));
+
+  // a file opened on its own, no folder in sight: still the repository's
+  // folder, never a second one beside the file
+  vscode.workspace.workspaceFolders = undefined;
+  const lone = path.join(repo, "deeper");
+  fs.mkdirSync(lone);
+  const lonePath = path.join(lone, "Lone.aot");
+  const loneText = ["Beaver", "    | Beaver | size |", "    |--------+------|", "    | Bucky  | 9    |"].join("\n");
+  fs.writeFileSync(lonePath, loneText);
+  vscode.workspace._save(makeDoc(lonePath, loneText));
+  console.log(fs.existsSync(path.join(dir, "Beaver.csv")) && !fs.existsSync(path.join(lone, "aot.files"))
+    ? "PASS (one folder: a lone file with no workspace still writes to its repository's folder)"
+    : "UNEXPECTED lone-file location " + JSON.stringify(fs.readdirSync(lone)));
+
+  fs.rmSync(repo, { recursive: true, force: true });
 })();
 
 // 6c) the mirror reaches line-form Concepts too, exactly as it does

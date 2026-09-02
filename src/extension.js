@@ -430,6 +430,7 @@ async function autoComputeValues(doc, analysis, force) {
 
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
+  if (doc.fileName) watchAotRoot(aotRoot(doc));
   const { errors, warnings, hints, root, nodes } = analyse(doc);
   const toDiagnostic = (severity) => ({ line, message, startCol, endCol, related }) => {
     // lines are 1-based; a finding that carries columns (a table cell)
@@ -2025,12 +2026,38 @@ function workspaceRoot(doc) {
   return ws ? ws.uri.fsPath : path.dirname(doc.fileName);
 }
 
-// One 'aot.files' folder holds every table's CSV, at the workspace root (or
-// the .aot's own folder, standalone). CSVs are named plainly after their
-// Concept, so every .aot in the repo shares one folder; two files with a
-// same-named table share one CSV (the repo-wide duplicate-Concept warning
-// makes that visible).
-const aotFilesDir = (doc) => path.join(workspaceRoot(doc), "aot.files");
+// The repository a path sits in: the nearest ancestor holding a '.git' — a
+// directory in a clone, a *file* in a worktree or a submodule, so both are
+// tested for existence rather than for being a folder. Null outside a
+// repository, which is a real answer and not a failure.
+function repoRootOf(startDir) {
+  let dir = path.resolve(startDir);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, ".git"))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) return null; // the filesystem root: no repository above
+    dir = up;
+  }
+}
+
+// A repository has exactly one 'aot.files', at its root — the walk starts at
+// the .aot's own folder and stops at the repository, so a file opened on its
+// own, a repo opened as several workspace folders, and a folder opened below
+// the root all answer with the same place, and a nested repo (a submodule)
+// keeps its own. Only a file in no repository at all falls back to the
+// workspace root, which is where every file used to go.
+const aotRoot = (doc) =>
+  (doc.fileName && repoRootOf(path.dirname(doc.fileName))) || workspaceRoot(doc);
+
+// Set on activation: watchers for an 'aot.files' the workspace globs cannot
+// see, because the repository root is above the folder that was opened.
+let watchAotRoot = () => {};
+
+// One 'aot.files' folder holds every table's CSV. CSVs are named plainly
+// after their Concept, so every .aot in the repo shares one folder; two
+// files with a same-named table share one CSV (the repo-wide
+// duplicate-Concept warning makes that visible).
+const aotFilesDir = (doc) => path.join(aotRoot(doc), "aot.files");
 
 // Every .aot file under a root, skipping heavy and generated folders.
 function scanAotFiles(root) {
@@ -2129,6 +2156,45 @@ function migrateLegacyDirs(doc, dir) {
   }
 }
 
+// Fold an 'aot.files' an earlier release left elsewhere in this repository
+// into the repository's own — the two places the old rule could have put
+// one for *this* document: beside the file itself, and at its workspace
+// root. Everything moves, not the CSVs alone: a '.formulas' store and a
+// file copied in as evidence are exactly what must not be left behind. A
+// name already taken at the destination is never overwritten — that copy
+// stays where it is and its folder with it, so the fold can lose nothing.
+// Only a folder *inside this repository* is ever moved: a file opened from
+// another repository answers with the open workspace's root, and that
+// folder is another repository's business, not this save's.
+function migrateStrayAotFiles(doc, dir) {
+  const root = path.dirname(dir);
+  const strays = [path.dirname(doc.fileName), workspaceRoot(doc)]
+    .map((d) => path.join(d, "aot.files"))
+    .filter((d) => fileKey(d) !== fileKey(dir) && isInside(root, d));
+  const seen = new Set();
+  for (const stray of strays) {
+    if (seen.has(fileKey(stray))) continue; // the two places can be one
+    seen.add(fileKey(stray));
+    let entries;
+    try {
+      if (!fs.statSync(stray).isDirectory()) continue;
+      entries = fs.readdirSync(stray);
+    } catch { continue; }
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { continue; }
+    for (const entry of entries) {
+      const from = path.join(stray, entry), to = path.join(dir, entry);
+      if (fs.existsSync(to)) continue; // taken: the repo's copy is the one
+      try {
+        fs.copyFileSync(from, to); // a sub-folder throws, and is left alone
+        fs.unlinkSync(from);
+      } catch { continue; } // a held lock loses this round; the next save retries
+      const written = lastWritten.get(from);
+      if (written !== undefined) { lastWritten.delete(from); lastWritten.set(to, written); }
+    }
+    try { fs.rmdirSync(stray); } catch { /* what could not move stays, folder and all */ }
+  }
+}
+
 // A CSV whose Concept no table anywhere still has is not deleted — it is
 // prefixed with '_' so it is kept as an archive and skipped by the fold-back
 // watcher. Only .csv files, only in this folder, never recursive.
@@ -2148,8 +2214,10 @@ function syncAotToCsv(doc) {
   if (doc.languageId !== "aot" || !syncEnabled()) return;
   if (!/\.aot$/i.test(doc.fileName)) return;
   const dir = aotFilesDir(doc);
+  watchAotRoot(path.dirname(dir));
   migrateLegacyDirs(doc, dir);
-  if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(workspaceRoot(doc), doc));
+  migrateStrayAotFiles(doc, dir);
+  if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(aotRoot(doc), doc));
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   // One union CSV per Concept: every Example in the Concept's scope (a
   // table under an '- Example' files under the first Concept up the tree),
@@ -3012,6 +3080,30 @@ function activate(context) {
   parkWatcher.onDidCreate(onParkFsEvent);
   parkWatcher.onDidDelete(onParkFsEvent);
   context.subscriptions.push(parkWatcher);
+
+  // Those two globs reach inside the workspace folders and nowhere else, so
+  // a repository opened by one of its subfolders — its 'aot.files' at the
+  // root, above the folder on screen — would be watched by neither. Such a
+  // root gets watchers of its own, once, and the folder that is already
+  // covered gets none, so no event is ever handled twice.
+  const watchedRoots = new Set();
+  watchAotRoot = (root) => {
+    if (!root || watchedRoots.has(fileKey(root))) return;
+    watchedRoots.add(fileKey(root));
+    if (typeof vscode.RelativePattern !== "function") return;
+    const dir = path.join(root, "aot.files");
+    if ((vscode.workspace.workspaceFolders || []).some((f) => isInside(f.uri.fsPath, dir))) return;
+    const watch = (glob) => vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(dir), glob));
+    const csv = watch("*.csv"), park = watch("*.formulas");
+    csv.onDidChange(syncCsvIntoAot);
+    csv.onDidCreate(syncCsvIntoAot);
+    park.onDidChange(onParkFsEvent);
+    park.onDidCreate(onParkFsEvent);
+    park.onDidDelete(onParkFsEvent);
+    context.subscriptions.push(csv, park);
+  };
+  for (const folder of vscode.workspace.workspaceFolders || []) watchAotRoot(repoRootOf(folder.uri.fsPath));
 
   // the workspace index: every .aot parsed, so crosslinks resolve across
   // files and repo-wide duplicates surface. Built once, kept fresh by a
