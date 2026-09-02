@@ -1,5 +1,3 @@
-
-
 - Formal ontology / knowledge representation
     - the aspect taxonomy comes from Aristotle's Categories
     - The concept/instance/property split and the "is-a vs has-a" discipline is classic KR. Key names
@@ -17,8 +15,9 @@
     
     author: Tom Gruber 
     - the standard definition of "ontology" in CS
-
-
+- ISO 704 — Terminology work: Principles and methods
+    - Delimiting vs incidental attributes. Alpha treats all attributes alike. Marking which ones actually distinguish a concept from its siblings gives the "Concept vs Example" test a real basis, and makes the design rule "remove attributes that do not serve the model" checkable rather than aesthetic.
+    - Named dimensions. Your Map node (... explanation) is already the right syntactic slot. Write ... dimension: legal form above a subdivision, and any sibling set with two unlabelled dimensions becomes a lintable error. Your occupation status is the case in point — Employed, Self Employed, Unemployed, Retired is one dimension, but Contributor, Manager, Executive, Non Executive, Independent nested under Employed is a seniority dimension crossed with a governance dimension.
 - Fact-based / conceptual data modelling
     - "Model data as sets of facts"
     - "each Concept = one record type"

@@ -36,6 +36,18 @@
                 characteristic (trait)
                 class
                 stereotype
+            - Rank
+                grade interval minimum
+                grade interval maximum
+                is minimum ranking open: false
+                is maximum ranking open: false
+                number of grades
+            - Re-scaled Measurement
+                - Fahrenheit to Celsius
+                - ...
+                multiplier: 1
+                offset scaling magnitude: 0
+                exponent (power): 1
             - Formula
                 - Arithmetic
                     - Addition (Sum)
@@ -55,21 +67,9 @@
                     - Standard Deviation
                     - Sample Size
                     - ...
-            - Grading
-                grade interval minimum
-                grade interval maximum
-                number of grades
-            - Re-scaled Measurement
-                - Fahrenheit to Celsius
-                - ...
-                multiplier measurement: 1
-                offset scaling magnitude: 0
-                exponent (power): 1
-            - Ranking
-                minimum ranking
-                maximum ranking
-                is minimum ranking open: false
-                is maximum ranking open: false
+            
+            
+            
 
             - Refinement
         data type
