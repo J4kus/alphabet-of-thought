@@ -26,6 +26,7 @@
                 first node
                 second node
     Record
+        attribute: value
 - Example
     Repository
         path
