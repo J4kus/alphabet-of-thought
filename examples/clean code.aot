@@ -94,6 +94,8 @@ Drift Problem Fix
             size: 5
             location: tank 1
         - Pebble
+            size: 3
+        - ------+------
     Seal
         - Splash
     Sign

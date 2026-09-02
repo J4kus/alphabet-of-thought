@@ -156,20 +156,20 @@ The largest 1.1 addition: org-mode plain-text spreadsheets that parse to ordinar
 **Write**
 ```aot
 Otter
-    |name |size|colour|
-    |-----+----+------|
-    |Ollie|5   |brown |
-    |Pebble|3  |grey  |
+    name |size|colour
+    -----+----+------
+    Ollie|5   |brown
+    Pebble|3  |grey
 ```
 > **⚠️ 1.3**: tables render with **no gutter spaces** (`|Ollie |5   |`), columns still padded. Pre-1.3 they had `| Ollie | 5 |`.
 
 **Expected & edge cases**
-- The `|---+---|` **separator** directly below a row marks it the header; the separator is layout, never a node.
+- The `---+---` **separator** directly below a row marks it the header; the separator is layout, never a node.
 - First cell = the Example's name; each further cell = its value for that column. An **empty cell** asserts nothing.
-- A **single-cell row** above a separator heads a one-column table. A **lone multi-cell row** (nothing tabular below it) is assumed to be a header being typed — so a fresh table never errors mid-keystroke.
-- A **lone-cell pipe row** (`| Loner`) stays a plain Example.
+- A **single-cell row** above a separator heads a one-column table. A **lone multi-cell row** (nothing tabular below it) is assumed to be a header being typed — so a fresh table never errors mid-keystroke. **⚠️ 1.12**: the one-column table went with the borders — a row is a line carrying a divider, so a table has at least two columns; a Concept over a column of its Examples is written as `- ` lines.
+- A **lone-cell pipe row** (`| Loner`) stays a plain Example. **⚠️ 1.12**: dropped with the borders; a lone Example is written `- Loner`.
 - New **errors** (pin the offending cell): a multi-cell row with no header; more cells than the header names; a **capitalised column** (columns name attributes, which are lowercase); an empty name cell.
-- A blank line, a non-pipe line, or a change of indent ends the table.
+- A blank line, a non-pipe line, or a change of indent ends the table. **⚠️ 1.12**: a row written *deeper* than the header nests inside the table instead of ending it; only a shallower line starts a new one.
 - Because rows are ordinary Examples, FCA / Gödel / Armstrong all run straight off the grid.
 
 ### 1.1.68b — the table editor
@@ -195,10 +195,10 @@ Otter
 **Write**
 ```aot
 Order
-    |name |price|qty|total       |
-    |-----+-----+---+------------|
-    |Alpha|10   |2  |20 =@price*@qty|
-    |Total|     |   |20 =sum(@4) |
+    name |price|qty|total
+    -----+-----+---+------------
+    Alpha|10   |2  |20 =@price*@qty
+    Total|     |   |20 =sum(@4)
 ```
 > **⚠️ 1.3**: references are `@` not `$`. Pre-1.3 you'd write `=$2*$3`, `=sum($4)`.
 

@@ -26,16 +26,16 @@ References are **name-only, everywhere**. A digits lead after `@` still names an
 ### Write
 ```aot
 Order
-    |name|price|total       |
-    |----+-----+------------|
-    |A   |10   |20 =@price*2|
+    name|price|total
+    ----+-----+------------
+    A   |10   |20 =@price*2
 ```
 
 ```aot
 Order
-    |name|price|total   |
-    |----+-----+--------|
-    |A   |10   |=@2*2   |   <- ERROR: positional column numbers were removed
+    name|price|total
+    ----+-----+--------
+    A   |10   |=@2*2   |   <- ERROR: positional column numbers were removed
                              (changed in 1.6), reference the column by its
                              attribute name
 ```
@@ -67,9 +67,9 @@ With `@N` gone, the grid registry had nothing left the tree does not have, so it
 ```aot
 Person
     alias: Someone
-    |name    |alias|
-    |--------+-----|
-    |Socrates|Paul |
+    name    |alias
+    --------+-----
+    Socrates|Paul
 Check
     who: Someone =@Person@alias            <- the Concept's own default
     his: Paul =@Person@alias@Socrates      <- the row's cell still overrides
@@ -77,9 +77,9 @@ Check
 
 ```aot
 Person
-    |name    |alias|
-    |--------+-----|
-    |Socrates|Paul |
+    name    |alias
+    --------+-----
+    Socrates|Paul
 Check
     who: =@Person@alias    <- ERROR: 'Person' states no value of its own here
                               — name one of its Examples too
@@ -105,10 +105,10 @@ Order
     origin: EU
     - Loose
         price: 50
-    |name|price|vat              |site     |all          |
-    |----+-----+-----------------+---------+-------------|
-    |A   |100  |20 =@price*@tax rate|EU =@origin|90 =sum(@price)|
-    |B   |40   |                 |US       |50 =@price@Loose|
+    name|price|vat              |site     |all
+    ----+-----+-----------------+---------+-------------
+    A   |100  |20 =@price*@tax rate|EU =@origin|90 =sum(@price)
+    B   |40   |                 |US       |50 =@price@Loose
 ```
 
 - `@tax rate` reads the Concept's own line — free text, from inside a cell.
@@ -137,9 +137,9 @@ Order
     origin: EU
     - Loose
         weight: 7
-    |name|price|
-    |----+-----|
-    |Acme|10   |
+    name|price
+    ----+-----
+    Acme|10
 ```
 
 saves as `aot.files/Order.csv`:
@@ -181,11 +181,11 @@ The same chain in a header cell:
 
 ```aot
 Ledger
-    |name|qty >=1 <=5|
-    |----+-----------|
-    |A   |0          |   <- WARNING: violates 'qty >= 1'
-    |B   |9          |   <- WARNING: violates 'qty <= 5'
-    |C   |3          |
+    name|qty >=1 <=5
+    ----+-----------
+    A   |0          |   <- WARNING: violates 'qty >= 1'
+    B   |9          |   <- WARNING: violates 'qty <= 5'
+    C   |3
 ```
 
 An operator inside a bound never splits it — this is **one** constraint:
@@ -211,10 +211,10 @@ No power operator and no logarithm: `2^10` was `unexpected '^'`, and growth-rate
 ### Write
 ```aot
 Growth
-    |name |value|doublings          |
-    |-----+-----+-------------------|
-    |cells|1024 |10 =ln(@value)/ln(2)|
-    |power|512  |512 =2^3^2         |
+    name |value|doublings
+    -----+-----+-------------------
+    cells|1024 |10 =ln(@value)/ln(2)
+    power|512  |512 =2^3^2
 ```
 
 ```aot
@@ -305,9 +305,9 @@ Animal
 …and the skeleton grows as:
 
 ```aot
-        |name|legs|habitat|
-        |----+----+-------|
-        |    |    |       |
+        name|legs|habitat
+        ----+----+-------
+            |    |
 ```
 
 `legs` and `habitat` ride in from `Animal`; `whiskered` stays out — `Otter` already declares it, one line above the table.

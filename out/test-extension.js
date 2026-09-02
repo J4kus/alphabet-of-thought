@@ -410,9 +410,9 @@ const listed = [
   const { unlistedValues } = require("../src/crosslinks");
   const text = [
     "Person",
-    "    |name    |alias|",
-    "    |--------+-----|",
-    "    |Socrates|Paul |",
+    "    name    |alias",
+    "    --------+-----",
+    "    Socrates|Paul",
     "Integer",
     "    - 1",
     "    - 35",
@@ -457,16 +457,16 @@ const listed = [
     "Measurement Operation",
     "    - Ratio",
     "Metric",
-    "    | name | measurement operation |",
-    "    |------+-----------------------|",
-    "    | Speed | Ratio |",
+    "    name | measurement operation",
+    "    ------+-----------------------",
+    "    Speed | Ratio",
   ].join("\n");
   const t = lint(table, "World");
   const links = resolve(table, t.root, t.nodes);
   const headerLink = links.find((l) => l.connection === "attribute-is-a-Concept" && l.line === 4);
   const cellLink = links.find((l) => l.connection === "default-is-a-Example" && l.line === 6);
-  const headerOk = headerLink && headerLink.startCol === 13 && headerLink.target.line === 1;
-  const cellOk = cellLink && cellLink.startCol === 14 && cellLink.text === "Ratio" && cellLink.target.line === 2;
+  const headerOk = headerLink && headerLink.startCol === 11 && headerLink.target.line === 1;
+  const cellOk = cellLink && cellLink.startCol === 12 && cellLink.text === "Ratio" && cellLink.target.line === 2;
   console.log(headerOk && cellOk
     ? "PASS (table: header cell links to its Concept, value cell to its Example)"
     : "UNEXPECTED table crosslinks");
@@ -478,9 +478,9 @@ const listed = [
     "Person",
     "    - Socrates",
     "Known For",
-    "    | Known For | beneficiary (person) |",
-    "    |-----------+----------------------|",
-    "    | Ethics | Socrates |",
+    "    Known For | beneficiary (person)",
+    "    -----------+----------------------",
+    "    Ethics | Socrates",
   ].join("\n");
   const a = lint(aliased, "World");
   const aLinks = resolve(aliased, a.root, a.nodes);
@@ -491,7 +491,7 @@ const listed = [
 
   const doc3 = makeDoc("c:\repo\World.aot", table);
   const edits = formattingProvider.provideDocumentFormattingEdits(doc3);
-  const aligned = edits.some((e) => e.text === "    |Speed|Ratio                |");
+  const aligned = edits.some((e) => e.text === "    Speed|Ratio");
   console.log(aligned && edits.length === 3
     ? "PASS (table: Format Document aligns the columns)"
     : "UNEXPECTED table formatting " + JSON.stringify(edits));
@@ -610,7 +610,7 @@ const listed = [
   const filesDir = path.join(wsRoot, "aot.files");
   fs.writeFileSync(path.join(filesDir, "evidence.csv"), "a,b\n1,2\n");
   fs.writeFileSync(path.join(filesDir, "stray.csv"), "a,b\n3,4\n");
-  const citing = ["Study", "    source: aot.files/evidence.csv", "    Otter", "        |name |", "        |-----|", "        |Ollie|"].join("\n");
+  const citing = ["Study", "    source: aot.files/evidence.csv", "    Otter", "        name", "        -----", "        Ollie"].join("\n");
   fs.writeFileSync(aotPath, citing);
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: wsRoot } }];
   vscode.workspace._save(makeDoc(aotPath, citing));
@@ -630,9 +630,9 @@ const listed = [
   console.log(`registered ${registeredCommands.size} table command(s)`);
   const text = [
     "Otter",
-    "    | name | size |",
-    "    |--+--|",
-    "    | Ollie | 5 |",
+    "    name | size",
+    "    --+--",
+    "    Ollie | 5",
   ].join("\n");
   const doc4 = makeDoc("c:\repo\World.aot", text);
   doc4.eol = vscode.EndOfLine.LF;
@@ -646,8 +646,8 @@ const listed = [
   registeredCommands.get("aot.table.nextCell")(editor);
   Promise.resolve().then(() => {
     const ok = applied
-      && applied.t.split("\n")[2] === "    |Ollie|5   |"
-      && editor.selection.active.line === 3 && editor.selection.active.character === 11;
+      && applied.t.split("\n")[2] === "    Ollie|5"
+      && editor.selection.active.line === 3 && editor.selection.active.character === 10;
     console.log(ok && registeredCommands.size === 36
       ? "PASS (table editor: 36 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
@@ -659,9 +659,9 @@ const listed = [
 (async () => {
   const lines = [
     "Otter",
-    "    |name |size|",
-    "    |-----+----|",
-    "    |Ollie|5   |",
+    "    name |size",
+    "    -----+----",
+    "    Ollie|5",
   ];
   const doc = {
     languageId: "aot", fileName: "c:\\repo\\World.aot", eol: vscode.EndOfLine.LF,
@@ -682,11 +682,11 @@ const listed = [
   };
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const indented = lines[1] === "        |name |size|" && lines[3] === "        |Ollie|5   |";
+  const indented = lines[1] === "        name |size" && lines[3] === "        Ollie|5";
   const selOk = editor.selection.active.line === 3 && editor.selection.active.character === 5;
   registeredCommands.get("aot.table.prevCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const back = lines[1] === "    |name |size|" && lines[3] === "    |Ollie|5   |";
+  const back = lines[1] === "    name |size" && lines[3] === "    Ollie|5";
   console.log(indented && selOk && back
     ? "PASS (table editor: Tab in the leading indent shifts the table a level; Shift+Tab back)"
     : "UNEXPECTED table indent " + JSON.stringify({ lines, sel: editor.selection.a }));
@@ -729,8 +729,8 @@ const listed = [
   const { doc: docG, editor: edG } = makeLive(grow, "Grow.aot");
   typedPipe(docG, 1);
   await new Promise((r) => setImmediate(r));
-  const grown = grow.join("\n") === ["Otter", "||", "||", "||"].join("\n");
-  const cursorOk = edG.selection.active.line === 1 && edG.selection.active.character === 1;
+  const grown = grow.join("\n") === ["Otter", " |", "-+-", " |"].join("\n");
+  const cursorOk = edG.selection.active.line === 1 && edG.selection.active.character === 0;
   console.log(grown && cursorOk
     ? "PASS (scaffold: a top-level '|' grows the skeleton, cursor in the header to name the Concept)"
     : "UNEXPECTED scaffold " + JSON.stringify({ grow, sel: edG.selection.a }));
@@ -741,8 +741,8 @@ const listed = [
   const { doc: docU, editor: edU } = makeLive(under, "Under.aot");
   typedPipe(docU, 1);
   await new Promise((r) => setImmediate(r));
-  const named = under.join("\n") === ["Otter", "    |Otter|", "    |-----|", "    |     |"].join("\n");
-  console.log(named && edU.selection.active.line === 3 && edU.selection.active.character === 5
+  const named = under.join("\n") === ["Otter", "    Otter|", "    -----+-", "         |"].join("\n");
+  console.log(named && edU.selection.active.line === 3 && edU.selection.active.character === 4
     ? "PASS (scaffold: under a Concept the header cell names it, cursor in the data row)"
     : "UNEXPECTED scaffold under a Concept " + JSON.stringify({ under, sel: edU.selection.a }));
 
@@ -760,15 +760,15 @@ const listed = [
   typedPipe(docN, 5);
   await new Promise((r) => setImmediate(r));
   const inherited = nested.slice(5).join("\n") === [
-    "        |Otter|legs|habitat|",
-    "        |-----+----+-------|",
-    "        |     |    |       |",
+    "        Otter|legs|habitat",
+    "        -----+----+-------",
+    "             |    |",
   ].join("\n");
   console.log(inherited
     ? "PASS (scaffold: inherited attributes pre-fill the header, the parent's own stay out)"
     : "UNEXPECTED scaffold columns " + JSON.stringify(nested.slice(5)));
 
-  const beside = ["|a|b|", "|"];
+  const beside = ["a|b", "|"];
   const { doc: docB } = makeLive(beside, "Beside.aot");
   typedPipe(docB, 1);
   const midline = ["Otter", "note |"];
@@ -788,30 +788,27 @@ const listed = [
   const text = [
     "Length",
     "Otter",
-    "    | name | size (length) | colour |",
-    "    |------+----------------+--------|",
-    "    | Ollie | 5 | brown |",
-    "",
-    "    | Loner",
+    "    name | size (length) | colour",
+    "    ------+----------------+--------",
+    "    Ollie | 5 | brown",
   ].join("\n");
   const doc5 = makeDoc("c:\repo\World.aot", text);
   const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc5);
   const has = (t) => tokens.some((x) => x.join(",") === t.join(","));
-  const tokensOk = has([2, 13, 4, 0])   // header 'size' as attribute
-    && has([2, 19, 6, 0])               // header alias 'length' as attribute
-    && has([2, 29, 6, 0])               // header 'colour' as attribute
-    && has([4, 6, 5, 1])                // name cell 'Ollie' as Example
-    && has([4, 14, 1, 2])               // value cell '5' as value
-    && has([4, 18, 5, 2])               // value cell 'brown' as value
-    && has([6, 6, 5, 1]);               // lone-cell '| Loner' as Example too
+  const tokensOk = has([2, 11, 4, 0])   // header 'size' as attribute
+    && has([2, 17, 6, 0])               // header alias 'length' as attribute
+    && has([2, 27, 6, 0])               // header 'colour' as attribute
+    && has([4, 4, 5, 1])                // name cell 'Ollie' as Example
+    && has([4, 12, 1, 2])               // value cell '5' as value
+    && has([4, 16, 5, 2]);              // value cell 'brown' as value
   console.log(tokensOk
-    ? "PASS (table: cells coloured as attribute / Example / value; lone cell as Example)"
+    ? "PASS (table: cells coloured as attribute / Example / value)"
     : "UNEXPECTED semantic tokens " + JSON.stringify(tokens));
 
   const t6 = lint(text, "World");
   const aliasLink = resolve(text, t6.root, t6.nodes).find((l) =>
     l.connection === "attribute-is-a-Concept" && l.line === 3 && l.text === "length");
-  console.log(aliasLink && aliasLink.startCol === 19 && aliasLink.target.name === "Length"
+  console.log(aliasLink && aliasLink.startCol === 17 && aliasLink.target.name === "Length"
     ? "PASS (table: a header cell's alias crosslinks to its Concept)"
     : "UNEXPECTED header alias link " + JSON.stringify(aliasLink));
 }
@@ -832,9 +829,9 @@ const listed = [
   const aotPath = path.join(tmp, "World.aot");
   const aotText = [
     "Otter",
-    "    | Otter | size |",
-    "    |-------+------|",
-    "    | Ollie | 5    |",
+    "    Otter | size",
+    "    -------+------",
+    "    Ollie | 5",
   ].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
@@ -862,7 +859,7 @@ const listed = [
   fs.writeFileSync(csvPath, "Otter,size\nOllie,5\nPebble,3\n");
   await vscode.workspace._csvChanged({ fsPath: csvPath });
   const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
-  console.log(after[3] === "    |Ollie |5   |" && after[4] === "    |Pebble|3   |"
+  console.log(after[3] === "    Ollie |5" && after[4] === "    Pebble|3"
     ? "PASS (csv mirror: a CSV edit folds back into the owning .aot table)"
     : "UNEXPECTED aot after csv edit: " + JSON.stringify(after));
 
@@ -934,7 +931,7 @@ const listed = [
   fs.writeFileSync(path.join(dir, "note.txt"), "the repo's own");
 
   const aotPath = path.join(sub, "Deep.aot");
-  const aotText = ["Otter", "    | Otter | size |", "    |-------+------|", "    | Ollie | 5    |"].join("\n");
+  const aotText = ["Otter", "    Otter | size", "    -------+------", "    Ollie | 5"].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
   // the workspace is the subfolder, so the old rule would have written here
@@ -974,7 +971,7 @@ const listed = [
   const lone = path.join(repo, "deeper");
   fs.mkdirSync(lone);
   const lonePath = path.join(lone, "Lone.aot");
-  const loneText = ["Beaver", "    | Beaver | size |", "    |--------+------|", "    | Bucky  | 9    |"].join("\n");
+  const loneText = ["Beaver", "    Beaver | size", "    --------+------", "    Bucky  | 9"].join("\n");
   fs.writeFileSync(lonePath, loneText);
   vscode.workspace._save(makeDoc(lonePath, loneText));
   console.log(fs.existsSync(path.join(dir, "Beaver.csv")) && !fs.existsSync(path.join(lone, "aot.files"))
@@ -983,6 +980,68 @@ const listed = [
 
   fs.rmSync(repo, { recursive: true, force: true });
 })();
+
+// 6d) the catch-up. The fold-back watcher only hears a CSV edited while the
+// editor is running, so a file changed in Excel with the window closed
+// would be overwritten, unread, by the next save of its .aot. On activation
+// — and from 'aot.importCsvFiles' by hand — the folder is caught up: every
+// CSV saying something its .aot does not folds in, an unchanged one costs
+// nothing, and an archived '_' file is left alone exactly as the watcher
+// leaves it. The command is given its root, so this holds no global and
+// races with nothing else here.
+(async () => {
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-catchup-"));
+  const dir = path.join(root, "aot.files");
+  fs.mkdirSync(dir);
+  const aotPath = path.join(root, "Numbers.aot");
+  fs.writeFileSync(aotPath, ["Integer", "    - 1", "        is prime: Yes"].join("\n"));
+  const importCsvs = () => plainCommands.get("aot.importCsvFiles")(root);
+
+  // the editor was closed for this edit: no watcher heard it
+  fs.writeFileSync(path.join(dir, "Integer.csv"), "Integer,is prime\n1,Yes\n7,Yes\n");
+  const folded = await importCsvs();
+  const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
+  console.log(folded === 1 && after[3] === "    - 7" && after[4] === "        is prime: Yes"
+    ? "PASS (csv catch-up: a CSV edited with the editor closed folds in on the import)"
+    : "UNEXPECTED catch-up fold " + JSON.stringify({ folded, after }));
+
+  // and again changes nothing: the CSV now says what the .aot says, so an
+  // ordinary launch does no work at all
+  const settled = fs.readFileSync(aotPath, "utf8");
+  const again = await importCsvs();
+  console.log(again === 0 && fs.readFileSync(aotPath, "utf8") === settled
+    ? "PASS (csv catch-up: a folder already in step folds nothing — a launch is a no-op)"
+    : "UNEXPECTED catch-up not idempotent " + JSON.stringify({ again }));
+
+  // an archived orphan is never folded back, on the import as on the watcher
+  fs.writeFileSync(path.join(dir, "_Ghost.csv"), "Integer,is prime\n99,No\n");
+  const withGhost = await importCsvs();
+  console.log(withGhost === 0 && fs.readFileSync(aotPath, "utf8") === settled
+    ? "PASS (csv catch-up: an archived _CSV is skipped by the import too)"
+    : "UNEXPECTED catch-up folded an archive " + JSON.stringify({ withGhost }));
+
+  // what Excel writes is read as what it means: a BOM in front of the
+  // Concept's own cell, and CRLF throughout, is the same grid
+  fs.writeFileSync(path.join(dir, "Integer.csv"), "\uFEFFInteger,is prime\r\n1,Yes\r\n7,Yes\r\n13,Yes\r\n");
+  const fromExcel = await importCsvs();
+  const excelAfter = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
+  console.log(fromExcel === 1 && excelAfter[5] === "    - 13" && excelAfter[6] === "        is prime: Yes"
+    ? "PASS (csv catch-up: a BOM'd CRLF file from Excel folds in as the grid it is)"
+    : "UNEXPECTED excel catch-up " + JSON.stringify({ fromExcel, excelAfter }));
+
+  // a semicolon file, which is all Excel writes where the comma is the
+  // decimal mark, folds in exactly as a comma one does
+  fs.writeFileSync(path.join(dir, "Integer.csv"), "Integer;is prime\n1;Yes\n7;Yes\n13;Yes\n21;No\n");
+  const semi = await importCsvs();
+  const semiAfter = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
+  console.log(semi === 1 && semiAfter[7] === "    - 21" && semiAfter[8] === "        is prime: No"
+    ? "PASS (csv catch-up: a semicolon-delimited file from Excel folds in too)"
+    : "UNEXPECTED semicolon catch-up " + JSON.stringify({ semi, semiAfter }));
+
+  fs.rmSync(root, { recursive: true, force: true });
+})();
+
 
 // 6c) the mirror reaches line-form Concepts too, exactly as it does
 // tables: the first save writes the CSV unbidden — a Concept listing bare
@@ -1073,9 +1132,9 @@ const listed = [
     "Person",
     "    - Socrates",
     "Trip",
-    "    |name|person|",
-    "    |----+------|",
-    "    |T1  |      |",
+    "    name|person",
+    "    ----+------",
+    "    T1  |",
   ].join("\n");
   const doc = makeDoc("c:\\repo\\Cells.aot", text);
   const inCell = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(5, 11));
@@ -1260,10 +1319,10 @@ if (process.platform === "win32" || process.platform === "darwin") {
 {
   const sheet = [
     "Person",
-    "    |Person|occupation|",
-    "    |------+----------|",
-    "    |Socrates|philosopher|",
-    "    |Plato   |philosopher|",
+    "    Person|occupation",
+    "    ------+----------",
+    "    Socrates|philosopher",
+    "    Plato   |philosopher",
   ].join("\n");
   const docT = makeDoc("c:\repo\Sheet.aot", sheet);
   const symbols = symbolProvider.provideDocumentSymbols(docT);
@@ -1327,9 +1386,9 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const lines = [
     "Invoice",
     "    tax rate: 0.2",
-    "    |Invoice|price|vat           |",
-    "    |-------+-----+--------------|",
-    "    |INV-1  |100  |=@price*0.2   |",
+    "    Invoice|price|vat",
+    "    -------+-----+--------------",
+    "    INV-1  |100  |=@price*0.2",
     "    - INV-9",
     "        price: 50",
     "        vat: 10 =@price*0.2",
@@ -1377,7 +1436,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const parkedLines = text.split("\n");
   // the empty-valued cell got its number before the formula left, and the
   // line-form value kept the one it already had
-  console.log(parkedLines[2] === "    |Invoice|price|vat|" && parkedLines[4] === "    |INV-1  |100  |20 |"
+  console.log(parkedLines[2] === "    Invoice|price|vat" && parkedLines[4] === "    INV-1  |100  |20"
     ? "PASS (park: the recompute writes the value first, the derivation leaves, the grid narrows)"
     : "UNEXPECTED parked grid " + JSON.stringify(parkedLines));
   console.log(parkedLines[7] === "        vat: 10" && !/=/.test(text)
@@ -1455,21 +1514,21 @@ if (process.platform === "win32" || process.platform === "darwin") {
 {
   const calc = [
     "Order",
-    "    | name | price | total    |",
-    "    |------+-------+----------|",
-    "    | A    | 10    | 15 =@price*2 |",
+    "    name | price | total",
+    "    ------+-------+----------",
+    "    A    | 10    | 15 =@price*2",
   ].join("\n");
   const doc8 = makeDoc("c:\repo\Calc.aot", calc);
   const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc8);
   const formulaTok = tokens.find((t) => t[3] === 3);
-  console.log(formulaTok && formulaTok[0] === 3 && formulaTok[1] === 24 && formulaTok[2] === 9
+  console.log(formulaTok && formulaTok[0] === 3 && formulaTok[1] === 22 && formulaTok[2] === 9
     ? "PASS (formula: '=@price*2' carries its own colour token)"
     : "UNEXPECTED formula token " + JSON.stringify(tokens.filter((t) => t[3] === 3)));
 
   vscode.workspace._open(doc8);
   const calcDiags = published.get(doc8.uri.toString()) || [];
   const stale = calcDiags.find((d) => /does not match its formula \(= 20\)/.test(d.message));
-  console.log(stale && stale.severity === vscode.DiagnosticSeverity.Warning && stale.range.a[1] === 24
+  console.log(stale && stale.severity === vscode.DiagnosticSeverity.Warning && stale.range.a[1] === 22
     ? "PASS (formula: a stale value warns on exactly its span)"
     : "UNEXPECTED formula diagnostics " + JSON.stringify(calcDiags.map((d) => d.message)));
 
@@ -1483,7 +1542,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   };
   registeredCommands.get("aot.table.nextCell")(editor8);
   Promise.resolve().then(() => {
-    console.log(applied8 && applied8.includes("|20 =@price*2|")
+    console.log(applied8 && applied8.includes("20 =@price*2")
       ? "PASS (formula: Tab recomputes the value in place)"
       : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
   });
@@ -1495,17 +1554,17 @@ if (process.platform === "win32" || process.platform === "darwin") {
   // a column rename reaches the formula that reads it
   const calc = makeDoc("c:\\repo\\Rename.aot", [
     "Order",
-    "    |name|price|total       |",
-    "    |----+-----+------------|",
-    "    |A   |10   |20 =@price*2|",
+    "    name|price|total",
+    "    ----+-----+------------",
+    "    A   |10   |20 =@price*2",
   ].join("\n"));
   const prep = renameProvider.prepareRename(calc, new vscode.Position(1, 11));
-  console.log(prep && prep.placeholder === "price" && prep.range.a[1] === 10
+  console.log(prep && prep.placeholder === "price" && prep.range.a[1] === 9
     ? "PASS (rename: prepare finds the header cell under the cursor)"
     : "UNEXPECTED prepareRename " + JSON.stringify(prep));
   const colEdit = renameProvider.provideRenameEdits(calc, new vscode.Position(1, 11), "cost");
   const colOps = colEdit.ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
-  console.log(colOps.length === 2 && colOps[0] === "1,10,1,15:cost" && colOps[1] === "3,21,3,26:cost"
+  console.log(colOps.length === 2 && colOps[0] === "1,9,1,14:cost" && colOps[1] === "3,20,3,25:cost"
     ? "PASS (rename: a column renames its header cell and the formula reading it)"
     : "UNEXPECTED column rename " + JSON.stringify(colOps));
 
@@ -1531,9 +1590,9 @@ if (process.platform === "win32" || process.platform === "darwin") {
   // a table's parent renames through cross-table references
   const named = makeDoc("c:\\repo\\Named.aot", [
     "Order",
-    "    |name|price|",
-    "    |----+-----|",
-    "    |Acme|10   |",
+    "    name|price",
+    "    ----+-----",
+    "    Acme|10",
     "spend: =@Order@price@Acme",
   ].join("\n"));
   const tableEdit = renameProvider.provideRenameEdits(named, new vscode.Position(0, 2), "Purchases");
@@ -1820,9 +1879,9 @@ if (process.platform === "win32" || process.platform === "darwin") {
 (async () => {
   const lines = [
     "Order",
-    "    |name|price|total       |",
-    "    |----+-----+------------|",
-    "    |A   |10   |15 =@price*2|",
+    "    name|price|total",
+    "    ----+-----+------------",
+    "    A   |10   |15 =@price*2",
   ];
   const doc = {
     lines,
@@ -1834,7 +1893,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   doc.uri = { toString: () => "file:///tablefill", __doc: doc };
   vscode.workspace._open(doc);
   await new Promise((r) => setImmediate(r));
-  console.log(lines[3] === "    |A   |10   |20 =@price*2|"
+  console.log(lines[3] === "    A   |10   |20 =@price*2"
     ? "PASS (fill: a stale table cell recomputes itself, no Tab needed)"
     : "UNEXPECTED table fill " + JSON.stringify(lines));
 })();
@@ -1894,10 +1953,10 @@ if (process.platform === "win32" || process.platform === "darwin") {
 {
   const tbl = [
     "Order",
-    "    |name |price|qty|total|",
-    "    |-----+-----+---+-----|",
-    "    |Alpha|10   |2  |=@|",
-    "    |Beta |5    |4  |     |",
+    "    name |price|qty|total",
+    "    -----+-----+---+-----",
+    "    Alpha|10   |2  |=@",
+    "    Beta |5    |4  |",
   ].join("\n");
   const docC = makeDoc("c:\\repo\\Comp.aot", tbl);
   const atCol = tbl.split("\n")[3].indexOf("@") + 1;
@@ -2084,9 +2143,9 @@ setTimeout(async () => {
   await registeredCommands.get("aot.toggleTableForm")(editor);
   const gridLines = text.split("\n");
   console.log(gridLines[0] === "Invoice" && gridLines[1] === "    tax rate: 0.2"
-    && gridLines[2] === "    |Invoice|price|vat                 |"
-    && gridLines[4] === "    |INV-1  |100  |20 =@price*@tax rate|"
-    && gridLines[5] === "    |INV-9  |50   |10 =@price*@tax rate|"
+    && gridLines[2] === "    Invoice|price|vat"
+    && gridLines[4] === "    INV-1  |100  |20 =@price*@tax rate"
+    && gridLines[5] === "    INV-9  |50   |10 =@price*@tax rate"
     ? "PASS (flip: a cursor inside the Concept writes the whole Concept out as a grid)"
     : "UNEXPECTED flip grid " + JSON.stringify(gridLines));
   console.log(lint(text, "Books").errors.length === 0

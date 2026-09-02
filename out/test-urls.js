@@ -18,9 +18,9 @@ function check(name, ok) {
   const found = findUrls([
     "Doc",
     "    spec: https://example.com/spec?v=2, reviewed",
-    "    |name|link                  |",
-    "    |----+----------------------|",
-    "    |A   |http://example.org/a  |",
+    "    name|link",
+    "    ----+----------------------",
+    "    A   |http://example.org/a",
     "    note: no urls here",
   ]);
   check("findUrls: a URL in a value, trailing punctuation peeled",
@@ -45,9 +45,9 @@ function check(name, ok) {
     "    diagram: ./assets/flow.svg",
     "    report: " + win,
     "    note: just some prose here",        // not path-shaped
-    "    |name|file        |",
-    "    |----+------------|",
-    "    |A   |./data/a.csv|",
+    "    name|file",
+    "    ----+------------",
+    "    A   |./data/a.csv",
     "    - aot.files/people.csv",           // an Example that *is* a file
     "    - picture.png",                    // an Example that is an image
     "    - Ada Lovelace",                   // an Example that is just a name

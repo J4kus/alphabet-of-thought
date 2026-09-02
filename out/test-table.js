@@ -31,12 +31,41 @@ function check(name, ok) {
   if (!ok) failures++;
 }
 
+// --- what Excel hands back ---------------------------------------------------
+// A CSV is the one file in the mirror another program owns as much as this
+// one does, so the reader takes the spellings Excel writes: a byte-order
+// mark in front of the first cell, and the list separator of a locale where
+// the comma is the decimal mark.
+{
+  check("fromCsv: a leading BOM is dropped, not carried into the Concept's cell",
+    JSON.stringify(fromCsv("\uFEFFPerson,age\nAristotle,10\n")) === JSON.stringify([["Person", "age"], ["Aristotle", "10"]]));
+
+  check("fromCsv: a BOM with CRLF endings reads the same as plain LF",
+    JSON.stringify(fromCsv("\uFEFFPerson,age\r\nAristotle,10\r\n")) === JSON.stringify(fromCsv("Person,age\nAristotle,10\n")));
+
+  check("fromCsv: a semicolon-delimited file (Excel's other locale) reads as cells",
+    JSON.stringify(fromCsv("Person;age\nAristotle;10\n")) === JSON.stringify([["Person", "age"], ["Aristotle", "10"]]));
+
+  // the sniff is narrow on purpose: a comma file whose cells merely hold
+  // semicolons is still a comma file
+  check("fromCsv: semicolons inside a comma file's cells never switch the delimiter",
+    JSON.stringify(fromCsv("Person,note\nAristotle,\"a; b; c\"\n")) === JSON.stringify([["Person", "note"], ["Aristotle", "a; b; c"]]));
+
+  // one column and no delimiter at all is a comma file with a single cell
+  check("fromCsv: a one-column file is unaffected by the sniff",
+    JSON.stringify(fromCsv("Philosopher\nAristotle\n")) === JSON.stringify([["Philosopher"], ["Aristotle"]]));
+
+  // and the mirror keeps writing commas whatever it was handed
+  check("toCsv: the mirror always writes commas, never the locale's separator",
+    toCsv([["Person", "age"], ["Aristotle", "10"]]) === "Person,age\nAristotle,10\n");
+}
+
 const doc = [
   "Otter",                              // 0
-  "    | name   | size | colour |",     // 1
-  "    |--------+------+--------|",     // 2
-  "    | Ollie  | 5    | brown  |",     // 3
-  "    | Pebble | 3    | grey   |",     // 4
+  "    name   | size | colour",     // 1
+  "    --------+------+--------",     // 2
+  "    Ollie  | 5    | brown",     // 3
+  "    Pebble | 3    | grey",     // 4
   "",                                   // 5
   "    | gegeg",                        // 6
 ];
@@ -52,14 +81,35 @@ const fresh = () => blockAt(doc, 3);
   check("blockAt: marks the separator", block.rows[1].sep === true && block.rows[0].sep === false);
   check("blockAt: reads the cells", block.rows[2].cells.join(",") === "Ollie,5,brown");
   check("blockAt: a non-pipe line is no block", blockAt(doc, 0) === null && blockAt(doc, 5) === null);
-  const typing = blockAt(["| name | size |", "| -    |      |"], 1);
+  const typing = blockAt(["name | size", "-    |"], 1);
   check("blockAt: a lone '-' in the first cell reads as a separator being typed",
-    typing.rows[1].sep === true && render(typing)[1] === "|----+----|");
-  check("blockAt: the lone Example is its own block", blockAt(doc, 6).start === 6 && blockAt(doc, 6).end === 6);
+    typing.rows[1].sep === true && render(typing)[1] === "----+----");
+  check("blockAt: a row with an empty name cell is a row like any other",
+    blockAt(doc, 6).start === 6 && blockAt(doc, 6).end === 6
+    && blockAt(doc, 6).rows[0].cells.join(",") === ",gegeg");
+
+  // the pipe divides, so a row ends at its last written cell — and a row
+  // with nothing in its name cell opens with that cell's own spaces, which
+  // is what keeps the columns under it lined up
+  const ragged = blockAt(["Otter |size|colour", "------+----+------", "Ollie |5", "      |3   |grey"], 0);
+  check("render: a row that stops short keeps the dividers it stops before",
+    render(ragged)[2] === "Ollie|5   |");
+  check("render: an empty name cell is drawn as the spaces of its column",
+    render(ragged)[3] === "     |3   |grey");
+
+  // a table written in the pre-1.12 bordered form reads without its borders,
+  // so drawing it again is what migrates the file
+  const old = ["    |Otter |size|", "    |------+----|", "    |Ollie |5   |", "    |    Pup|1  |"];
+  const legacy = blockAt(old, 0);
+  check("blockAt: a bordered table is read without its borders",
+    legacy.rows[0].cells.join(",") === "Otter,size" && legacy.rows[2].cells.join(",") === "Ollie,5"
+    && legacy.rows[3].depth === 1);
+  check("render: re-drawing a bordered table migrates it",
+    render(legacy).join("|") === ["    Otter  |size", "    -------+----", "    Ollie  |5", "        Pup|1"].join("|"));
 
   check("widthsOf: widest cell per column", widthsOf(block).join(",") === "6,4,6");
-  check("render: redraws aligned (no gutters)", render(block)[2] === "    |Ollie |5   |brown |");
-  check("cellStart: column offsets on the aligned line", cellStart(block, 0) === 5 && cellStart(block, 1) === 12 && cellStart(block, 2) === 17);
+  check("render: redraws aligned (no gutters)", render(block)[2] === "    Ollie |5   |brown");
+  check("cellStart: column offsets on the aligned line", cellStart(block, 0) === 4 && cellStart(block, 1) === 11 && cellStart(block, 2) === 16);
   check("colAt: the cell under a character", colAt(doc[3], 7) === 0 && colAt(doc[3], 16) === 1 && colAt(doc[3], 2) === 0);
 }
 
@@ -133,11 +183,11 @@ const fresh = () => blockAt(doc, 3);
 // ---------------------------------------------------------------------------
 {
   const money = [
-    "    | name | basket size |",
-    "    |------+-------------|",
-    "    | Bolt | $3,100      |",
-    "    | Acme | $1,200      |",
-    "    | Kite | $780        |",
+    "    name | basket size",
+    "    ------+-------------",
+    "    Bolt | $3,100",
+    "    Acme | $1,200",
+    "    Kite | $780",
   ];
   let b = blockAt(money, 2);
   sortRows(b, 2, 1);
@@ -157,11 +207,11 @@ const fresh = () => blockAt(doc, 3);
 {
   const csv = fromRegion(["    Name,Size", "    Ollie,5", "    Pebble,3"]);
   check("fromRegion: CSV becomes a table, the first cell (the Concept) kept, the rest lowercased",
-    csv[0] === "    |Name  |size|" && csv[1] === "    |------+----|" && csv[2] === "    |Ollie |5   |");
+    csv[0] === "    Name  |size" && csv[1] === "    ------+----" && csv[2] === "    Ollie |5");
   const tsv = fromRegion(["a\tb", "1\t2"]);
-  check("fromRegion: tabs win over commas", tsv[0] === "|a|b|");
+  check("fromRegion: tabs win over commas", tsv[0] === "a|b");
   const spaced = fromRegion(["name  size", "Ollie  5"]);
-  check("fromRegion: multi-space columns as a last resort", spaced[2] === "|Ollie|5   |");
+  check("fromRegion: multi-space columns as a last resort", spaced[2] === "Ollie|5");
   check("fromRegion: nothing from blank lines", fromRegion(["   ", ""]) === null);
 }
 
@@ -394,77 +444,79 @@ const fresh = () => blockAt(doc, 3);
 
   const sheet = [
     "Order",
-    "    |name|price|total   |",
-    "    |----+-----+--------|",
-    "    |A   |10   |20 =@price*2|",
-    "    |B   |10   |5 =@price/  |",
-    "    |C   |10   |15 =@price*2|",
+    "    name|price|total",
+    "    ----+-----+--------",
+    "    A   |10   |20 =@price*2",
+    "    B   |10   |5 =@price/",
+    "    C   |10   |15 =@price*2",
   ];
   const found = formulas(sheet);
   check("formulas: audits every formula cell", found.length === 3);
   check("formulas: a true value raises nothing", !found[0].stale && !found[0].error);
   check("formulas: the span runs from the '=' to the cell's end",
-    found[0].line === 4 && found[0].startCol === 19 && sheet[3][found[0].startCol] === "=");
+    found[0].line === 4 && found[0].startCol === 18 && sheet[3][found[0].startCol] === "=");
   check("formulas: bad syntax is an error", found[1].error === true && /does not compute/.test(found[1].message));
   check("formulas: a stale value warns with the fresh result",
     found[2].stale === true && found[2].message.includes("= 20"));
 
   check("align: recomputes formulas before padding",
-    align(["| N | a | b     |", "|---+---+-------|", "| X | 2 | =@a*2 |"].join("\n")).some((e) => e.text.includes("4 =@a*2")));
+    align(["N | a | b", "---+---+-------", "X | 2 | =@a*2"].join("\n")).some((e) => e.text.includes("4 =@a*2")));
 
   // the automatic fill: recomputeAll refreshes stale values, but a table
   // whose values are already right is left exactly as typed, ragged or not
   const autoFill = recomputeAll([
     "Order",
-    "    |name|price|total       |",
-    "    |----+-----+------------|",
-    "    |A   |10   |15 =@price*2|",
+    "    name|price|total",
+    "    ----+-----+------------",
+    "    A   |10   |15 =@price*2",
   ].join("\n"));
   check("recomputeAll: a stale value refreshes, only its line edited",
-    autoFill.length === 1 && autoFill[0].line === 4 && autoFill[0].text === "    |A   |10   |20 =@price*2|");
+    autoFill.length === 1 && autoFill[0].line === 4 && autoFill[0].text === "    A   |10   |20 =@price*2");
   check("recomputeAll: a fresh table is never touched, however ragged",
     recomputeAll([
-      "    |name|price|total|",
-      "    |----+-----+-----|",
-      "    |A   |10 |20 =@price*2|",
+      "    name|price|total",
+      "    ----+-----+-----",
+      "    A   |10 |20 =@price*2",
     ].join("\n")).length === 0);
+  // the header ends at its own last cell, so widening the last column
+  // redraws the rule and the row but leaves the header exactly as written
   check("recomputeAll: a value that widens its column redraws the block",
     recomputeAll([
-      "    |name|price|total|",
-      "    |----+-----+-----|",
-      "    |A   |10   |=@price*20|",
-    ].join("\n")).length === 3);
+      "    name|price|total",
+      "    ----+-----+-----",
+      "    A   |10   |=@price*20",
+    ].join("\n")).length === 2);
 
   // the instrumented walk: every '@' name in every formula, its exact span
   // and the declaration it resolves to — what the rename edits
   const refSheet = [
     "Order",
-    "    |name|price|total    |",
-    "    |----+-----+---------|",
-    "    |A   |10   |=@price*2|",
-    "    |B   |20   |=@total@A|",
+    "    name|price|total",
+    "    ----+-----+---------",
+    "    A   |10   |=@price*2",
+    "    B   |20   |=@total@A",
   ];
   const refs = formulaReferences(refSheet);
   const priceRef = refs.find((r) => r.text === "price");
   check("formulaReferences: a column name answers its span and its header cell",
     priceRef && priceRef.kind === "column" && priceRef.line === 4
     && refSheet[3].slice(priceRef.startCol, priceRef.endCol) === "price"
-    && priceRef.site.line === 2 && priceRef.site.col === 10);
+    && priceRef.site.line === 2 && priceRef.site.col === 9);
   const rowRef = refs.find((r) => r.text === "A");
   check("formulaReferences: an Example name answers its row's first cell",
     rowRef && rowRef.kind === "row" && rowRef.line === 5
-    && rowRef.site.line === 4 && rowRef.site.col === 5);
+    && rowRef.site.line === 4 && rowRef.site.col === 4);
 
   // a reference across tables points home to the other table's cells
   const two = [
     "Order",
-    "    |name|price|",
-    "    |----+-----|",
-    "    |Acme|10   |",
+    "    name|price",
+    "    ----+-----",
+    "    Acme|10",
     "Costs",
-    "    |name|spend             |",
-    "    |----+------------------|",
-    "    |X   |=@Order@price@Acme|",
+    "    name|spend",
+    "    ----+------------------",
+    "    X   |=@Order@price@Acme",
   ];
   const foreign = formulaReferences(two, regOf(two, "Sheet"), "Sheet");
   check("formulaReferences: a table name records as a table reference",
@@ -507,9 +559,9 @@ const fresh = () => blockAt(doc, 3);
     bound.rows[2].cells[2] === "90 <=99" && bound.rows[2].cells[1] === "25");
   check("formulas: only '=' cells are audited — header constraints are derive.js's",
     formulas([
-      "|name|age >=18|",
-      "|----+--------|",
-      "|A   |15      |",
+      "name|age >=18",
+      "----+--------",
+      "A   |15",
     ]).length === 0);
   check("tableCtx: a header's constraint is not part of the column's name",
     (() => {
@@ -594,15 +646,15 @@ const fresh = () => blockAt(doc, 3);
 {
   const lines = [
     "Order",
-    "    |name |price|qty|",
-    "    |-----+-----+---|",
-    "    |Acme |10   |2  |",
-    "    |Bolt |20   |3  |",
+    "    name |price|qty",
+    "    -----+-----+---",
+    "    Acme |10   |2",
+    "    Bolt |20   |3",
     "Summary",
-    "    |name    |val|",
-    "    |--------+---|",
-    "    |acmeTot |   |",
-    "    |allPrice|   |",
+    "    name    |val",
+    "    --------+---",
+    "    acmeTot |",
+    "    allPrice|",
   ];
   const reg = regOf(lines, "cross");
 
@@ -659,10 +711,10 @@ const fresh = () => blockAt(doc, 3);
     "    origin: EU",
     "    - Loose",
     "        price: 50",
-    "    |name|price|vat              |site     |all          |",
-    "    |----+-----+-----------------+---------+-------------|",
-    "    |A   |100  |=@price*@tax rate|=@origin |=sum(@price) |",
-    "    |B   |40   |                 |US       |=@price@Loose|",
+    "    name|price|vat              |site     |all",
+    "    ----+-----+-----------------+---------+-------------",
+    "    A   |100  |=@price*@tax rate|=@origin |=sum(@price)",
+    "    B   |40   |                 |US       |=@price@Loose",
   ];
   const reg = regOf(mixed, "Sheet");
   const edits = recomputeAll(mixed.join("\n"), reg, "Sheet");
@@ -771,10 +823,10 @@ const fresh = () => blockAt(doc, 3);
   };
   const reg = regOf([
     "Rate",
-    "    |Rate|code|pct|",
-    "    |----+----+---|",
-    "    |a   |FR  |20 |",
-    "    |b   |DE  |19 |",
+    "    Rate|code|pct",
+    "    ----+----+---",
+    "    a   |FR  |20",
+    "    b   |DE  |19",
   ], "Sheet");
   recompute(block, reg);
   check("recompute: a conditional total counts the row it stands in",
@@ -822,10 +874,10 @@ const fresh = () => blockAt(doc, 3);
 // ---------------------------------------------------------------------------
 {
   const written = [
-    "|default|left align|right align|center align|",
-    "|-------|:---------|----------:|:----------:|",
-    "|1|1|1|1|",
-    "|2|2|2|2|",
+    "default|left align|right align|center align",
+    "-------|:---------|----------:|:----------:",
+    "1|1|1|1",
+    "2|2|2|2",
   ];
   const b = blockAt(written, 0);
   check("alignment: read off the rule, '|' dividers and all",
@@ -833,11 +885,11 @@ const fresh = () => blockAt(doc, 3);
 
   const drawn = render(b);
   check("alignment: each column is padded on the side its marker asks for",
-    drawn[2] === "|1      |1         |          1|     1      |");
+    drawn[2] === "1      |1         |          1|     1");
   check("alignment: the rule is redrawn with its markers, '+' dividers",
-    drawn[1] === "|-------+:---------+----------:+:----------:|");
+    drawn[1] === "-------+:---------+----------:+:----------:");
   check("alignment: a column with no marker is left as it always was",
-    drawn[0] === "|default|left align|right align|center align|");
+    drawn[0] === "default|left align|right align|center align");
 
   // the formatter must not churn: drawing an aligned table again changes
   // nothing, or every save would rewrite the file
@@ -845,9 +897,9 @@ const fresh = () => blockAt(doc, 3);
     render(blockAt(drawn, 0)).join("\n") === drawn.join("\n"));
 
   // a marker needs room: ':-:' would overhang a one-character column
-  const narrow = blockAt(["|a|b|", "|:-:|-|", "|1|2|"], 0);
+  const narrow = blockAt(["a|b", ":-:|-", "1|2"], 0);
   check("alignment: a column is never drawn narrower than its own marker",
-    widthsOf(narrow)[0] === 3 && render(narrow)[1] === "|:-:+-|");
+    widthsOf(narrow)[0] === 3 && render(narrow)[1] === ":-:+-");
 
   // the alignment belongs to the column, so every column operation carries it
   let moved = blockAt(written, 0);
@@ -876,15 +928,15 @@ const fresh = () => blockAt(doc, 3);
   check("alignColumn: null clears it back to no preference",
     alignmentsOf(set).length === 0 || alignmentsOf(set)[0] === null);
   check("alignColumn: a rule-less block has nowhere to declare one",
-    alignColumn(blockAt(["|a|b|"], 0), 0, 0, "left") === null);
+    alignColumn(blockAt(["a|b"], 0), 0, 0, "left") === null);
   check("alignColumn: an unknown alignment is refused",
     alignColumn(blockAt(written, 0), 2, 0, "sideways") === null);
 
   // the cursor lands on the text, not in the padding before it
   check("cellStart: a right-aligned cell starts where its text does",
-    cellStart(b, 2, 2) === "|default|left align|          ".length);
+    cellStart(b, 2, 2) === "default|left align|          ".length);
   check("cellStart: without a row it is still the column's own edge",
-    cellStart(b, 2) === "|default|left align|".length);
+    cellStart(b, 2) === "default|left align|".length);
 
   // and the model cannot tell: every reader trims its cells
   check("alignment: the padding is presentation — the cells read the same",
@@ -975,16 +1027,16 @@ const fresh = () => blockAt(doc, 3);
 // ---------------------------------------------------------------------------
 {
   const sheet = [
-    "|Order|country|",
-    "|-----+-------|",
-    "|Acme |France |",
-    "|Bolt |Germany|",
+    "Order|country",
+    "-----+-------",
+    "Acme |France",
+    "Bolt |Germany",
     "",
-    "|Refund (Return)|reason |",
-    "|---------------+-------|",
-    "|R1             |Damaged|",
+    "Refund (Return)|reason",
+    "---------------+-------",
+    "R1             |Damaged",
     "",
-    "|Organisation|full name|",
+    "Organisation|full name",
   ];
   const ts = tablesOf(sheet, "spreadsheet");
   check("tablesOf: names each table by its first header cell (the Concept)",
@@ -994,7 +1046,7 @@ const fresh = () => blockAt(doc, 3);
   check("tablesOf: an assumed lone header is skipped (still being typed)",
     !ts.some((t) => t.name === "Organisation"));
   check("tablesOf: a table whose first cell names no Concept falls back to the root",
-    tablesOf(["| name |", "|------|", "| Solo |"], "zoo")[0].name === "zoo");
+    tablesOf(["name|size", "----+----", "Solo|1"], "zoo")[0].name === "zoo");
 
   check("cleanName: strips markers, values and aliases",
     cleanName("Refund (Return)") === "Refund" && cleanName("- Acme: x") === "Acme");
@@ -1011,8 +1063,8 @@ const fresh = () => blockAt(doc, 3);
   const u = updateTable(sheet, "Order", ["Order", "country", "currency"], [["Acme", "France", "EUR"]]);
   check("updateTable: replaces the Concept's block in place",
     u.changed && u.from === 0 && u.to === 3
-    && u.block[0] === "|Order|country|currency|"
-    && u.block[2] === "|Acme |France |EUR     |");
+    && u.block[0] === "Order|country|currency"
+    && u.block[2] === "Acme |France |EUR");
   const same = updateTable(sheet, "Refund", ["Refund (Return)", "reason"], [["R1", "Damaged"]]);
   check("updateTable: an identical grid changes nothing", same.changed === false);
   const folded = updateTable(sheet, "ORDER", ["Order", "country", "currency"], [["Acme", "France", "EUR"]]);
@@ -1024,7 +1076,7 @@ const fresh = () => blockAt(doc, 3);
   const ins = updateTable(["Person"], "Person", ["Person"], [["John"]]);
   check("updateTable: inserts a merge-form grid beneath a table-less Concept",
     ins.changed && ins.to < ins.from && ins.from === 1
-    && ins.block.length === 3 && ins.block[0] === "    |Person|" && ins.block[2] === "    |John  |");
+    && ins.block.length === 3 && ins.block[0] === "    Person" && ins.block[2] === "    John");
   check("updateTable: an unknown Concept is null",
     updateTable(["Order"], "Ghost", ["a"], [], "root") === null);
 }
@@ -1033,10 +1085,10 @@ const fresh = () => blockAt(doc, 3);
 // align: unchanged contract — tables with a separator only, 1-based lines
 // ---------------------------------------------------------------------------
 {
-  const messy = ["Otter", "    | name | size |", "    |--+--|", "    | Ollie | 5 |"].join("\n");
+  const messy = ["Otter", "    name | size", "    --+--", "    Ollie | 5"].join("\n");
   const edits = align(messy);
   check("align: still pads, redraws, and reports 1-based lines",
-    edits.length === 3 && edits[0].line === 2 && edits[1].text === "    |-----+----|");
+    edits.length === 3 && edits[0].line === 2 && edits[1].text === "    -----+----");
   check("align: still leaves lone pipe Examples alone", align("A\n    | gegeg").length === 0);
 }
 
@@ -1058,10 +1110,10 @@ const fresh = () => blockAt(doc, 3);
 
   const src = [
     "Note",
-    "    |name|d <10>|qty|",
-    "    |----+------+---|",
-    "    |A   |a rather long note|3|",
-    "    |B   |short|4|",
+    "    name|d <10>|qty",
+    "    ----+------+---",
+    "    A   |a rather long note|3",
+    "    B   |short|4",
   ];
   const block = blockAt(src, 3);
   check("headerWidths: the block reads its per-column cookies",
@@ -1071,9 +1123,9 @@ const fresh = () => blockAt(doc, 3);
   const drawn = render(block);
   check("render: an over-wide plain cell wraps onto a continuation row",
     drawn.length === 5
-    && drawn[2] === "    |A   |a rather  |3  |"
-    && drawn[3] === "    |    |long note |   |"
-    && drawn[4] === "    |B   |short     |4  |");
+    && drawn[2] === "    A   |a rather  |3"
+    && drawn[3] === "        |long note |"
+    && drawn[4] === "    B   |short     |4");
   check("render: physStart maps each logical row to its first drawn line",
     JSON.stringify(block.physStart) === "[0,1,2,4]");
   check("render: a wrapped table re-renders to itself (idempotent)",
@@ -1095,9 +1147,9 @@ const fresh = () => blockAt(doc, 3);
   // a line-count change as one whole-block edit ({ line, to })
   const withFormula = [
     "Note",
-    "    |name|d <10>|len|",
-    "    |----+------+---|",
-    "    |A   |a rather long note|18 =len(@d)|",
+    "    name|d <10>|len",
+    "    ----+------+---",
+    "    A   |a rather long note|18 =len(@d)",
   ];
   const aligned = align(withFormula.join("\n"), undefined, "Sheet");
   check("align: wrapping that changes the line count is one whole-block edit",
@@ -1110,10 +1162,11 @@ const fresh = () => blockAt(doc, 3);
     audit.length === 1 && !audit[0].stale && !audit[0].error);
 
   // no cookie, no change: the old behaviour byte for byte
-  const plain = blockAt(["    |a|b|", "    |-+-|", "    |x|a much longer cell|"], 0);
+  const plain = blockAt(["    a|b", "    -+-", "    x|a much longer cell"], 0);
   check("render: a cookie-less block never wraps",
     render(plain).length === 3 && headerWidths(plain) === null);
 }
+
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

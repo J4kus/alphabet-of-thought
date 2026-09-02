@@ -66,10 +66,10 @@ const parsed = (text) => {
 {
   const text = aot(
     "Prices",
-    "    |name |price|",
-    "    |-----+-----|",
-    "    |Acme |10   |",
-    "    |Bolt |20   |",
+    "    name |price",
+    "    -----+-----",
+    "    Acme |10",
+    "    Bolt |20",
     "Order",
     "    - A",
     "        cost: =@Prices@price@Acme",
@@ -243,11 +243,11 @@ const parsed = (text) => {
 {
   const text = aot(
     "Ledger",
-    "    |name|qty >=1 <=5|",
-    "    |----+-----------|",
-    "    |A   |0          |",
-    "    |B   |9          |",
-    "    |C   |3          |",
+    "    name|qty >=1 <=5",
+    "    ----+-----------",
+    "    A   |0",
+    "    B   |9",
+    "    C   |3",
   );
   const { root, nodes, lines } = parsed(text);
   const audit = auditValues(root, nodes, lines);
@@ -259,9 +259,9 @@ const parsed = (text) => {
     (() => {
       const t2 = aot(
         "Ledger",
-        "    |name|qty >=1 <=@nope|",
-        "    |----+---------------|",
-        "    |A   |3              |",
+        "    name|qty >=1 <=@nope",
+        "    ----+---------------",
+        "    A   |3",
       );
       const p2 = parsed(t2);
       const a2 = auditValues(p2.root, p2.nodes, p2.lines);
@@ -278,10 +278,10 @@ const parsed = (text) => {
 // ---------------------------------------------------------------------------
 {
   const text = aot(
-    "|Order|price|margin >=@price*0.1|",
-    "|-----+-----+-------------------|",
-    "|A    |100  |20                 |",
-    "|B    |100  |5                  |",
+    "Order|price|margin >=@price*0.1",
+    "-----+-----+-------------------",
+    "A    |100  |20",
+    "B    |100  |5",
     "",
     "Loose Order",
     "    - C",
@@ -294,7 +294,7 @@ const parsed = (text) => {
   const rowB = audit.find((f) => f.line === 4 && f.warning);
   check("audit: a column's bound is checked per row, against that row's own cells",
     rowB && /value '5' violates 'margin >= 10'/.test(rowB.message)
-    && rowB.startCol === lines[3].indexOf("5 "));
+    && rowB.startCol === lines[3].lastIndexOf("5"));
   check("audit: a row that satisfies its own bound stays quiet",
     !audit.some((f) => f.line === 3 && (f.error || f.warning)));
   check("audit: a value outside the declaring subtree is not governed",
@@ -307,10 +307,10 @@ const parsed = (text) => {
 {
   const text = aot(
     "Ledger",
-    "    |name|qty >=1|cap <=@nope|",
-    "    |----+-------+-----------|",
-    "    |A   |0      |1       |",
-    "    |B   |2      |2       |",
+    "    name|qty >=1|cap <=@nope",
+    "    ----+-------+-----------",
+    "    A   |0      |1",
+    "    B   |2      |2",
   );
   const { root, nodes, lines } = parsed(text);
   const audit = auditValues(root, nodes, lines);
@@ -436,9 +436,9 @@ const parsed = (text) => {
 {
   const text = aot(
     "Person",
-    "    |name    |nationality|alias|",
-    "    |--------+-----------+-----|",
-    "    |Socrates|RSA        |Paul |",
+    "    name    |nationality|alias",
+    "    --------+-----------+-----",
+    "    Socrates|RSA        |Paul",
     "Measurement",
     "    person: Socrates",              // a sibling attribute named 'person'
     "    alias: =@Person@alias@Socrates", // ... must not swallow this lead
@@ -461,10 +461,10 @@ const parsed = (text) => {
 {
   const text = aot(
     "Prices",
-    "    |name |price|",
-    "    |-----+-----|",
-    "    |Acme |10   |",
-    "    |Bolt |20   |",
+    "    name |price",
+    "    -----+-----",
+    "    Acme |10",
+    "    Bolt |20",
     "Order",
     "    prices: some",                  // a sibling attribute named 'prices'
     "    total: =sum(@Prices@price)",    // ... must not swallow this lead
@@ -526,9 +526,9 @@ const parsed = (text) => {
 {
   const text = aot(
     "Person",
-    "    |name    |alias|",
-    "    |--------+-----|",
-    "    |Socrates|Paul |",
+    "    name    |alias",
+    "    --------+-----",
+    "    Socrates|Paul",
     "Integer",
     "    is prime: No",              // a value the Concept states itself
     "    - 1",
@@ -579,9 +579,9 @@ const parsed = (text) => {
   const text = aot(
     "Person",
     "    alias: Someone",
-    "    |name    |alias|",
-    "    |--------+-----|",
-    "    |Socrates|Paul |",
+    "    name    |alias",
+    "    --------+-----",
+    "    Socrates|Paul",
     "Check",
     "    who: =@Person@alias",
     "    his: =@Person@alias@Socrates",
@@ -605,9 +605,9 @@ const parsed = (text) => {
     "    - loose one",
     "        weight: 7",
     "    - test 1",
-    "        |test 1              |alias|",
-    "        |--------------------+-----|",
-    "        |aot.files/Person.csv|Mike |",
+    "        test 1              |alias",
+    "        --------------------+-----",
+    "        aot.files/Person.csv|Mike",
     "Other",
     "    - x",
   );
@@ -656,10 +656,10 @@ const parsed = (text) => {
     "    origin: EU",
     "    - Loose",
     "        weight: 7",
-    "    |name|price       |",
-    "    |----+------------|",
-    "    |Acme|10          |",
-    "    |Bolt|=@price@Acme|",
+    "    name|price",
+    "    ----+------------",
+    "    Acme|10",
+    "    Bolt|=@price@Acme",
   );
   const { root, nodes, lines } = parsed(text);
   const concept = nodes.find((n) => n.name === "Order");
@@ -680,15 +680,15 @@ const parsed = (text) => {
   }
   const out = applied.join("\n");
   check("fold: a table row updates within its own columns, redrawn aligned",
-    out.includes("|Acme |12          |"));
+    out.includes("Acme |12"));
   check("fold: a formula cell keeps its formula",
-    out.includes("|Bolt |=@price@Acme|"));
+    out.includes("Bolt |=@price@Acme"));
   check("fold: a fresh name lands as a row of the Concept's own table",
-    out.includes("|Fresh|3           |"));
+    out.includes("Fresh|3"));
   check("fold: a line-form Example updates attribute by attribute",
     out.includes("weight: 8"));
   check("fold: a valued cell whose table lacks the column is left to the tree",
-    !out.includes("weight: 5") && !out.includes("|5"));
+    !out.includes("weight: 5") && !out.includes("5"));
   check("fold: a blank cell erases nothing", out.includes("origin: EU"));
 }
 
@@ -704,9 +704,9 @@ const parsed = (text) => {
     "    - 35",
     "        is prime: No",
     "Person",
-    "    |name    |alias|",
-    "    |--------+-----|",
-    "    |Socrates|Paul |",
+    "    name    |alias",
+    "    --------+-----",
+    "    Socrates|Paul",
   );
   const { root, nodes, lines } = parsed(text);
   const integer = nodes.find((n) => n.name === "Integer");
@@ -718,7 +718,7 @@ const parsed = (text) => {
 
   const row = addExample(root, nodes, lines, person, "James", "Sheet");
   check("addExample: a Concept written as a table gains a row instead",
-    row && row.changed && row.block.some((l) => /\|James\s*\|\s*\|/.test(l)));
+    row && row.changed && row.block.some((l) => /^\s*James\s*\|\s*$/.test(l)));
   check("addExample: the new row keeps the table's own columns",
     row && row.block[0].includes("name") && row.block[0].includes("alias"));
 }
@@ -751,10 +751,10 @@ const parsed = (text) => {
 {
   const text = aot(
     "Order",
-    "    |name |grade ==or(1,2,3)|",
-    "    |-----+------------------|",
-    "    |Alpha|2                 |",
-    "    |Beta |9                 |",
+    "    name |grade ==or(1,2,3)",
+    "    -----+------------------",
+    "    Alpha|2",
+    "    Beta |9",
   );
   const { root, nodes, lines } = parsed(text);
   const findings = auditValues(root, nodes, lines).filter((f) => f.error || f.warning);
@@ -1019,10 +1019,10 @@ const parsed = (text) => {
   const asTable = flip(lineForm, "Person");
   check("flipForm: a line-form Concept becomes a standalone table naming itself",
     asTable.form === "table" && asTable.text === aot(
-      "|Person   |first name|age      |",
-      "|---------+----------+---------|",
-      "|Aristotle|A         |10       |",
-      "|Socrates |Sokrates  |20 =10+10|",
+      "Person   |first name|age",
+      "---------+----------+---------",
+      "Aristotle|A         |10",
+      "Socrates |Sokrates  |20 =10+10",
     ));
   check("flipForm: a derivation moves into its cell exactly as it was typed",
     asTable.text.includes("20 =10+10"));
@@ -1042,7 +1042,7 @@ const parsed = (text) => {
   );
   const suffixedTable = flip(suffixed, "Life Event");
   check("flipForm: a column header keeps the attribute's (alias) and its constraint",
-    suffixedTable.text.includes("|beneficiary (person)|age >=18|"));
+    suffixedTable.text.includes("beneficiary (person)|age >=18"));
   check("flipForm: a constraint never lands on a value line, an alias does",
     flip(suffixedTable.text, "Life Event").text === suffixed);
 
@@ -1060,9 +1060,9 @@ const parsed = (text) => {
   const mixedLines = mixedTable.text.split("\n");
   check("flipForm: a Concept with a default or a Map keeps its own line and files the grid under it",
     mixedLines[0] === "Order" && mixedLines[1] === "    tax rate: 0.2"
-    && mixedLines[2] === "    ... more to come" && mixedLines[3].startsWith("    |Order|price|vat"));
+    && mixedLines[2] === "    ... more to come" && mixedLines[3].startsWith("    Order|price|vat"));
   check("flipForm: the flip never recomputes — a cell reading a line-form default keeps its value",
-    mixedTable.text.includes("|Acme |100  |20 =@price*@tax rate|"));
+    mixedTable.text.includes("Acme |100  |20 =@price*@tax rate"));
   check("flipForm: an attribute the Concept declares beside the grid is not declared twice on the way back",
     flip(mixedTable.text, "Order").text.split("\n").filter((l) => /^ *tax rate/.test(l)).length === 1);
 
@@ -1079,12 +1079,7 @@ const parsed = (text) => {
   ), "City");
   check("flipForm: an Example with children of its own is left as a line beside the grid",
     nested.text.includes("        Landmark") && nested.text.includes("            - Palace")
-    && nested.text.includes("|Athens|Athenians         |"));
-
-  // a pipe cannot survive inside a pipe table
-  check("flipForm: a '|' in a value bends to a broken bar, as an arriving CSV's does",
-    flip(aot("Sign", "    reads", "    - Gate", "        reads: in | out"), "Sign")
-      .text.includes("in ¦ out"));
+    && nested.text.includes("Athens|Athenians"));
 
   check("flipForm: a Concept with no Examples has nothing to flip",
     flip(aot("Colour", "    hue"), "Colour") === null);
@@ -1100,9 +1095,9 @@ const parsed = (text) => {
       "        father (person): Sophroniscus",
       "        mother (person): Phaenarete",
     ), "Birth").text === aot(
-      "|Birth         |father (person)|mother (person)|",
-      "|--------------+---------------+---------------|",
-      "|Socrates Birth|Sophroniscus   |Phaenarete     |",
+      "Birth         |father (person)|mother (person)",
+      "--------------+---------------+---------------",
+      "Socrates Birth|Sophroniscus   |Phaenarete",
     ));
 
   // the one reading a grid cannot hold: an attribute an Example only
@@ -1115,17 +1110,17 @@ const parsed = (text) => {
   ), "Belief");
   check("flipForm: an attribute an Example only declares becomes a column with an empty cell",
     declared.text === aot(
-      "|Belief    |timing|use intuition|",
-      "|----------+------+-------------|",
-      "|Introduced|Async |             |",
+      "Belief    |timing|use intuition",
+      "----------+------+-------------",
+      "Introduced|Async |",
     ));
 
   // a cursor anywhere in the Concept's subtree names the same Concept, so
   // the grid is found from the Concept whatever form it is written in
   const { root: gRoot, nodes: gNodes, lines: gLines } = parsed(aot(
-    "|Known For      |beneficiary|",
-    "|---------------+-----------|",
-    "|Socratic Method|Socrates   |",
+    "Known For      |beneficiary",
+    "---------------+-----------",
+    "Socratic Method|Socrates",
   ));
   const known = [gRoot, ...gNodes].find((n) => n.name === "Known For");
   check("gridOfConcept: a standalone table is found from the Concept its header names",

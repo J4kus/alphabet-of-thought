@@ -58,16 +58,16 @@
             reads as: a \= b
 
 - Working Demonstration
-    |Sales Ledger|price        |qty >=1|total          |
-    |------------+-------------+-------+---------------|
-    |Alpha       |10           |2      |20 =@price*@qty|
-    |Beta        |2 =@Alpha@qty|4      |5              |
-    |Total       |             |       |25 =sum(@total)|
+    Sales Ledger|price        |qty >=1|total
+    ------------+-------------+-------+---------------
+    Alpha       |10           |2      |20 =@price*@qty
+    Beta        |2 =@Alpha@qty|4      |5
+    Total       |             |       |25 =sum(@total)
     
-    |Ledger Check|from the ledger              |
-    |------------+-----------------------------|
-    |alpha total |20 =@Sales Ledger@total@Alpha|
-    |price sum   |12 =sum(@Sales Ledger@price) |
+    Ledger Check|from the ledger
+    ------------+-----------------------------
+    alpha total |20 =@Sales Ledger@total@Alpha
+    price sum   |12 =sum(@Sales Ledger@price)
 
     Person Record
         age >=0

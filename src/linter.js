@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, splitCell, splitConstraint, readValue, widthCookie, numberless } = require("./table");
+const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, widthCookie, numberless } = require("./table");
 
 const INDENT = 4;
 
@@ -100,8 +100,8 @@ function eachDuplicate(groups, fn) {
 // when the colon has nothing after it (an empty value, caught in parse).
 function classify(text) {
   if (text.startsWith("...")) return { kind: MAP, name: text.slice(3).trim(), value: null };
-  // '- ' opens an Example. Pipe rows (the table form of an Example) are
-  // handled in parse, which rewrites a lone-cell row to this '- ' form.
+  // '- ' opens an Example. A table row is the other way of writing one,
+  // and parse handles it before ever reaching here.
   if (text.startsWith("- ")) return { kind: INDIVIDUAL, name: text.slice(2).trim(), value: null };
   let value = null;
   const colon = text.indexOf(":");
@@ -136,8 +136,13 @@ function parse(text, rootName, report) {
   let prevDepth = -1;
   // The active table, set by a header row: { depth, attrs } where attrs[c]
   // is the ATTRIBUTE node column c + 1 was declared as (null for an empty
-  // header cell). Only an unbroken run of pipe rows at one depth shares
-  // columns — a blank line, another kind of line, or a depth change ends it.
+  // header cell). Only an unbroken run of rows at the header's depth or
+  // deeper shares columns — a blank line, a line carrying no pipe, or a
+  // line shallower than the header ends it.
+  // rowStack[d] is the last row Example seen at depth d, the table's own
+  // copy of the `stack` above: a row written one level deeper than the row
+  // above it nests under it, exactly as an indented line nests under the
+  // line above it.
   let table = null;
   const lines = text.split(/\r?\n/);
   lines.forEach((raw, i) => {
@@ -152,41 +157,49 @@ function parse(text, rootName, report) {
       content = content.replace(/\t/g, " ".repeat(INDENT));
     }
     const spaces = content.length - content.replace(/^ +/, "").length;
-    if (spaces % INDENT) {
+    // A row of an open table whose name cell is empty — a continuation row,
+    // or one still being filled — is padded to its name column like every
+    // other row, so its leading spaces ARE that empty cell and not an
+    // indent at all. It stands at its table's depth, and the two indent
+    // laws below have nothing to say about it.
+    const padded = !isSeparator(content.trim()) && isRowText(content)
+      && !((tableCells(content)[0] || {}).text);
+    if (!padded && spaces % INDENT) {
       report.error(line, `indent of ${spaces} spaces is not a whole number of levels — each level of nesting is exactly ${INDENT} spaces, so add or remove spaces to reach a multiple of ${INDENT} (${spaces} mod ${INDENT} = ${spaces % INDENT}, expected 0)`);
     }
-    let depth = Math.floor(spaces / INDENT);
-    if (depth - prevDepth > 1) {
+    let depth = !padded ? Math.floor(spaces / INDENT)
+      : table ? table.depth
+      : Math.min(Math.floor(spaces / INDENT), prevDepth + 1);
+    if (!padded && depth - prevDepth > 1) {
       report.error(line, `depth jump ${prevDepth} -> ${depth}: this line is ${depth - prevDepth} levels deeper than the line above, but a child sits exactly one level under its parent — there is no line at depth ${depth - 1} to be its parent; indent it to depth ${prevDepth + 1}`);
       depth = prevDepth + 1;
     }
     let trimmed = content.trim();
-    // set when a lone-cell pipe row is rewritten to '- ' form below, so the
-    // Example still knows where its cell text sits for the semantic colouring
-    let cellNameCol;
-    // a '|---+---|' separator row is table layout, never a node: it marks
+    // a '---+---' separator row is table layout, never a node: it marks
     // the row above it as the table's header
     if (isSeparator(trimmed)) return;
     const marker = trimmed[0];
-    if (table && (marker !== "|" || depth !== table.depth)) table = null;
-    // a dash Example needs its space ('- '); pipe rows carry no gutter
+    // a row carries a '|' between its cells; a row deeper than the table's
+    // own line is nested inside it, so only a shallower line ends the table
+    const isRow = isRowText(trimmed);
+    if (table && (!isRow || depth < table.depth)) table = null;
+    // a dash Example needs its space ('- '); rows carry no gutter
     // spaces, so a cell may start right after its '|'
-    if (marker === "-" && !trimmed.startsWith("- ")) {
+    if (!isRow && marker === "-" && !trimmed.startsWith("- ")) {
       report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example begins with a dash then a space ('- '); add the missing space`);
       trimmed = "- " + trimmed.slice(1);
     }
-    if (marker === "|") {
+    if (isRow) {
       const row = tableCells(content);
       const parent = stack[Math.min(depth, stack.length - 1)];
       // A header row is told from a data row as in org: the line directly
-      // beneath it is a '|---|' separator (so a single-cell row above one
-      // is a one-column table's header, not an Example). A lone multi-cell
-      // row — nothing tabular on the next line — is a header being typed:
-      // it is assumed, the separator and data rows still to come.
+      // beneath it is a '---+---' separator. A lone row — nothing tabular
+      // on the next line — is a header being typed: it is assumed, the
+      // separator and data rows still to come.
       const below = i + 1 < lines.length ? lines[i + 1].trim() : "";
       const separatorBelow = isSeparator(below);
-      const rowBelow = !separatorBelow && below[0] === "|";
-      if (!table && (separatorBelow || (row.length > 1 && !rowBelow))) {
+      const rowBelow = !separatorBelow && isRowText(below);
+      if (!table && (separatorBelow || !rowBelow)) {
         // header row: the FIRST cell names the Concept the table describes
         // — the table stands where the Concept's line would stand — and the
         // cells after it declare the columns as attributes of that Concept,
@@ -194,7 +207,10 @@ function parse(text, rootName, report) {
         // filed under already bears the same name, the table fills that
         // node in rather than declaring a twin, so a Concept can carry
         // line-form defaults and '- ' Examples beside its grid.
-        table = { depth, attrs: [], lastExample: null, hasCookies: false };
+        table = { depth, attrs: [], rowStack: [], lastExample: null, hasCookies: false };
+        // the header names the Concept the whole table describes, so it is
+        // the table's own line: its indent IS the table's, and every row
+        // written deeper than it nests inside it
         // a width cookie on the name column is parsed but ignored — the
         // name column never wraps — yet it still opts the table in
         let cName = row.length ? row[0].text : "", cAlias = null, cAliasCol;
@@ -219,7 +235,10 @@ function parse(text, rootName, report) {
         } else if (sameAsParent) {
           owner = parent; // the table fills in the line it is filed under
         } else if (cName[0] >= "a" && cName[0] <= "z") {
-          report.error(line, `the first header cell '${cName}' is lowercase — it names the Concept the table describes (the old 'name' label was dropped in 1.9); write the Concept's name there, capitalised`,
+          // a colon in the cell says this was meant as a line-form value: one
+          // pipe is all it takes to be a row now, so the value's own pipe is
+          // what turned it into one
+          report.error(line, `the first header cell '${cName}' is lowercase — it names the Concept the table describes (the old 'name' label was dropped in 1.9); write the Concept's name there, capitalised${cName.includes(":") ? `. If this is a value rather than a table, its '|' is what made it a row — write a literal pipe as the broken bar '¦'` : ""}`,
             { startCol: row[0].col, endCol: row[0].col + row[0].text.length });
         } else {
           const concept = {
@@ -328,13 +347,31 @@ function parse(text, rootName, report) {
           report.error(line, `table row has ${row.length} cells but the header names ${table.attrs.length + 1} columns — remove the extra cells, or add columns to the header`,
             { startCol: first.col, endCol: lastCell.col + Math.max(lastCell.text.length, 1) });
         }
+        // A row's leading spaces inside its name cell are its depth in the
+        // table's tree: a row one level deeper than the row above it is a
+        // sub-Example of that row, exactly as '- Child' under '- Parent' is.
+        // Its parent is the nearest shallower row; at depth 0 it is the
+        // Concept the header names, as every row always was.
+        // With the outer pipe gone the name stands where the line starts,
+        // so a row's depth is simply its line's, past the table's own — the
+        // one indent law the whole language runs on, and already checked
+        // for whole levels above.
+        let rowDepth = depth - table.depth;
+        if (rowDepth > table.rowStack.length) {
+          report.error(line, `row '${row[0].text}' is ${rowDepth - table.rowStack.length} ${rowDepth - table.rowStack.length === 1 ? "level" : "levels"} deeper than the row above it, but a sub-Example sits exactly one level under its parent row — there is no row at depth ${rowDepth - 1} to be its parent; indent its name cell to depth ${table.rowStack.length}`,
+            { startCol: row[0].col - row[0].indent, endCol: row[0].col + Math.max(row[0].text.length, 1) });
+          rowDepth = table.rowStack.length;
+        }
+        const rowParent = rowDepth ? table.rowStack[rowDepth - 1] : table.owner;
         const example = {
           line, depth, kind: INDIVIDUAL, name: row[0].text, value: null,
-          alias: null, parent: table.owner, children: [], nameCol: row[0].col,
+          alias: null, parent: rowParent, children: [], nameCol: row[0].col,
         };
-        table.owner.children.push(example);
+        rowParent.children.push(example);
         nodes.push(example);
         table.lastExample = example;
+        table.rowStack.length = rowDepth;
+        table.rowStack.push(example);
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
           const attr = table.attrs[c - 1];
           // a formula ('10 =$1+10') derives the value: only the value part
@@ -361,12 +398,8 @@ function parse(text, rootName, report) {
         prevDepth = depth;
         return;
       }
-      if (row.length > 1) {
-        report.error(line, `table row has ${row.length} cells but no header names its columns — add a header row of attribute names directly above the data rows, with a '|---|' separator row between them`);
-      }
-      // a lone-cell pipe row is a plain Example: rewrite it to the '- ' form
-      if (row.length) cellNameCol = row[0].col;
-      trimmed = "- " + (row.length ? row[0].text : "");
+      report.error(line, `table row has ${row.length} cells but no header names its columns — add a header row of attribute names directly above the data rows, with a '---+---' separator row between them; if you meant a literal pipe in a value, write it as the broken bar '¦', which is what a table cell holds`);
+      return;
     }
     // a bare attribute may carry trailing constraints — `age >=18` bounds
     // every value the attribute takes (checked by derive.js), and several
@@ -388,7 +421,6 @@ function parse(text, rootName, report) {
     }
     const parent = stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, alias: alias || null, parent, children: [] };
-    if (cellNameCol !== undefined && kind === INDIVIDUAL) node.nameCol = cellNameCol;
     if (constraints && kind === ATTRIBUTE) node.constraints = constraints;
     // a line-form value may carry an '=' formula exactly as a table cell
     // does: `total: 30 =sum($price)` computes. Only the value part enters

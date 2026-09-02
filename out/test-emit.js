@@ -48,32 +48,32 @@ const treeOf = (text, rootName) => {
 {
   const text = aot(
     "Order",
-    "    |name            |country|basket size|",
-    "    |----------------+-------+-----------|",
-    "    |Acme March Order|France |$1,200     |",
-    "    |Bolt March Order|       |           |",
+    "    name            |country|basket size",
+    "    ----------------+-------+-----------",
+    "    Acme March Order|France |$1,200",
+    "    Bolt March Order|       |",
   );
   const out = emit(text);
   check("emit: table cells lose their padding, the separator collapses to |-|",
-    out.includes("|name|country|basket size|")
-    && out.includes("    |-|\n")
-    && out.includes("|Acme March Order|France|$1,200|"));
+    out.includes("name|country|basket size")
+    && out.includes("    -|\n")
+    && out.includes("Acme March Order|France|$1,200"));
   check("emit: a data row's trailing empty cells are dropped",
-    out.includes("|Bolt March Order|\n"));
+    out.includes("Bolt March Order|\n"));
   check("emit: the header keeps its cell count",
-    out.includes("|name|country|basket size|"));
+    out.includes("name|country|basket size"));
 }
 
 {
   const text = aot(
     "Order",
-    "    |name|qty|",
-    "    |----+---|",
-    "    |A   |1  |",
+    "    name|qty",
+    "    ----+---",
+    "    A   |1",
     "",
-    "    |name 2|qty 2|",
-    "    |------+-----|",
-    "    |B     |2    |",
+    "    name 2|qty 2",
+    "    ------+-----",
+    "    B     |2",
     "",
     "Other",
   );
@@ -81,20 +81,20 @@ const treeOf = (text, rootName) => {
   const lines = out.split("\n");
   check("emit: the blank line between two tables stays — it ends the first",
     lines.filter((l) => l === "").length === 1
-    && lines[lines.indexOf("")] === "" && lines[lines.indexOf("") - 1].includes("|A|1|"));
+    && lines[lines.indexOf("")] === "" && lines[lines.indexOf("") - 1].includes("A|1"));
   check("emit: the blank line before a non-table line goes",
-    out.includes("|B|2|\nOther"));
+    out.includes("B|2|\nOther"));
 }
 
 {
   const text = aot(
     "Concept",
-    "    |lone pipe Example    |",
+    "    lone pipe Example",
     "    plain: value",
   );
   check("emit: a lone pipe row (no separator) is only whitespace-stripped, never redrawn",
-    emit(text).includes("    |lone pipe Example    |") === false
-    && emit(text).includes("    |lone pipe Example |") === false
+    emit(text).includes("    lone pipe Example") === false
+    && emit(text).includes("    lone pipe Example") === false
     && emit(text).includes("    |lone pipe Example"));
 }
 
@@ -111,10 +111,10 @@ const treeOf = (text, rootName) => {
     "",
     "        - Wagon",
     "            wheel count: 6",
-    "    |name   |wheel count|colour|",
-    "    |-------+-----------+------|",
-    "    |Bicycle|2          |      |",
-    "    |Sled   |0          |red   |",
+    "    name   |wheel count|colour",
+    "    -------+-----------+------",
+    "    Bicycle|2          |",
+    "    Sled   |0          |red",
   );
   const out = emit(text);
   const a = treeOf(text, "Vehicle"), b = treeOf(out, "Vehicle");
@@ -140,21 +140,21 @@ const treeOf = (text, rootName) => {
 // ---------------------------------------------------------------------------
 {
   const lines = [
-    "    |name|qty|note|",
-    "    |----+---+----|",
-    "    |Acme|10 |a   |",
+    "    name|qty|note",
+    "    ----+---+----",
+    "    Acme|10 |a",
   ];
   const block = table.blockAt(lines, 0);
   const was = table.setCompact(true);
   try {
     const rows = table.render(block);
     check("setCompact: render writes unpadded cells and a |-| separator",
-      rows[0] === "    |name|qty|note|" && rows[1] === "    |-|" && rows[2] === "    |Acme|10|a|");
+      rows[0] === "    name|qty|note" && rows[1] === "    -" && rows[2] === "    Acme|10|a");
     check("setCompact: cellStart walks the row's own cells",
-      table.cellStart(block, 2, 2) === "    |Acme|10|".length);
+      table.cellStart(block, 2, 2) === "    Acme|10".length);
   } finally { table.setCompact(was); }
   check("setCompact: restoring the mode re-aligns",
-    table.render(block)[2] === "    |Acme|10 |a   |");
+    table.render(block)[2] === "    Acme|10 |a");
 }
 
 process.exit(failures ? 1 : 0);

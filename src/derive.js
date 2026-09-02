@@ -32,7 +32,7 @@
 const { KIND, INDENT } = require("./linter");
 const {
   splitCell, splitConstraint, evalFormula, formatValue, compareValues, longestMatch,
-  tablesOf, updateTable, describeBound, readValue, render,
+  tablesOf, updateTable, describeBound, readValue, render, isRowText,
   referenceSpans, widthCookie, numberless, Choice,
 } = require("./table");
 
@@ -896,7 +896,7 @@ function updateScope(lines, root, nodes, concept, header, rows, rootName) {
   // the rest: line-form Examples merge in place, fresh names land in the
   // Concept's own shape — its direct table when it has one, else '- ' form
   const lineNames = new Set(concept.children
-    .filter((c) => c.kind === KIND.INDIVIDUAL && !(lines[c.line - 1] || "").trim().startsWith("|"))
+    .filter((c) => c.kind === KIND.INDIVIDUAL && !isRowText(lines[c.line - 1] || ""))
     .map((c) => c.name.toLowerCase()));
   const forLines = [], freshRows = [];
   for (const r of rows) {
@@ -985,13 +985,30 @@ function rawValueOf(lines, node) {
   return colon === -1 ? "" : raw.slice(colon + 1).trim();
 }
 
-// The Concept's Examples that can be rows: a row is a name and a flat list
-// of values, so an Example carrying structure of its own (a sub-Example, a
-// Map, a Concept) cannot be one, and neither can the inline Example riding
-// on the Concept's own line ('Colour: red').
-const rowableExamples = (concept) => concept.children.filter((c) =>
-  c.kind === KIND.INDIVIDUAL && c.line !== concept.line
-  && c.children.every((g) => isAttrKind(g) && !g.children.length));
+// The Concept's Examples that can be rows. A row is a name, a flat list of
+// values, and a place in the tree: an Example whose children are attributes
+// with no structure of their own is a row, and so is one whose further
+// children are themselves rows — a sub-Example is a row indented inside its
+// name cell. A Map or a sub-Concept still has nowhere to go in a grid, so
+// an Example carrying one is no row; nor is the inline Example riding on
+// the Concept's own line ('Colour: red').
+const isRowable = (c) => c.kind === KIND.INDIVIDUAL
+  && c.children.every((g) => (isAttrKind(g) && !g.children.length) || isRowable(g));
+
+// Those Examples depth-first, each tagged with the depth it is written at —
+// the order the grid draws them in, and the indent each name cell carries.
+function rowableExamples(concept) {
+  const out = [];
+  const walk = (n, depth) => {
+    for (const c of n.children) {
+      if (c.kind !== KIND.INDIVIDUAL || c.line === concept.line || !isRowable(c)) continue;
+      out.push({ node: c, depth });
+      walk(c, depth + 1);
+    }
+  };
+  walk(concept, 0);
+  return out;
+}
 
 // A bare attribute line under the Concept declares a column and nothing
 // else, so the grid's header takes over from it. One with children of its
@@ -1039,15 +1056,17 @@ function toTableForm(lines, concept) {
   // then any attribute only an Example carries. It has no declaration line
   // to copy, so its header cell is written from the node: the name and the
   // (alias) that crosslinks it, which is all such an attribute ever states.
-  for (const ex of examples) {
+  for (const { node: ex } of examples) {
     for (const child of ex.children) {
+      // a sub-Example is a row of its own, never a column
+      if (child.kind === KIND.INDIVIDUAL) continue;
       claim(child, child.name + (child.alias ? ` (${child.alias})` : ""));
     }
   }
   // a pipe cannot survive inside a pipe table, so it bends to a broken bar
   // exactly as an arriving CSV's does
   const cell = (text) => String(text).replace(/\|/g, "¦");
-  const consumed = new Set([...declared, ...examples]);
+  const consumed = new Set([...declared, ...examples.map((e) => e.node)]);
   const kept = concept.children.filter((c) => !consumed.has(c) && c.line !== concept.line);
   const standalone = !kept.length && !concept.value && concept.line > 0;
   const indent = " ".repeat(INDENT * (concept.depth + (standalone ? 0 : 1)));
@@ -1059,21 +1078,22 @@ function toTableForm(lines, concept) {
   // each value placed in the column its own name claimed, rather than each
   // column hunting for a value: one map decided both, so every value has a
   // column and no column can quietly take another's
-  const rows = examples.map((ex) => {
+  const rows = examples.map(({ node: ex, depth }) => {
     const cells = [cell(ex.name), ...columns.map(() => "")];
     for (const child of ex.children) {
       if (child.kind !== KIND.DEFAULT) continue; // a declaration states no value
       const col = seen.get(child.name.toLowerCase());
       if (col) cells[col.at + 1] = cell(rawValueOf(lines, child));
     }
-    return cells;
+    // the depth rides on the row; render() writes it into the name cell
+    return { cells, depth };
   });
   const block = {
     indent,
     rows: [
       { sep: false, cells: [cell(first), ...columns.map((c) => cell(c.cell))] },
       { sep: true, cells: [] },
-      ...rows.map((cells) => ({ sep: false, cells })),
+      ...rows.map((r) => ({ sep: false, cells: r.cells, depth: r.depth })),
     ],
   };
   // no recompute here: a flip is a re-spelling, not a recalculation, and
@@ -1134,20 +1154,22 @@ function toLineForm(lines, concept, grid) {
   // its children belong at
   if (standalone) out.push(grid.indent + widthCookie(grid.header[0] || "").text.trim());
   const declIndent = grid.indent + (standalone ? " ".repeat(INDENT) : "");
-  const valueIndent = declIndent + " ".repeat(INDENT);
   for (const col of columns) {
     if (outside.has(col.name.toLowerCase())) continue;
     out.push(declIndent + col.term);
   }
-  for (const row of grid.rows) {
+  // a row nested inside its name cell comes back as a '- Example' nested by
+  // the same number of levels: the grid's indent and the tree's are one
+  grid.rows.forEach((row, r) => {
     const name = (row[0] || "").trim();
-    if (!name) continue;
-    out.push(declIndent + `- ${name}`);
+    if (!name) return;
+    const rowIndent = declIndent + " ".repeat(INDENT * ((grid.rowDepths && grid.rowDepths[r]) || 0));
+    out.push(rowIndent + `- ${name}`);
     columns.forEach((col, k) => {
       const value = (row[k + 1] || "").trim();
-      if (value) out.push(valueIndent + `${col.label}: ${value}`);
+      if (value) out.push(rowIndent + " ".repeat(INDENT) + `${col.label}: ${value}`);
     });
-  }
+  });
   return { form: "lines", from: grid.start, to: grid.end, block: out };
 }
 

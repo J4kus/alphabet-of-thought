@@ -4,6 +4,23 @@
     "fileTypes": ["aot"],
 	"patterns": [
 		{
+            "comment": "table row: any line carrying a divider, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
+            "begin": "^(?=[^|]*\\|)",
+            "end": "$",
+            "patterns": [
+                { "match": "[|+]|(?<![^\\s|+])-+(?![^\\s|+])", "name": "punctuation.definition.table.aot" },
+                { "match": "`[^`]*`", "name": "markup.inline.raw.literal.aot" },
+                { "match": "\\([^)|]*\\)", "name": "entity.other.attribute-name.alias.aot" },
+                { "match": "[A-Z](?:[^|(:\"'`]|'(?=[A-Za-z]))*", "name": "entity.name.type.concept.aot" },
+                { "match": "\\b[a-z]\\w*\\b", "name": "variable.other.property.aot" }
+            ]
+        },
+        {
+            "comment": "table separator: the '---+---' rule that marks the row above as the table's header — every symbol is chrome, one quiet colour. Two symbols at least, so a lone '-' stays the Example whose name is still being typed. Punctuation, not comment: comment scopes render italic in most themes, and an italic pipe tilts",
+            "name": "punctuation.definition.table.aot",
+            "match": "^[ \\t]*(?=[ \\t\\-+:|]*$)(?=.*-)[-+:|]{2,}[-+:|\\s]*$"
+        },
+		{
             "comment": "Concept: a type / class, the structural backbone. A quote ends the name, but an apostrophe inside a word is a letter of it — 'Aristotle's Ethics' is one name, so a ' followed by a letter is consumed rather than closing the run",
             "name": "entity.name.type.concept.aot",
             "match": "[A-Z](?:[^(:\"'`]|'(?=[A-Za-z]))*(?=[(:\"`]|'(?![A-Za-z])|$)"
@@ -42,24 +59,6 @@
             "comment": "deprecated: invalid / struck-through",
             "name": "invalid.deprecated.aot",
             "match": "~.*"
-        },
-        {
-            "comment": "table separator: the '|---+---|' rule that marks the row above as the table's header — every symbol is chrome, one quiet colour. Punctuation, not comment: comment scopes render italic in most themes, and an italic pipe tilts",
-            "name": "punctuation.definition.table.aot",
-            "match": "\\|[\\s\\-+:|]*$"
-        },
-        {
-            "comment": "table row: the pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
-            "begin": "\\|",
-            "end": "$",
-            "beginCaptures": { "0": { "name": "punctuation.definition.table.aot" } },
-            "patterns": [
-                { "match": "[|+]|(?<=[\\s|])-+(?=[\\s|])", "name": "punctuation.definition.table.aot" },
-                { "match": "`[^`]*`", "name": "markup.inline.raw.literal.aot" },
-                { "match": "\\([^)|]*\\)", "name": "entity.other.attribute-name.alias.aot" },
-                { "match": "[A-Z](?:[^|(:\"'`]|'(?=[A-Za-z]))*", "name": "entity.name.type.concept.aot" },
-                { "match": "\\b[a-z]\\w*\\b", "name": "variable.other.property.aot" }
-            ]
         }
 
 	],

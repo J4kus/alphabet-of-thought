@@ -704,7 +704,7 @@ const valueCompletion = {
     // fires on every keystroke, and re-linting the document each time to
     // suggest a value would be paying the linter's price for the editor's
     let parsed;
-    if (line.trimStart().startsWith("|")) {
+    if (table.isRowText(line)) {
       try { parsed = analysisByDoc.get(doc.uri.toString()) || analyse(doc); } catch { return []; }
       return tableCellItems(doc, position, line, parsed);
     }
@@ -1505,7 +1505,7 @@ const codeActionProvider = {
     // Example (line form)
     const at = range && range.start;
     const lineText = at && at.line < doc.lineCount ? doc.lineAt(at.line).text : "";
-    if (lineText.trimStart().startsWith("|")) {
+    if (table.isRowText(lineText)) {
       const cs = table.cells(lineText);
       const cell = cs.find((c) => at.character >= c.col && at.character <= c.col + Math.max(c.text.length, 1));
       if (cell && table.splitCell(cell.text).eq !== -1) {
@@ -2111,20 +2111,35 @@ function globalCsvNames(root, currentDoc) {
   return names;
 }
 
-// The .aot files that own a Concept named `name` with Examples in its
-// scope — written as a table, line form, or both: one idea, one CSV.
-function findOwningAots(root, name) {
-  const low = name.toLowerCase();
-  const out = [];
+// Every Concept the repo mirrors, indexed by its lowercased name: the .aot
+// files that own it — written as a table, line form, or both, one idea, one
+// CSV — each with the grid that file would write. Built in one pass, because
+// a whole-folder import would otherwise re-scan and re-lint every .aot once
+// per CSV.
+function ownerIndex(root) {
+  const index = new Map();
   for (const f of scanAotFiles(root)) {
     let text; try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
     const rootName = path.basename(f).replace(/\.[^.]*$/, "");
     try {
       const { root: r, nodes } = lint(text, rootName);
-      if (derive.mirrorGrids(r, nodes).some((g) => g.rows.length && g.name.toLowerCase() === low)) out.push(f);
+      for (const g of derive.mirrorGrids(r, nodes)) {
+        if (!g.rows.length) continue;
+        const low = g.name.toLowerCase();
+        if (!index.has(low)) index.set(low, []);
+        index.get(low).push({ file: f, grid: [g.header, ...g.rows] });
+      }
     } catch { /* an unparseable file owns nothing */ }
   }
-  return out;
+  return index;
+}
+
+// The .aot files that own a Concept named `name` with Examples in its
+// scope. `index` is an ownerIndex already built for this root; without one
+// a fresh index is built for this lookup alone.
+function findOwningAots(root, name, index) {
+  const entries = (index || ownerIndex(root)).get(name.toLowerCase()) || [];
+  return entries.map((e) => e.file);
 }
 
 // Fold a document's pre-1.3 per-file folders (`tables.<file>` and
@@ -2241,7 +2256,13 @@ function syncAotToCsv(doc) {
   for (const t of found) {
     const file = path.join(dir, csvName(t.name));
     const csv = table.toCsv(t.grid);
-    if (fs.existsSync(file) && sameCsvText(fs.readFileSync(file, "utf8"), csv)) continue;
+    // an identical file still counts as ours: remembering it is what lets
+    // the fold-back watcher tell our own write echoing back from a genuine
+    // hand edit, for a CSV this save happened not to have to touch
+    if (fs.existsSync(file) && sameCsvText(fs.readFileSync(file, "utf8"), csv)) {
+      lastWritten.set(file, csv);
+      continue;
+    }
     // never clobber a CSV the user has open with unsaved edits
     const openDirty = (vscode.workspace.textDocuments || []).find(
       (d) => d.fileName && fileKey(d.fileName) === fileKey(file) && d.isDirty);
@@ -2249,8 +2270,16 @@ function syncAotToCsv(doc) {
       vscode.window.showWarningMessage(`'${path.basename(file)}' has unsaved edits — save or revert it, then save the .aot again to re-mirror.`);
       continue;
     }
+    // Excel holds a lock on the workbook it has open, so the write fails
+    // rather than the file being wrong. Say so and leave the CSV alone: the
+    // next save re-mirrors, and nothing in the .aot has been lost.
     lastWritten.set(file, csv);
-    fs.writeFileSync(file, csv);
+    try {
+      fs.writeFileSync(file, csv);
+    } catch {
+      lastWritten.delete(file);
+      vscode.window.showWarningMessage(`'${path.basename(file)}' is open in another program — close it and save the .aot again to re-mirror.`);
+    }
   }
 }
 
@@ -2261,13 +2290,13 @@ function syncAotToCsv(doc) {
 // bottom-up so no earlier insert shifts the lines a later one measured.
 async function foldCsvIntoScope(doc, lines, rootName, name, grid) {
   let parsed;
-  try { parsed = lint(doc.getText(), rootName); } catch { return; }
+  try { parsed = lint(doc.getText(), rootName); } catch { return false; }
   const low = name.toLowerCase();
   const concept = [parsed.root, ...parsed.nodes].find((n) =>
     n && n.kind === KIND.CONCEPT && n.name.toLowerCase() === low);
-  if (!concept) return;
+  if (!concept) return false;
   const ops = derive.updateScope(lines, parsed.root, parsed.nodes, concept, grid[0], grid.slice(1), rootName);
-  if (!ops.length) return;
+  if (!ops.length) return false;
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const edit = new vscode.WorkspaceEdit();
   const lineOf = (op) => (op.type === "replace" ? op.line : op.type === "block" ? op.from + 1 : op.afterLine);
@@ -2287,33 +2316,129 @@ async function foldCsvIntoScope(doc, lines, rootName, name, grid) {
   await vscode.workspace.applyEdit(edit);
   const saved = await doc.save(); // the save re-mirrors, converging both copies
   if (!saved) vscode.window.showWarningMessage(`AOT: folded '${name}.csv' into ${path.basename(doc.fileName)}, but could not save it.`);
+  return true;
 }
 
-async function syncCsvIntoAot(uri) {
-  if (!syncEnabled()) return;
+// Excel does not write a CSV in place: it writes a temp file and renames it
+// over the target, so a watcher event can land in the instant the name has
+// nothing behind it — and a workbook still open holds a lock besides.
+// Neither lasts long, so read again a few times before giving the edit up
+// rather than dropping it in silence.
+const csvWait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const CSV_READ_TRIES = 3, CSV_READ_PAUSE_MS = 150;
+async function readCsvSettled(csvPath) {
+  for (let attempt = 1; ; attempt++) {
+    try { return fs.readFileSync(csvPath, "utf8"); } catch {
+      if (attempt >= CSV_READ_TRIES) return null;
+      await csvWait(CSV_READ_PAUSE_MS);
+    }
+  }
+}
+
+// `index` is an ownerIndex already built for the repo — the whole-folder
+// import passes one so a hundred CSVs cost a single scan; a lone watcher
+// event omits it and gets a fresh lookup. Answers whether the .aot changed.
+async function syncCsvIntoAot(uri, index) {
+  if (!syncEnabled()) return false;
   const csvPath = uri.fsPath;
   const dir = path.dirname(csvPath);
-  if (path.basename(dir) !== "aot.files") return;
-  if (path.basename(csvPath).startsWith("_")) return; // an archived orphan, not synced
-  let csv;
-  try { csv = fs.readFileSync(csvPath, "utf8"); } catch { return; }
+  if (path.basename(dir) !== "aot.files") return false;
+  if (path.basename(csvPath).startsWith("_")) return false; // an archived orphan, not synced
+  const csv = await readCsvSettled(csvPath);
+  if (csv === null) return false;
   // our own write echoing back is not an edit — and a CSV we never wrote
   // cannot be one either, so only a remembered write is compared
   const written = lastWritten.get(csvPath);
-  if (written !== undefined && sameCsvText(written, csv)) return;
-  const name = path.basename(csvPath, ".csv");
-  const owners = findOwningAots(path.dirname(dir), name);
-  if (!owners.length) return;
+  if (written !== undefined && sameCsvText(written, csv)) return false;
+  const name = path.basename(csvPath).replace(/\.csv$/i, "");
+  const owners = findOwningAots(path.dirname(dir), name, index);
+  if (!owners.length) return false;
   if (owners.length > 1) {
     vscode.window.showWarningMessage(`'${name}.csv' matches a Concept in ${owners.length} files; folding into '${path.basename(owners[0])}'.`);
   }
   const aotPath = owners[0];
   const grid = table.fromCsv(csv);
-  if (!grid.length) return;
+  if (!grid.length) return false;
   const doc = await vscode.workspace.openTextDocument(aotPath);
   const rootName = path.basename(aotPath).replace(/\.[^.]*$/, "");
   const lines = doc.getText().split(/\r?\n/);
   return foldCsvIntoScope(doc, lines, rootName, name, grid);
+}
+
+// One save from Excel is several events — the temp file's rename shows up
+// as a delete, a create and a change within a few milliseconds — and two
+// folds of one CSV running at once would both measure the same lines and
+// then both edit them. So the burst settles into a single fold. The promise
+// is the fold's, so awaiting the event still awaits the result.
+const csvPending = new Map(); // csv path -> the settling fold
+const CSV_SETTLE_MS = 80;
+function onCsvFsEvent(uri) {
+  const key = fileKey(uri.fsPath);
+  let entry = csvPending.get(key);
+  if (entry) clearTimeout(entry.timer);
+  else {
+    entry = {};
+    entry.promise = new Promise((resolve) => { entry.resolve = resolve; });
+    csvPending.set(key, entry);
+  }
+  entry.timer = setTimeout(() => {
+    csvPending.delete(key);
+    entry.resolve(syncCsvIntoAot(uri));
+  }, CSV_SETTLE_MS);
+  return entry.promise;
+}
+
+// Fold every hand-edited CSV in a repo's aot.files back into the .aot that
+// owns it. The watcher only hears an edit made while the editor is running,
+// so a CSV changed in Excel with the window closed would otherwise be
+// overwritten, unread, by the next save of its .aot. Catching the folder up
+// once on activation closes that window: the CSV is the later word, and the
+// same rails hold as ever — a blank cell says nothing rather than erasing,
+// and a value carrying a formula is left to its formula.
+async function importCsvFolder(root, opts) {
+  if (!syncEnabled()) return 0;
+  const dir = path.join(root, "aot.files");
+  let entries;
+  try { entries = fs.readdirSync(dir); } catch { return 0; } // no folder, nothing to catch up
+  const index = ownerIndex(root);
+  let folded = 0;
+  for (const entry of entries) {
+    if (!/\.csv$/i.test(entry) || entry.startsWith("_")) continue;
+    const csvPath = path.join(dir, entry);
+    const owners = index.get(entry.replace(/\.csv$/i, "").toLowerCase());
+    if (!owners || !owners.length) continue; // an orphan; the next save archives it
+    let csv; try { csv = fs.readFileSync(csvPath, "utf8"); } catch { continue; }
+    // a CSV saying exactly what its .aot would write has not drifted, so
+    // an ordinary launch does no work at all — and remembering the text
+    // arms the echo guard for the very files edited by hand
+    const mirrored = table.toCsv(owners[0].grid);
+    if (sameCsvText(csv, mirrored)) { lastWritten.set(csvPath, mirrored); continue; }
+    // one at a time, never in parallel: two CSVs can fold into one .aot,
+    // and each fold opens, edits and saves that document
+    if (await syncCsvIntoAot(vscode.Uri.file(csvPath), index)) folded++;
+  }
+  if (folded && !(opts && opts.silent)) {
+    vscode.window.setStatusBarMessage(`AOT: folded ${folded} edited CSV file${folded === 1 ? "" : "s"}`, 4000);
+  }
+  return folded;
+}
+
+// Every repository root the CSV watchers cover, so the catch-up reaches
+// exactly the folders the live fold does — the workspace folders, and the
+// repo root above a folder opened by one of its subfolders.
+async function importAllCsvFolders(opts) {
+  const roots = new Map();
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    const root = repoRootOf(folder.uri.fsPath) || folder.uri.fsPath;
+    roots.set(fileKey(root), root);
+  }
+  let folded = 0;
+  for (const root of roots.values()) folded += await importCsvFolder(root, { silent: true });
+  if (!(opts && opts.silent)) {
+    vscode.window.setStatusBarMessage(
+      folded ? `AOT: folded ${folded} edited CSV file${folded === 1 ? "" : "s"}` : "AOT: every CSV already matches its .aot", 4000);
+  }
+  return folded;
 }
 
 // --- table cell colouring ---------------------------------------------------
@@ -2464,8 +2589,10 @@ function tableIndentZone(editor) {
   const pos = editor.selection.active;
   if (pos.line >= editor.document.lineCount) return false;
   const line = editor.document.lineAt(pos.line).text;
-  const pipe = line.indexOf("|");
-  return pipe > 0 && pos.character < pipe;
+  // the row's first cell now opens the line, so the zone is the indent
+  // itself — everything before the first character of the name
+  const indent = line.match(/^ */)[0].length;
+  return indent > 0 && pos.character < indent && table.isRowText(line);
 }
 
 function shiftTableIndent(editor, dir) {
@@ -2489,15 +2616,14 @@ function shiftTableIndent(editor, dir) {
   });
 }
 
-// The cursor sits in a table when its line is a pipe row that is more than
-// a lone-cell Example: a second pipe (a closed or multi-cell row) or a
-// leading dash (a separator, even the half-typed '|-' that Tab completes).
-const IN_TABLE = /^\s*\|(.*\||\s*-)/;
+// The cursor sits in a table when its line is a row: one divider is all a
+// row has left to show for itself, and a separator rule counts too — even
+// the half-typed '--' that Tab completes.
 function updateTableContext() {
   const editor = vscode.window.activeTextEditor;
   const inTable = !!(editor && editor.document.languageId === "aot"
     && editor.selection.active.line < editor.document.lineCount
-    && IN_TABLE.test(editor.document.lineAt(editor.selection.active.line).text));
+    && table.isRowText(editor.document.lineAt(editor.selection.active.line).text));
   vscode.commands.executeCommand("setContext", "aot.inTable", inTable);
 }
 
@@ -2732,7 +2858,7 @@ async function maybeScaffold(event) {
   if (at >= doc.lineCount) return;
   const text = doc.lineAt(at).text;
   if (text.trim() !== "|") return;
-  const near = (i) => i >= 0 && i < doc.lineCount && doc.lineAt(i).text.trim().startsWith("|");
+  const near = (i) => i >= 0 && i < doc.lineCount && table.isRowText(doc.lineAt(i).text);
   if (near(at - 1) || near(at + 1)) return;
   const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
   if (!editor) return;
@@ -2747,7 +2873,9 @@ async function maybeScaffold(event) {
     columns = inheritedColumns(parentNode);
     if (parentNode && parentNode !== root && parentNode.name) first = parentNode.name;
   } catch { /* an unparseable document scaffolds the plain skeleton */ }
-  const header = [first, ...columns];
+  // a table is cells DIVIDED, so a skeleton with nothing inherited still
+  // gets one empty column beside the Concept for the writer to name
+  const header = [first, ...(columns.length ? columns : [""])];
   const block = {
     indent,
     rows: [
@@ -2764,7 +2892,7 @@ async function maybeScaffold(event) {
       { undoStopBefore: false, undoStopAfter: true });
     // a named Concept: land in the data row to add Examples; an unnamed one:
     // land in the header's first cell to name the Concept first
-    const ch = indent.length + 1;
+    const ch = indent.length;
     const line = first ? at + 2 : at;
     editor.selection = new vscode.Selection(line, ch, line, ch);
   } finally {
@@ -2937,6 +3065,9 @@ function activate(context) {
     // the repo-wide sweep, and the lightbulb that settles a value two files
     // disagree about (src/repo.js)
     vscode.commands.registerCommand("aot.reconcileAcrossFiles", reconcileAcrossFiles),
+    // a root may be named (the tests do, and a script may): without one the
+    // command catches up every repository the watchers cover
+    vscode.commands.registerCommand("aot.importCsvFiles", (root) => (root ? importCsvFolder(root, {}) : importAllCsvFolders())),
     vscode.commands.registerCommand("aot.setValueEverywhere", setValueEverywhere),
     // the Quick Fix that brings a cited file into the repo's own file store
     vscode.commands.registerCommand("aot.copyFileIntoRepo", copyFileIntoRepo),
@@ -3063,8 +3194,8 @@ function activate(context) {
     }),
   );
   const csvWatcher = vscode.workspace.createFileSystemWatcher("**/aot.files/*.csv");
-  csvWatcher.onDidChange(syncCsvIntoAot);
-  csvWatcher.onDidCreate(syncCsvIntoAot);
+  csvWatcher.onDidChange(onCsvFsEvent);
+  csvWatcher.onDidCreate(onCsvFsEvent);
   context.subscriptions.push(csvWatcher);
 
   // the store's existence is the state, so a store edited, written or deleted
@@ -3096,8 +3227,8 @@ function activate(context) {
     const watch = (glob) => vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(dir), glob));
     const csv = watch("*.csv"), park = watch("*.formulas");
-    csv.onDidChange(syncCsvIntoAot);
-    csv.onDidCreate(syncCsvIntoAot);
+    csv.onDidChange(onCsvFsEvent);
+    csv.onDidCreate(onCsvFsEvent);
     park.onDidChange(onParkFsEvent);
     park.onDidCreate(onParkFsEvent);
     park.onDidDelete(onParkFsEvent);
@@ -3109,6 +3240,12 @@ function activate(context) {
   // files and repo-wide duplicates surface. Built once, kept fresh by a
   // watcher for files edited outside the editor.
   buildWorkspaceIndex();
+
+  // a CSV edited while the editor was closed has had no watcher to hear it,
+  // and the next save of its .aot would overwrite it unread. Catch the
+  // folder up once, in the background: an unchanged folder does nothing.
+  importAllCsvFolders({ silent: true });
+
   const aotWatcher = vscode.workspace.createFileSystemWatcher("**/*.aot");
   const onAotFsEvent = (uri) => {
     try { reindexAot(uri.fsPath, fs.readFileSync(uri.fsPath, "utf8")); } catch { /* gone */ }

@@ -155,9 +155,9 @@ A cell in a column typed by a Concept — by the header's name or its `(alias)` 
 Person
     - Socrates
 Trip
-    |name|person|
-    |----+------|
-    |T1  |      |    <- typing in this cell offers 'Socrates'
+    name|person
+    ----+------
+    T1  |      |    <- typing in this cell offers 'Socrates'
 ```
 
 ### How it is tested
@@ -261,19 +261,19 @@ The cookie is the **per-table opt-in**: a table without one behaves byte-for-byt
 ### Write
 ```aot
 Note
-    |name|d <10>    |qty|
-    |----+----------+---|
-    |A   |a rather long note|3|
+    name|d <10>    |qty
+    ----+----------+---
+    A   |a rather long note|3
 ```
 
 saves as:
 
 ```aot
 Note
-    |name|d <10>    |qty|
-    |----+----------+---|
-    |A   |a rather  |3  |
-    |    |long note |   |
+    name|d <10>    |qty
+    ----+----------+---
+    A   |a rather  |3
+        |long note |
 ```
 
 — and `=len(@d)` on row A answers **18**, the joined value's length.

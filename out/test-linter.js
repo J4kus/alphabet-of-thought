@@ -76,7 +76,6 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     "    weight: 5",
     "    height",
     "    - Apple",
-    "    | Pear",
     "    ... rest",
     "    Run Command (cmd)",
   );
@@ -89,7 +88,6 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   check("classify: 'weight: 5' -> DEFAULT with value", kid("weight").kind === DEFAULT && kid("weight").value === "5");
   check("classify: bare 'height' -> ATTRIBUTE, value null", kid("height").kind === ATTRIBUTE && kid("height").value === null);
   check("classify: '- Apple' -> INDIVIDUAL", kid("Apple").kind === INDIVIDUAL);
-  check("classify: '| Pear' (table row) -> INDIVIDUAL", kid("Pear").kind === INDIVIDUAL);
   check("classify: '... rest' -> MAP named 'rest'", kid("rest").kind === MAP);
   check("classify: trailing (alias) dropped from the name", kid("Run Command") && kid("Run Command").kind === CONCEPT);
 }
@@ -150,9 +148,8 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   }
   {
     const report = makeReport();
-    const p = parse(aot("Thing", "    |Pear"), "Root", report);
-    check("parse: '|Pear' (no gutter after pipe) is not an error", !hasError(report, /0 spaces after/));
-    check("parse: '|Pear' still becomes the INDIVIDUAL 'Pear'", node(p.root, p.nodes, "Pear").kind === INDIVIDUAL);
+    parse(aot("Otter|size", "-----+----", "Ollie|5"), "Root", report);
+    check("parse: a row needs no gutter after its divider", !hasError(report, /0 spaces after/));
   }
   // blank lines are skipped, not numbered
   {
@@ -170,10 +167,10 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
 // ---------------------------------------------------------------------------
 {
   const text = aot(
-    "| Otter  | size | colour |",
-    "|--------+------+--------|",
-    "| Ollie  | 5    | brown  |",
-    "| Pebble | 3    |        |",
+    "Otter  | size | colour",
+    "--------+------+--------",
+    "Ollie  | 5    | brown",
+    "Pebble | 3    |",
   );
   const report = makeReport();
   const { root, nodes } = parse(text, "Zoo", report);
@@ -202,56 +199,55 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   // data rows with no header have no columns to read the cells by
   {
     const r = makeReport();
-    parse(aot("Otter", "    | Ollie | 5 |", "    | Pebble | 3 |"), "Zoo", r);
+    parse(aot("Otter", "    Ollie | 5", "    Pebble | 3"), "Zoo", r);
     check("table: data rows without a header are an error", hasError(r, /no header names its columns/));
   }
   // a lone multi-cell row is a header being typed: assumed, not demanded
   {
     const r = makeReport();
-    const p = parse(aot("| Organisation | full name | sort name |"), "Zoo", r);
+    const p = parse(aot("Organisation | full name | sort name"), "Zoo", r);
     const org = node(p.root, p.nodes, "Organisation");
     check("table: a lone multi-cell row is assumed to be the header",
       r.errors.length === 0
       && org.children.some((c) => c.kind === ATTRIBUTE && c.name === "full name")
       && org.children.some((c) => c.kind === ATTRIBUTE && c.name === "sort name"));
   }
-  // a single-cell row above a separator heads a one-column table
+  // a table needs a divider: a rule under a line that carries none heads no
+  // table, and the lines around it read exactly as they are written
   {
     const r = makeReport();
-    const p = parse(aot("| Person |", "|--------|", "| John Doe |", "| Jane Smith |"), "Zoo", r);
+    const p = parse(aot("Person", "--------", "John Doe"), "Zoo", r);
     const person = node(p.root, p.nodes, "Person");
-    check("table: a single-cell header names the Concept, its rows are Examples",
-      r.errors.length === 0
-      && person && person.kind === CONCEPT && person.cell === true
-      && person.children.filter((c) => c.kind === INDIVIDUAL).length === 2
-      && node(p.root, p.nodes, "John Doe").kind === INDIVIDUAL);
+    check("table: a line with no divider is no header, rule or no rule",
+      r.errors.length === 0 && person && person.kind === CONCEPT && !person.cell
+      && node(p.root, p.nodes, "John Doe").kind === CONCEPT);
   }
   // more cells than the header names
   {
     const r = makeReport();
-    parse(aot("| Otter | size |", "|-------+------|", "| Ollie | 5 | extra |"), "Zoo", r);
+    parse(aot("Otter | size", "-------+------", "Ollie | 5 | extra"), "Zoo", r);
     check("table: more cells than header columns is an error", hasError(r, /but the header names 2 columns/));
   }
   // a column names an attribute, and attributes are lowercase
   {
     const r = makeReport();
-    parse(aot("| Otter | Size |", "|-------+------|", "| Ollie | 5 |"), "Zoo", r);
+    parse(aot("Otter | Size", "-------+------", "Ollie | 5"), "Zoo", r);
     check("table: a capitalised column is an error", hasError(r, /column 'Size' is capitalised/));
   }
-  // a lone-cell pipe row stays a plain Example, closing pipe or not
+  // a row with no header above it has nothing naming its columns
   {
     const r = makeReport();
-    const p = parse(aot("Thing", "    | Pear |"), "Root", r);
-    check("table: '| Pear |' (lone cell) is the plain Example 'Pear'",
-      node(p.root, p.nodes, "Pear").kind === INDIVIDUAL && r.errors.length === 0);
+    parse(aot("Thing", "    Pear|5", "    Plum|6"), "Root", r);
+    check("table: a row with no header names its columns is an error",
+      hasError(r, /no header names its columns/));
   }
   // a header cell is an attribute term, so it carries a (alias) like one
   {
     const r = makeReport();
-    const p = parse(aot("| Otter | size (length) |", "|-------+---------------|", "| Ollie | 5 |"), "Zoo", r);
+    const p = parse(aot("Otter | size (length)", "-------+---------------", "Ollie | 5"), "Zoo", r);
     const attr = p.nodes.find((n) => n.name === "size");
     check("table: a header cell's (alias) is parsed off the name",
-      attr && attr.kind === ATTRIBUTE && attr.alias === "length" && attr.aliasCol === 16);
+      attr && attr.kind === ATTRIBUTE && attr.alias === "length" && attr.aliasCol === 14);
     check("table: the row's cells still value the stripped name",
       node(p.root, p.nodes, "Ollie").children.some((c) => c.name === "size" && c.value === "5"));
     check("table: a header alias parses without errors", r.errors.length === 0);
@@ -260,10 +256,10 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   {
     const r = makeReport();
     const p = parse(aot(
-      "| Order | price | total        |",
-      "|-------+-------+--------------|",
-      "| A     | 10    | 20 =@price*2 |",
-      "| B     | 10    | =@price*2    |",
+      "Order | price | total",
+      "-------+-------+--------------",
+      "A     | 10    | 20 =@price*2",
+      "B     | 10    | =@price*2",
     ), "Zoo", r);
     const a = node(p.root, p.nodes, "A"), b = node(p.root, p.nodes, "B");
     check("table: a cell's formula is stripped from its Attribute Value",
@@ -301,9 +297,9 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     const p = parse(aot(
       "Person",
       "    age (years) >=18",
-      "    |Metric|qty >=1|",
-      "    |------+-------|",
-      "    |A     |2      |",
+      "    Metric|qty >=1",
+      "    ------+-------",
+      "    A     |2",
     ), "Zoo", r);
     const age = node(p.root, p.nodes, "age");
     const qty = node(p.root, p.nodes, "qty");
@@ -319,16 +315,16 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   // table findings pin the offending cell, not the whole line
   {
     const r = makeReport();
-    parse(aot("| Otter | Size |", "|-------+------|", "| Ollie | 5 |"), "Zoo", r);
+    parse(aot("Otter | Size", "-------+------", "Ollie | 5"), "Zoo", r);
     const e = r.errors.find((x) => /capitalised/.test(x.message));
     check("table: the capitalised-column error carries its cell's columns",
-      e && e.startCol === 10 && e.endCol === 14);
+      e && e.startCol === 8 && e.endCol === 12);
   }
   // a blank line ends the table, as in org: rows beyond it no longer
   // belong to the header's columns
   {
     const r = makeReport();
-    parse(aot("| Otter | size |", "|-------+------|", "", "| Ollie | 5 |", "| Pebble | 3 |"), "Zoo", r);
+    parse(aot("Otter | size", "-------+------", "", "Ollie | 5", "Pebble | 3"), "Zoo", r);
     check("table: a blank line ends the table", hasError(r, /no header names its columns/));
   }
 }
@@ -337,12 +333,12 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
 // so dependency inference works straight off the grid
 {
   const ledger = aot(
-    "| Order   | country | currency |",
-    "|---------+---------+----------|",
-    "| A       | France  | EUR      |",
-    "| B       | France  | EUR      |",
-    "| C       | Germany | EUR      |",
-    "| D       | Japan   | JPY      |",
+    "Order   | country | currency",
+    "---------+---------+----------",
+    "A       | France  | EUR",
+    "B       | France  | EUR",
+    "C       | Germany | EUR",
+    "D       | Japan   | JPY",
   );
   const { root, nodes, errors } = lint(ledger, "Sales");
   check("table/FD: the ledger table verifies", errors.length === 0);
@@ -355,27 +351,29 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
 // ---------------------------------------------------------------------------
 {
   const { align, cells, isSeparator } = require("../src/table");
-  check("cells: '| a | b |' -> two cells", cells("| a | b |").map((c) => c.text).join(",") === "a,b");
-  check("cells: offsets point at the cell text", cells("| a | b |")[1].col === 6);
-  check("cells: '| gegeg' (no closing pipe) is one cell", cells("| gegeg").length === 1);
-  check("isSeparator: '|---+---|' yes, '| a |' no", isSeparator("|---+---|") && !isSeparator("| a |"));
+  check("cells: '| a | b |' -> two cells", cells("a | b").map((c) => c.text).join(",") === "a,b");
+  check("cells: offsets point at the cell text", cells("a | b")[1].col === 4);
+  check("cells: a leading divider opens an empty name cell", cells("|gegeg").length === 2
+    && cells("|gegeg")[0].text === "" && cells("|gegeg")[1].text === "gegeg");
+  check("isSeparator: '---+---' yes, a name and a lone dash no",
+    isSeparator("---+---") && !isSeparator("a") && !isSeparator("-"));
 
   const messy = aot(
     "Otter",
-    "    | name | size |",
-    "    |--+--|",
-    "    | Ollie | 5 |",
+    "    name | size",
+    "    --+--",
+    "    Ollie | 5",
   );
   const edits = align(messy);
   check("align: rows are padded to the widest cell",
-    edits.some((e) => e.text === "    |name |size|")
-    && edits.some((e) => e.text === "    |Ollie|5   |"));
+    edits.some((e) => e.text === "    name |size")
+    && edits.some((e) => e.text === "    Ollie|5"));
   check("align: the separator is redrawn to match",
-    edits.some((e) => e.text === "    |-----+----|"));
+    edits.some((e) => e.text === "    -----+----"));
   check("align: a lone pipe Example is left exactly as written",
-    align(aot("A", "    | gegeg")).length === 0);
+    align(aot("A", "     gegeg")).length === 0);
   check("align: an already aligned table needs no edits",
-    align(aot("Otter", "    |name |size|", "    |-----+----|", "    |Ollie|5   |")).length === 0);
+    align(aot("Otter", "    name |size", "    -----+----", "    Ollie|5")).length === 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -471,10 +469,10 @@ check("verify: an alias naming another Concept is a duplicate-identity error",
 // a cookie that row stays the error it always was
 {
   const wrapped = lintTree(aot(
-    "|Note|d <10>    |",
-    "|----+----------|",
-    "|A   |a rather  |",
-    "|    |long note |",
+    "Note|d <10>",
+    "----+----------",
+    "A   |a rather",
+    "    |long note",
   ), "Sheet");
   check("table: a width cookie is parsed off the column name",
     wrapped.nodes.some((n) => n.cell && n.name === "d" && n.maxWidth === 10));
@@ -486,10 +484,10 @@ check("verify: an alias naming another Concept is a duplicate-identity error",
   check("table: a cookie table's continuation row is no error",
     !hasError(wrapped.report, /empty first cell/));
   const plain = lintTree(aot(
-    "|Note|d|",
-    "|----+-|",
-    "|A   |x|",
-    "|    |y|",
+    "Note|d",
+    "----+-",
+    "A   |x",
+    "    |y",
   ), "Sheet");
   check("table: without a cookie the empty first cell stays the error it was",
     hasError(plain.report, /empty first cell/));

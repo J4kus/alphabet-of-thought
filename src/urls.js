@@ -4,6 +4,7 @@
 // timeout-bounded, and only ever on demand. Pure apart from the network;
 // the request function is injectable so the tests never touch the wire.
 
+const { isRowText } = require("./table");
 const http = require("http");
 const https = require("https");
 
@@ -58,10 +59,11 @@ function findFiles(lines, resolve) {
       const lead = after.length - after.trimStart().length;
       const text = after.trim();
       if (text) spans.push({ startCol: dash + 2 + lead, text });
-    } else if (t.startsWith("|")) {
-      // table row: each cell's trimmed content is a candidate
-      let start = raw.indexOf("|") + 1;
-      for (let k = start; k <= raw.length; k++) {
+    } else if (isRowText(raw)) {
+      // table row: each cell's trimmed content is a candidate, the first
+      // opening at the line itself
+      let start = 0;
+      for (let k = 0; k <= raw.length; k++) {
         if (k === raw.length || raw[k] === "|") {
           const seg = raw.slice(start, k);
           const lead = seg.length - seg.trimStart().length;

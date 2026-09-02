@@ -38,7 +38,7 @@ function emit(text) {
     out.push(lines[i]);
   }
   const kept = [];
-  const isPipe = (l) => l.trim()[0] === "|";
+  const isPipe = (l) => table.isRowText(l);
   for (let i = 0; i < out.length; i++) {
     if (out[i] !== "") { kept.push(out[i]); continue; }
     let j = i;

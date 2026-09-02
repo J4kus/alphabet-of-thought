@@ -26,16 +26,16 @@ Every reference is `@`. A `$` in a formula is now an error carrying the hint, ra
 ### Write
 ```aot
 Order
-    |name |price|vat            |
-    |-----+-----+---------------|
-    |Acme |$1,200|240 =@price*0.2|
+    name |price|vat
+    -----+-----+---------------
+    Acme |$1,200|240 =@price*0.2
 ```
 
 ```aot
 Order
-    |name |price|vat           |
-    |-----+-----+--------------|
-    |Acme |1200 |240 =$price*0.2|   <- ERROR: references use '@', not '$'
+    name |price|vat
+    -----+-----+--------------
+    Acme |1200 |240 =$price*0.2|   <- ERROR: references use '@', not '$'
 ```
 
 ### How it is tested
@@ -106,15 +106,15 @@ Name the table **first**: `@Order@price@Acme`. The table is named by the Concept
 ### Write
 ```aot
 Sales Ledger
-    |name |price|
-    |-----+-----|
-    |Alpha|10   |
-    |Beta |20   |
+    name |price
+    -----+-----
+    Alpha|10
+    Beta |20
 Ledger Check
-    |name       |from the ledger              |
-    |-----------+-----------------------------|
-    |alpha price|10 =@Sales Ledger@price@Alpha|
-    |price sum  |30 =sum(@Sales Ledger@price) |
+    name       |from the ledger
+    -----------+-----------------------------
+    alpha price|10 =@Sales Ledger@price@Alpha
+    price sum  |30 =sum(@Sales Ledger@price)
 ```
 
 ```aot
@@ -176,9 +176,9 @@ Report
 Edge — a table of the same name shadows the line form, deliberately:
 ```aot
 Person
-    |name    |alias|
-    |--------+-----|
-    |Socrates|Paul |
+    name    |alias
+    --------+-----
+    Socrates|Paul
 Note
     a: Paul =@Person@alias@Socrates   <- read through the grid, where @1 also
                                          means the first column
@@ -208,9 +208,9 @@ Only a Concept offers this reading. A table is rows and nothing else, so `@Order
 ### Write
 ```aot
 Person
-    |name    |alias|
-    |--------+-----|
-    |Socrates|Paul |
+    name    |alias
+    --------+-----
+    Socrates|Paul
 Integer
     is prime: No                 <- Integer's own value
     - 1
@@ -251,9 +251,9 @@ Both error paths get a check too, and they are the interesting ones: `a grid has
 
 ```aot
 Person
-    |name    |alias|
-    |--------+-----|
-    |Socrates|Paul |
+    name    |alias
+    --------+-----
+    Socrates|Paul
 Measurement
     person: Socrates
     alias: #ERR =@Person@alias@Socrates
@@ -267,9 +267,9 @@ The local reading is still tried **first**, so the old guarantee holds exactly. 
 ### Write
 ```aot
 Person
-    |name    |nationality|alias|
-    |--------+-----------+-----|
-    |Socrates|RSA        |Paul |
+    name    |nationality|alias
+    --------+-----------+-----
+    Socrates|RSA        |Paul
 Measurement
     person: Socrates                            <- a local attribute named 'person'
     alias: Paul =@Person@alias@Socrates         <- reaches the table past it
@@ -289,9 +289,9 @@ Measurement
 Worth knowing, because the backtracking shows through: when a Concept of the lead's name **does** exist, a broken reference is reported against the *foreign* reading, since that is the one the parser got furthest with.
 ```aot
 Person
-    |name    |alias|
-    |--------+-----|
-    |Socrates|Paul |
+    name    |alias
+    --------+-----
+    Socrates|Paul
 Measurement
     person: Socrates
     x: =@person@alias        <- ERROR: a foreign table cell needs both a
@@ -322,9 +322,9 @@ This is a **gap in the model, not a contradiction in it**, so it hints exactly a
 Both of these hint, and both offer the fix:
 ```aot
 Person
-    |name    |nationality|
-    |--------+-----------|
-    |Socrates|RSA        |
+    name    |nationality
+    --------+-----------
+    Socrates|RSA
 Integer
     - 1
     - 35

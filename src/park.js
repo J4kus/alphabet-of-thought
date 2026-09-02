@@ -31,10 +31,10 @@
 // park from the command line.
 
 const { KIND } = require("./linter");
-const { cells, blockAt, splitCell, widthCookie, cleanName, numberless } = require("./table");
+const { cells, blockAt, isRowText, splitCell, widthCookie, cleanName, numberless } = require("./table");
 
 const fold = (name) => numberless(String(name || "").trim()).toLowerCase();
-const isRow = (text) => String(text).trim().startsWith("|");
+const isRow = (text) => isRowText(text);
 
 // The Example path from a node up to the Concept that owns it, outermost
 // first, with the Concept itself. Start at a value's parent, or at a grid
@@ -122,10 +122,12 @@ function nodeAt(nodes, rootName, address) {
   return null;
 }
 
-// A pipe row rebuilt from its cell texts. Widths are not this module's
-// business — the caller re-aligns, exactly as every table operation does.
+// A row rebuilt from its cell texts, keeping whatever stands to the left of
+// its first cell — the table's indent, or the padding that IS an empty name
+// cell. Widths are not this module's business: the caller re-aligns,
+// exactly as every table operation does.
 const renderRow = (text, texts) =>
-  text.slice(0, text.indexOf("|")) + "|" + texts.join("|") + "|";
+  text.match(/^ */)[0] + texts.join("|");
 
 // The value text on a line-form line: everything after the first colon. The
 // colon cannot appear in a name (classify splits on it), so the first one is
@@ -253,11 +255,14 @@ function cellSpan(text, col) {
   const cell = cells(text)[col];
   if (!cell) return null;
   if (cell.text) return { start: cell.col, end: cell.col + cell.text.length };
+  // the pipes divide, so cell k runs from the pipe before it to the pipe
+  // after it — the line's own start opening the first, its end closing the
+  // last
   const pipes = [];
   for (let i = 0; i < text.length; i++) if (text[i] === "|") pipes.push(i);
-  return pipes[col] !== undefined && pipes[col + 1] > pipes[col] + 1
-    ? { start: pipes[col] + 1, end: pipes[col + 1] }
-    : null;
+  const start = col === 0 ? text.match(/^ */)[0].length : pipes[col - 1] + 1;
+  const end = col < pipes.length ? pipes[col] : text.length;
+  return end > start ? { start, end } : null;
 }
 
 // The value's own columns on a line-form line. With no value written the

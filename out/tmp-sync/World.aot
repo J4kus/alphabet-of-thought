@@ -1,9 +1,9 @@
 Otter
-    |Otter |size|
-    |------+----|
-    |Ollie |5   |
+    Otter | size
+    -------+------
+    - Ollie
+        size: 5
         location: tank 1
-    |Pebble|3   |
-        location: tank 1
-    |Pebble|3   |
-    ... 1 more in clean code.aot:92
+    - Pebble
+        size: 3
+    Ollie | 5

@@ -12,6 +12,40 @@
                 - Event
                 - Condition
                 - Barrier
+                - shared state
+                - delete (design away)
+                - clamp into single complex (no shared medium)
+                - coordinate once, offline, by convention
+                - pass messages and isolate (guard)
+                - separate service
+                - hide information
+                - reduce costs
+                - free riding
+                - unreliable channels sacrifice consistency or availability
+                - externalise
+                - pre-computed
+                - parallelised
+                - asynchronised
+                - defer
+                - add cheaper resources
+                - diversified copies
+                - multi-version concurrency
+                - readers never block writers
+                - (no lock at all)
+                - validate on commit only
+                - buffer ("Slack")
+                - me
+                - another party
+                - fastest gun redundancy
+                - fire at several replicas and take first answer
+                - multiple nodes with same data
+                - optimistic concurrency (speculate then reconcile on rare miss)
+                - de-correlate the need from the specific resource
+                - satisficing (good enough optimisation of requirements)
+                - net and clear
+                - collapse the obligation graph
+                - outsource dependency to whoever can handle it better
+                - substitute collateral
                 fixes
                     - shared state
                         - delete (design away)

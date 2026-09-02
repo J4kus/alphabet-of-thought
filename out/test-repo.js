@@ -103,7 +103,7 @@ const JAKUS = {
   // absence is not disagreement, in either direction
   const b = reconciled(files, "b.aot");
   check("the peer that said more gains nothing back",
-    !b.ops.some((o) => o.type === "insert" && /role/.test(o.text || "")));
+    !b.ops.some((o) => o.type === "insert"&& /role/.test(o.text || "")));
 
   // a bare attribute facing a valued one takes the value
   const bare = reconciled({
@@ -218,9 +218,9 @@ const JAKUS = {
   const standalone = {
     "close.aot": aot(
       "- Motivation",
-      "    |Jakus                 |role|",
-      "    |----------------------+----|",
-      "    |Do Monthly Processing |    |",
+      "    Jakus                 |role",
+      "    ----------------------+----",
+      "    Do Monthly Processing |",
     ),
     "bank.aot": aot("- Motivation", "    Jakus", "        - All Transactions Are Reconciled"),
   };
@@ -238,9 +238,9 @@ const JAKUS = {
     ...standalone,
     "close.aot": aot(
       "- Motivation",
-      "    |Jakus                 |role|",
-      "    |----------------------+----|",
-      "    |Do Monthly Processing |    |",
+      "    Jakus                 |role",
+      "    ----------------------+----",
+      "    Do Monthly Processing |",
       "        ... 4 more in bank.aot:2",
       "        ... 4 more in bank.aot:2",
       "        ... 4 more in bank.aot:2",
@@ -256,9 +256,9 @@ const JAKUS = {
     "close.aot": aot(
       "- Motivation",
       "    Jakus",
-      "        |Jakus                 |role|",
-      "        |----------------------+----|",
-      "        |Do Monthly Processing |    |",
+      "        Jakus                 |role",
+      "        ----------------------+----",
+      "        Do Monthly Processing |",
     ),
     "bank.aot": aot("- Motivation", "    Jakus", "        - All Transactions Are Reconciled"),
   }, "close.aot");

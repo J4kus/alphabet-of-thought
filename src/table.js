@@ -2,21 +2,59 @@
 // (which reads a table as Examples x attributes) and the VS Code extension's
 // formatter (which re-aligns the columns as org-mode's TAB does).
 //
-//     |name  |size|colour|     <- header: each cell names an attribute
-//     |------+----+------|     <- separator: marks the row above as header
-//     |Ollie |5   |brown |     <- data row: one Example per row,
-//     |Pebble|3   |      |        one Attribute Value per cell
+//     name  |size|colour     <- header: each cell names an attribute
+//     ------+----+------     <- separator: marks the row above as header
+//     Ollie |5   |brown      <- data row: one Example per row,
+//     Pebble|3   |              one Attribute Value per cell
 //
-// Columns are padded to their widest cell so they align, but carry no
-// gutter spaces around the pipes — a file's width is precious.
+// The pipe is a DIVIDER, never a border: a row carries one between each
+// pair of cells and none at either end (before 1.12 it carried both). So a
+// table is exactly as wide as its widest content, and the first column
+// stands where every other line of the language stands. Columns are padded
+// to their widest cell so they align, but carry no gutter spaces around the
+// pipes — a file's width is precious.
 //
 // A data row's first cell is the Example's name; an empty cell leaves that
-// attribute unasserted. A pipe row with a single cell is a plain Example
-// (the '- ' form written with '|'), so tables and lone rows coexist.
+// attribute unasserted. With no border to hold it open, an empty NAME cell
+// is written by the divider that closes it standing first on the line —
+// '|frag' — which is what a continuation row (and a row still being filled)
+// looks like. Every row therefore has at least one pipe, and one pipe is
+// all it takes to be a row.
+//
+// A row may nest under the row above it. The depth is written as leading
+// spaces in front of the name — which, the border being gone, is the line's
+// own indent, four spaces to the level, exactly as the rest of the language
+// writes depth:
+//
+//     Otter     |size
+//     ----------+----
+//     Ollie     |5             <- an Example of Otter
+//         Pup   |1             <- a sub-Example of Ollie
+//
+// The depth never travels as text: cells() trims the name and reports its
+// true column, and the block carries the depth as a number on the row, so
+// crosslinks, formulas, the CSV mirror and the Gödel numbers all read the
+// bare name exactly as they always did.
 
-// A separator row is pipes, dashes, pluses, colons and spaces with at least
-// one dash: '|---+---|', '|-', '| --- | --- |' all count.
-const isSeparator = (text) => /^\|[\s\-+:|]*$/.test(text) && text.includes("-");
+// Four spaces to the level, the same INDENT linter.js declares — one number
+// under two names, because linter.js requires this file and not the other
+// way about. Change one and change the other.
+const INDENT = 4;
+
+// A separator row is dashes, pluses, colons, pipes and spaces with at least
+// two characters and at least one dash: '---+---', '--', '--- | ---' all
+// count. Two characters is the floor because a lone '-' is an Example whose
+// name is still being typed, and the rule must not steal it.
+const isSeparator = (text) => /^[\s\-+:|]*$/.test(text) && text.includes("-") && text.trim().length > 1;
+
+// A line is a table row when it carries a '|': the divider between two
+// cells is the only pipe a row has left, so one is all it takes. A
+// separator rule counts too — it divides its columns with '+' and may
+// carry no pipe at all.
+const isRowText = (text) => {
+  const t = String(text).trim();
+  return !!t && (t.includes("|") || isSeparator(t));
+};
 
 // --- column alignment --------------------------------------------------------
 // A separator cell may carry markdown's alignment colons, and the column is
@@ -92,36 +130,69 @@ function eachSepAlign(block, columns, fn) {
   }
 }
 
-// Split a pipe row into its cells with their column offsets in the line.
-// The content between consecutive pipes is one cell; a trailing pipe closes
-// the last cell rather than opening an empty one.
+// Split a row into its cells with their column offsets in the line. The
+// pipe divides, so the line opens the first cell and ends the last: the
+// content between two consecutive pipes is one cell, a LEADING pipe opens
+// on an empty name cell, and a TRAILING one leaves an empty cell after it
+// (which asserts nothing, exactly as any other empty cell does).
+//
+// `indent` is the cell's own leading spaces. On the name cell that is where
+// a row's depth is written; everywhere else it is only padding. A cell with
+// nothing in it indents nothing — an all-spaces cell is empty, not deep,
+// which is what keeps a continuation row (an empty name cell) at the depth
+// of the row it continues.
 function cells(line) {
-  const first = line.indexOf("|");
-  if (first === -1) return [];
+  const text0 = String(line);
+  if (!text0.trim()) return [];
   const out = [];
-  let start = first + 1;
-  for (let i = start; i <= line.length; i++) {
-    if (i === line.length || line[i] === "|") {
-      const seg = line.slice(start, i);
-      out.push({ text: seg.trim(), col: start + (seg.length - seg.trimStart().length) });
+  let start = 0;
+  for (let i = 0; i <= text0.length; i++) {
+    if (i === text0.length || text0[i] === "|") {
+      const seg = text0.slice(start, i);
+      const text = seg.trim();
+      const indent = seg.length - seg.trimStart().length;
+      out.push({ text, col: start + indent, indent: text ? indent : 0 });
       start = i + 1;
     }
   }
-  if (out.length > 1 && out[out.length - 1].text === "" && line.trimEnd().endsWith("|")) out.pop();
   return out;
 }
 
-// The table block around one line: the unbroken run of pipe rows sharing
-// its indent. Rows carry their cell texts; separator rows carry none.
-// null when the line is not a pipe row.
+// The table block around one line: the unbroken run of rows around it.
+// Rows carry their cell texts and their depth — the name's own indent, in
+// levels, measured from the block's — while separator rows carry neither,
+// only the columns' alignment. null when the line is not a row.
+//
+// The run is bounded by what is not a row: a blank line, or any line
+// carrying no pipe. The block's own indent is its SHALLOWEST row's, since
+// a nested row is written deeper than the table it belongs to — which is
+// why two standalone tables need a blank line between them, exactly as the
+// header of the second would otherwise read as more rows of the first.
 function blockAt(lines, lineIdx) {
-  const isRow = (i) => i >= 0 && i < lines.length && lines[i].trim()[0] === "|";
+  const isRow = (i) => i >= 0 && i < lines.length && isRowText(lines[i]);
   if (!isRow(lineIdx)) return null;
-  const indent = lines[lineIdx].match(/^ */)[0];
-  const same = (i) => isRow(i) && lines[i].match(/^ */)[0] === indent;
+  const indentOf = (i) => lines[i].match(/^ */)[0];
   let start = lineIdx, end = lineIdx;
-  while (same(start - 1)) start--;
-  while (same(end + 1)) end++;
+  while (isRow(start - 1)) start--;
+  while (isRow(end + 1)) end++;
+  let indent = indentOf(start);
+  for (let i = start + 1; i <= end; i++) {
+    if (indentOf(i).length < indent.length) indent = indentOf(i);
+  }
+  // A table written in the pre-1.12 bordered form — every row of it opening
+  // and closing with a '|' — is read without those borders, so drawing the
+  // block again is what migrates the file. The test is the whole block's,
+  // and every row must agree: a half-converted table is left to its errors
+  // rather than guessed at, and a table whose every row genuinely had an
+  // empty name cell would have nothing to name its Examples anyway.
+  const bordered = (() => {
+    for (let i = start; i <= end; i++) {
+      const t = lines[i].trim();
+      if (!t.startsWith("|") || !t.endsWith("|") || t.length < 2) return false;
+    }
+    return true;
+  })();
+  const unborder = (list) => (bordered ? list.slice(1, -1) : list);
   const rows = [];
   for (let i = start; i <= end; i++) {
     // a dash typed anywhere in an otherwise empty row is only pipes, spaces
@@ -129,12 +200,32 @@ function blockAt(lines, lineIdx) {
     // typed — org's '|-' creation flow: the next redraw completes the rule
     const sep = isSeparator(lines[i].trim());
     // a separator carries no cells, but it does carry the columns' alignment
-    rows.push(sep
-      ? { sep, cells: [], align: alignmentsFrom(lines[i]) }
-      : { sep, cells: cells(lines[i]).map((c) => c.text) });
+    if (sep) {
+      rows.push({ sep, cells: [], align: unborder(alignmentsFrom(lines[i])) });
+      continue;
+    }
+    const row = unborder(cells(lines[i]));
+    // the name's leading spaces are the row's place in the tree: past the
+    // table's own indent, or — in a bordered table being migrated — the
+    // spaces the old border held them behind
+    const lead = row.length ? row[0].indent - (bordered ? 0 : indent.length) : 0;
+    rows.push({
+      sep,
+      cells: row.map((c) => c.text),
+      depth: Math.floor(Math.max(0, lead) / INDENT),
+    });
   }
   return { start, end, indent, rows };
 }
+
+// Does any row of the block sit under another? A flat table is drawn
+// exactly as it always was; only a nesting one changes how its name column
+// is measured and aligned.
+const nests = (block) => block.rows.some((r) => !r.sep && r.depth);
+
+// The name cell as it is drawn: the row's depth in leading spaces, then the
+// name. Every other cell draws itself.
+const nameCell = (row) => " ".repeat((row.depth || 0) * INDENT) + (row.cells[0] || "");
 
 // A numbering prefix — `1. `, `2.3 `, `1.1.1 ` — is presentation, never
 // part of a name's identity: `trip` types by the Concept `1. Trip` exactly
@@ -248,7 +339,8 @@ function widthsOf(block) {
     if (row.sep) return;
     const isHeader = i === 0 && block.rows.length > 1 && block.rows[1].sep;
     row.cells.forEach((c, k) => {
-      let w = c.length;
+      // the name column must hold the deepest row's indent as well as its name
+      let w = k === 0 ? nameCell(row).length : c.length;
       const cap = caps && !isHeader && k > 0 ? caps[k] : null;
       if (cap !== null && cap !== undefined && w > cap && splitCell(c).eq === -1) w = cap;
       widths[k] = Math.max(widths[k] || 0, w);
@@ -257,9 +349,11 @@ function widthsOf(block) {
   // a column that declares an alignment is never drawn narrower than its own
   // marker: ':-:' would otherwise overhang a one-character column and shear
   // the grid line by line
+  // and never narrower than one character: a zero-width column could draw
+  // no rule of its own and leave nowhere to put the cursor
   const aligns = alignmentsOf(block);
   for (let k = 0; k < widths.length; k++) {
-    widths[k] = Math.max(widths[k], alignMin(aligns[k]));
+    widths[k] = Math.max(widths[k], 1, alignMin(aligns[k]));
   }
   return widths.length ? widths : [0];
 }
@@ -272,12 +366,25 @@ function widthsOf(block) {
 function render(block) {
   const caps = headerWidths(block);
   const aligns = alignmentsOf(block);
-  const rule = (widths) => block.indent + "|" + widths.map((w, k) => sepCell(w, aligns[k])).join("+") + "|";
+  const rule = (widths) => block.indent + widths.map((w, k) => sepCell(w, aligns[k])).join("+");
+  // a nested name carries its depth in front of it, and its column is then
+  // drawn left however it is marked — centring an indented name shears the
+  // very tree the indent is there to show. The marker itself is left alone:
+  // it is the writer's text, not ours to erase.
+  const deep = nests(block);
+  const drawn = (row, k) => (k === 0 ? nameCell(row) : row.cells[k] || "");
+  const align = (k) => (k === 0 && deep ? "left" : aligns[k]);
+  // The pipes divide, so a drawn row opens with its name and ends with its
+  // last written cell: the padding past that is trailing whitespace, and no
+  // line keeps that. A row with nothing in its name cell is padded to the
+  // column like any other, so it opens with spaces — those are the empty
+  // cell, never an indent, and every reader of a row knows it.
+  const drawRow = (parts) => (block.indent + parts.join("|")).replace(/\s+$/, "");
   if (!caps) {
     const widths = widthsOf(block);
     return block.rows.map((row) => row.sep
       ? rule(widths)
-      : block.indent + "|" + widths.map((w, k) => padCell(row.cells[k] || "", w, aligns[k])).join("|") + "|");
+      : drawRow(widths.map((w, k) => padCell(drawn(row, k), w, align(k)))));
   }
   unwrap(block);
   const widths = widthsOf(block);
@@ -291,13 +398,13 @@ function render(block) {
     }
     const isHeader = i === 0 && block.rows[1] && block.rows[1].sep;
     const frags = widths.map((w, k) => {
-      const cell = row.cells[k] || "";
+      const cell = drawn(row, k);
       if (isHeader || k === 0 || cell.length <= w || splitCell(cell).eq !== -1) return [cell];
       return wrapText(cell, w);
     });
-    const depth = Math.max(1, ...frags.map((f) => f.length));
-    for (let d = 0; d < depth; d++) {
-      out.push(block.indent + "|" + widths.map((w, k) => padCell(frags[k][d] || "", w, aligns[k])).join("|") + "|");
+    const tall = Math.max(1, ...frags.map((f) => f.length));
+    for (let d = 0; d < tall; d++) {
+      out.push(drawRow(widths.map((w, k) => padCell(frags[k][d] || "", w, align(k)))));
     }
   });
   block.physStart = physStart;
@@ -308,7 +415,7 @@ function render(block) {
 // cursor at the start of a field, as org does.
 function cellStart(block, col, rowIdx) {
   const widths = widthsOf(block);
-  let x = block.indent.length + 1;
+  let x = block.indent.length;
   for (let k = 0; k < Math.min(col, widths.length); k++) x += widths[k] + 1;
   // a right- or centre-aligned cell carries its padding in front of the
   // text, so without the row we would land the cursor in the gap and any
@@ -322,13 +429,15 @@ function cellStart(block, col, rowIdx) {
   return x;
 }
 
-// The cell a character position falls in: one pipe opens each field.
+// The cell a character position falls in: the line opens the first field
+// and each pipe closes one, so the count of pipes behind the cursor is the
+// column it stands in.
 function colAt(lineText, character) {
   let pipes = 0;
   for (let i = 0; i < Math.min(character, lineText.length); i++) {
     if (lineText[i] === "|") pipes++;
   }
-  return Math.max(0, pipes - 1);
+  return pipes;
 }
 
 // Give every data row the block's full complement of cells, so the column
@@ -1842,13 +1951,15 @@ function tablesOf(lines, rootName) {
     const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
     unwrap(block);
     const header = block.rows[0].cells;
-    const rows = [], rowLines = []; // each data row with its 1-based line
+    // each data row with its 1-based line and its depth in the table's tree
+    const rows = [], rowLines = [], rowDepths = [];
     block.rows.forEach((r, j) => {
       if (j < 2 || r.sep) return;
       rows.push(header.map((_, k) => r.cells[k] || ""));
       rowLines.push(block.start + physIdx.get(r) + 1);
+      rowDepths.push(r.depth || 0);
     });
-    out.push({ name, nameLine, start: block.start, end: block.end, indent: block.indent, header, rows, rowLines });
+    out.push({ name, nameLine, start: block.start, end: block.end, indent: block.indent, header, rows, rowLines, rowDepths });
   }
   return out;
 }
@@ -1860,10 +1971,25 @@ function toCsv(grid) {
   return grid.map((row) => row.map(cell).join(",")).join("\n") + "\n";
 }
 
+// The character separating the cells of a CSV. The mirror always writes
+// commas, but Excel writes the list separator of its locale, which is a
+// semicolon wherever the comma is the decimal mark — a file the mirror can
+// still be handed back. The test is deliberately narrow, so a comma file
+// whose cells merely hold semicolons is never misread: only a first line
+// with no comma at all and at least one semicolon is semicolon-delimited.
+function delimiterOf(text) {
+  const first = String(text).split(/\r?\n/, 1)[0] || "";
+  return !first.includes(",") && first.includes(";") ? ";" : ",";
+}
+
 // CSV text back to a grid. Quoted cells may hold commas, doubled quotes
 // and newlines; unquoted cells are trimmed. A pipe cannot survive inside a
-// pipe table, so it is bent to a broken bar.
+// pipe table, so it is bent to a broken bar. A leading byte-order mark is
+// dropped: Excel's 'CSV UTF-8' writes one, and it would otherwise ride into
+// the header's first cell — the very cell that names the Concept.
 function fromCsv(text) {
+  text = String(text).replace(/^\uFEFF/, "");
+  const sep = delimiterOf(text);
   const grid = [];
   let row = [], cell = "", quoted = false;
   for (let i = 0; i <= text.length; i++) {
@@ -1875,7 +2001,7 @@ function fromCsv(text) {
       continue;
     }
     if (ch === '"' && cell.trim() === "") { quoted = true; cell = ""; continue; }
-    if (ch === ",") { row.push(cell.trim()); cell = ""; continue; }
+    if (ch === sep) { row.push(cell.trim()); cell = ""; continue; }
     if (ch === "\n" || ch === "\r" || ch === undefined) {
       if (ch === "\r" && text[i + 1] === "\n") i++;
       if (cell !== "" || row.length) { row.push(cell.trim()); grid.push(row); }
@@ -1902,7 +2028,7 @@ function updateTable(lines, name, header, rows, rootName, registry) {
   let selfBlock = null;
   for (let i = 0; i < lines.length; i++) {
     const t = (lines[i] || "").trim();
-    if (!t || t[0] !== "|" || isSeparator(t)) continue;
+    if (!isRowText(t) || isSeparator(t)) continue;
     const b = blockAt(lines, i);
     i = b.end;
     if (b.rows[0].sep) continue;
@@ -1920,7 +2046,7 @@ function updateTable(lines, name, header, rows, rootName, registry) {
     let conceptLine = -1, conceptIndent = -1;
     for (let i = 0; i < lines.length; i++) {
       const t = lines[i].trim();
-      if (!t || t[0] === "|" || isSeparator(t)) continue;
+      if (!t || isRowText(t)) continue;
       if (cleanName(t).toLowerCase() === low) {
         conceptLine = i;
         conceptIndent = lines[i].match(/^ */)[0].length;
@@ -1936,7 +2062,7 @@ function updateTable(lines, name, header, rows, rootName, registry) {
       if (!t) continue;
       const ind = lines[i].match(/^ */)[0].length;
       if (conceptLine !== -1 && ind <= conceptIndent) break;
-      if (t[0] === "|" && ind === indent.length) {
+      if (isRowText(t) && ind === indent.length) {
         const found = blockAt(lines, i);
         from = found.start;
         to = found.end;
@@ -1959,8 +2085,8 @@ function updateTable(lines, name, header, rows, rootName, registry) {
 }
 
 // Re-align every table in the text so the pipes line up. A table is an
-// unbroken run of pipe rows sharing one indent that contains a separator
-// row — lone pipe Examples are left exactly as written.
+// unbroken run of rows containing a separator row; a rule with no rows
+// around it is not one, and is left exactly as written.
 // Returns the changed lines as { line, text } with 1-based line numbers.
 function align(text, registry, rootName) {
   const lines = text.split(/\r?\n/);
@@ -1969,7 +2095,8 @@ function align(text, registry, rootName) {
     const block = blockAt(lines, i);
     if (!block) continue;
     i = block.end; // one visit per block
-    if (!block.rows.some((r) => r.sep)) continue;
+    // a rule with no rows around it is not a table to draw
+    if (!block.rows.some((r) => r.sep) || !block.rows.some((r) => !r.sep)) continue;
     const extent = block.end - block.start + 1;
     unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // formulas first, so the widths fit the fresh values
@@ -2000,7 +2127,8 @@ function recomputeAll(text, registry, rootName) {
     const block = blockAt(lines, i);
     if (!block) continue;
     i = block.end; // one visit per block
-    if (!block.rows.some((r) => r.sep)) continue;
+    // a rule with no rows around it is not a table to draw
+    if (!block.rows.some((r) => r.sep) || !block.rows.some((r) => !r.sep)) continue;
     const extent = block.end - block.start + 1;
     unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // fresh values — leave the lines alone
@@ -2018,7 +2146,7 @@ function recomputeAll(text, registry, rootName) {
 }
 
 module.exports = {
-  cells, isSeparator, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
+  cells, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, insertSeparator, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
   copyCell, moveCell, copyRow, copyColumn,

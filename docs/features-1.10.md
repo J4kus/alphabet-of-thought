@@ -178,9 +178,9 @@ Does **not** get a line either — a Concept written as a **standalone table**:
 
 ```aot
 - Motivation
-    |Jakus                 |role|
-    |----------------------+----|
-    |Do Monthly Processing |    |
+    Jakus                 |role
+    ----------------------+----
+    Do Monthly Processing |
 ```
 
 The first header cell *is* the Concept, so `Jakus` and its rows sit at the same depth and there is no depth at which a Map can be its child — a line one level in attaches to the last **row**. Writing one there anyway is what made such a file collect a fresh `...` on every single save: the next pass looked for the note among the Concept's children, found nothing, and wrote another. Give the Concept its own line above the grid (the merge form) and the slot is back:
@@ -188,9 +188,9 @@ The first header cell *is* the Concept, so `Jakus` and its rows sit at the same 
 ```aot
 - Motivation
     Jakus
-        |Jakus                 |role|
-        |----------------------+----|
-        |Do Monthly Processing |    |
+        Jakus                 |role
+        ----------------------+----
+        Do Monthly Processing |
         ... 1 more in bank recon.aot:2
 ```
 
