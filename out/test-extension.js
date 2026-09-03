@@ -2023,11 +2023,19 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const sHints = sDiags.filter((d) => d.severity === vscode.DiagnosticSeverity.Hint);
   const recieve = sHints.find((d) => d.message.includes("'Recieve'"));
   const pakage = sHints.find((d) => d.message.includes("'pakage'"));
-  const recieveOk = recieve && recieve.range.a.join(",") === "0,0,0,7" && /did you mean 'Receive'/.test(recieve.message);
-  const pakageOk = pakage && pakage.range.a.join(",") === "1,14,1,20" && /did you mean 'package'/.test(pakage.message);
+  const recieveOk = recieve && recieve.range.a.join(",") === "0,0,0,7" && /is not in the dictionary/.test(recieve.message);
+  const pakageOk = pakage && pakage.range.a.join(",") === "1,14,1,20" && /is not in the dictionary/.test(pakage.message);
   console.log(recieveOk && pakageOk
-    ? "PASS (spelling: misspelled words hint on their span with suggestions)"
+    ? "PASS (spelling: misspelled words hint on their span)"
     : "UNEXPECTED spelling hints " + JSON.stringify(sHints.map((d) => [d.range.a, d.message])));
+  // the candidates are no longer in the message — computing them is what made
+  // spelling slow, so they are fetched for the one word the lightbulb asks
+  // about. They must still be the right ones.
+  const speller = require("../src/spelling");
+  console.log(speller.suggestionsFor("Recieve").includes("Receive")
+    && speller.suggestionsFor("pakage").includes("package")
+    ? "PASS (spelling: the candidates are there when asked for, off the typing path)"
+    : "UNEXPECTED suggestions " + JSON.stringify([speller.suggestionsFor("Recieve"), speller.suggestionsFor("pakage")]));
   console.log(sHints.length === 2
     ? "PASS (spelling: 'colour'/'gray' both dialects, 'december' via 'December', short words and URLs stay silent)"
     : "UNEXPECTED extra spelling hints " + JSON.stringify(sHints.map((d) => d.message)));
@@ -2058,7 +2066,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   // a suggestion also offers to be applied: one Replace fix per suggestion,
   // preferred when it is the only one so Auto Fix applies it in a stroke
   const replaceFixes = actions.filter((a) => a.title.startsWith("Replace with '"));
-  const lone = /did you mean '[^']+'\?$/.test(hint.message);
+  const lone = require("../src/spelling").suggestionsFor("pakage").length === 1;
   console.log(replaceFixes.length > 0
     && replaceFixes.every((a) => a.edit && a.edit.ops[0].type === "replace" && a.edit.ops[0].range === hint.range)
     && (!lone || (replaceFixes.length === 1 && replaceFixes[0].isPreferred === true))

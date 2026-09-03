@@ -136,6 +136,7 @@ function reindexAot(fsPath, text) {
     workspaceIndex.set(fileKey(fsPath), { fsPath, text, root, nodes, concepts });
   } catch { workspaceIndex.delete(fileKey(fsPath)); }
   workspaceExternal = null; // invalidate; rebuilt lazily
+  indexGeneration++;
 }
 
 // The registry a formula in `doc` resolves its cross-Concept references
@@ -147,17 +148,63 @@ function reindexAot(fsPath, text) {
 // (derive.conceptRegistry, unified in 1.6).
 // `parsed` (optional) is the caller's already-linted { root, nodes }, so the
 // paths that just parsed do not parse the document twice.
+// One parse per document version, shared by everything that needs the tree.
+// The tree lint() returns depends only on the text and the root name — the
+// accepted words and the repo option feed the *findings*, never the nodes —
+// so there is no reason for one keystroke to parse the same text several
+// times, which is what it used to do: the semantic tokens parsed it twice,
+// the cursor's recompute twice more on every line change, a save four times,
+// and every table keystroke once again just to build a registry.
+//
+// Keyed on doc.version, so an entry is unusable the moment the text changes
+// and there is nothing to invalidate by hand. A document that cannot report a
+// version is parsed every time rather than risking a stale tree.
+const parsedByDoc = new Map(); // uri string -> { version, root, nodes }
+
+// A tree already parsed for this version, from a caller that had to lint for
+// its findings anyway.
+function seedParse(doc, root, nodes) {
+  if (typeof doc.version !== "number") return;
+  parsedByDoc.set(doc.uri.toString(), { version: doc.version, root, nodes });
+}
+
+function parsedDoc(doc) {
+  if (typeof doc.version !== "number") return lint(doc.getText(), docRootName(doc));
+  const key = doc.uri.toString();
+  const hit = parsedByDoc.get(key);
+  if (hit && hit.version === doc.version) return hit;
+  const { root, nodes } = lint(doc.getText(), docRootName(doc));
+  const entry = { version: doc.version, root, nodes };
+  parsedByDoc.set(key, entry);
+  return entry;
+}
+
+// Bumped whenever the workspace index changes, so a registry cached against
+// the repo as it stood is dropped when another file moves under it.
+let indexGeneration = 0;
+const registryByDoc = new Map(); // uri string -> { version, generation, registry }
+
 function formulaRegistry(doc, parsed) {
+  // a caller passing its own tree gets a registry built on that tree; only
+  // the shared parse is cached, so a caller's older tree can never be served
+  const cacheable = !parsed && typeof doc.version === "number";
+  const key = doc.uri.toString();
+  if (cacheable) {
+    const hit = registryByDoc.get(key);
+    if (hit && hit.version === doc.version && hit.generation === indexGeneration) return hit.registry;
+  }
   const here = fileKey(doc.fileName || "");
   const maps = [];
   for (const [fsPath, v] of workspaceIndex) {
     if (fsPath !== here && v.concepts) maps.push(v.concepts);
   }
   try {
-    const { root, nodes } = parsed || lint(doc.getText(), docRootName(doc));
+    const { root, nodes } = parsed || parsedDoc(doc);
     maps.push(derive.conceptRegistry(root, nodes));
   } catch { /* an unparseable document still resolves against the repo */ }
-  return table.mergeRegistries(...maps);
+  const registry = table.mergeRegistries(...maps);
+  if (cacheable) registryByDoc.set(key, { version: doc.version, generation: indexGeneration, registry });
+  return registry;
 }
 
 function externalFor() {
@@ -212,18 +259,30 @@ function peerPathFor(doc, base) {
   return null;
 }
 
-function analyse(doc) {
-  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-  const accepted = acceptedWords();
-  // the repo option is read before the lint so this file's own entry, which
-  // the lint is about to refresh, can never be mistaken for one of its peers
-  const { root, nodes, errors, warnings } = lint(doc.getText(), rootName, accepted, repoOptionFor(doc));
+// The tree and its crosslinks, without any of the findings: the tree, the
+// links, and the usages read back off them. It is all a rename or a renumber
+// needs, and analyse() builds its findings on top of it — so the paths that
+// only move names around no longer pay for the deep audits, the spelling and
+// the repo-wide synonym pass that analyse() runs (renumberEdits used to call
+// analyse in full, on every Format Document and on every save).
+function linkAnalysis(doc) {
+  const { root, nodes } = parsedDoc(doc);
   const inWs = underWorkspace(doc);
-  // keep this file's entry current so other files resolve against its edits
+  // keep this file's entry current so other files resolve against its edits.
+  // Only when the text has actually moved, though: the entry is what the
+  // repo-wide external index and every merged formula registry are built
+  // from, and rebuilding those on an analysis that changed nothing threw
+  // away caches the rest of the repo had not invalidated.
   if (inWs) {
-    const concepts = derive.conceptRegistry(root, nodes);
-    workspaceIndex.set(fileKey(doc.fileName), { fsPath: doc.fileName, text: doc.getText(), root, nodes, concepts });
-    workspaceExternal = null;
+    const key = fileKey(doc.fileName);
+    const prev = workspaceIndex.get(key);
+    const text = doc.getText();
+    if (!prev || prev.text !== text) {
+      const concepts = derive.conceptRegistry(root, nodes);
+      workspaceIndex.set(key, { fsPath: doc.fileName, text, root, nodes, concepts });
+      workspaceExternal = null;
+      indexGeneration++;
+    }
   }
   const links = resolve(doc.getText(), root, nodes, inWs ? externalFor() : undefined);
   // the links reversed: every place a node is referenced, for the "used at"
@@ -233,7 +292,38 @@ function analyse(doc) {
     const list = usagesOf.get(link.target);
     if (list) list.push(link); else usagesOf.set(link.target, [link]);
   }
-  analysisByDoc.set(doc.uri.toString(), { links, root, nodes, usagesOf });
+  const analysis = { links, root, nodes, usagesOf, version: doc.version };
+  analysisByDoc.set(doc.uri.toString(), analysis);
+  return analysis;
+}
+
+// The last analysis of this document, but only when it was made from the text
+// the document now holds. A tree from an earlier version places names on
+// lines that have since moved, which is what the outline — and so sticky
+// scroll and the breadcrumbs — would then draw. A document that reports no
+// version answers as it always did, with whatever was last analysed.
+function currentAnalysis(doc) {
+  const hit = analysisByDoc.get(doc.uri.toString());
+  if (!hit) return null;
+  if (typeof doc.version !== "number" || hit.version === undefined) return hit;
+  return hit.version === doc.version ? hit : null;
+}
+
+function analyse(doc) {
+  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
+  const accepted = acceptedWords();
+  // the repo option is read before the lint so this file's own entry, which
+  // the lint is about to refresh, can never be mistaken for one of its peers
+  const repoOption = repoOptionFor(doc);
+  const linted = lint(doc.getText(), rootName, accepted, repoOption);
+  const { errors, warnings } = linted;
+  // the tree a lint returns is the tree a plain lint returns — the accepted
+  // words and the repo option feed the findings, never the nodes — so this
+  // one serves every other reader of this version rather than being thrown
+  // away and parsed again
+  seedParse(doc, linted.root, linted.nodes);
+  const { root, nodes, links, usagesOf } = linkAnalysis(doc);
+  const inWs = underWorkspace(doc);
   // a lattice over a broken tree means nothing, so suggest only on V = 0.
   // Gödel clash hints share the same advisory channel (no squiggle) and the
   // same V = 0 gate.
@@ -350,7 +440,7 @@ function parkedMarks(doc) {
   const lines = doc.getText().split(/\r?\n/);
   let spans;
   try {
-    const nodes = (analysis && analysis.nodes) || lint(doc.getText(), docRootName(doc)).nodes;
+    const nodes = (analysis && analysis.nodes) || parsedDoc(doc).nodes;
     spans = park.parkedSpans(lines, nodes, docRootName(doc), parked);
   } catch { return []; } // an unparseable file marks nothing rather than guessing
   const store = path.basename(parkPath(doc));
@@ -400,7 +490,7 @@ async function autoComputeValues(doc, analysis, force) {
   if (!force && holdState.has(key)) return;
   // a caller that just analysed passes it in; the line-change path parses
   // fresh so the value fills the moment the cursor leaves, no wait
-  if (!analysis) analysis = lint(doc.getText(), docRootName(doc));
+  if (!analysis) analysis = parsedDoc(doc);
   const lines = doc.getText().split(/\r?\n/);
   const registry = formulaRegistry(doc, analysis);
   let edits = [
@@ -1170,7 +1260,7 @@ function renameSpans(doc, analysis, registry, records, target) {
 // renumbered line makes them stale — the next save re-aligns).
 function renumberEdits(doc) {
   let analysis;
-  try { analysis = analyse(doc); } catch { return []; }
+  try { analysis = linkAnalysis(doc); } catch { return []; }
   const pairs = [];
   for (const c of [analysis.root, ...analysis.nodes]) {
     if (!c || c.kind !== KIND.CONCEPT) continue;
@@ -1343,11 +1433,11 @@ const inlayProvider = {
 // is read back out of the message (both formats are this extension's own).
 const ACCEPT_SPELLING = /^'(.+)' is not in the dictionary/;
 const ACCEPT_PLURAL = /^Concept '(.+)' appears plural/;
-// a spelling hint carrying suggestions also offers to *apply* one: the
-// suggestions are read back out of the message (the extension's own format,
-// spelling.js), and with a single suggestion the fix is preferred, so
-// Auto Fix / Ctrl+. Enter applies it in one stroke
-const SPELLING_SUGGEST = /^'.+' is not in the dictionary — did you mean (.+)\?$/;
+// A spelling hint also offers to *apply* a correction. The candidates are
+// not in the message: computing them is the expensive half of spelling
+// (spelling.js), so they are fetched for the one word the lightbulb is open
+// on, off the typing path. With a single candidate the fix is preferred, so
+// Auto Fix / Ctrl+. Enter applies it in one stroke.
 // the lightbulb on an unlisted value lists it as an Example of the Concept
 // that types its attribute; both names are read back out of the message,
 // which is this extension's own (crosslinks.unlistedValues)
@@ -1368,9 +1458,9 @@ const codeActionProvider = {
     const actions = [];
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
-      const suggest = SPELLING_SUGGEST.exec(diagnostic.message);
-      if (!suggest) continue;
-      const words = suggest[1].split(", ").map((s) => s.replace(/^'|'$/g, ""));
+      const misspelt = ACCEPT_SPELLING.exec(diagnostic.message);
+      if (!misspelt) continue;
+      const words = spelling.suggestionsFor(misspelt[1]);
       words.forEach((word) => {
         const fix = new vscode.CodeAction(`Replace with '${word}'`, vscode.CodeActionKind.QuickFix);
         fix.diagnostics = [diagnostic];
@@ -2089,24 +2179,60 @@ function aotText(fsPath, currentDoc) {
 // a CSV copied in as evidence is referenced, not abandoned, and archiving it
 // would break the very link that names it.
 const AOT_FILES_REF = /aot\.files[\\/]([^\s|`"'<>]+)/g;
+// What one .aot speaks for: the aot.files it cites by path, the Concepts it
+// would mirror with the grid each would write, and — only when the file will
+// not parse — the names of the complete tables it still speaks for.
+function mirrorFacts(fsPath, text) {
+  const rootName = path.basename(fsPath).replace(/\.[^.]*$/, "");
+  const refs = [];
+  for (const m of text.matchAll(AOT_FILES_REF)) refs.push(path.basename(m[1]).toLowerCase());
+  try {
+    const { root: r, nodes } = lint(text, rootName);
+    const grids = [];
+    for (const g of derive.mirrorGrids(r, nodes)) {
+      if (g.rows.length) grids.push({ name: g.name, grid: [g.header, ...g.rows] });
+    }
+    return { refs, grids, fallback: null };
+  } catch {
+    // an unparseable file still speaks for its complete tables — though it
+    // owns nothing, which is why the two readings are kept apart here
+    return { refs, grids: [], fallback: table.tablesOf(text.split(/\r?\n/), rootName).map((t) => t.name) };
+  }
+}
+
+// The same, cached against the file's mtime and size — the guard parkCache
+// already uses for the formula store. Every save asks what every .aot in the
+// repo speaks for, and every hand edit of a CSV asks which file owns it;
+// without this both re-read and re-lint the whole repository each time.
+// A file open in the editor is read from its live text instead, so it is
+// computed fresh and never cached here.
+const mirrorCache = new Map(); // fsPath -> { mtimeMs, size, refs, grids, fallback }
+
+function mirrorFactsOf(fsPath, currentDoc) {
+  if (currentDoc && fileKey(fsPath) === fileKey(currentDoc.fileName)) {
+    return mirrorFacts(fsPath, currentDoc.getText());
+  }
+  let stat;
+  try { stat = fs.statSync(fsPath); } catch { mirrorCache.delete(fsPath); return null; }
+  const hit = mirrorCache.get(fsPath);
+  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit;
+  let text;
+  try { text = fs.readFileSync(fsPath, "utf8"); } catch { return null; }
+  const entry = { mtimeMs: stat.mtimeMs, size: stat.size, ...mirrorFacts(fsPath, text) };
+  mirrorCache.set(fsPath, entry);
+  return entry;
+}
+
 function globalCsvNames(root, currentDoc) {
   const names = new Set();
   for (const f of scanAotFiles(root)) {
-    const text = aotText(f, currentDoc);
-    if (text === null) continue;
-    const rootName = path.basename(f).replace(/\.[^.]*$/, "");
-    for (const m of text.matchAll(AOT_FILES_REF)) names.add(path.basename(m[1]).toLowerCase());
+    const facts = mirrorFactsOf(f, currentDoc);
+    if (!facts) continue;
+    for (const ref of facts.refs) names.add(ref);
     // every Concept with Examples in its scope speaks for its CSV — tables
     // and line form alike, one union file per Concept
-    try {
-      const { root: r, nodes } = lint(text, rootName);
-      for (const g of derive.mirrorGrids(r, nodes)) {
-        if (g.rows.length) names.add(csvName(g.name).toLowerCase());
-      }
-    } catch {
-      // an unparseable file still speaks for its complete tables
-      for (const t of table.tablesOf(text.split(/\r?\n/), rootName)) names.add(csvName(t.name).toLowerCase());
-    }
+    for (const g of facts.grids) names.add(csvName(g.name).toLowerCase());
+    for (const name of facts.fallback || []) names.add(csvName(name).toLowerCase());
   }
   return names;
 }
@@ -2119,17 +2245,14 @@ function globalCsvNames(root, currentDoc) {
 function ownerIndex(root) {
   const index = new Map();
   for (const f of scanAotFiles(root)) {
-    let text; try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
-    const rootName = path.basename(f).replace(/\.[^.]*$/, "");
-    try {
-      const { root: r, nodes } = lint(text, rootName);
-      for (const g of derive.mirrorGrids(r, nodes)) {
-        if (!g.rows.length) continue;
-        const low = g.name.toLowerCase();
-        if (!index.has(low)) index.set(low, []);
-        index.get(low).push({ file: f, grid: [g.header, ...g.rows] });
-      }
-    } catch { /* an unparseable file owns nothing */ }
+    const facts = mirrorFactsOf(f);
+    if (!facts) continue;
+    // an unparseable file owns nothing, so only the grids count here
+    for (const g of facts.grids) {
+      const low = g.name.toLowerCase();
+      if (!index.has(low)) index.set(low, []);
+      index.get(low).push({ file: f, grid: g.grid });
+    }
   }
   return index;
 }
@@ -2459,7 +2582,7 @@ const semanticLegend = new vscode.SemanticTokensLegend(TOKEN_TYPES, []);
 const semanticProvider = {
   provideDocumentSemanticTokens(doc) {
     const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-    const { root, nodes } = lint(doc.getText(), rootName);
+    const { root, nodes } = parsedDoc(doc);
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
     for (const node of nodes) {
       if (node.kind === KIND.ATTRIBUTE && node.cell) {
@@ -2670,12 +2793,26 @@ function cellAddress(editor) {
   if (!doc || doc.languageId !== "aot") return null;
   const at = editor.selection.active;
   if (at.line >= doc.lineCount) return null;
-  const lines = doc.getText().split(/\r?\n/);
-  const block = table.blockAt(lines, at.line);
+  // The cursor's own table, found by walking out from the cursor rather than
+  // by splitting the whole document. This runs on every cursor movement,
+  // including every left/right arrow, so it must not cost the file's length —
+  // and a block is bounded by what is not a row (table.blockAt), so the run
+  // around the cursor is all there is to read.
+  if (!table.isRowText(doc.lineAt(at.line).text)) return null;
+  let first = at.line, last = at.line;
+  while (first > 0 && table.isRowText(doc.lineAt(first - 1).text)) first--;
+  while (last + 1 < doc.lineCount && table.isRowText(doc.lineAt(last + 1).text)) last++;
+  // one line of margin on each side where the document has one, so the block
+  // meets its own edges exactly as it would inside the whole file
+  const from = Math.max(0, first - 1);
+  const to = Math.min(doc.lineCount - 1, last + 1);
+  const lines = [];
+  for (let l = from; l <= to; l++) lines.push(doc.lineAt(l).text);
+  const block = table.blockAt(lines, at.line - from);
   if (!block) return null;
   const header = block.rows.find((r) => !r.sep);
   if (!header) return null;
-  const row = block.rows[at.line - block.start];
+  const row = block.rows[at.line - from - block.start];
   if (!row || row.sep) return null;
   const col = table.colAt(doc.lineAt(at.line).text, at.character);
   const concept = table.cleanName(table.widthCookie(header.cells[0] || "").text) || "";
@@ -2711,7 +2848,7 @@ const SYMBOL_KIND = {
 const symbolProvider = {
   provideDocumentSymbols(doc) {
     let analysis;
-    try { analysis = analysisByDoc.get(doc.uri.toString()) || lint(doc.getText(), docRootName(doc)); }
+    try { analysis = currentAnalysis(doc) || parsedDoc(doc); }
     catch { return []; }
     const { root, nodes } = analysis;
     if (!root) return [];
@@ -2886,7 +3023,7 @@ async function maybeScaffold(event) {
   // else empty for the writer to name — and then the cursor waits there.
   let columns = [], first = "";
   try {
-    const { root, nodes } = lint(doc.getText(), docRootName(doc));
+    const { root, nodes } = parsedDoc(doc);
     const parentNode = scaffoldParent(doc, at, indent.length, root, nodes);
     columns = inheritedColumns(parentNode);
     if (parentNode && parentNode !== root && parentNode.name) first = parentNode.name;
@@ -3018,6 +3155,8 @@ function activate(context) {
       holdState.delete(doc.uri.toString());
       diagnostics.delete(doc.uri);
       analysisByDoc.delete(doc.uri.toString());
+      parsedByDoc.delete(doc.uri.toString());
+      registryByDoc.delete(doc.uri.toString());
     }),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) decorate(editor, decorationTypes);
@@ -3100,7 +3239,7 @@ function activate(context) {
     vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {
       provideDocumentFormattingEdits(doc) {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-        const { root, nodes } = lint(doc.getText(), rootName);
+        const { root, nodes } = parsedDoc(doc);
         const lines = doc.getText().split(/\r?\n/);
         const reg = formulaRegistry(doc);
         const renumber = renumberEdits(doc);
@@ -3171,7 +3310,7 @@ function activate(context) {
       if (doc.languageId !== "aot") return;
       event.waitUntil(Promise.resolve().then(() => {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-        const { root, nodes } = lint(doc.getText(), rootName);
+        const { root, nodes } = parsedDoc(doc);
         const reg = formulaRegistry(doc);
         const renumber = renumberEdits(doc);
         const renumbered = new Set(renumber.map((e) => e.line));
@@ -3277,6 +3416,7 @@ function activate(context) {
   aotWatcher.onDidDelete((uri) => {
     workspaceIndex.delete(fileKey(uri.fsPath));
     workspaceExternal = null;
+    indexGeneration++;
     refreshPeers(uri.fsPath);
   });
   context.subscriptions.push(aotWatcher);

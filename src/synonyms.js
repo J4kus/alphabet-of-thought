@@ -155,48 +155,110 @@ const pairKey = (a, b) => [String(a).toLowerCase(), String(b).toLowerCase()].sor
 // Returns [{ line, file, name, other, why, message, related }] — one finding
 // per occurrence of the pair, so both sides squiggle and each points at the
 // other, exactly as the duplicate findings do.
+// One key per Concept, computed once. The pairwise scan this replaces called
+// words() — and through it pluralize.singular — up to six times per *pair*,
+// which is O(n²) over a repo-wide list: 225 Concepts cost ~227 ms on every
+// keystroke, 900 cost 4.4 s. Both rules are exact matches once each name is
+// normalised, so both become bucket lookups and the pairs are never scanned.
+//
+//   plain   the words as they compare — equal means one name written singular
+//           and plural, which is the appears-plural warning's business.
+//   vocab   each word mapped to its group's representative; equal keys are
+//           exactly the vocabulary rule.
+//   stem    each word cut to MIN_STEM characters when it is at least that
+//           long, kept whole when it is shorter. Equal keys are exactly
+//           stemMatch: two words satisfy sameStem when they share a
+//           MIN_STEM-character prefix — so both are that long and agree on
+//           it — or when they are equal, which below MIN_STEM is the only
+//           way. The key names that same class, and a word never contains a
+//           space, so joining the words back is unambiguous.
+function keysOf(name) {
+  const w = words(name);
+  return {
+    w,
+    plain: w.join(" "),
+    vocab: w.map((x) => REPRESENTATIVE.get(x) || x).join(" "),
+    stem: w.map((x) => (x.length >= MIN_STEM ? x.slice(0, MIN_STEM) : x)).join(" "),
+  };
+}
+
+// The Concepts a model holds, as [{ name, line, file, alias }], judged by
+// bucket. `dismissed` is a Set of pairKey strings the writer has declared
+// distinct (aot.distinctConcepts).
+//
+// Returns [{ line, file, name, other, why, message, related }] — one finding
+// per occurrence of the pair, so both sides squiggle and each points at the
+// other, exactly as the duplicate findings do.
 function findings(concepts, dismissed) {
+  const list = [], keys = [];
+  for (const c of concepts) {
+    if (!c || !c.name) continue;
+    const k = keysOf(c.name);
+    if (!k.w.length) continue;
+    list.push(c);
+    keys.push(k);
+  }
+  // The candidate pairs: those sharing a vocabulary key, and those sharing a
+  // stem key. Every pair either rule would have matched shares one of the two,
+  // and no other pair is ever looked at.
+  const pairs = new Map(); // "i,j" -> [i, j]
+  const bucket = (keyOf) => {
+    const groups = new Map();
+    for (let i = 0; i < keys.length; i++) {
+      const key = keyOf(keys[i]);
+      const g = groups.get(key);
+      if (g) g.push(i); else groups.set(key, [i]);
+    }
+    for (const g of groups.values()) {
+      // a name alone in its bucket collides with nothing
+      if (g.length < 2) continue;
+      for (let x = 0; x < g.length; x++) {
+        for (let y = x + 1; y < g.length; y++) pairs.set(g[x] + "," + g[y], [g[x], g[y]]);
+      }
+    }
+  };
+  bucket((k) => k.vocab);
+  bucket((k) => k.stem);
+  // the order the pairwise scan produced: by the first name's place in the
+  // list, then the second's, so a pair is still reported at its first mention
+  const ordered = [...pairs.values()].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
   const out = [];
   const seen = new Set();
-  const list = concepts.filter((c) => c && c.name && words(c.name).length);
-  for (let i = 0; i < list.length; i++) {
-    for (let j = i + 1; j < list.length; j++) {
-      const a = list[i], b = list[j];
-      const an = String(a.name).toLowerCase(), bn = String(b.name).toLowerCase();
-      // the same name twice is univocity's business (rule 9 / the repo pass),
-      // not this module's
-      if (an === bn) continue;
-      // an alias is a second name *declared* to be the same idea: it is the
-      // supported way to say what this check is asking about, so saying it
-      // ends the question
-      if (aliases(a, bn) || aliases(b, an)) continue;
-      const key = pairKey(a.name, b.name);
-      if (dismissed && dismissed.has(key)) continue;
-      // 'Person' beside 'People' is one name written singular and plural, not
-      // two names for one idea: that is the appears-plural warning's business,
-      // and saying it twice would only make the same nag louder
-      if (words(a.name).join(" ") === words(b.name).join(" ")) continue;
-      const why = vocabularyKey(a.name) === vocabularyKey(b.name) ? "vocabulary"
-        : stemMatch(a.name, b.name) ? "stem"
-        : null;
-      if (!why) continue;
-      // one pair, reported once at each of its two places
-      if (seen.has(key)) continue;
-      seen.add(key);
-      for (const [self, other] of [[a, b], [b, a]]) {
-        out.push({
-          line: self.line,
-          file: self.file,
-          name: self.name,
-          other: other.name,
-          why,
-          message: message(self, other, why),
-          related: [{
-            file: other.file, line: other.line,
-            message: `'${other.name}' is written here`,
-          }],
-        });
-      }
+  for (const [i, j] of ordered) {
+    const a = list[i], b = list[j];
+    const an = String(a.name).toLowerCase(), bn = String(b.name).toLowerCase();
+    // the same name twice is univocity's business (rule 9 / the repo pass),
+    // not this module's
+    if (an === bn) continue;
+    // an alias is a second name *declared* to be the same idea: it is the
+    // supported way to say what this check is asking about, so saying it
+    // ends the question
+    if (aliases(a, bn) || aliases(b, an)) continue;
+    const key = pairKey(a.name, b.name);
+    if (dismissed && dismissed.has(key)) continue;
+    // 'Person' beside 'People' is one name written singular and plural, not
+    // two names for one idea: that is the appears-plural warning's business,
+    // and saying it twice would only make the same nag louder
+    if (keys[i].plain === keys[j].plain) continue;
+    // the pair is here because one rule or the other put it here; the
+    // vocabulary reading is the more specific one, so it is preferred
+    const why = keys[i].vocab === keys[j].vocab ? "vocabulary" : "stem";
+    // one pair, reported once at each of its two places
+    if (seen.has(key)) continue;
+    seen.add(key);
+    for (const [self, other] of [[a, b], [b, a]]) {
+      out.push({
+        line: self.line,
+        file: self.file,
+        name: self.name,
+        other: other.name,
+        why,
+        message: message(self, other, why),
+        related: [{
+          file: other.file, line: other.line,
+          message: `'${other.name}' is written here`,
+        }],
+      });
     }
   }
   return out;

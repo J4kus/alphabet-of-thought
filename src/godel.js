@@ -257,10 +257,30 @@ function clashes(root, nodes) {
     return radCache.get(n);
   };
   const findings = [];
-  // a clash names two nodes, so it reports at both — one finding per node,
-  // each related to its partner, so the editor squiggles both occurrences
+  // Two nodes can only clash when their radicals agree: an identical G is the
+  // strong reading, an equal radical with a differing G the weak one. Both
+  // tests are equalities, so the pairs worth looking at are the ones that
+  // share a radical, and grouping finds them without comparing every node
+  // with every other. The pair scan this replaces was O(n²) over wide
+  // BigInts — about 5 ms on a 250-line file but 100 ms on a 2000-line one,
+  // on every keystroke a file linted clean.
+  const byRadical = new Map();
   for (let i = 0; i < eligible.length; i++) {
-    for (let j = i + 1; j < eligible.length; j++) {
+    const key = rad(eligible[i]);
+    const group = byRadical.get(key);
+    if (group) group.push(i); else byRadical.set(key, [i]);
+  }
+  // a clash names two nodes, so it reports at both — one finding per node,
+  // each related to its partner, so the editor squiggles both occurrences.
+  // Each group lists its members in ascending order because it was filled in
+  // that order, so walking i upward and taking only the partners after it
+  // visits the pairs in the order the full scan did — no list of pairs to
+  // build and no sort to undo it.
+  for (let i = 0; i < eligible.length; i++) {
+    const group = byRadical.get(rad(eligible[i]));
+    if (!group || group.length < 2) continue;
+    for (const j of group) {
+      if (j <= i) continue;
       const a = eligible[i], b = eligible[j];
       if (related(a, b)) continue;
       for (const [self, other] of [[a, b], [b, a]]) {
