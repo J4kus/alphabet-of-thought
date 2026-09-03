@@ -157,14 +157,13 @@ The largest 1.1 addition: org-mode plain-text spreadsheets that parse to ordinar
 ```aot
 Otter
     name |size|colour
-    -----+----+------
     Ollie|5   |brown
     Pebble|3  |grey
 ```
 > **⚠️ 1.3**: tables render with **no gutter spaces** (`|Ollie |5   |`), columns still padded. Pre-1.3 they had `| Ollie | 5 |`.
 
 **Expected & edge cases**
-- The `---+---` **separator** directly below a row marks it the header; the separator is layout, never a node.
+- The `---+---` **separator** directly below a row marks it the header; the separator is layout, never a node. **⚠️ 1.12**: the rule is gone — the header is the row that stands first, and a rule left in an older file is skipped and drawn away.
 - First cell = the Example's name; each further cell = its value for that column. An **empty cell** asserts nothing.
 - A **single-cell row** above a separator heads a one-column table. A **lone multi-cell row** (nothing tabular below it) is assumed to be a header being typed — so a fresh table never errors mid-keystroke. **⚠️ 1.12**: the one-column table went with the borders — a row is a line carrying a divider, so a table has at least two columns; a Concept over a column of its Examples is written as `- ` lines.
 - A **lone-cell pipe row** (`| Loner`) stays a plain Example. **⚠️ 1.12**: dropped with the borders; a lone Example is written `- Loner`.
@@ -180,13 +179,13 @@ Otter
 - `Tab` / `Shift+Tab` — next / previous field (`Tab` at the last field appends a row).
 - `Enter` — same column, next row (appends at the bottom); `Shift+Enter` leaves the table with a plain newline.
 - `Alt+←/→` move column, `Alt+↑/↓` move row (rows hop the separator).
-- `Alt+Shift+→/←` insert / delete column, `Alt+Shift+↓/↑` insert row above / delete row, `Alt+-` insert a separator below.
+- `Alt+Shift+→/←` insert / delete column, `Alt+Shift+↓/↑` insert row above / delete row, `Alt+-` insert a separator below. **⚠️ 1.12**: `Alt+-` went with the rule.
 - Command Palette **AOT Table**: *Sort Rows by Column at Cursor*, *Create Table from Selected Lines*.
 
 **Expected & edge cases**
 - *Sort*: the data run around the cursor only (header safe behind its separator); numeric when every key reads as a number (`$`/`%`/commas ignored), else alphabetic.
 - *Create Table*: CSV, TSV, or multi-space columns; the first line is lowercased into the header, separator drawn beneath.
-- **Creation flow:** header row, `Enter`, type `-`, `Tab` → a lone dash run (or a raw `|-` line) becomes a full separator. **⚠️ 1.2** adds the one-keystroke scaffold (type `|` on an empty line).
+- **Creation flow:** header row, `Enter`, type `-`, `Tab` → a lone dash run (or a raw `|-` line) becomes a full separator. **⚠️ 1.2** adds the one-keystroke scaffold (type `|` on an empty line). **⚠️ 1.12**: with no rule to draw, `Enter` at the end of the header is the whole flow.
 
 ### 1.1.68c — cell formulas
 
@@ -196,7 +195,6 @@ Otter
 ```aot
 Order
     name |price|qty|total
-    -----+-----+---+------------
     Alpha|10   |2  |20 =@price*@qty
     Total|     |   |20 =sum(@4)
 ```
@@ -347,7 +345,7 @@ Order
 ### `|` scaffold + Tab-indents-table
 
 **What changed.**
-- Type `|` on an otherwise-empty line → a 3-line skeleton (header / separator / empty data row), cursor in the data row; one `Ctrl+Z` undoes it all.
+- Type `|` on an otherwise-empty line → a 3-line skeleton (header / separator / empty data row), cursor in the data row; one `Ctrl+Z` undoes it all. **⚠️ 1.12**: two lines now, header and empty row.
 - `Tab`/`Shift+Tab` in the **leading indent** indent/unindent the whole table one level; inside cells they still navigate.
 
 **Expected & edge cases**

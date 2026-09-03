@@ -156,7 +156,6 @@ Person
     - Socrates
 Trip
     name|person
-    ----+------
     T1  |      |    <- typing in this cell offers 'Socrates'
 ```
 
@@ -262,7 +261,6 @@ The cookie is the **per-table opt-in**: a table without one behaves byte-for-byt
 ```aot
 Note
     name|d <10>    |qty
-    ----+----------+---
     A   |a rather long note|3
 ```
 
@@ -271,7 +269,6 @@ saves as:
 ```aot
 Note
     name|d <10>    |qty
-    ----+----------+---
     A   |a rather  |3
         |long note |
 ```

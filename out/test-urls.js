@@ -19,7 +19,6 @@ function check(name, ok) {
     "Doc",
     "    spec: https://example.com/spec?v=2, reviewed",
     "    name|link",
-    "    ----+----------------------",
     "    A   |http://example.org/a",
     "    note: no urls here",
   ]);
@@ -29,9 +28,9 @@ function check(name, ok) {
   check("findUrls: the span covers exactly the URL",
     spec.startCol === 10 && spec.endCol === 10 + "https://example.com/spec?v=2".length);
   check("findUrls: a URL inside a table cell stops at the pipe",
-    found.some((u) => u.line === 5 && u.url === "http://example.org/a"));
+    found.some((u) => u.line === 4 && u.url === "http://example.org/a"));
   check("findUrls: lines without URLs yield nothing",
-    !found.some((u) => u.line === 6) && found.length === 2);
+    !found.some((u) => u.line === 5) && found.length === 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -46,7 +45,6 @@ function check(name, ok) {
     "    report: " + win,
     "    note: just some prose here",        // not path-shaped
     "    name|file",
-    "    ----+------------",
     "    A   |./data/a.csv",
     "    - aot.files/people.csv",           // an Example that *is* a file
     "    - picture.png",                    // an Example that is an image
@@ -57,17 +55,17 @@ function check(name, ok) {
   check("findFiles: a relative path value resolves and is spanned",
     files.some((f) => f.line === 3 && f.path === "./assets/flow.svg" && f.fsPath === "/abs/./assets/flow.svg"));
   check("findFiles: an absolute Windows path resolves", files.some((f) => f.line === 4 && f.path === win));
-  check("findFiles: a path inside a table cell resolves", files.some((f) => f.line === 8 && f.path === "./data/a.csv"));
+  check("findFiles: a path inside a table cell resolves", files.some((f) => f.line === 7 && f.path === "./data/a.csv"));
   check("findFiles: a '- ' Example that is a file resolves, exactly spanned",
     (() => {
-      const f = files.find((x) => x.line === 9);
+      const f = files.find((x) => x.line === 8);
       return f && f.path === "aot.files/people.csv"
-        && f.startCol === lines[8].indexOf("aot.files")
+        && f.startCol === lines[7].indexOf("aot.files")
         && f.endCol === f.startCol + "aot.files/people.csv".length;
     })());
   check("findFiles: a '- ' Example that is an image resolves (the hover shows it)",
     (() => {
-      const f = files.find((x) => x.line === 10);
+      const f = files.find((x) => x.line === 9);
       return f && f.path === "picture.png" && isImage(f.fsPath);
     })());
   check("findFiles: a URL is not a file, prose and plain Examples are not paths",

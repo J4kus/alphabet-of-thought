@@ -82,11 +82,11 @@ function cellIndex(lines, nodes, rootName) {
     if (!isRow(lines[at])) { at++; continue; }
     const block = blockAt(lines, at);
     if (!block) { at++; continue; }
+    // the header stands first; every row under it is an Example
     const headerAt = block.rows.findIndex((r) => !r.sep);
-    const sepAt = block.rows.findIndex((r) => r.sep);
-    if (headerAt !== -1 && sepAt > headerAt) {
+    if (headerAt !== -1) {
       const header = block.rows[headerAt].cells;
-      for (let r = sepAt + 1; r < block.rows.length; r++) {
+      for (let r = headerAt + 1; r < block.rows.length; r++) {
         const row = block.rows[r];
         if (row.sep) continue;
         const line = block.start + r + 1; // 1-based

@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.10",
+  "version": "1.11.11",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -217,8 +217,14 @@
         "enablement": "editorLangId == aot"
       },
       {
-        "command": "aot.table.insertSeparator",
-        "title": "Insert Separator Below",
+        "command": "aot.table.demoteRow",
+        "title": "Nest Row Under the Row Above",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.promoteRow",
+        "title": "Lift Row Out of Its Parent Row",
         "category": "AOT Table",
         "enablement": "editorLangId == aot"
       },
@@ -267,30 +273,6 @@
       {
         "command": "aot.table.copyColumnRight",
         "title": "Copy Column Right",
-        "category": "AOT Table",
-        "enablement": "editorLangId == aot"
-      },
-      {
-        "command": "aot.table.alignLeft",
-        "title": "Align Column Left",
-        "category": "AOT Table",
-        "enablement": "editorLangId == aot"
-      },
-      {
-        "command": "aot.table.alignRight",
-        "title": "Align Column Right",
-        "category": "AOT Table",
-        "enablement": "editorLangId == aot"
-      },
-      {
-        "command": "aot.table.alignCenter",
-        "title": "Align Column Center",
-        "category": "AOT Table",
-        "enablement": "editorLangId == aot"
-      },
-      {
-        "command": "aot.table.alignDefault",
-        "title": "Clear Column Alignment",
         "category": "AOT Table",
         "enablement": "editorLangId == aot"
       },
@@ -461,11 +443,6 @@
       {
         "command": "aot.table.deleteRow",
         "key": "alt+shift+up",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
-      },
-      {
-        "command": "aot.table.insertSeparator",
-        "key": "alt+-",
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
       },
       {

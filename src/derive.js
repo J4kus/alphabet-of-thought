@@ -798,6 +798,11 @@ function scopeRowsOf(concept) {
 // One union grid per Concept: { name, node, header, rows }. Every Concept
 // with Examples grids the same way — a table, a '- ' list, or both are one
 // idea in two spellings, so the mirror never asks which one wrote the rows.
+// The column a nested scope's CSV carries its shape in. Lowercase, like
+// every column: it is an attribute of the Example, naming the Example it
+// sits under.
+const PARENT_COLUMN = "parent";
+
 function mirrorGrids(root, nodes) {
   const out = [];
   for (const concept of [root, ...nodes].filter((n) => n && n.kind === KIND.CONCEPT)) {
@@ -825,13 +830,32 @@ function mirrorGrids(root, nodes) {
       }
       return "";
     };
+    // A nested Example is written as a row indented under its parent row,
+    // and no CSV can hold that: every reader of a CSV trims its cells, so
+    // the indent would not survive the trip out to a spreadsheet and back.
+    // The shape travels as a column instead — `parent`, naming the row this
+    // one sits under, empty for a top-level row — which a spreadsheet
+    // cannot damage. A flat scope has no such rows and gains no column, so
+    // its CSV is exactly the file it always was.
+    const nested = scopeRows.some((r) => r.parent && r.parent.kind === KIND.INDIVIDUAL);
+    // a Concept that already states its own `parent` attribute keeps that
+    // one column: it is the same fact under the same name, not a second
+    const owned = names.has(PARENT_COLUMN);
+    const addParent = nested && !owned;
+    const parentOf = (r) => (r.parent && r.parent.kind === KIND.INDIVIDUAL ? r.parent.name : "");
     out.push({
       name: concept.name,
       node: concept,
       // the first column is headed by the Concept (1.9) and names its
-      // Examples, mirroring the table's own `|Concept|attr…|` header
-      header: [concept.name, ...names.values()],
-      rows: scopeRows.map((r) => [r.name, ...[...names.keys()].map((k) => valueAt(r, k))]),
+      // Examples, mirroring the table's own `Concept|attr…` header
+      header: [concept.name, ...(addParent ? [PARENT_COLUMN] : []), ...names.values()],
+      rows: scopeRows.map((r) => [
+        r.name,
+        ...(addParent ? [parentOf(r)] : []),
+        ...[...names.keys()].map((k) => (k === PARENT_COLUMN && owned && !valueAt(r, k)
+          ? parentOf(r)
+          : valueAt(r, k))),
+      ]),
     });
   }
   return out;
@@ -868,10 +892,16 @@ function updateScope(lines, root, nodes, concept, header, rows, rootName) {
   });
   const direct = inScope.find((t) => t.name.toLowerCase() === concept.name.toLowerCase());
   const matched = new Set(); // names a table row already answered for
-  const touched = []; // { t, rows: updated cell arrays, changed }
+  const touched = []; // { t, rows, depths, changed }
+  // the mirror writes a nested scope's shape as a `parent` column; a flat
+  // one has none, and then every row keeps the depth it is written at
+  const parentAt = csvIdx.get(PARENT_COLUMN);
   for (const t of inScope) {
     const colNames = t.header.map(headerColName);
     let changed = false;
+    // a row's depth is its own until the CSV says otherwise — a redraw that
+    // forgot it would flatten the tree the table is written as
+    const depths = (t.rowDepths || t.rows.map(() => 0)).slice();
     const nextRows = t.rows.map((cellsRow) => {
       const next = cellsRow.slice();
       const rowName = splitCell(next[0] || "").value.trim();
@@ -891,7 +921,28 @@ function updateScope(lines, root, nodes, concept, header, rows, rootName) {
       }
       return next;
     });
-    touched.push({ t, rows: nextRows, changed });
+    // The shape comes back from the `parent` column: a row sits one level
+    // under the row it names, which is why the mirror writes the name and
+    // not the depth — a spreadsheet may reorder and reword rows freely.
+    // A parent the table does not hold ABOVE the row cannot be nested under
+    // without moving lines about, which is not a fold's business, so that
+    // row keeps the depth it has.
+    if (parentAt !== undefined) {
+      const above = new Map(); // lowercased row name -> its index
+      nextRows.forEach((cellsRow, i) => {
+        const rowName = splitCell(cellsRow[0] || "").value.trim();
+        const csvRow = rowName && byName.get(rowName.toLowerCase());
+        if (csvRow) {
+          const key = (csvRow[parentAt] || "").trim().toLowerCase();
+          let want = depths[i];
+          if (!key) want = 0; // a row naming no parent is a top-level row
+          else if (above.has(key)) want = depths[above.get(key)] + 1;
+          if (want !== depths[i]) { depths[i] = want; changed = true; }
+        }
+        if (rowName) above.set(rowName.toLowerCase(), i);
+      });
+    }
+    touched.push({ t, rows: nextRows, depths, changed });
   }
   // the rest: line-form Examples merge in place, fresh names land in the
   // Concept's own shape — its direct table when it has one, else '- ' form
@@ -915,18 +966,26 @@ function updateScope(lines, root, nodes, concept, header, rows, rootName) {
         const at = csvIdx.get(headerColName(cell).toLowerCase());
         return at ? (r[at] || "").trim() : "";
       }));
+      // a new row nests under the row it names, when that row is already there
+      let depth = 0;
+      if (parentAt !== undefined) {
+        const key = (r[parentAt] || "").trim().toLowerCase();
+        const at = key && own.rows.findIndex((c) =>
+          splitCell(c[0] || "").value.trim().toLowerCase() === key);
+        if (at !== undefined && at > -1) depth = (own.depths[at] || 0) + 1;
+      }
+      own.depths.push(depth);
     }
     own.changed = true;
   }
   // a touched table is redrawn whole, aligned, appended rows included
-  for (const { t, rows: nextRows, changed } of touched) {
+  for (const { t, rows: nextRows, depths, changed } of touched) {
     if (!changed) continue;
     const block = render({
       indent: t.indent,
       rows: [
         { sep: false, cells: t.header },
-        { sep: true, cells: [] },
-        ...nextRows.map((cells) => ({ sep: false, cells })),
+        ...nextRows.map((cells, i) => ({ sep: false, cells, depth: depths[i] || 0 })),
       ],
     });
     ops.push({ type: "block", from: t.start, to: t.end, block });
@@ -1092,7 +1151,6 @@ function toTableForm(lines, concept) {
     indent,
     rows: [
       { sep: false, cells: [cell(first), ...columns.map((c) => cell(c.cell))] },
-      { sep: true, cells: [] },
       ...rows.map((r) => ({ sep: false, cells: r.cells, depth: r.depth })),
     ],
   };

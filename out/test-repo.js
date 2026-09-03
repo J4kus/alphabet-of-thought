@@ -219,7 +219,6 @@ const JAKUS = {
     "close.aot": aot(
       "- Motivation",
       "    Jakus                 |role",
-      "    ----------------------+----",
       "    Do Monthly Processing |",
     ),
     "bank.aot": aot("- Motivation", "    Jakus", "        - All Transactions Are Reconciled"),
@@ -239,7 +238,6 @@ const JAKUS = {
     "close.aot": aot(
       "- Motivation",
       "    Jakus                 |role",
-      "    ----------------------+----",
       "    Do Monthly Processing |",
       "        ... 4 more in bank.aot:2",
       "        ... 4 more in bank.aot:2",
@@ -257,7 +255,6 @@ const JAKUS = {
       "- Motivation",
       "    Jakus",
       "        Jakus                 |role",
-      "        ----------------------+----",
       "        Do Monthly Processing |",
     ),
     "bank.aot": aot("- Motivation", "    Jakus", "        - All Transactions Are Reconciled"),

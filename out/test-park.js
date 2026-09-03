@@ -73,14 +73,13 @@ const parsed = (lines, rootName) => {
   const lines = [
     "Invoice",
     "    Invoice|price|vat           |total",
-    "    -------+-----+--------------+-------------",
     "    INV-1  |100  |20 =@price*0.2|120 =@price+@vat",
     "    INV-2  |50   |10 =@price*0.2|60 =@price+@vat",
   ];
   const { nodes } = parsed(lines);
   const out = park(lines, nodes, "Sheet");
   check("park: every cell of every row gives up its derivation, values kept",
-    out.lines[3] === "    INV-1|100|20|120" && out.lines[4] === "    INV-2|50|10|60");
+    out.lines[2] === "    INV-1|100|20|120" && out.lines[3] === "    INV-2|50|10|60");
   check("park: one row's two formulas are both taken, addressed by their column",
     out.parked.length === 4
     && out.parked[0].address === "@Invoice@vat@INV-1"
@@ -88,7 +87,7 @@ const parsed = (lines, rootName) => {
 
   const back = unpark(out.lines, parsed(out.lines).nodes, "Sheet", out.parked);
   check("unpark: the cells carry their formulas again (widths left to align)",
-    back.lines[3] === "    INV-1|100|20 =@price*0.2|120 =@price+@vat"
+    back.lines[2] === "    INV-1|100|20 =@price*0.2|120 =@price+@vat"
     && back.missing.length === 0);
 
   // the same address finds the Example whichever way it is written
@@ -124,13 +123,12 @@ const parsed = (lines, rootName) => {
   const lines = [
     "Invoice",
     "    Invoice|price|vat",
-    "    -------+-----+----------",
     "    INV-1  |100  |=@price*2",
   ];
   const { nodes } = parsed(lines);
   const out = park(lines, nodes, "Sheet");
   check("park: a cell holding only a formula leaves an empty cell behind",
-    out.lines[3] === "    INV-1|100|" && out.parked[0].formula === "=@price*2");
+    out.lines[2] === "    INV-1|100|" && out.parked[0].formula === "=@price*2");
 
   const renamed = out.lines.map((l) => l.replace("INV-1", "INV-9"));
   const back = unpark(renamed, parsed(renamed).nodes, "Sheet", out.parked);
@@ -148,7 +146,6 @@ const parsed = (lines, rootName) => {
     "Invoice",
     "    tax rate: 0.2",
     "    Invoice|price|vat|note",
-    "    -------+-----+---+----",
     "    INV-1  |100  |20 |ok",
     "    - INV-9",
     "        price: 50",
@@ -163,13 +160,13 @@ const parsed = (lines, rootName) => {
   const cell = spans.find((s) => s.address === "@Invoice@vat@INV-1");
   const line = spans.find((s) => s.address === "@Invoice@vat@INV-9");
   check("spans: a grid cell's span covers the value, not the padding around it",
-    cell && cell.line === 5 && lines[4].slice(cell.startCol, cell.endCol) === "20");
+    cell && cell.line === 4 && lines[3].slice(cell.startCol, cell.endCol) === "20");
   check("spans: a line-form value's span starts after the colon",
-    line && line.line === 8 && lines[7].slice(line.startCol, line.endCol) === "10");
+    line && line.line === 7 && lines[6].slice(line.startCol, line.endCol) === "10");
   check("spans: each span carries the formula that computes it",
     spans.length === 2 && spans.every((s) => s.formula === "=@price*0.2"));
   check("spans: document order, whichever order the store lists them in",
-    parkedSpans(lines, nodes, "Sheet", parked.slice().reverse()).map((s) => s.line).join() === "5,8");
+    parkedSpans(lines, nodes, "Sheet", parked.slice().reverse()).map((s) => s.line).join() === "4,7");
 
   // the same silence unpark keeps: an address naming nothing has no span
   check("spans: an address that no longer names anything is skipped, never guessed",
@@ -177,10 +174,10 @@ const parsed = (lines, rootName) => {
 
   // a cell whose derivation computed nothing is the one most worth marking
   const empty = lines.slice();
-  empty[4] = "    INV-1  |100  |   |ok";
+  empty[3] = "    INV-1  |100  |   |ok";
   const blank = parkedSpans(empty, parsed(empty).nodes, "Sheet", [parked[0]])[0];
   check("spans: a cell left empty by its formula is marked across its interior",
-    blank && empty[4].slice(blank.startCol, blank.endCol) === "   ");
+    blank && empty[3].slice(blank.startCol, blank.endCol) === "   ");
 }
 
 // ---------------------------------------------------------------------------

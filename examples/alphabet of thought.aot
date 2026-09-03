@@ -215,6 +215,10 @@
             - Abstraction
             - Synthesis
             after: grappling with a subject
+        - Abstraction
+            after: grappling with a subject
+        - Synthesis
+            after: grappling with a subject
     Philosopher
         - When the language changes Epistemology makes sense
             - Aristotle

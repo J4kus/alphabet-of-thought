@@ -24,6 +24,7 @@ Single Subtype
 Lone Example Parent
     - Solo Parent
         - Solo Child
+    - Solo Child
 Slot Twin
     Twin Heat A
         heat: high

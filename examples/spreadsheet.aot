@@ -1,7 +1,6 @@
 
 
 Person      |first name|age          |is alive
-------------+----------+-------------+--------
 Aristotle   |A         |10           |No
 Socrates    |Sokrates  |20           |No
 Sophroniscus|          |30 =sum(@age)|No
@@ -9,8 +8,6 @@ Sophroniscus|          |30 =sum(@age)|No
 xlookup test: 10 =xlookup(`A`,@Person@first name,@Person@age)
 direct lookup: A =@Person@first name@Aristotle
 sum if test: 60 =sumifs(@Person@age,@Person@is alive,`No`)
-
-
 
 Life Event
     beneficiary (person)
@@ -35,7 +32,6 @@ Life Event
             resident (person): Socrates
             city: Athens
     Known For      |beneficiary (person)|description
-    ---------------+--------------------+-------------------------------------------------------------------------------------------------------
     Socratic Method|Socrates            |Teaching through a back-and-forth series of questions rather than lecturing.
     Ignorance      |Socrates            |Admitting his own lack of knowledge to spark true wisdom, famously saying "I know that I know nothing".
     Ethics         |Socrates            |Shifting focus away from the physical universe and toward human virtue and how to live a good life.

@@ -179,7 +179,6 @@ Does **not** get a line either — a Concept written as a **standalone table**:
 ```aot
 - Motivation
     Jakus                 |role
-    ----------------------+----
     Do Monthly Processing |
 ```
 
@@ -189,7 +188,6 @@ The first header cell *is* the Concept, so `Jakus` and its rows sit at the same 
 - Motivation
     Jakus
         Jakus                 |role
-        ----------------------+----
         Do Monthly Processing |
         ... 1 more in bank recon.aot:2
 ```

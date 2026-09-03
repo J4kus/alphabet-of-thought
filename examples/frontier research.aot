@@ -145,3 +145,111 @@
 - LLM context engineering. The pitch that "AI can do the synthesis with you instead of guessing" plus the name's rhyme with Chain-of-Thought puts it in conversation with Jason Wei (chain-of-thought prompting) and Shunyu Yao (tree of thoughts), and with the broader retrieval/structured-context work.
 
 - If you want the shortest reading list to understand the intellectual core: Sowa's Knowledge Representation for the ontology half, Halpin's Information Modeling and Relational Databases for the fact-modelling half, Zachman's framework papers for the aspects, and Bill Kent's Data and Reality for why any of it is hard.
+- the aspect taxonomy comes from Aristotle's Categories
+    author: John F. Sowa
+- The concept/instance/property split and the "is-a vs has-a" discipline is classic KR. Key names
+    author: John F. Sowa
+- Conceptual graphs
+    author: John F. Sowa
+- Knowledge Representation
+    author: John F. Sowa
+- OntoClean
+    author: John F. Sowa
+- formal ontology
+    author: John F. Sowa
+- Basic Formal Ontology
+    author: John F. Sowa
+- the standard definition of "ontology" in CS
+    author: John F. Sowa
+- Delimiting vs incidental attributes. Alpha treats all attributes alike. Marking which ones actually distinguish a concept from its siblings gives the "Concept vs Example" test a real basis, and makes the design rule "remove attributes that do not serve the model" checkable rather than aesthetic.
+- Named dimensions. Your Map node (... explanation) is already the right syntactic slot. Write ... dimension: legal form above a subdivision, and any sibling set with two unlabelled dimensions becomes a lintable error. Your occupation status is the case in point — Employed, Self Employed, Unemployed, Retired is one dimension, but Contributor, Manager, Executive, Non Executive, Independent nested under Employed is a seniority dimension crossed with a governance dimension.
+- "Model data as sets of facts"
+    author: William W. Armstrong
+- "each Concept = one record type"
+    author: William W. Armstrong
+- "no many-to-many on attributes — use Event Associations"
+    author: William W. Armstrong
+- Armstrong's Axioms named explicitly.
+    author: William W. Armstrong
+- the axioms
+    author: William W. Armstrong
+- relational model
+    author: William W. Armstrong
+- normalisation
+    author: William W. Armstrong
+- entity-relationship
+    author: William W. Armstrong
+- NIAM/ORM, fact-based modelling
+    author: William W. Armstrong
+- Data and Reality
+    author: William W. Armstrong
+- data modelling practice
+    author: William W. Armstrong
+- patterns
+    author: William W. Armstrong
+- The six aspects line up almost one-to-one with Zachman's interrogatives
+    author: John Zachman
+- ArchiMate
+    author: John Zachman
+- The naming rules (verb + object, one verb, no "and", no "manage/ensure", no flow words)
+    author: Douglas T. Ross
+- the 3-7 sub-functions with why-up/how-down
+    author: Douglas T. Ross
+- SADT
+    author: Douglas T. Ross
+- JSD
+    author: Douglas T. Ross
+- Problem Frames, David Marca.
+    author: Douglas T. Ross
+- theory
+    author: S.S. Stevens
+- actual vs target
+    author: S.S. Stevens
+- measurement operation
+    author: S.S. Stevens
+- grading/ranking/rescaling
+    author: S.S. Stevens
+- dimensional units
+    author: S.S. Stevens
+- influence on superordinate measure
+    author: S.S. Stevens
+- performance measurement
+    author: S.S. Stevens
+- The Measurement concept
+    author: S.S. Stevens
+- nominal/ordinal/interval/ratio scales
+    author: S.S. Stevens
+- software metrics
+    author: S.S. Stevens
+- Goal-Question-Metric
+    author: S.S. Stevens
+- Balanced Scorecard
+    author: S.S. Stevens
+- VIM/SI unit definitions.
+    author: S.S. Stevens
+- you never think from nothing, every thought extends existing structures
+    author: Frederic Bartlett and Jean Piaget
+- an idea isn't an idea until it connects
+    author: Frederic Bartlett and Jean Piaget
+- the design rule literally called "Assimilate facts" borrows Piaget's vocabulary.
+    author: Frederic Bartlett and Jean Piaget
+- schemas
+    author: Frederic Bartlett and Jean Piaget
+- assimilation/accommodation
+    author: Frederic Bartlett and Jean Piaget
+- subsumption
+    author: Frederic Bartlett and Jean Piaget
+- meaningful learning
+    author: Frederic Bartlett and Jean Piaget
+- concept maps
+    author: Frederic Bartlett and Jean Piaget
+- personal construct psychology
+    author: Frederic Bartlett and Jean Piaget
+- frames
+    author: Frederic Bartlett and Jean Piaget
+- semantic networks
+    author: Frederic Bartlett and Jean Piaget
+- The tree-of-indented-text-as-thinking-tool
+    author: Douglas Engelbart
+- modern practitioners
+    author: Douglas Engelbart

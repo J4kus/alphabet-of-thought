@@ -67,7 +67,6 @@ const parsed = (text) => {
   const text = aot(
     "Prices",
     "    name |price",
-    "    -----+-----",
     "    Acme |10",
     "    Bolt |20",
     "Order",
@@ -244,7 +243,6 @@ const parsed = (text) => {
   const text = aot(
     "Ledger",
     "    name|qty >=1 <=5",
-    "    ----+-----------",
     "    A   |0",
     "    B   |9",
     "    C   |3",
@@ -252,15 +250,14 @@ const parsed = (text) => {
   const { root, nodes, lines } = parsed(text);
   const audit = auditValues(root, nodes, lines);
   check("chain: a header cell's bounds hold its column both ways",
-    audit.some((f) => f.line === 4 && f.warning && /violates 'qty >= 1'/.test(f.message))
-    && audit.some((f) => f.line === 5 && f.warning && /violates 'qty <= 5'/.test(f.message))
-    && !audit.some((f) => f.line === 6 && (f.error || f.warning)));
+    audit.some((f) => f.line === 3 && f.warning && /violates 'qty >= 1'/.test(f.message))
+    && audit.some((f) => f.line === 4 && f.warning && /violates 'qty <= 5'/.test(f.message))
+    && !audit.some((f) => f.line === 5 && (f.error || f.warning)));
   check("chain: an uncomputable second bound errors on its own span, once",
     (() => {
       const t2 = aot(
         "Ledger",
         "    name|qty >=1 <=@nope",
-        "    ----+---------------",
         "    A   |3",
       );
       const p2 = parsed(t2);
@@ -279,7 +276,6 @@ const parsed = (text) => {
 {
   const text = aot(
     "Order|price|margin >=@price*0.1",
-    "-----+-----+-------------------",
     "A    |100  |20",
     "B    |100  |5",
     "",
@@ -291,14 +287,14 @@ const parsed = (text) => {
   const { errors } = require("../src/linter").lint(text, "Sheet");
   check("scope fixture parses clean", errors.length === 0);
   const audit = auditValues(root, nodes, lines);
-  const rowB = audit.find((f) => f.line === 4 && f.warning);
+  const rowB = audit.find((f) => f.line === 3 && f.warning);
   check("audit: a column's bound is checked per row, against that row's own cells",
     rowB && /value '5' violates 'margin >= 10'/.test(rowB.message)
-    && rowB.startCol === lines[3].lastIndexOf("5"));
+    && rowB.startCol === lines[2].lastIndexOf("5"));
   check("audit: a row that satisfies its own bound stays quiet",
-    !audit.some((f) => f.line === 3 && (f.error || f.warning)));
+    !audit.some((f) => f.line === 2 && (f.error || f.warning)));
   check("audit: a value outside the declaring subtree is not governed",
-    !audit.some((f) => f.line === 8 && (f.error || f.warning)));
+    !audit.some((f) => f.line === 7 && (f.error || f.warning)));
 }
 
 // ---------------------------------------------------------------------------
@@ -308,13 +304,12 @@ const parsed = (text) => {
   const text = aot(
     "Ledger",
     "    name|qty >=1|cap <=@nope",
-    "    ----+-------+-----------",
     "    A   |0      |1",
     "    B   |2      |2",
   );
   const { root, nodes, lines } = parsed(text);
   const audit = auditValues(root, nodes, lines);
-  const qty = audit.find((f) => f.line === 4 && f.warning && /qty/.test(f.message));
+  const qty = audit.find((f) => f.line === 3 && f.warning && /qty/.test(f.message));
   const decl = audit.find((f) => f.line === 2 && f.op === ">=");
   const broken = audit.filter((f) => f.error && /does not compute/.test(f.message));
   check("audit: a header constraint holds its column's cells",
@@ -437,7 +432,6 @@ const parsed = (text) => {
   const text = aot(
     "Person",
     "    name    |nationality|alias",
-    "    --------+-----------+-----",
     "    Socrates|RSA        |Paul",
     "Measurement",
     "    person: Socrates",              // a sibling attribute named 'person'
@@ -462,7 +456,6 @@ const parsed = (text) => {
   const text = aot(
     "Prices",
     "    name |price",
-    "    -----+-----",
     "    Acme |10",
     "    Bolt |20",
     "Order",
@@ -527,7 +520,6 @@ const parsed = (text) => {
   const text = aot(
     "Person",
     "    name    |alias",
-    "    --------+-----",
     "    Socrates|Paul",
     "Integer",
     "    is prime: No",              // a value the Concept states itself
@@ -580,7 +572,6 @@ const parsed = (text) => {
     "Person",
     "    alias: Someone",
     "    name    |alias",
-    "    --------+-----",
     "    Socrates|Paul",
     "Check",
     "    who: =@Person@alias",
@@ -606,7 +597,6 @@ const parsed = (text) => {
     "        weight: 7",
     "    - test 1",
     "        test 1              |alias",
-    "        --------------------+-----",
     "        aot.files/Person.csv|Mike",
     "Other",
     "    - x",
@@ -614,13 +604,51 @@ const parsed = (text) => {
   const { root, nodes } = parsed(text);
   const grids = mirrorGrids(root, nodes);
   const ft = grids.find((g) => g.name === "File Tester");
+  // 'aot.files/Person.csv' is a row of a table filed under the Example
+  // 'test 1', so this scope nests — and a nesting scope carries its shape
+  // in a 'parent' column, which no spreadsheet can trim away
   check("mirror: one union grid per Concept, a table under an Example included",
-    ft && ft.header.join(",") === "File Tester,origin,weight,alias"
+    ft && ft.header.join(",") === "File Tester,parent,origin,weight,alias"
     && ft.rows.length === 3);
   check("mirror: a row silent on a column answers the nearest default, else blank",
-    ft.rows[0].join("|") === "loose one|EU|7|"
-    && ft.rows[1].join("|") === "test 1|EU||"
-    && ft.rows[2].join("|") === "aot.files/Person.csv|EU||Mike");
+    ft.rows[0].join("|") === "loose one||EU|7|"
+    && ft.rows[1].join("|") === "test 1||EU||"
+    && ft.rows[2].join("|") === "aot.files/Person.csv|test 1|EU||Mike");
+  check("mirror: the parent column names the row a nested row sits under",
+    ft.rows[2][1] === "test 1" && ft.rows[0][1] === "" && ft.rows[1][1] === "");
+  // and the shape comes back: the parent column is read as depth, so a round
+  // trip through a spreadsheet no longer flattens the tree
+  {
+    const nested = aot(
+      "Thing       |age",
+      "Parent      |",
+      "    Child 1 |10",
+      "    Child 2 |12",
+    );
+    const { root: r2, nodes: n2, lines: l2 } = parsed(nested);
+    const thing = [r2, ...n2].find((n) => n && n.kind === KIND.CONCEPT && n.name === "Thing");
+    const grid = mirrorGrids(r2, n2).find((g) => g.name === "Thing");
+    check("mirror: a nested table writes its shape as a parent column",
+      grid.header.join(",") === "Thing,parent,age"
+      && grid.rows.map((x) => x.join("|")).join(";") === "Parent||;Child 1|Parent|10;Child 2|Parent|12");
+    // Excel hands back an edited value and a re-parented row
+    const edited = [
+      ["Thing", "parent", "age"],
+      ["Parent", "", ""],
+      ["Child 1", "Parent", "11"],
+      ["Child 2", "Child 1", "12"],
+    ];
+    const ops = updateScope(l2, r2, n2, thing, edited[0], edited.slice(1), "Sheet");
+    const block = ops.find((o) => o.type === "block");
+    check("mirror: folding back keeps the tree and applies the edit",
+      block && block.block.join("\n") === aot(
+        "Thing          |age",
+        "Parent         |",
+        "    Child 1    |11",
+        "        Child 2|12",
+      ));
+  }
+
   const other = grids.find((g) => g.name === "Other");
   check("mirror: a pure line-form Concept grids exactly the same way",
     other && other.rows.length === 1 && other.header.join(",") === "Other");
@@ -657,7 +685,6 @@ const parsed = (text) => {
     "    - Loose",
     "        weight: 7",
     "    name|price",
-    "    ----+------------",
     "    Acme|10",
     "    Bolt|=@price@Acme",
   );
@@ -705,7 +732,6 @@ const parsed = (text) => {
     "        is prime: No",
     "Person",
     "    name    |alias",
-    "    --------+-----",
     "    Socrates|Paul",
   );
   const { root, nodes, lines } = parsed(text);
@@ -752,14 +778,13 @@ const parsed = (text) => {
   const text = aot(
     "Order",
     "    name |grade ==or(1,2,3)",
-    "    -----+------------------",
     "    Alpha|2",
     "    Beta |9",
   );
   const { root, nodes, lines } = parsed(text);
   const findings = auditValues(root, nodes, lines).filter((f) => f.error || f.warning);
   check("enumeration: a header cell lists its column's allowed values",
-    findings.length === 1 && findings[0].line === 5 && findings[0].warning === true && /value '9' violates/.test(findings[0].message));
+    findings.length === 1 && findings[0].line === 4 && findings[0].warning === true && /value '9' violates/.test(findings[0].message));
 }
 
 // and the logic reads as logic in a value's own formula
@@ -1020,7 +1045,6 @@ const parsed = (text) => {
   check("flipForm: a line-form Concept becomes a standalone table naming itself",
     asTable.form === "table" && asTable.text === aot(
       "Person   |first name|age",
-      "---------+----------+---------",
       "Aristotle|A         |10",
       "Socrates |Sokrates  |20 =10+10",
     ));
@@ -1081,6 +1105,42 @@ const parsed = (text) => {
     nested.text.includes("        Landmark") && nested.text.includes("            - Palace")
     && nested.text.includes("Athens|Athenians"));
 
+  // A sub-Example IS a row — one indented inside its name cell — so a nested
+  // list and a nested grid are the same idea in two spellings, and the flip
+  // between them loses nothing in either direction.
+  const nestedLines = aot(
+    "Thing",
+    "    age",
+    "    - Parent",
+    "        - Child 1",
+    "            age: 10",
+    "        - Child 2",
+    "            age: 12",
+    "    - Other Parent",
+    "        - Child 3",
+    "            age: 7",
+  );
+  const nestedGrid = flip(nestedLines, "Thing");
+  check("flipForm: a nested list flips to a grid whose rows keep their depth",
+    nestedGrid.form === "table"
+    && nestedGrid.text.split("\n").map((l) => l.trimEnd()).join("\n") === aot(
+      "Thing       |age",
+      "Parent      |",
+      "    Child 1 |10",
+      "    Child 2 |12",
+      "Other Parent|",
+      "    Child 3 |7",
+    ));
+  check("flipForm: and back again, exactly as it was written",
+    flip(nestedGrid.text, "Thing").text === nestedLines);
+  check("flipForm: a sub-Example's own attribute still becomes a column",
+    flip(aot(
+      "Thing",
+      "    - Parent",
+      "        - Child",
+      "            nickname: Kid",
+    ), "Thing").text.includes("nickname"));
+
   check("flipForm: a Concept with no Examples has nothing to flip",
     flip(aot("Colour", "    hue"), "Colour") === null);
 
@@ -1096,7 +1156,6 @@ const parsed = (text) => {
       "        mother (person): Phaenarete",
     ), "Birth").text === aot(
       "Birth         |father (person)|mother (person)",
-      "--------------+---------------+---------------",
       "Socrates Birth|Sophroniscus   |Phaenarete",
     ));
 
@@ -1111,7 +1170,6 @@ const parsed = (text) => {
   check("flipForm: an attribute an Example only declares becomes a column with an empty cell",
     declared.text === aot(
       "Belief    |timing|use intuition",
-      "----------+------+-------------",
       "Introduced|Async |",
     ));
 
@@ -1119,7 +1177,6 @@ const parsed = (text) => {
   // the grid is found from the Concept whatever form it is written in
   const { root: gRoot, nodes: gNodes, lines: gLines } = parsed(aot(
     "Known For      |beneficiary",
-    "---------------+-----------",
     "Socratic Method|Socrates",
   ));
   const known = [gRoot, ...gNodes].find((n) => n.name === "Known For");

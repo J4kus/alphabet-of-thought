@@ -49,7 +49,6 @@ const treeOf = (text, rootName) => {
   const text = aot(
     "Order",
     "    name            |country|basket size",
-    "    ----------------+-------+-----------",
     "    Acme March Order|France |$1,200",
     "    Bolt March Order|       |",
   );
@@ -68,11 +67,9 @@ const treeOf = (text, rootName) => {
   const text = aot(
     "Order",
     "    name|qty",
-    "    ----+---",
     "    A   |1",
     "",
     "    name 2|qty 2",
-    "    ------+-----",
     "    B     |2",
     "",
     "Other",
@@ -112,7 +109,6 @@ const treeOf = (text, rootName) => {
     "        - Wagon",
     "            wheel count: 6",
     "    name   |wheel count|colour",
-    "    -------+-----------+------",
     "    Bicycle|2          |",
     "    Sled   |0          |red",
   );
@@ -141,7 +137,6 @@ const treeOf = (text, rootName) => {
 {
   const lines = [
     "    name|qty|note",
-    "    ----+---+----",
     "    Acme|10 |a",
   ];
   const block = table.blockAt(lines, 0);

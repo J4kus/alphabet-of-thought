@@ -2,15 +2,11 @@
     Beneficiary
         interest (How much the stakeholder cares about the outcome)
         influence  (Their ability to affect decisions, resources, or outcomes)
-        Human (Natural Person)
-            - Jakus
+        
+        Human (Natural Person)|title|date of birth|gender|home language|nationality (country)
+        Jakus                 |     |             |      |             |
             first name: Joe
             surname: Slim
-            title
-            date of birth
-            gender
-            home language
-            nationality (country)
             is living: yes
         Organisation
             ...
@@ -29,8 +25,8 @@
     Measurement
         parent measurement: None
         name
-        expected value
-        actual value
+        target
+        actual
         measurement operation used
             - Observation
                 characteristic (trait)
@@ -77,25 +73,99 @@
                 - Amount
                     - Cyclomatic Complexity
                     - Lines Of Code
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 - Current
                     - Amps
                     - ...
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 - Length
                     - Meter
                     - ...
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 - Light
                     - Candela
                     - ...
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 - Mass
                     - Kilogram
                     - ...
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 - Temperature Unit
                     - Kelvin
                     - ...
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 - Time
                     - Second
                     - ...
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 - ...
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Cyclomatic Complexity
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Lines Of Code
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Amps
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Meter
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Candela
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Kilogram
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Kelvin
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
+                - Second
+                    is integer: No
+                    numeric base: 10
+                    is signed: true
                 is integer: No
                 offset scaling magnitude
                     - 0

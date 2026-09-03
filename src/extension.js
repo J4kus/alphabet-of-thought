@@ -679,7 +679,7 @@ function tableCellItems(doc, position, line, parsed) {
   const lines = doc.getText().split(/\r?\n/);
   const block = table.blockAt(lines, position.line);
   if (!block || position.line === block.start) return []; // no block, or the header row itself
-  if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) return []; // headerless
+  if (table.headerIndex(block) === -1) return []; // nothing but a leftover rule
   const col = table.colAt(line, position.character);
   if (col === 0) return []; // the name column declares Examples, not values
   const cell = table.cells(line)[col];
@@ -2531,6 +2531,8 @@ function runTableOp(editor, op) {
 const tableOps = {
   "aot.table.nextCell": table.nextCell,
   "aot.table.prevCell": table.prevCell,
+  "aot.table.demoteRow": table.demoteRow,
+  "aot.table.promoteRow": table.promoteRow,
   "aot.table.nextRow": table.nextRow,
   "aot.table.moveColumnLeft": (b, r, c) => table.moveColumn(b, r, c, -1),
   "aot.table.moveColumnRight": (b, r, c) => table.moveColumn(b, r, c, 1),
@@ -2540,7 +2542,6 @@ const tableOps = {
   "aot.table.deleteColumn": table.deleteColumn,
   "aot.table.insertRow": table.insertRow,
   "aot.table.deleteRow": table.deleteRow,
-  "aot.table.insertSeparator": table.insertSeparator,
   "aot.table.sortRows": table.sortRows,
   "aot.table.copyFormulaDown": table.copyFormulaDown,
   "aot.table.copyFormulaAcross": table.copyFormulaAcross,
@@ -2558,15 +2559,10 @@ const tableOps = {
   "aot.table.copyRowUp": (b, r, c) => table.copyRow(b, r, c, -1),
   "aot.table.copyColumnLeft": (b, r, c) => table.copyColumn(b, r, c, -1),
   "aot.table.copyColumnRight": (b, r, c) => table.copyColumn(b, r, c, 1),
-  // the column's alignment, written as markdown's colons in the separator
-  "aot.table.alignLeft": (b, r, c) => table.alignColumn(b, r, c, "left"),
-  "aot.table.alignRight": (b, r, c) => table.alignColumn(b, r, c, "right"),
-  "aot.table.alignCenter": (b, r, c) => table.alignColumn(b, r, c, "center"),
-  "aot.table.alignDefault": (b, r, c) => table.alignColumn(b, r, c, null),
 };
 
 // Turn the selected delimited lines (CSV, TSV, or multi-space columns) into
-// an aligned table, org's C-c |: first line the header, separator beneath.
+// an aligned table, org's C-c |: the first line is the header.
 function fromSelection(editor) {
   const doc = editor.document;
   const sel = editor.selection;
@@ -2593,6 +2589,28 @@ function tableIndentZone(editor) {
   // itself — everything before the first character of the name
   const indent = line.match(/^ */)[0].length;
   return indent > 0 && pos.character < indent && table.isRowText(line);
+}
+
+// Tab at the head of a data row's name cell nests that row under the row
+// above it, and Shift+Tab lifts it back out — the row's own indent is its
+// place in the tree, so the key that indents a line indents a row.
+//
+// The header is the one row that cannot nest (it names the Concept the
+// whole table describes), so on the header the same keys still shift the
+// WHOLE table a level, which is what tableIndentZone answers. Anywhere past
+// the name, Tab keeps travelling the cells as it always has.
+function rowIndentZone(editor) {
+  const doc = editor.document;
+  const pos = editor.selection.active;
+  if (pos.line >= doc.lineCount) return false;
+  const line = doc.lineAt(pos.line).text;
+  if (!table.isRowText(line) || table.isSeparator(line.trim())) return false;
+  const name = line.match(/^ */)[0].length;
+  if (pos.character > name) return false;
+  const lines = doc.getText().split(/\r?\n/);
+  const block = table.blockAt(lines, pos.line);
+  // the first row of a block is its header, and a header has no depth
+  return !!block && pos.line > block.start;
 }
 
 function shiftTableIndent(editor, dir) {
@@ -2791,7 +2809,7 @@ const symbolProvider = {
 };
 
 // Typing a first '|' on an otherwise empty line scaffolds a fresh table —
-// header, separator, empty data row — with the cursor in the data row when
+// header and an empty data row — with the cursor in the data row when
 // the enclosing Concept has already named the first header cell:
 //
 //     |Otter|
@@ -2880,7 +2898,6 @@ async function maybeScaffold(event) {
     indent,
     rows: [
       { sep: false, cells: header },
-      { sep: true, cells: [] },
       { sep: false, cells: header.map(() => "") },
     ],
   };
@@ -2893,7 +2910,7 @@ async function maybeScaffold(event) {
     // a named Concept: land in the data row to add Examples; an unnamed one:
     // land in the header's first cell to name the Concept first
     const ch = indent.length;
-    const line = first ? at + 2 : at;
+    const line = first ? at + 1 : at;
     editor.selection = new vscode.Selection(line, ch, line, ch);
   } finally {
     scaffolding = false;
@@ -3078,7 +3095,7 @@ function activate(context) {
       vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
     }),
     // Format Document re-aligns every table's columns, as org-mode's TAB
-    // does — each column padded to its widest cell, separators redrawn —
+    // does — each column padded to its widest cell, leftover rules dropped —
     // recomputes every line-form '=' value, and renumbers `N. ` Examples.
     vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {
       provideDocumentFormattingEdits(doc) {
@@ -3107,8 +3124,12 @@ function activate(context) {
     // the org table editor's commands and its aot.inTable keybinding gate
     ...Object.entries(tableOps).map(([id, op]) =>
       vscode.commands.registerTextEditorCommand(id, (editor) => {
-        // Tab/Shift+Tab in the leading indent shift the whole table a level
+        // Tab/Shift+Tab at the head of a row's name nest that row; on the
+        // header, which cannot nest, they shift the whole table a level
         const dir = id === "aot.table.nextCell" ? 1 : id === "aot.table.prevCell" ? -1 : 0;
+        if (dir && rowIndentZone(editor)) {
+          return runTableOp(editor, dir > 0 ? table.demoteRow : table.promoteRow);
+        }
         if (dir && tableIndentZone(editor)) return shiftTableIndent(editor, dir);
         return runTableOp(editor, op);
       })),

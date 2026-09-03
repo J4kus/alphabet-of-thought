@@ -411,7 +411,6 @@ const listed = [
   const text = [
     "Person",
     "    name    |alias",
-    "    --------+-----",
     "    Socrates|Paul",
     "Integer",
     "    - 1",
@@ -432,8 +431,8 @@ const listed = [
   const found = unlistedValues(text, t.root, t.nodes);
   const at = (v) => found.find((f) => f.value === v);
   const james = at("James");
-  const jamesOk = james && james.line === 13 && james.concept.name === "Person"
-    && james.startCol === text.split("\n")[12].indexOf("James")
+  const jamesOk = james && james.line === 12 && james.concept.name === "Person"
+    && james.startCol === text.split("\n")[11].indexOf("James")
     && /is not an Example of Concept 'Person' — its Examples are Socrates/.test(james.message);
   const fiveOk = at("5") && at("5").concept.name === "Integer"
     && /its Examples are 1, 35/.test(at("5").message);
@@ -458,13 +457,12 @@ const listed = [
     "    - Ratio",
     "Metric",
     "    name | measurement operation",
-    "    ------+-----------------------",
     "    Speed | Ratio",
   ].join("\n");
   const t = lint(table, "World");
   const links = resolve(table, t.root, t.nodes);
   const headerLink = links.find((l) => l.connection === "attribute-is-a-Concept" && l.line === 4);
-  const cellLink = links.find((l) => l.connection === "default-is-a-Example" && l.line === 6);
+  const cellLink = links.find((l) => l.connection === "default-is-a-Example" && l.line === 5);
   const headerOk = headerLink && headerLink.startCol === 11 && headerLink.target.line === 1;
   const cellOk = cellLink && cellLink.startCol === 12 && cellLink.text === "Ratio" && cellLink.target.line === 2;
   console.log(headerOk && cellOk
@@ -479,12 +477,11 @@ const listed = [
     "    - Socrates",
     "Known For",
     "    Known For | beneficiary (person)",
-    "    -----------+----------------------",
     "    Ethics | Socrates",
   ].join("\n");
   const a = lint(aliased, "World");
   const aLinks = resolve(aliased, a.root, a.nodes);
-  const aCell = aLinks.find((l) => l.connection === "default-is-a-Example" && l.line === 6);
+  const aCell = aLinks.find((l) => l.connection === "default-is-a-Example" && l.line === 5);
   console.log(aCell && aCell.text === "Socrates" && aCell.target.line === 2
     ? "PASS (table: a cell of an aliased column links through the alias' Concept)"
     : "UNEXPECTED aliased-column cell crosslink " + JSON.stringify(aCell || null));
@@ -492,7 +489,7 @@ const listed = [
   const doc3 = makeDoc("c:\repo\World.aot", table);
   const edits = formattingProvider.provideDocumentFormattingEdits(doc3);
   const aligned = edits.some((e) => e.text === "    Speed|Ratio");
-  console.log(aligned && edits.length === 3
+  console.log(aligned && edits.length === 2
     ? "PASS (table: Format Document aligns the columns)"
     : "UNEXPECTED table formatting " + JSON.stringify(edits));
 }
@@ -610,7 +607,7 @@ const listed = [
   const filesDir = path.join(wsRoot, "aot.files");
   fs.writeFileSync(path.join(filesDir, "evidence.csv"), "a,b\n1,2\n");
   fs.writeFileSync(path.join(filesDir, "stray.csv"), "a,b\n3,4\n");
-  const citing = ["Study", "    source: aot.files/evidence.csv", "    Otter", "        name", "        -----", "        Ollie"].join("\n");
+  const citing = ["Study", "    source: aot.files/evidence.csv", "    Otter", "        name", "        Ollie"].join("\n");
   fs.writeFileSync(aotPath, citing);
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: wsRoot } }];
   vscode.workspace._save(makeDoc(aotPath, citing));
@@ -631,7 +628,6 @@ const listed = [
   const text = [
     "Otter",
     "    name | size",
-    "    --+--",
     "    Ollie | 5",
   ].join("\n");
   const doc4 = makeDoc("c:\repo\World.aot", text);
@@ -639,17 +635,17 @@ const listed = [
   let applied = null;
   const editor = {
     document: doc4,
-    selection: new vscode.Selection(3, 7, 3, 7), // inside 'Ollie'
+    selection: new vscode.Selection(2, 7, 2, 7), // inside 'Ollie'
     edit: (cb) => { cb({ replace: (range, t) => { applied = { range, t }; } }); return Promise.resolve(true); },
     revealRange: () => {},
   };
   registeredCommands.get("aot.table.nextCell")(editor);
   Promise.resolve().then(() => {
     const ok = applied
-      && applied.t.split("\n")[2] === "    Ollie|5"
-      && editor.selection.active.line === 3 && editor.selection.active.character === 10;
-    console.log(ok && registeredCommands.size === 36
-      ? "PASS (table editor: 36 commands; Tab aligns and moves to the next cell)"
+      && applied.t.split("\n")[1] === "    Ollie|5"
+      && editor.selection.active.line === 2 && editor.selection.active.character === 10;
+    console.log(ok && registeredCommands.size === 31
+      ? "PASS (table editor: 31 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -660,7 +656,6 @@ const listed = [
   const lines = [
     "Otter",
     "    name |size",
-    "    -----+----",
     "    Ollie|5",
   ];
   const doc = {
@@ -672,7 +667,7 @@ const listed = [
   };
   const editor = {
     document: doc,
-    selection: new vscode.Selection(3, 1, 3, 1), // inside the 4-space indent
+    selection: new vscode.Selection(2, 1, 2, 1), // inside the 4-space indent
     edit: (cb) => {
       cb({ replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); } });
       return Promise.resolve(true);
@@ -682,11 +677,11 @@ const listed = [
   };
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const indented = lines[1] === "        name |size" && lines[3] === "        Ollie|5";
-  const selOk = editor.selection.active.line === 3 && editor.selection.active.character === 5;
+  const indented = lines[1] === "        name |size" && lines[2] === "        Ollie|5";
+  const selOk = editor.selection.active.line === 2 && editor.selection.active.character === 5;
   registeredCommands.get("aot.table.prevCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const back = lines[1] === "    name |size" && lines[3] === "    Ollie|5";
+  const back = lines[1] === "    name |size" && lines[2] === "    Ollie|5";
   console.log(indented && selOk && back
     ? "PASS (table editor: Tab in the leading indent shifts the table a level; Shift+Tab back)"
     : "UNEXPECTED table indent " + JSON.stringify({ lines, sel: editor.selection.a }));
@@ -729,7 +724,7 @@ const listed = [
   const { doc: docG, editor: edG } = makeLive(grow, "Grow.aot");
   typedPipe(docG, 1);
   await new Promise((r) => setImmediate(r));
-  const grown = grow.join("\n") === ["Otter", " |", "-+-", " |"].join("\n");
+  const grown = grow.join("\n") === ["Otter", " |", " |"].join("\n");
   const cursorOk = edG.selection.active.line === 1 && edG.selection.active.character === 0;
   console.log(grown && cursorOk
     ? "PASS (scaffold: a top-level '|' grows the skeleton, cursor in the header to name the Concept)"
@@ -741,8 +736,8 @@ const listed = [
   const { doc: docU, editor: edU } = makeLive(under, "Under.aot");
   typedPipe(docU, 1);
   await new Promise((r) => setImmediate(r));
-  const named = under.join("\n") === ["Otter", "    Otter|", "    -----+-", "         |"].join("\n");
-  console.log(named && edU.selection.active.line === 3 && edU.selection.active.character === 4
+  const named = under.join("\n") === ["Otter", "    Otter|", "         |"].join("\n");
+  console.log(named && edU.selection.active.line === 2 && edU.selection.active.character === 4
     ? "PASS (scaffold: under a Concept the header cell names it, cursor in the data row)"
     : "UNEXPECTED scaffold under a Concept " + JSON.stringify({ under, sel: edU.selection.a }));
 
@@ -761,7 +756,6 @@ const listed = [
   await new Promise((r) => setImmediate(r));
   const inherited = nested.slice(5).join("\n") === [
     "        Otter|legs|habitat",
-    "        -----+----+-------",
     "             |    |",
   ].join("\n");
   console.log(inherited
@@ -789,7 +783,6 @@ const listed = [
     "Length",
     "Otter",
     "    name | size (length) | colour",
-    "    ------+----------------+--------",
     "    Ollie | 5 | brown",
   ].join("\n");
   const doc5 = makeDoc("c:\repo\World.aot", text);
@@ -798,9 +791,9 @@ const listed = [
   const tokensOk = has([2, 11, 4, 0])   // header 'size' as attribute
     && has([2, 17, 6, 0])               // header alias 'length' as attribute
     && has([2, 27, 6, 0])               // header 'colour' as attribute
-    && has([4, 4, 5, 1])                // name cell 'Ollie' as Example
-    && has([4, 12, 1, 2])               // value cell '5' as value
-    && has([4, 16, 5, 2]);              // value cell 'brown' as value
+    && has([3, 4, 5, 1])                // name cell 'Ollie' as Example
+    && has([3, 12, 1, 2])               // value cell '5' as value
+    && has([3, 16, 5, 2]);              // value cell 'brown' as value
   console.log(tokensOk
     ? "PASS (table: cells coloured as attribute / Example / value)"
     : "UNEXPECTED semantic tokens " + JSON.stringify(tokens));
@@ -830,7 +823,6 @@ const listed = [
   const aotText = [
     "Otter",
     "    Otter | size",
-    "    -------+------",
     "    Ollie | 5",
   ].join("\n");
   fs.writeFileSync(aotPath, aotText);
@@ -859,7 +851,7 @@ const listed = [
   fs.writeFileSync(csvPath, "Otter,size\nOllie,5\nPebble,3\n");
   await vscode.workspace._csvChanged({ fsPath: csvPath });
   const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
-  console.log(after[3] === "    Ollie |5" && after[4] === "    Pebble|3"
+  console.log(after[2] === "    Ollie |5" && after[3] === "    Pebble|3"
     ? "PASS (csv mirror: a CSV edit folds back into the owning .aot table)"
     : "UNEXPECTED aot after csv edit: " + JSON.stringify(after));
 
@@ -931,7 +923,7 @@ const listed = [
   fs.writeFileSync(path.join(dir, "note.txt"), "the repo's own");
 
   const aotPath = path.join(sub, "Deep.aot");
-  const aotText = ["Otter", "    Otter | size", "    -------+------", "    Ollie | 5"].join("\n");
+  const aotText = ["Otter", "    Otter | size", "    Ollie | 5"].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
   // the workspace is the subfolder, so the old rule would have written here
@@ -971,7 +963,7 @@ const listed = [
   const lone = path.join(repo, "deeper");
   fs.mkdirSync(lone);
   const lonePath = path.join(lone, "Lone.aot");
-  const loneText = ["Beaver", "    Beaver | size", "    --------+------", "    Bucky  | 9"].join("\n");
+  const loneText = ["Beaver", "    Beaver | size", "    Bucky  | 9"].join("\n");
   fs.writeFileSync(lonePath, loneText);
   vscode.workspace._save(makeDoc(lonePath, loneText));
   console.log(fs.existsSync(path.join(dir, "Beaver.csv")) && !fs.existsSync(path.join(lone, "aot.files"))
@@ -1133,17 +1125,16 @@ const listed = [
     "    - Socrates",
     "Trip",
     "    name|person",
-    "    ----+------",
     "    T1  |",
   ].join("\n");
   const doc = makeDoc("c:\\repo\\Cells.aot", text);
-  const inCell = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(5, 11));
+  const inCell = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(4, 9));
   const labels = (inCell || []).map((i) => i.label);
   console.log(labels.join(",") === "Socrates"
     ? "PASS (value completion: a Concept-typed column's cell offers the Concept's Examples)"
     : "UNEXPECTED table-cell completion " + JSON.stringify(labels));
-  const inName = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(5, 6));
-  const inHeader = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(3, 11));
+  const inName = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(4, 5));
+  const inHeader = valueCompletionProvider.provideCompletionItems(doc, new vscode.Position(3, 10));
   console.log((inName || []).length === 0 && (inHeader || []).length === 0
     ? "PASS (value completion: the name column and the header row are offered nothing)"
     : "UNEXPECTED name/header completion " + JSON.stringify([inName, inHeader]));
@@ -1320,14 +1311,13 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const sheet = [
     "Person",
     "    Person|occupation",
-    "    ------+----------",
     "    Socrates|philosopher",
     "    Plato   |philosopher",
   ].join("\n");
   const docT = makeDoc("c:\repo\Sheet.aot", sheet);
   const symbols = symbolProvider.provideDocumentSymbols(docT);
   const person = symbols.find((s) => s.name === "Person");
-  console.log(person && person.range.a[0] === 0 && person.range.a[2] === 4
+  console.log(person && person.range.a[0] === 0 && person.range.a[2] === 3
     ? "PASS (outline: a Concept's range runs to the last line of its subtree)"
     : "UNEXPECTED outline root " + JSON.stringify(symbols.map((s) => [s.name, s.range && s.range.a])));
 
@@ -1335,7 +1325,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   // covers the grid, so its rows sit *inside* it — sticky scroll then pins
   // the header line while you scroll them, which is the freeze asked for
   const grid = person && person.children.find((s) => s.range.a[0] === 1 && s.children.length);
-  console.log(grid && grid.name === "Person" && grid.range.a[2] === 4
+  console.log(grid && grid.name === "Person" && grid.range.a[2] === 3
     && grid.children.some((r) => r.name === "Socrates") && grid.children.some((r) => r.name === "Plato")
     ? "PASS (outline: the header line is the parent of its rows — what sticky scroll pins)"
     : "UNEXPECTED table symbol " + JSON.stringify(grid && { n: grid.name, r: grid.range.a, kids: grid.children.map((k) => k.name) }));
@@ -1349,7 +1339,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   // the status bar: Concept, the row's Example, the column's attribute
   const item = vscode.window._statusItem;
   vscode.window.activeTextEditor = {
-    document: docT, selection: new vscode.Selection(3, 15, 3, 15),
+    document: docT, selection: new vscode.Selection(2, 15, 2, 15),
     setDecorations: () => {}, revealRange: () => {},
   };
   vscode.window._selectionChanged({
@@ -1387,7 +1377,6 @@ if (process.platform === "win32" || process.platform === "darwin") {
     "Invoice",
     "    tax rate: 0.2",
     "    Invoice|price|vat",
-    "    -------+-----+--------------",
     "    INV-1  |100  |=@price*0.2",
     "    - INV-9",
     "        price: 50",
@@ -1436,12 +1425,12 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const parkedLines = text.split("\n");
   // the empty-valued cell got its number before the formula left, and the
   // line-form value kept the one it already had
-  console.log(parkedLines[2] === "    Invoice|price|vat" && parkedLines[4] === "    INV-1  |100  |20"
+  console.log(parkedLines[2] === "    Invoice|price|vat" && parkedLines[3] === "    INV-1  |100  |20"
     ? "PASS (park: the recompute writes the value first, the derivation leaves, the grid narrows)"
     : "UNEXPECTED parked grid " + JSON.stringify(parkedLines));
-  console.log(parkedLines[7] === "        vat: 10" && !/=/.test(text)
+  console.log(parkedLines[6] === "        vat: 10" && !/=/.test(text)
     ? "PASS (park: no '=' is left anywhere in the data)"
-    : "UNEXPECTED parked line form " + JSON.stringify(parkedLines[7]));
+    : "UNEXPECTED parked line form " + JSON.stringify(parkedLines[6]));
 
   const stored = fs.existsSync(store) && fs.readFileSync(store, "utf8");
   console.log(stored && /@Invoice@vat@INV-1: =@price\*0\.2/.test(stored) && /@Invoice@vat@INV-9: =@price\*0\.2/.test(stored)
@@ -1463,7 +1452,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
     const parkedText = text.split("\n");
     const at = (line) => marks.find((d) => d.range.a[0] === line - 1);
     const spanOf = (d) => parkedText[d.range.a[0]].slice(d.range.a[1], d.range.a[3]);
-    const cell = at(5), lineForm = at(8);
+    const cell = at(4), lineForm = at(7);
     console.log(marks.length === 2 && cell && spanOf(cell) === "20" && lineForm && spanOf(lineForm) === "10"
       ? "PASS (park: every parked value is marked where it stands, in both notations)"
       : "UNEXPECTED parked marks " + JSON.stringify(marks.map((d) => [d.range.a, spanOf(d)])));
@@ -1495,7 +1484,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   // and back: the same key restores every derivation and removes the store
   await registeredCommands.get("aot.toggleFormulaPark")(editor);
   const backLines = text.split("\n");
-  console.log(/=@price\*0\.2/.test(backLines[4]) && backLines[7] === "        vat: 10 =@price*0.2"
+  console.log(/=@price\*0\.2/.test(backLines[3]) && backLines[6] === "        vat: 10 =@price*0.2"
     ? "PASS (park: the same key puts every derivation back where it came from)"
     : "UNEXPECTED unparked " + JSON.stringify(backLines));
   console.log(!fs.existsSync(store)
@@ -1515,13 +1504,12 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const calc = [
     "Order",
     "    name | price | total",
-    "    ------+-------+----------",
     "    A    | 10    | 15 =@price*2",
   ].join("\n");
   const doc8 = makeDoc("c:\repo\Calc.aot", calc);
   const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc8);
   const formulaTok = tokens.find((t) => t[3] === 3);
-  console.log(formulaTok && formulaTok[0] === 3 && formulaTok[1] === 22 && formulaTok[2] === 9
+  console.log(formulaTok && formulaTok[0] === 2 && formulaTok[1] === 22 && formulaTok[2] === 9
     ? "PASS (formula: '=@price*2' carries its own colour token)"
     : "UNEXPECTED formula token " + JSON.stringify(tokens.filter((t) => t[3] === 3)));
 
@@ -1536,7 +1524,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   let applied8 = null;
   const editor8 = {
     document: doc8,
-    selection: new vscode.Selection(3, 7, 3, 7),
+    selection: new vscode.Selection(2, 7, 2, 7),
     edit: (cb) => { cb({ replace: (range, t) => { applied8 = t; } }); return Promise.resolve(true); },
     revealRange: () => {},
   };
@@ -1555,7 +1543,6 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const calc = makeDoc("c:\\repo\\Rename.aot", [
     "Order",
     "    name|price|total",
-    "    ----+-----+------------",
     "    A   |10   |20 =@price*2",
   ].join("\n"));
   const prep = renameProvider.prepareRename(calc, new vscode.Position(1, 11));
@@ -1564,7 +1551,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
     : "UNEXPECTED prepareRename " + JSON.stringify(prep));
   const colEdit = renameProvider.provideRenameEdits(calc, new vscode.Position(1, 11), "cost");
   const colOps = colEdit.ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
-  console.log(colOps.length === 2 && colOps[0] === "1,9,1,14:cost" && colOps[1] === "3,20,3,25:cost"
+  console.log(colOps.length === 2 && colOps[0] === "1,9,1,14:cost" && colOps[1] === "2,20,2,25:cost"
     ? "PASS (rename: a column renames its header cell and the formula reading it)"
     : "UNEXPECTED column rename " + JSON.stringify(colOps));
 
@@ -1591,7 +1578,6 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const named = makeDoc("c:\\repo\\Named.aot", [
     "Order",
     "    name|price",
-    "    ----+-----",
     "    Acme|10",
     "spend: =@Order@price@Acme",
   ].join("\n"));
@@ -1599,7 +1585,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const tableOps = tableEdit.ops.map((o) => o.range.a.join(",") + ":" + o.text).sort();
   console.log(tableOps.length === 2
     && tableOps.includes("0,0,0,5:Purchases")  // the Concept the table sits under
-    && tableOps.includes("4,9,4,14:Purchases") // the table name inside the formula
+    && tableOps.includes("3,9,3,14:Purchases") // the table name inside the formula
     ? "PASS (rename: a table's parent renames inside cross-table references)"
     : "UNEXPECTED table rename " + JSON.stringify(tableOps));
 }
@@ -1880,7 +1866,6 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const lines = [
     "Order",
     "    name|price|total",
-    "    ----+-----+------------",
     "    A   |10   |15 =@price*2",
   ];
   const doc = {
@@ -1893,7 +1878,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   doc.uri = { toString: () => "file:///tablefill", __doc: doc };
   vscode.workspace._open(doc);
   await new Promise((r) => setImmediate(r));
-  console.log(lines[3] === "    A   |10   |20 =@price*2"
+  console.log(lines[2] === "    A   |10   |20 =@price*2"
     ? "PASS (fill: a stale table cell recomputes itself, no Tab needed)"
     : "UNEXPECTED table fill " + JSON.stringify(lines));
 })();
@@ -1954,13 +1939,12 @@ if (process.platform === "win32" || process.platform === "darwin") {
   const tbl = [
     "Order",
     "    name |price|qty|total",
-    "    -----+-----+---+-----",
     "    Alpha|10   |2  |=@",
     "    Beta |5    |4  |",
   ].join("\n");
   const docC = makeDoc("c:\\repo\\Comp.aot", tbl);
-  const atCol = tbl.split("\n")[3].indexOf("@") + 1;
-  const items = completionProvider.provideCompletionItems(docC, new vscode.Position(3, atCol));
+  const atCol = tbl.split("\n")[2].indexOf("@") + 1;
+  const items = completionProvider.provideCompletionItems(docC, new vscode.Position(2, atCol));
   const cols = items.filter((i) => i.detail === "column").map((i) => i.label);
   const exs = items.filter((i) => i.detail === "Example").map((i) => i.label);
   console.log(cols.join(",") === "price,qty,total" && exs.includes("Alpha") && exs.includes("Beta")
@@ -2144,8 +2128,8 @@ setTimeout(async () => {
   const gridLines = text.split("\n");
   console.log(gridLines[0] === "Invoice" && gridLines[1] === "    tax rate: 0.2"
     && gridLines[2] === "    Invoice|price|vat"
-    && gridLines[4] === "    INV-1  |100  |20 =@price*@tax rate"
-    && gridLines[5] === "    INV-9  |50   |10 =@price*@tax rate"
+    && gridLines[3] === "    INV-1  |100  |20 =@price*@tax rate"
+    && gridLines[4] === "    INV-9  |50   |10 =@price*@tax rate"
     ? "PASS (flip: a cursor inside the Concept writes the whole Concept out as a grid)"
     : "UNEXPECTED flip grid " + JSON.stringify(gridLines));
   console.log(lint(text, "Books").errors.length === 0

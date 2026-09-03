@@ -16,7 +16,7 @@
             ]
         },
         {
-            "comment": "table separator: the '---+---' rule that marks the row above as the table's header — every symbol is chrome, one quiet colour. Two symbols at least, so a lone '-' stays the Example whose name is still being typed. Punctuation, not comment: comment scopes render italic in most themes, and an italic pipe tilts",
+            "comment": "table rule: the '---+---' line an older file (before 1.12) drew under its header. It marks nothing now — the header is the row that stands first — and the next re-draw takes it out; until then every symbol is chrome, one quiet colour. Two symbols at least, so a lone '-' stays the Example whose name is still being typed. Punctuation, not comment: comment scopes render italic in most themes, and an italic pipe tilts",
             "name": "punctuation.definition.table.aot",
             "match": "^[ \\t]*(?=[ \\t\\-+:|]*$)(?=.*-)[-+:|]{2,}[-+:|\\s]*$"
         },

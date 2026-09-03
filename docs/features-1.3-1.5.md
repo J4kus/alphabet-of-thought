@@ -27,14 +27,12 @@ Every reference is `@`. A `$` in a formula is now an error carrying the hint, ra
 ```aot
 Order
     name |price|vat
-    -----+-----+---------------
     Acme |$1,200|240 =@price*0.2
 ```
 
 ```aot
 Order
     name |price|vat
-    -----+-----+--------------
     Acme |1200 |240 =$price*0.2|   <- ERROR: references use '@', not '$'
 ```
 
@@ -107,12 +105,10 @@ Name the table **first**: `@Order@price@Acme`. The table is named by the Concept
 ```aot
 Sales Ledger
     name |price
-    -----+-----
     Alpha|10
     Beta |20
 Ledger Check
     name       |from the ledger
-    -----------+-----------------------------
     alpha price|10 =@Sales Ledger@price@Alpha
     price sum  |30 =sum(@Sales Ledger@price)
 ```
@@ -177,7 +173,6 @@ Edge — a table of the same name shadows the line form, deliberately:
 ```aot
 Person
     name    |alias
-    --------+-----
     Socrates|Paul
 Note
     a: Paul =@Person@alias@Socrates   <- read through the grid, where @1 also
@@ -209,7 +204,6 @@ Only a Concept offers this reading. A table is rows and nothing else, so `@Order
 ```aot
 Person
     name    |alias
-    --------+-----
     Socrates|Paul
 Integer
     is prime: No                 <- Integer's own value
@@ -252,7 +246,6 @@ Both error paths get a check too, and they are the interesting ones: `a grid has
 ```aot
 Person
     name    |alias
-    --------+-----
     Socrates|Paul
 Measurement
     person: Socrates
@@ -268,7 +261,6 @@ The local reading is still tried **first**, so the old guarantee holds exactly. 
 ```aot
 Person
     name    |nationality|alias
-    --------+-----------+-----
     Socrates|RSA        |Paul
 Measurement
     person: Socrates                            <- a local attribute named 'person'
@@ -290,7 +282,6 @@ Worth knowing, because the backtracking shows through: when a Concept of the lea
 ```aot
 Person
     name    |alias
-    --------+-----
     Socrates|Paul
 Measurement
     person: Socrates
@@ -323,7 +314,6 @@ Both of these hint, and both offer the fix:
 ```aot
 Person
     name    |nationality
-    --------+-----------
     Socrates|RSA
 Integer
     - 1

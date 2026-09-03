@@ -27,14 +27,12 @@ References are **name-only, everywhere**. A digits lead after `@` still names an
 ```aot
 Order
     name|price|total
-    ----+-----+------------
     A   |10   |20 =@price*2
 ```
 
 ```aot
 Order
     name|price|total
-    ----+-----+--------
     A   |10   |=@2*2   |   <- ERROR: positional column numbers were removed
                              (changed in 1.6), reference the column by its
                              attribute name
@@ -68,7 +66,6 @@ With `@N` gone, the grid registry had nothing left the tree does not have, so it
 Person
     alias: Someone
     name    |alias
-    --------+-----
     Socrates|Paul
 Check
     who: Someone =@Person@alias            <- the Concept's own default
@@ -78,7 +75,6 @@ Check
 ```aot
 Person
     name    |alias
-    --------+-----
     Socrates|Paul
 Check
     who: =@Person@alias    <- ERROR: 'Person' states no value of its own here
@@ -106,7 +102,6 @@ Order
     - Loose
         price: 50
     name|price|vat              |site     |all
-    ----+-----+-----------------+---------+-------------
     A   |100  |20 =@price*@tax rate|EU =@origin|90 =sum(@price)
     B   |40   |                 |US       |50 =@price@Loose
 ```
@@ -138,7 +133,6 @@ Order
     - Loose
         weight: 7
     name|price
-    ----+-----
     Acme|10
 ```
 
@@ -182,7 +176,6 @@ The same chain in a header cell:
 ```aot
 Ledger
     name|qty >=1 <=5
-    ----+-----------
     A   |0          |   <- WARNING: violates 'qty >= 1'
     B   |9          |   <- WARNING: violates 'qty <= 5'
     C   |3
@@ -212,7 +205,6 @@ No power operator and no logarithm: `2^10` was `unexpected '^'`, and growth-rate
 ```aot
 Growth
     name |value|doublings
-    -----+-----+-------------------
     cells|1024 |10 =ln(@value)/ln(2)
     power|512  |512 =2^3^2
 ```
@@ -306,7 +298,6 @@ Animal
 
 ```aot
         name|legs|habitat
-        ----+----+-------
             |    |
 ```
 

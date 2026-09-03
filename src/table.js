@@ -2,8 +2,7 @@
 // (which reads a table as Examples x attributes) and the VS Code extension's
 // formatter (which re-aligns the columns as org-mode's TAB does).
 //
-//     name  |size|colour     <- header: each cell names an attribute
-//     ------+----+------     <- separator: marks the row above as header
+//     name  |size|colour     <- header: the first row, each cell an attribute
 //     Ollie |5   |brown      <- data row: one Example per row,
 //     Pebble|3   |              one Attribute Value per cell
 //
@@ -13,6 +12,12 @@
 // stands where every other line of the language stands. Columns are padded
 // to their widest cell so they align, but carry no gutter spaces around the
 // pipes — a file's width is precious.
+//
+// The HEADER is the first row, and that is all it takes to be one. Before
+// 1.12 a '---+---' rule under it said so; the rule said nothing the order
+// did not, drew a line no reader needed, and is now dropped wherever one is
+// found. Columns line up without it, since every cell is padded to its
+// column and every column padded to its widest cell.
 //
 // A data row's first cell is the Example's name; an empty cell leaves that
 // attribute unasserted. With no border to hold it open, an empty NAME cell
@@ -27,7 +32,6 @@
 // writes depth:
 //
 //     Otter     |size
-//     ----------+----
 //     Ollie     |5             <- an Example of Otter
 //         Pup   |1             <- a sub-Example of Ollie
 //
@@ -41,93 +45,34 @@
 // way about. Change one and change the other.
 const INDENT = 4;
 
-// A separator row is dashes, pluses, colons, pipes and spaces with at least
-// two characters and at least one dash: '---+---', '--', '--- | ---' all
-// count. Two characters is the floor because a lone '-' is an Example whose
-// name is still being typed, and the rule must not steal it.
+// A rule row — '---+---' — is layout left over from before 1.12, when it
+// was what marked the row above it as the header. Being first is what marks
+// the header now, so a rule states nothing: it is still recognised, so an
+// older file goes on parsing, and it is dropped the moment the table is
+// drawn again. Dashes, pluses, colons, pipes and spaces with at least two
+// characters and one dash; two is the floor because a lone '-' is an
+// Example whose name is still being typed, and the rule must not steal it.
 const isSeparator = (text) => /^[\s\-+:|]*$/.test(text) && text.includes("-") && text.trim().length > 1;
 
 // A line is a table row when it carries a '|': the divider between two
-// cells is the only pipe a row has left, so one is all it takes. A
-// separator rule counts too — it divides its columns with '+' and may
-// carry no pipe at all.
+// cells is the only pipe a row has, so one is all it takes. A leftover rule
+// counts too — it divides its columns with '+' and may carry no pipe at all.
 const isRowText = (text) => {
   const t = String(text).trim();
   return !!t && (t.includes("|") || isSeparator(t));
 };
 
-// --- column alignment --------------------------------------------------------
-// A separator cell may carry markdown's alignment colons, and the column is
-// drawn that way:
-//
-//     |default|left align|right align|center align|
-//     |-------+:---------+----------:+:----------:|
-//     |1      |1         |          1|     1      |
-//
-// The colon is presentation, exactly as the width cookie and the numbering
-// prefix are: every reader of a table trims its cells, so no crosslink,
-// formula, CSV row or Gödel number can tell an aligned column from a plain
-// one. It is written where the shape of the table is already written — the
-// separator — rather than on the header, which names the attribute.
-const ALIGNMENTS = ["left", "right", "center"];
+// The block's header: its first row. With the rule gone, standing first is
+// what makes a row the header — the cells that name the Concept and its
+// columns — and every row under it is an Example. -1 when the block is
+// nothing but leftover rules.
+const headerIndex = (block) => block.rows.findIndex((r) => !r.sep);
 
-// The alignment each separator cell declares: ':---' left, '---:' right,
-// ':--:' centre, a plain rule none. A lone ':' reads as left, since it opens
-// with one and never closes.
-function alignmentsFrom(line) {
-  // a rule divides its columns with '+' when this renderer drew it and with
-  // '|' when a hand (or a markdown table) typed it — both are the same rule
-  return cells(String(line).replace(/\+/g, "|")).map(({ text }) => {
-    const opens = text.startsWith(":");
-    const closes = text.length > 1 && text.endsWith(":");
-    return opens && closes ? "center" : opens ? "left" : closes ? "right" : null;
-  });
-}
-
-// The block's alignments: the first separator row that declares any. A table
-// with several rules is one table, so the first one speaks for it.
-function alignmentsOf(block) {
-  for (const row of block.rows) {
-    if (row.sep && row.align && row.align.some(Boolean)) return row.align;
-  }
-  return [];
-}
-
-// The narrowest a column can be drawn and still show its marker: ':-:' needs
-// three characters, ':-' and '-:' two. Without this a one-character column
-// would draw a rule wider than its cells and the grid would shear.
-const alignMin = (how) => (how === "center" ? 3 : how ? 2 : 0);
-
-// A cell padded to its column's width, on the side its alignment asks for.
-// An over-long cell is never truncated — the column widens instead.
-function padCell(text, width, how) {
+// A cell padded to its column's width. An over-long cell is never
+// truncated — the column widens instead.
+function padCell(text, width) {
   const gap = width - text.length;
-  if (gap <= 0) return text;
-  if (how === "right") return " ".repeat(gap) + text;
-  if (how === "center") {
-    const left = Math.floor(gap / 2);
-    return " ".repeat(left) + text + " ".repeat(gap - left);
-  }
-  return text + " ".repeat(gap);
-}
-
-// One separator cell, drawn to the column's width with its marker kept.
-function sepCell(width, how) {
-  if (how === "center") return ":" + "-".repeat(Math.max(1, width - 2)) + ":";
-  if (how === "left") return ":" + "-".repeat(Math.max(1, width - 1));
-  if (how === "right") return "-".repeat(Math.max(1, width - 1)) + ":";
-  return "-".repeat(width);
-}
-
-// Run fn over every separator row's alignment list, each first grown to the
-// table's column count so a column operation can splice it beside the cells.
-function eachSepAlign(block, columns, fn) {
-  for (const row of block.rows) {
-    if (!row.sep) continue;
-    row.align = row.align || [];
-    while (row.align.length < columns) row.align.push(null);
-    fn(row.align);
-  }
+  return gap <= 0 ? text : text + " ".repeat(gap);
 }
 
 // Split a row into its cells with their column offsets in the line. The
@@ -195,13 +140,11 @@ function blockAt(lines, lineIdx) {
   const unborder = (list) => (bordered ? list.slice(1, -1) : list);
   const rows = [];
   for (let i = start; i <= end; i++) {
-    // a dash typed anywhere in an otherwise empty row is only pipes, spaces
-    // and dashes, so isSeparator already reads it as a separator being
-    // typed — org's '|-' creation flow: the next redraw completes the rule
+    // a leftover rule is kept in the block so every row still answers to its
+    // own line, and dropped when the block is drawn
     const sep = isSeparator(lines[i].trim());
-    // a separator carries no cells, but it does carry the columns' alignment
     if (sep) {
-      rows.push({ sep, cells: [], align: unborder(alignmentsFrom(lines[i])) });
+      rows.push({ sep, cells: [] });
       continue;
     }
     const row = unborder(cells(lines[i]));
@@ -263,21 +206,23 @@ function widthCookie(cell) {
 // The per-column cookies of a block's header row, or null when the block
 // has no header or no cookie at all (it then behaves as it always did).
 function headerWidths(block) {
-  if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) return null;
-  const widths = block.rows[0].cells.map((c) => widthCookie(c).width);
+  const h = headerIndex(block);
+  if (h === -1) return null;
+  const widths = block.rows[h].cells.map((c) => widthCookie(c).width);
   return widths.some((w) => w !== null) ? widths : null;
 }
 
 // Is block.rows[i] a continuation row — a data row continuing the one
-// above? Only in a cookie-carrying block, below the separator, with an
-// empty first cell, something in a later cell, and a data row above.
+// above? Only in a cookie-carrying block, below a data row, with an empty
+// first cell and something in a later cell.
 function isContinuation(block, i) {
   if (!headerWidths(block)) return false;
+  const h = headerIndex(block);
   const r = block.rows[i];
-  if (!r || r.sep || i < 3) return false;
+  if (!r || r.sep || i < h + 2) return false;
   if ((r.cells[0] || "") !== "" || !r.cells.some((c, k) => k > 0 && (c || "") !== "")) return false;
-  for (let j = i - 1; j >= 2; j--) {
-    if (block.rows[j].sep) return false;
+  for (let j = i - 1; j > h; j--) {
+    if (block.rows[j].sep) continue;
     if ((block.rows[j].cells[0] || "") !== "") return true;
   }
   return false;
@@ -290,11 +235,12 @@ function isContinuation(block, i) {
 // ops and the renderer both work on logical rows; render() wraps them out.
 function unwrapWithMap(block) {
   if (!headerWidths(block)) return null;
+  const h = headerIndex(block);
   const map = [], out = [];
   for (let i = 0; i < block.rows.length; i++) {
     const r = block.rows[i];
     const prev = out[out.length - 1];
-    const continues = !r.sep && out.length >= 3 && prev && !prev.sep
+    const continues = !r.sep && i > h + 1 && prev && !prev.sep
       && (r.cells[0] || "") === "" && r.cells.some((c, k) => k > 0 && (c || "") !== "");
     if (continues) {
       r.cells.forEach((c, k) => {
@@ -334,46 +280,33 @@ function wrapText(text, width) {
 // never wrap, so a long one widens the column past its cookie).
 function widthsOf(block) {
   const caps = headerWidths(block);
+  const head = headerIndex(block);
   const widths = [];
   block.rows.forEach((row, i) => {
     if (row.sep) return;
-    const isHeader = i === 0 && block.rows.length > 1 && block.rows[1].sep;
     row.cells.forEach((c, k) => {
       // the name column must hold the deepest row's indent as well as its name
       let w = k === 0 ? nameCell(row).length : c.length;
-      const cap = caps && !isHeader && k > 0 ? caps[k] : null;
+      const cap = caps && i !== head && k > 0 ? caps[k] : null;
       if (cap !== null && cap !== undefined && w > cap && splitCell(c).eq === -1) w = cap;
       widths[k] = Math.max(widths[k] || 0, w);
     });
   });
-  // a column that declares an alignment is never drawn narrower than its own
-  // marker: ':-:' would otherwise overhang a one-character column and shear
-  // the grid line by line
-  // and never narrower than one character: a zero-width column could draw
-  // no rule of its own and leave nowhere to put the cursor
-  const aligns = alignmentsOf(block);
-  for (let k = 0; k < widths.length; k++) {
-    widths[k] = Math.max(widths[k], 1, alignMin(aligns[k]));
-  }
+  // never narrower than one character: a zero-width column would leave
+  // nowhere to put the cursor
+  for (let k = 0; k < widths.length; k++) widths[k] = Math.max(widths[k], 1);
   return widths.length ? widths : [0];
 }
 
-// Draw the block aligned: every column padded to its widest cell,
-// separator rows redrawn to match. No gutter spaces around the pipes.
-// With width cookies, continuation rows first collapse into their logical
-// rows, then over-wide plain cells wrap back out at the final column
-// widths; block.physStart maps each logical row to its first drawn line.
+// Draw the block aligned: every column padded to its widest cell. No gutter
+// spaces around the pipes, and no rule row — a leftover one is dropped here,
+// which is how a pre-1.12 file loses it. With width cookies, continuation
+// rows first collapse into their logical rows, then over-wide plain cells
+// wrap back out at the final column widths; block.physStart maps each
+// logical row to its first drawn line.
 function render(block) {
   const caps = headerWidths(block);
-  const aligns = alignmentsOf(block);
-  const rule = (widths) => block.indent + widths.map((w, k) => sepCell(w, aligns[k])).join("+");
-  // a nested name carries its depth in front of it, and its column is then
-  // drawn left however it is marked — centring an indented name shears the
-  // very tree the indent is there to show. The marker itself is left alone:
-  // it is the writer's text, not ours to erase.
-  const deep = nests(block);
   const drawn = (row, k) => (k === 0 ? nameCell(row) : row.cells[k] || "");
-  const align = (k) => (k === 0 && deep ? "left" : aligns[k]);
   // The pipes divide, so a drawn row opens with its name and ends with its
   // last written cell: the padding past that is trailing whitespace, and no
   // line keeps that. A row with nothing in its name cell is padded to the
@@ -382,29 +315,25 @@ function render(block) {
   const drawRow = (parts) => (block.indent + parts.join("|")).replace(/\s+$/, "");
   if (!caps) {
     const widths = widthsOf(block);
-    return block.rows.map((row) => row.sep
-      ? rule(widths)
-      : drawRow(widths.map((w, k) => padCell(drawn(row, k), w, align(k)))));
+    return block.rows.filter((row) => !row.sep)
+      .map((row) => drawRow(widths.map((w, k) => padCell(drawn(row, k), w))));
   }
   unwrap(block);
+  const head = headerIndex(block);
   const widths = widthsOf(block);
   const out = [];
   const physStart = [];
   block.rows.forEach((row, i) => {
     physStart[i] = out.length;
-    if (row.sep) {
-      out.push(rule(widths));
-      return;
-    }
-    const isHeader = i === 0 && block.rows[1] && block.rows[1].sep;
+    if (row.sep) return;
     const frags = widths.map((w, k) => {
       const cell = drawn(row, k);
-      if (isHeader || k === 0 || cell.length <= w || splitCell(cell).eq !== -1) return [cell];
+      if (i === head || k === 0 || cell.length <= w || splitCell(cell).eq !== -1) return [cell];
       return wrapText(cell, w);
     });
     const tall = Math.max(1, ...frags.map((f) => f.length));
     for (let d = 0; d < tall; d++) {
-      out.push(drawRow(widths.map((w, k) => padCell(frags[k][d] || "", w, align(k)))));
+      out.push(drawRow(widths.map((w, k) => padCell(frags[k][d] || "", w))));
     }
   });
   block.physStart = physStart;
@@ -413,19 +342,10 @@ function render(block) {
 
 // Where a cell's text begins on an aligned line, so a command can land the
 // cursor at the start of a field, as org does.
-function cellStart(block, col, rowIdx) {
+function cellStart(block, col) {
   const widths = widthsOf(block);
   let x = block.indent.length;
   for (let k = 0; k < Math.min(col, widths.length); k++) x += widths[k] + 1;
-  // a right- or centre-aligned cell carries its padding in front of the
-  // text, so without the row we would land the cursor in the gap and any
-  // typing would go before the value rather than into it
-  const aligns = alignmentsOf(block);
-  const row = rowIdx === undefined ? null : block.rows[rowIdx];
-  if (row && !row.sep && col < widths.length && aligns[col] && aligns[col] !== "left") {
-    const gap = Math.max(0, widths[col] - (row.cells[col] || "").length);
-    x += aligns[col] === "right" ? gap : Math.floor(gap / 2);
-  }
   return x;
 }
 
@@ -473,7 +393,8 @@ function nextCell(block, row, col) {
   if (!block.rows[row].sep && col + 1 < numCols) return { row, col: col + 1 };
   const below = dataRow(block, row, 1);
   if (below !== -1) return { row: below, col: 0 };
-  block.rows.push({ sep: false, cells: [] });
+  const last = block.rows[block.rows.length - 1];
+  block.rows.push({ sep: false, cells: [], depth: last && !last.sep ? last.depth || 0 : 0 });
   return { row: block.rows.length - 1, col: 0 };
 }
 
@@ -504,18 +425,38 @@ function moveColumn(block, row, col, dir) {
   for (const r of block.rows) {
     if (!r.sep) [r.cells[col], r.cells[other]] = [r.cells[other], r.cells[col]];
   }
-  // the alignment is the column's, so it travels with it
-  eachSepAlign(block, numCols, (a) => { [a[col], a[other]] = [a[other], a[col]]; });
   return { row, col: other };
 }
 
 // M-up / M-down: carry the cursor's row over the adjacent line, separator
 // or not — a data row can hop an hline, as in org.
 function moveRow(block, row, col, dir) {
-  const other = row + dir;
-  if (other < 0 || other >= block.rows.length) return null;
-  [block.rows[row], block.rows[other]] = [block.rows[other], block.rows[row]];
-  return { row: other, col };
+  const here = block.rows[row];
+  // a separator, or a flat table, still hops one line at a time as it did
+  if (!here || here.sep || !nests(block)) {
+    const other = row + dir;
+    if (other < 0 || other >= block.rows.length) return null;
+    [block.rows[row], block.rows[other]] = [block.rows[other], block.rows[row]];
+    return { row: other, col };
+  }
+  const span = subtreeOf(block, row);
+  const mine = block.rows.slice(row, row + span);
+  if (dir < 0) {
+    // up: over the sibling above, which carries its own children with it
+    const above = prevSibling(block, row);
+    if (above === -1) return null;
+    block.rows.splice(row, span);
+    block.rows.splice(above, 0, ...mine);
+    return { row: above, col };
+  }
+  // down: over the next sibling and everything under it
+  const next = row + span;
+  const after = block.rows[next];
+  if (!after || after.sep || (after.depth || 0) !== (here.depth || 0)) return null;
+  const theirs = subtreeOf(block, next);
+  block.rows.splice(row, span);
+  block.rows.splice(row + theirs, 0, ...mine);
+  return { row: row + theirs, col };
 }
 
 // M-S-right: a new empty column where the cursor stands, pushing it right.
@@ -525,7 +466,6 @@ function insertColumn(block, row, col) {
   for (const r of block.rows) {
     if (!r.sep) r.cells.splice(Math.min(col, r.cells.length), 0, "");
   }
-  eachSepAlign(block, numCols, (a) => a.splice(Math.min(col, a.length), 0, null));
   return { row, col };
 }
 
@@ -537,47 +477,86 @@ function deleteColumn(block, row, col) {
   for (const r of block.rows) {
     if (!r.sep) r.cells.splice(col, 1);
   }
-  eachSepAlign(block, numCols, (a) => a.splice(col, 1));
   return { row, col: Math.max(0, Math.min(col, numCols - 2)) };
 }
 
 // M-S-down: a new empty row above the cursor's.
 function insertRow(block, row, col) {
-  block.rows.splice(row, 0, { sep: false, cells: [] });
+  // the new row is a sibling of the one it pushes down, not a child of it
+  const at = block.rows[row];
+  block.rows.splice(row, 0, { sep: false, cells: [], depth: at && !at.sep ? at.depth || 0 : 0 });
   return { row, col: 0 };
 }
 
 // M-S-up: kill the cursor's row (or separator).
 function deleteRow(block, row, col) {
-  block.rows.splice(row, 1);
+  // a row's sub-Examples are written inside it, so they go with it — one
+  // Ctrl+Z brings the whole branch back
+  block.rows.splice(row, subtreeOf(block, row));
   if (!block.rows.length) return null;
   return { row: Math.min(row, block.rows.length - 1), col };
 }
 
-// C-c -: a separator line below the cursor's row.
-function insertSeparator(block, row, col) {
-  block.rows.splice(row + 1, 0, { sep: true, cells: [] });
-  return { row, col };
-}
-
-// C-c ^: sort the run of data rows around the cursor (bounded by separator
-// rows, so the header keeps its place) by the cursor's column — numerically
+// C-c ^: sort the data rows around the cursor — the header standing first
+// is what keeps it out of the run — by the cursor's column: numerically
 // when every key reads as a number ($, % and thousands commas ignored),
 // alphabetically otherwise.
 function sortRows(block, row, col) {
   if (block.rows[row].sep) return null;
+  const head = headerIndex(block);
+  if (row <= head) return null;
   let a = row, b = row;
-  while (a > 0 && !block.rows[a - 1].sep) a--;
+  while (a > head + 1 && !block.rows[a - 1].sep) a--;
   while (b < block.rows.length - 1 && !block.rows[b + 1].sep) b++;
   if (a === b) return null;
   const key = (r) => readValue(splitCell((r.cells[col] || "").trim()).value);
   const num = (r) => parseFloat(key(r).replace(/[$,%\s]/g, ""));
   const run = block.rows.slice(a, b + 1);
-  const numeric = run.every((r) => key(r) !== "" && !isNaN(num(r)));
-  run.sort((x, y) => (numeric ? num(x) - num(y) : key(x).localeCompare(key(y))));
-  block.rows.splice(a, run.length, ...run);
+  // Sorting is per generation: siblings are ordered against each other and
+  // each carries its own children along, so a sort re-orders the tree
+  // without flattening it. A flat table is one generation, and sorts
+  // exactly as it always did.
+  const sortGeneration = (rows) => {
+    const groups = [];
+    for (let i = 0; i < rows.length;) {
+      const depth = rows[i].depth || 0;
+      let n = 1;
+      while (i + n < rows.length && (rows[i + n].depth || 0) > depth) n++;
+      groups.push({ head: rows[i], kids: rows.slice(i + 1, i + n) });
+      i += n;
+    }
+    const numeric = groups.every((g) => key(g.head) !== "" && !isNaN(num(g.head)));
+    groups.sort((x, y) => (numeric
+      ? num(x.head) - num(y.head)
+      : key(x.head).localeCompare(key(y.head))));
+    return groups.flatMap((g) => [g.head, ...sortGeneration(g.kids)]);
+  };
+  block.rows.splice(a, run.length, ...sortGeneration(run));
   return { row, col };
 }
+
+// Tab / Shift+Tab at the very start of a name cell: file the row one level
+// deeper (under the sibling above it) or one level shallower, its own
+// children travelling with it so the branch keeps its shape.
+//
+// A row can only ever be one level under the row above it — there must be a
+// row for it to sit beneath — so demoting the first of a generation does
+// nothing, and promoting one already at the top does nothing either.
+function shiftRowDepth(block, row, col, dir) {
+  const here = block.rows[row];
+  if (!here || here.sep || row === 0) return null;
+  const depth = here.depth || 0;
+  if (dir > 0 && prevSibling(block, row) === -1) return null; // no row to adopt it
+  if (dir < 0 && depth === 0) return null;
+  const span = subtreeOf(block, row);
+  for (let i = row; i < row + span; i++) {
+    block.rows[i].depth = (block.rows[i].depth || 0) + dir;
+  }
+  return { row, col };
+}
+
+const demoteRow = (block, row, col) => shiftRowDepth(block, row, col, 1);
+const promoteRow = (block, row, col) => shiftRowDepth(block, row, col, -1);
 
 // Copy the cursor cell's derivation (formula or constraint) onto every
 // other data row's cell in the same column, keeping each row's own value
@@ -689,8 +668,8 @@ function copyRow(block, row, col, dir) {
   return { row: at, col };
 }
 
-// Duplicate the cursor's whole column, to its left or its right — header,
-// every value, and the separator's own width all follow. The new column
+// Duplicate the cursor's whole column, to its left or its right — the
+// header and every value follow. The new column
 // carries the old one's attribute name, which the linter will report as a
 // repeat until you rename it: that rename is the point of the copy.
 function copyColumn(block, row, col, dir) {
@@ -701,20 +680,7 @@ function copyColumn(block, row, col, dir) {
   for (const r of block.rows) {
     if (!r.sep) r.cells.splice(at, 0, r.cells[col] || "");
   }
-  eachSepAlign(block, numCols, (a) => a.splice(at, 0, a[col] || null));
   return { row, col: at };
-}
-
-// Set (or clear, with null) the cursor column's alignment, writing the
-// colons into every separator the table has. A table with no separator is
-// not yet a table — its shape is still being typed — so there is nowhere to
-// declare an alignment and nothing happens.
-function alignColumn(block, row, col, how) {
-  const numCols = widthsOf(block).length;
-  if (col >= numCols || !block.rows.some((r) => r.sep)) return null;
-  if (how !== null && !ALIGNMENTS.includes(how)) return null;
-  eachSepAlign(block, numCols, (a) => { a[col] = how; });
-  return { row, col };
 }
 
 // C-c |: turn plain delimited lines (tab-, comma- or multi-space-separated)
@@ -733,7 +699,7 @@ function fromRegion(lines) {
   rows[0].cells = rows[0].cells.map((c, k) => (k === 0 ? c : c.toLowerCase()));
   const block = {
     indent: lines[0].match(/^ */)[0],
-    rows: [rows[0], { sep: true, cells: [] }, ...rows.slice(1)],
+    rows,
   };
   return render(block);
 }
@@ -1456,10 +1422,45 @@ function formatValue(v, old) {
   return (old.trim().startsWith("$") ? "$" : "") + s;
 }
 
-// The data rows of a complete table block (header and separators aside).
+// The data rows of a table block: everything under the header.
+// The extent of the row at `i`: itself and every row below it that sits
+// deeper — its sub-Examples, and theirs. A separator ends the run, as does
+// any row back at its own depth or shallower. Returns the count, so a row
+// with no children is 1.
+//
+// Every operation that moves a row moves this instead: a parent that left
+// its children behind would re-file them under whatever row it left them
+// beside, which is not an edit anyone asked for.
+function subtreeOf(block, i) {
+  const start = block.rows[i];
+  if (!start || start.sep) return 1;
+  const depth = start.depth || 0;
+  let n = 1;
+  while (i + n < block.rows.length) {
+    const r = block.rows[i + n];
+    if (r.sep || (r.depth || 0) <= depth) break;
+    n++;
+  }
+  return n;
+}
+
+// The row the one at `i` follows in its own generation — the nearest row
+// above it at the same depth, without crossing a shallower row or a
+// separator; -1 when it is the first of its siblings.
+function prevSibling(block, i) {
+  const depth = block.rows[i].depth || 0;
+  for (let j = i - 1; j > 0; j--) {
+    const r = block.rows[j];
+    if (r.sep) return -1;
+    const d = r.depth || 0;
+    if (d < depth) return -1;
+    if (d === depth) return j;
+  }
+  return -1;
+}
+
 function dataRowsOf(block) {
-  const rows = block.rows.filter((r) => !r.sep);
-  return block.rows.length >= 2 && !block.rows[0].sep && block.rows[1].sep ? rows.slice(1) : [];
+  return block.rows.filter((r) => !r.sep).slice(1);
 }
 
 // The name→column candidates a header offers, for longest-match reference
@@ -1502,7 +1503,8 @@ function referenceNamesFrom(header, rows) {
 // The @-reference names a table block offers, for completion. Returns
 // { columns: [name], rows: [name] } — columns first.
 function referenceNames(block) {
-  const header = block.rows.length && !block.rows[0].sep ? block.rows[0].cells : [];
+  const head = headerIndex(block);
+  const header = head === -1 ? [] : block.rows[head].cells;
   return referenceNamesFrom(header, dataRowsOf(block).map((r) => r.cells));
 }
 
@@ -1635,8 +1637,9 @@ function tableCtx(rows, row, header, registry, outer) {
 // width cookie and (alias) — "" when the block has no header or the cell
 // is empty. This is the name the table declares (or fills in) since 1.9.
 function ownName(block) {
-  if (!block.rows.length || block.rows[0].sep) return "";
-  return cleanName(widthCookie(block.rows[0].cells[0] || "").text);
+  const head = headerIndex(block);
+  if (head === -1) return "";
+  return cleanName(widthCookie(block.rows[head].cells[0] || "").text);
 }
 
 // The registry scope of the Concept the table describes: the one its first
@@ -1925,7 +1928,7 @@ function tablesOf(lines, rootName) {
     const block = blockAt(lines, i);
     if (!block) continue;
     i = block.end;
-    if (block.rows.length < 2 || block.rows[0].sep || !block.rows[1].sep) continue;
+    if (headerIndex(block) === -1 || !dataRowsOf(block).length) continue;
     // the table names the Concept it describes in its first header cell
     // (1.9); an older table (a 'name' label, or a cell that reads as no
     // Concept) still takes its name from the nearest shallower line.
@@ -1950,11 +1953,12 @@ function tablesOf(lines, rootName) {
     // pinned to its first physical line
     const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
     unwrap(block);
-    const header = block.rows[0].cells;
+    const head = headerIndex(block);
+    const header = block.rows[head].cells;
     // each data row with its 1-based line and its depth in the table's tree
     const rows = [], rowLines = [], rowDepths = [];
     block.rows.forEach((r, j) => {
-      if (j < 2 || r.sep) return;
+      if (j <= head || r.sep) return;
       rows.push(header.map((_, k) => r.cells[k] || ""));
       rowLines.push(block.start + physIdx.get(r) + 1);
       rowDepths.push(r.depth || 0);
@@ -2031,8 +2035,8 @@ function updateTable(lines, name, header, rows, rootName, registry) {
     if (!isRowText(t) || isSeparator(t)) continue;
     const b = blockAt(lines, i);
     i = b.end;
-    if (b.rows[0].sep) continue;
-    const cell0 = cleanName(widthCookie(b.rows[0].cells[0] || "").text);
+    if (headerIndex(b) === -1) continue;
+    const cell0 = cleanName(widthCookie(b.rows[headerIndex(b)].cells[0] || "").text);
     if (cell0 && cell0.toLowerCase() === low) { selfBlock = b; break; }
   }
   if (selfBlock) {
@@ -2074,7 +2078,6 @@ function updateTable(lines, name, header, rows, rootName, registry) {
     indent,
     rows: [
       { sep: false, cells: header },
-      { sep: true, cells: [] },
       ...rows.map((cells) => ({ sep: false, cells })),
     ],
   };
@@ -2096,7 +2099,7 @@ function align(text, registry, rootName) {
     if (!block) continue;
     i = block.end; // one visit per block
     // a rule with no rows around it is not a table to draw
-    if (!block.rows.some((r) => r.sep) || !block.rows.some((r) => !r.sep)) continue;
+    if (headerIndex(block) === -1) continue; // a leftover rule alone is no table
     const extent = block.end - block.start + 1;
     unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // formulas first, so the widths fit the fresh values
@@ -2128,7 +2131,7 @@ function recomputeAll(text, registry, rootName) {
     if (!block) continue;
     i = block.end; // one visit per block
     // a rule with no rows around it is not a table to draw
-    if (!block.rows.some((r) => r.sep) || !block.rows.some((r) => !r.sep)) continue;
+    if (headerIndex(block) === -1) continue; // a leftover rule alone is no table
     const extent = block.end - block.start + 1;
     unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // fresh values — leave the lines alone
@@ -2148,9 +2151,10 @@ function recomputeAll(text, registry, rootName) {
 module.exports = {
   cells, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
-  insertRow, deleteRow, insertSeparator, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
+  insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
+  subtreeOf, prevSibling, demoteRow, promoteRow,
   copyCell, moveCell, copyRow, copyColumn,
-  alignColumn, alignmentsOf, alignmentsFrom, padCell, sepCell, ALIGNMENTS,
+  padCell, headerIndex,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas,
   referenceSpans, formulaReferences,
