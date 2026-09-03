@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, widthCookie, numberless } = require("./table");
+const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless } = require("./table");
 
 const INDENT = 4;
 
@@ -157,9 +157,8 @@ function parse(text, rootName, report) {
       content = content.replace(/\t/g, " ".repeat(INDENT));
     }
     const spaces = content.length - content.replace(/^ +/, "").length;
-    // A row of an open table whose name cell is empty — a continuation row,
-    // or one still being filled — is padded to its name column like every
-    // other row, so its leading spaces ARE that empty cell and not an
+    // A row of an open table whose name cell is empty — one still being
+    // filled — is padded to its name column like every other row, so its leading spaces ARE that empty cell and not an
     // indent at all. It stands at its table's depth, and the two indent
     // laws below have nothing to say about it.
     const padded = !isSeparator(content.trim()) && isRowText(content)
@@ -205,18 +204,11 @@ function parse(text, rootName, report) {
         // filed under already bears the same name, the table fills that
         // node in rather than declaring a twin, so a Concept can carry
         // line-form defaults and '- ' Examples beside its grid.
-        table = { depth, attrs: [], rowStack: [], lastExample: null, hasCookies: false };
+        table = { depth, attrs: [], rowStack: [] };
         // the header names the Concept the whole table describes, so it is
         // the table's own line: its indent IS the table's, and every row
         // written deeper than it nests inside it
-        // a width cookie on the name column is parsed but ignored — the
-        // name column never wraps — yet it still opts the table in
         let cName = row.length ? row[0].text : "", cAlias = null, cAliasCol;
-        const cCookie = widthCookie(cName);
-        if (cCookie.width !== null) {
-          table.hasCookies = true;
-          cName = cCookie.text;
-        }
         if (cName.endsWith(")") && cName.includes("(")) {
           const open = cName.lastIndexOf("(");
           const inner = cName.slice(open + 1, -1);
@@ -251,17 +243,10 @@ function parse(text, rootName, report) {
         let last = null;
         for (const cell of row.slice(1)) {
           // a header cell is an attribute term, so it may carry a trailing
-          // (alias), trailing constraints (`qty >=1`, chained as
+          // (alias) and trailing constraints (`qty >=1`, chained as
           // `age >=18 <=65`) exactly as the bare line form does — each
-          // constraint bounds the whole column — and, last of all, an
-          // org-style width cookie (`description <24>`) capping the column
-          let name = cell.text, alias = null, aliasCol, constraints = null, maxWidth = null;
-          const cookie = widthCookie(name);
-          if (cookie.width !== null) {
-            maxWidth = cookie.width;
-            table.hasCookies = true;
-            name = cookie.text;
-          }
+          // constraint bounds the whole column
+          let name = cell.text, alias = null, aliasCol, constraints = null;
           const con = splitConstraint(name);
           if (con.eq !== -1) {
             constraints = con.constraints.map((b) => ({ op: b.op, formula: b.formula, opCol: cell.col + b.eq }));
@@ -287,7 +272,6 @@ function parse(text, rootName, report) {
             alias, aliasCol, parent: owner, children: [], nameCol: cell.col, cell: true,
           };
           if (constraints) attr.constraints = constraints;
-          if (maxWidth !== null) attr.maxWidth = maxWidth;
           owner.children.push(attr);
           nodes.push(attr);
           table.attrs.push(attr);
@@ -299,40 +283,6 @@ function parse(text, rootName, report) {
         return;
       }
       if (table) {
-        // continuation row: in a width-cookie table a data row whose first
-        // cell is empty continues the Example above — each further cell is
-        // the next fragment of that column's value, read back joined by a
-        // space. Only a cookie opts a table in; without one the empty
-        // first cell stays the error it always was.
-        if (table.hasCookies && !row[0].text && table.lastExample
-            && row.some((span, c) => c > 0 && span.text)) {
-          for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
-            const attr = table.attrs[c - 1];
-            const { value } = splitCell(row[c].text);
-            if (!attr || !value) continue;
-            const frag = readValue(value);
-            const prior = table.lastExample.children.find(
-              (k) => k.kind === DEFAULT && k.cell && k.name === attr.name);
-            if (prior) {
-              // valueSpan keeps the first fragment's on-line length: the
-              // value grows past its own line, but its span must not
-              if (prior.valueSpan === undefined) prior.valueSpan = String(prior.value).length;
-              prior.value = `${prior.value} ${frag}`;
-              if (!prior.continuations) prior.continuations = [];
-              prior.continuations.push({ line, startCol: row[c].col, endCol: row[c].col + row[c].text.length });
-            } else {
-              const cellValue = {
-                line, depth: depth + 1, kind: DEFAULT, name: attr.name,
-                value: frag, alias: attr.alias, parent: table.lastExample, children: [],
-                valueCol: row[c].col, cell: true,
-              };
-              table.lastExample.children.push(cellValue);
-              nodes.push(cellValue);
-            }
-          }
-          prevDepth = depth;
-          return;
-        }
         // data row: one Example named by the first cell, one Attribute
         // Value per further cell — an empty cell asserts nothing
         if (!row[0].text) {
@@ -367,7 +317,6 @@ function parse(text, rootName, report) {
         };
         rowParent.children.push(example);
         nodes.push(example);
-        table.lastExample = example;
         table.rowStack.length = rowDepth;
         table.rowStack.push(example);
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {

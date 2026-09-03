@@ -14,7 +14,7 @@ const {
   copyCell, moveCell, copyRow, copyColumn, headerIndex,
   subtreeOf, prevSibling, demoteRow, promoteRow,
   mergeRegistries, readValue, truthOf,
-  widthCookie, headerWidths, unwrap, unwrapWithMap, columnDefinitions,
+  columnDefinitions,
 } = require("../src/table");
 const { lint } = require("../src/linter");
 const { conceptRegistry } = require("../src/derive");
@@ -968,6 +968,47 @@ const fresh = () => blockAt(doc, 2);
 }
 
 // ---------------------------------------------------------------------------
+// the table with no attributes: nothing to divide, so the pipe closes the row
+// ---------------------------------------------------------------------------
+// A Concept with no attributes has one column of names and no pair of cells
+// to put a divider between. Drawn as a pure divider it would carry no pipe
+// at all, and the next reader would see plain outline lines — so there, and
+// only there, the pipe closes the row.
+{
+  const tree = [
+    "Org Structure|",
+    "Department A|",
+    "    Team 1|",
+    "        Alice|",
+    "        Charlie|",
+  ];
+  const b = blockAt(tree, 0);
+  check("one column: the closing pipe reads as the empty last cell it looks like",
+    cells("Alice|").map((c) => c.text).join(",") === "Alice," && b.rows[3].cells[0] === "Alice");
+  check("one column: every row keeps its depth",
+    b.rows.map((r) => r.depth).join(",") === "0,0,1,2,2");
+  const drawn = render(b);
+  check("one column: every row is drawn closed, so the table stays a table",
+    drawn.every((l) => l.endsWith("|")) && blockAt(drawn, 0).rows.length === 5);
+  check("one column: the closing pipes line up past the deepest name",
+    drawn[0] === "Org Structure  |" && drawn[4] === "        Charlie|");
+  check("one column: drawing it again changes nothing",
+    render(blockAt(drawn, 0)).join("\n") === drawn.join("\n"));
+
+  // a block built with one cell to the row — a one-column CSV folded back,
+  // free text flipped over — is where the closing pipe is first written
+  const built = render({ indent: "", rows: [{ sep: false, cells: ["Person"] }, { sep: false, cells: ["John"] }] });
+  check("one column: a block built with a single cell per row draws closed",
+    built.join("\n") === "Person|\nJohn  |");
+
+  // with attributes there are dividers enough: a row ends at its last
+  // written cell, and the padding past it is trailing whitespace
+  const withAttr = render(blockAt(["Otter |size", "Ollie |5", "Pebble|"], 0));
+  check("with attributes: a row ends at its last written cell",
+    withAttr.join("\n") === "Otter |size\nOllie |5\nPebble|");
+}
+
+// ---------------------------------------------------------------------------
 // copying and cutting the text itself: copyCell / moveCell / copyRow / copyColumn
 // ---------------------------------------------------------------------------
 {
@@ -1098,7 +1139,7 @@ const fresh = () => blockAt(doc, 2);
   const ins = updateTable(["Person"], "Person", ["Person"], [["John"]]);
   check("updateTable: inserts a merge-form grid beneath a table-less Concept",
     ins.changed && ins.to < ins.from && ins.from === 1
-    && ins.block.length === 2 && ins.block[0] === "    Person" && ins.block[1] === "    John");
+    && ins.block.length === 2 && ins.block[0] === "    Person|" && ins.block[1] === "    John  |");
   check("updateTable: an unknown Concept is null",
     updateTable(["Order"], "Ghost", ["a"], [], "root") === null);
 }
@@ -1121,19 +1162,17 @@ const fresh = () => blockAt(doc, 2);
 }
 
 // ---------------------------------------------------------------------------
-// width cookies and cell wrapping: `<N>` on a header cell caps its column,
-// over-wide plain cells wrap onto continuation rows (empty first cell)
+// no width cookie: a column is as wide as its widest cell, and one row of a
+// table is one line of the file
 // ---------------------------------------------------------------------------
+// Between 1.8 and 1.12 a header cell could carry `<N>` to cap its column,
+// and longer cells wrapped onto continuation rows. Both are gone: `<10>` is
+// part of a column's name like any other characters, and nothing splits a
+// cell across two lines.
 {
-  check("widthCookie: '<24>' comes off the end of the cell",
-    widthCookie("description <24>").text === "description" && widthCookie("description <24>").width === 24);
-  check("widthCookie: rides after aliases and constraints alike",
-    widthCookie("desc (d) <24>").text === "desc (d)" && widthCookie("qty >=1 <8>").text === "qty >=1");
-  check("widthCookie: an unclosed '<24' is not a cookie",
-    widthCookie("desc <24").width === null);
-  check("splitConstraint: 'desc <24' without the closing '>' reads as a '<' bound (the documented edge)",
+  check("splitConstraint: 'desc <24' is the '<' bound it reads as",
     splitConstraint("desc <24").op === "<" && splitConstraint("desc <24").formula === "24");
-  check("splitConstraint: 'desc <24>' is never a constraint — the '>' spoils the bound",
+  check("splitConstraint: 'desc <24>' is no constraint — the '>' spoils the bound",
     splitConstraint("desc <24>").eq === -1);
 
   const src = [
@@ -1143,54 +1182,30 @@ const fresh = () => blockAt(doc, 2);
     "    B   |short|4",
   ];
   const block = blockAt(src, 3);
-  check("headerWidths: the block reads its per-column cookies",
-    JSON.stringify(headerWidths(block)) === "[null,10,null]");
-  check("widthsOf: a cookie caps its column at the cookie's width",
-    JSON.stringify(widthsOf(block)) === "[4,10,3]");
+  check("no cookie: '<10>' caps nothing — the column holds its widest cell whole",
+    JSON.stringify(widthsOf(block)) === "[4,18,3]");
   const drawn = render(block);
-  check("render: an over-wide plain cell wraps onto a continuation row",
-    drawn.length === 4
-    && drawn[1] === "    A   |a rather  |3"
-    && drawn[2] === "        |long note |"
-    && drawn[3] === "    B   |short     |4");
-  check("render: physStart maps each logical row to its first drawn line",
-    JSON.stringify(block.physStart) === "[0,1,3]");
-  check("render: a wrapped table re-renders to itself (idempotent)",
-    render(blockAt(drawn, 2)).join("\n") === drawn.join("\n"));
-
-  const b2 = blockAt(drawn, 2);
-  check("unwrapWithMap: continuation rows map onto their host row",
-    JSON.stringify(unwrapWithMap(b2)) === "[0,1,1,2]");
-  check("unwrap: fragments join back with single spaces",
-    b2.rows[1].cells[1] === "a rather long note");
+  check("no wrapping: one row, one line, the long cell drawn whole",
+    drawn.length === 3
+    && drawn[1] === "    A   |a rather long note|3"
+    && drawn[2] === "    B   |short             |4");
+  check("no wrapping: drawing it again changes nothing",
+    render(blockAt(drawn, 1)).join("\n") === drawn.join("\n"));
 
   const grids = tablesOf(["Note", ...drawn], "Sheet");
-  check("tablesOf: a wrapped grid answers logical rows on their first lines",
+  check("tablesOf: every row answers on its own line",
     grids.length === 1
     && JSON.stringify(grids[0].rows) === JSON.stringify([["A", "a rather long note", "3"], ["B", "short", "4"]])
-    && JSON.stringify(grids[0].rowLines) === "[3,5]");
+    && JSON.stringify(grids[0].rowLines) === "[3,4]");
 
-  // a formula over a wrapped column reads the joined value; align expresses
-  // a line-count change as one whole-block edit ({ line, to })
   const withFormula = [
     "Note",
-    "    name|d <10>|len",
+    "    name|d|len",
     "    A   |a rather long note|18 =len(@d)",
   ];
-  const aligned = align(withFormula.join("\n"), undefined, "Sheet");
-  check("align: wrapping that changes the line count is one whole-block edit",
-    aligned.length === 1 && aligned[0].line === 2 && aligned[0].to === 3
-    && aligned[0].text.split("\n").length === 3);
-  const applied = withFormula.slice();
-  applied.splice(aligned[0].line - 1, aligned[0].to - aligned[0].line + 1, ...aligned[0].text.split("\n"));
-  const audit = formulas(applied, undefined, "Sheet");
-  check("formulas: a formula over a wrapped column reads the joined value",
+  const audit = formulas(withFormula, undefined, "Sheet");
+  check("formulas: len() counts the value where it stands, all 18 characters",
     audit.length === 1 && !audit[0].stale && !audit[0].error);
-
-  // no cookie, no change: the old behaviour byte for byte
-  const plain = blockAt(["    a|b", "    x|a much longer cell"], 0);
-  check("render: a cookie-less block never wraps",
-    render(plain).length === 2 && headerWidths(plain) === null);
 }
 
 

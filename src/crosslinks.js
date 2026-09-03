@@ -266,9 +266,7 @@ function unlistedValues(text, root, nodes, external) {
     out.push({
       line: node.line,
       startCol,
-      // a wrapped cell's value grows past its own line; the hint pins to
-      // the first fragment's span (valueSpan), never past the line's end
-      endCol: startCol + (node.valueSpan !== undefined ? node.valueSpan : node.value.length),
+      endCol: startCol + node.value.length,
       value: node.value,
       concept: type,
       message: `'${node.value}' is not an Example of Concept '${type.name}' — its Examples are ${shown}`,
@@ -478,9 +476,7 @@ function resolve(text, root, nodes, external) {
           connection: "default-is-a-Example",
           line: node.line,
           startCol: valueStart,
-          // a wrapped cell's value grows past its own line; the link pins
-          // to the first fragment's span (valueSpan)
-          endCol: valueStart + (node.valueSpan !== undefined ? node.valueSpan : node.value.length),
+          endCol: valueStart + node.value.length,
           text: node.value,
           target,
         });

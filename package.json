@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.12",
+  "version": "1.11.15",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -26,6 +26,13 @@
     "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js"
   },
   "contributes": {
+    "configurationDefaults": {
+      "[aot]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false
+      }
+    },
     "languages": [
       {
         "id": "aot",

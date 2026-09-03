@@ -8,7 +8,7 @@
 const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
-const { lint, KIND, INDENT } = require("./linter");
+const { lint, KIND } = require("./linter");
 const {
   resolve, owningConcept, externalIndex, unlistedValues,
   index: crosslinkIndex, conceptType, listedExamples,
@@ -2593,14 +2593,7 @@ const semanticProvider = {
       } else if (node.kind === KIND.INDIVIDUAL && node.nameCol !== undefined && node.name) {
         builder.push(node.line - 1, node.nameCol, node.name.length, EXAMPLE_TOKEN);
       } else if (node.kind === KIND.DEFAULT && node.cell && node.value) {
-        // a wrapped cell's value grows past its own line: the first
-        // fragment's span (valueSpan) colours here, each continuation
-        // fragment on its own line after
-        builder.push(node.line - 1, node.valueCol,
-          node.valueSpan !== undefined ? node.valueSpan : node.value.length, VALUE_TOKEN);
-        for (const c of node.continuations || []) {
-          builder.push(c.line - 1, c.startCol, c.endCol - c.startCol, VALUE_TOKEN);
-        }
+        builder.push(node.line - 1, node.valueCol, node.value.length, VALUE_TOKEN);
       }
     }
     // everything from an operator to its end is derivation text — a cell
@@ -2631,20 +2624,14 @@ function runTableOp(editor, op) {
   const pos = editor.selection.active;
   const block = table.blockAt(lines, pos.line);
   if (!block) return;
-  // width-cookie tables: continuation rows collapse before any op, so the
-  // ops travel logical rows; render() wraps them back out and physStart
-  // maps the target row to its first drawn line
-  const toLogical = table.unwrapWithMap(block);
-  const cursorRow = toLogical ? toLogical[pos.line - block.start] : pos.line - block.start;
+  const cursorRow = pos.line - block.start;
   const target = op(block, cursorRow, table.colAt(lines[pos.line], pos.character));
   if (!target) return;
   table.recompute(block, formulaRegistry(doc)); // every table keystroke recalculates, as org's TAB does
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
-    const phys = block.physStart && block.physStart[target.row] !== undefined
-      ? block.physStart[target.row] : target.row;
-    const line = block.start + phys;
+    const line = block.start + target.row;
     const character = table.cellStart(block, target.col, target.row);
     editor.selection = new vscode.Selection(line, character, line, character);
     editor.revealRange(new vscode.Range(line, character, line, character));
@@ -2698,63 +2685,6 @@ function fromSelection(editor) {
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(sel.start.line, 0, endLine, doc.lineAt(endLine).text.length);
   editor.edit((b) => b.replace(range, rendered.join(eol)));
-}
-
-// Tab pressed in a table's leading indent moves the whole table, not the
-// cursor: the block shifts one level right (Tab) or left (Shift+Tab) —
-// re-filing a table under a different parent is an indent edit, not cell
-// travel. Inside the cells the same keys keep navigating.
-function tableIndentZone(editor) {
-  const pos = editor.selection.active;
-  if (pos.line >= editor.document.lineCount) return false;
-  const line = editor.document.lineAt(pos.line).text;
-  // the row's first cell now opens the line, so the zone is the indent
-  // itself — everything before the first character of the name
-  const indent = line.match(/^ */)[0].length;
-  return indent > 0 && pos.character < indent && table.isRowText(line);
-}
-
-// Tab at the head of a data row's name cell nests that row under the row
-// above it, and Shift+Tab lifts it back out — the row's own indent is its
-// place in the tree, so the key that indents a line indents a row.
-//
-// The header is the one row that cannot nest (it names the Concept the
-// whole table describes), so on the header the same keys still shift the
-// WHOLE table a level, which is what tableIndentZone answers. Anywhere past
-// the name, Tab keeps travelling the cells as it always has.
-function rowIndentZone(editor) {
-  const doc = editor.document;
-  const pos = editor.selection.active;
-  if (pos.line >= doc.lineCount) return false;
-  const line = doc.lineAt(pos.line).text;
-  if (!table.isRowText(line) || table.isSeparator(line.trim())) return false;
-  const name = line.match(/^ */)[0].length;
-  if (pos.character > name) return false;
-  const lines = doc.getText().split(/\r?\n/);
-  const block = table.blockAt(lines, pos.line);
-  // the first row of a block is its header, and a header has no depth
-  return !!block && pos.line > block.start;
-}
-
-function shiftTableIndent(editor, dir) {
-  const doc = editor.document;
-  const lines = doc.getText().split(/\r?\n/);
-  const pos = editor.selection.active;
-  const block = table.blockAt(lines, pos.line);
-  if (!block) return;
-  const next = dir > 0
-    ? block.indent + " ".repeat(INDENT)
-    : block.indent.slice(0, Math.max(0, block.indent.length - INDENT));
-  if (next === block.indent) return;
-  block.indent = next;
-  table.unwrap(block); // logical rows for the recompute; render re-wraps
-  table.recompute(block, formulaRegistry(doc));
-  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
-  editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
-    const ch = Math.max(0, pos.character + INDENT * dir);
-    editor.selection = new vscode.Selection(pos.line, ch, pos.line, ch);
-  });
 }
 
 // The cursor sits in a table when its line is a row: one divider is all a
@@ -2815,10 +2745,10 @@ function cellAddress(editor) {
   const row = block.rows[at.line - from - block.start];
   if (!row || row.sep) return null;
   const col = table.colAt(doc.lineAt(at.line).text, at.character);
-  const concept = table.cleanName(table.widthCookie(header.cells[0] || "").text) || "";
+  const concept = table.cleanName(header.cells[0] || "") || "";
   // the header row addresses its own column; a data row also names its Example
   const example = row === header ? null : (row.cells[0] || "").trim();
-  const attribute = col > 0 ? table.cleanName(table.widthCookie(header.cells[col] || "").text) : null;
+  const attribute = col > 0 ? table.cleanName(header.cells[col] || "") : null;
   const parts = [concept, example, col === 0 ? null : attribute].filter(Boolean);
   return parts.length ? parts.join(" ▸ ") : null;
 }
@@ -2880,7 +2810,7 @@ const symbolProvider = {
             start: block.start,
             end: block.end,
             headerLine: block.start + headerAt,
-            name: table.cleanName(table.widthCookie(header.cells[0] || "").text) || "table",
+            name: table.cleanName(header.cells[0] || "") || "table",
           };
         }
       }
@@ -3263,13 +3193,25 @@ function activate(context) {
     // the org table editor's commands and its aot.inTable keybinding gate
     ...Object.entries(tableOps).map(([id, op]) =>
       vscode.commands.registerTextEditorCommand(id, (editor) => {
-        // Tab/Shift+Tab at the head of a row's name nest that row; on the
-        // header, which cannot nest, they shift the whole table a level
+        // Tab travels the cells from wherever in a row it is pressed, the
+        // leading spaces included. It used to re-indent instead when the
+        // cursor stood at the head of a name cell (nesting that row under
+        // the row above) or in a table's own indent (moving the whole
+        // table): so the one key a table is driven with sometimes moved the
+        // data rather than the cursor, and did nothing at all where the
+        // move was impossible — a first row has no sibling to nest under —
+        // which is a dead key in the middle of a table.
+        //
+        // Lines SELECTED are the indent edit, here as everywhere else in
+        // the editor. A row's depth IS its leading spaces, so that is still
+        // how a row nests under the row above it and how a whole table is
+        // re-filed under another parent; the Command Palette carries both
+        // row moves by name as well, sub-Examples travelling along.
         const dir = id === "aot.table.nextCell" ? 1 : id === "aot.table.prevCell" ? -1 : 0;
-        if (dir && rowIndentZone(editor)) {
-          return runTableOp(editor, dir > 0 ? table.demoteRow : table.promoteRow);
+        if (dir && !editor.selection.isSingleLine) {
+          return vscode.commands.executeCommand(
+            dir > 0 ? "editor.action.indentLines" : "editor.action.outdentLines");
         }
-        if (dir && tableIndentZone(editor)) return shiftTableIndent(editor, dir);
         return runTableOp(editor, op);
       })),
     vscode.commands.registerTextEditorCommand("aot.table.fromSelection", fromSelection),

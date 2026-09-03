@@ -9,40 +9,32 @@ xlookup test: 10 =xlookup(`A`,@Person@first name,@Person@age)
 direct lookup: A =@Person@first name@Aristotle
 sum if test: 60 =sumifs(@Person@age,@Person@is alive,`No`)
 
-Life Event
-    beneficiary (person)
-    Birth
-        birth date: 3 =1+2
-        father (person)
-        mother (person)
-        birth place (city)
-        beneficiary (person)
-        - Socrates Birth
-            father (person): Sophroniscus
-            birth place (city): Athens
-            beneficiary (person): Socrates
-        - Aristotle Birth
-            father (person): ...
-            birth place (city): Pella
-            beneficiary (person): Aristotle
-    Residence
-        resident (person)
-        city: Athens
-        - Socrates Residency
-            resident (person): Socrates
-            city: Athens
+Life|test
+1   |
+2   |
+    
+Org Structure
+
+Life Event|beneficiary (person)
+   
+    Birth          |father (person)|mother (person)|birth place (city)|beneficiary (person)
+    Socrates Birth |Sophroniscus   |               |Athens            |Socrates
+    Aristotle Birth|...            |               |Pella             |Aristotle
+    
+    Residence         |resident (person)|city  |time
+    Socrates Residency|Socrates         |Athens|Bronze age Greece
+
     Known For      |beneficiary (person)|description
     Socratic Method|Socrates            |Teaching through a back-and-forth series of questions rather than lecturing.
     Ignorance      |Socrates            |Admitting his own lack of knowledge to spark true wisdom, famously saying "I know that I know nothing".
     Ethics         |Socrates            |Shifting focus away from the physical universe and toward human virtue and how to live a good life.
         
-City
-    residents known as
-    - Athens
-        residents known as: Athenians
-    - George
-    - San Francisco
-    - Macedonia
-    - Pella
-Occupation
-    - Philosopher
+City         |residents known as
+Athens       |Athenians
+George       |
+San Francisco|
+Macedonia    |
+Pella        |
+
+Occupation |
+Philosopher|

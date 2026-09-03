@@ -28,11 +28,16 @@
     Record
         attribute: value
 - Example
-    Repository
-        path
-        - Source code
-            path: src/
-        - Configuration
-            path: config/
-        - Tests
-            path: tests/
+
+    Repository   |path
+    Source code  |src/
+    Configuration|config/
+    Tests        |tests/
+
+    Employee|role     |department |team
+    Alice   |Developer|Engineering|Backend
+    Bob     |Tester   |Engineering|Backend
+    Charlie |Designer |Engineering|Frontend
+    Dave    |Writer   |Marketing  |Content
+
+    

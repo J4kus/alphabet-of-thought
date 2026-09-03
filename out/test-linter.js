@@ -436,6 +436,11 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
       .some((e) => e.text === "    name |size" + String.fromCharCode(10) + "    Ollie|5"));
   check("align: an already aligned table needs no edits",
     align(aot("Otter", "    name |size", "    Ollie|5")).length === 0);
+  // no attributes, no pair of cells to divide: there the pipe closes the row,
+  // which is the only thing keeping the lines a table rather than an outline
+  check("align: a table with no attributes is drawn closed",
+    align(aot("Otter", "    Otter|", "    Ollie|")).length === 0
+    && align(aot("Otter", "    Otter |", "    Ollie|")).some((e) => e.text === "    Otter|"));
 }
 
 // ---------------------------------------------------------------------------
@@ -526,31 +531,30 @@ check("verify: an alias naming another Concept is a duplicate-identity error",
     !same.warnings.some((w) => /differs only in case/.test(w.message)));
 }
 
-// width cookies: a header cell's trailing <N> caps its column, and a data
-// row with an empty first cell then continues the Example above — without
-// a cookie that row stays the error it always was
+// a data row's first cell names its Example, so an empty one is an error —
+// whatever the header says. The width cookie that used to make an exception
+// of it (a continuation row carrying the next fragment of a wrapped value)
+// went in 1.12, and `<10>` is now part of a column's name like any other
+// characters.
 {
-  const wrapped = lintTree(aot(
-    "Note|d <10>",
-    "A   |a rather",
-    "    |long note",
-  ), "Sheet");
-  check("table: a width cookie is parsed off the column name",
-    wrapped.nodes.some((n) => n.cell && n.name === "d" && n.maxWidth === 10));
-  const a = wrapped.nodes.find((n) => n.name === "A");
-  const d = a && a.children.find((c) => c.name === "d");
-  check("table: a continuation row's fragment joins the value above",
-    d && d.value === "a rather long note" && d.valueSpan === 8
-    && d.continuations && d.continuations.length === 1);
-  check("table: a cookie table's continuation row is no error",
-    !hasError(wrapped.report, /empty first cell/));
   const plain = lintTree(aot(
     "Note|d",
     "A   |x",
     "    |y",
   ), "Sheet");
-  check("table: without a cookie the empty first cell stays the error it was",
+  check("table: a row with an empty first cell is an error",
     hasError(plain.report, /empty first cell/));
+  const cookie = lintTree(aot(
+    "Note|d <10>",
+    "A   |a rather",
+    "    |long note",
+  ), "Sheet");
+  check("table: '<10>' declares no width, so the empty first cell is still the error",
+    hasError(cookie.report, /empty first cell/));
+  const a = cookie.nodes.find((n) => n.name === "A");
+  const d = a && a.children.find((c) => c.name === "d <10>");
+  check("table: the cell keeps its own value — nothing joins across two rows",
+    !!d && d.value === "a rather");
 }
 
 // plural Concept (warning)

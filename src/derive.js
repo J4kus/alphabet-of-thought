@@ -33,7 +33,7 @@ const { KIND, INDENT } = require("./linter");
 const {
   splitCell, splitConstraint, evalFormula, formatValue, compareValues, longestMatch,
   tablesOf, updateTable, describeBound, readValue, render, isRowText,
-  referenceSpans, widthCookie, numberless, Choice,
+  referenceSpans, numberless, Choice,
 } = require("./table");
 
 // The determinate `==` bound on an attribute declaration — the one that
@@ -311,11 +311,7 @@ function constraintSpanOf(lines, a, k) {
 // Where a value sits on its raw line: a table cell knows its column, a
 // 'name: value' line finds its value after the colon.
 function valueSpanOf(lines, d) {
-  if (d.valueCol !== undefined) {
-    // a wrapped cell's value grows past its own line: valueSpan holds the
-    // first fragment's on-line length
-    return { startCol: d.valueCol, endCol: d.valueCol + (d.valueSpan !== undefined ? d.valueSpan : d.value.length) };
-  }
+  if (d.valueCol !== undefined) return { startCol: d.valueCol, endCol: d.valueCol + d.value.length };
   const raw = lines[d.line - 1] || "";
   const colon = raw.indexOf(":");
   if (colon === -1) return null;
@@ -763,10 +759,10 @@ function nearestConcept(n, root) {
   return root;
 }
 
-// A header cell's column name: the term minus its width cookie, its
-// constraint and its (alias).
+// A header cell's column name: the term minus its constraint and its
+// (alias).
 function headerColName(cell) {
-  let name = splitConstraint(widthCookie(cell).text).value;
+  let name = splitConstraint(cell).value;
   if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
   return name;
 }
@@ -1004,7 +1000,7 @@ function updateScope(lines, root, nodes, concept, header, rows, rootName) {
 // No Example and no value is ever lost, in either direction, and a
 // derivation moves exactly as typed (`10 =sum(@age)` travels whole), as do
 // each attribute's (alias) and its constraints. What is presentation of a
-// grid and has nowhere to live in line form — a width cookie, a column's
+// grid and has nowhere to live in line form — a column's width, its
 // alignment colons — is dropped on the way out of a table, as its own kind
 // of formatting.
 //
@@ -1193,11 +1189,10 @@ function toLineForm(lines, concept, grid) {
     .filter((c) => isAttrKind(c) && !c.cell)
     .map((c) => c.name.toLowerCase()));
   const columns = grid.header.slice(1).map((cell) => {
-    const bare = widthCookie(cell).text.trim();
+    const bare = cell.trim();
     return {
       name: headerColName(cell),
-      // the term as written, minus only the width cookie — a cap on a
-      // column that no longer exists
+      // the term exactly as the header wrote it
       term: bare,
       // what a value line writes before its colon: the name with the
       // (alias) that crosslinks it, but never the constraint — a bound
@@ -1210,7 +1205,7 @@ function toLineForm(lines, concept, grid) {
   // writes that line first and files everything a level under it; a merge
   // form already has its line above, and the grid's own indent is the level
   // its children belong at
-  if (standalone) out.push(grid.indent + widthCookie(grid.header[0] || "").text.trim());
+  if (standalone) out.push(grid.indent + (grid.header[0] || "").trim());
   const declIndent = grid.indent + (standalone ? " ".repeat(INDENT) : "");
   for (const col of columns) {
     if (outside.has(col.name.toLowerCase())) continue;

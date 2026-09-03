@@ -92,13 +92,25 @@ const vscode = {
     build() { return { tokens: this.tokens }; }
   },
   TextEdit: { replace: (range, text) => ({ range, text }) },
-  Selection: class { constructor(...a) { this.a = a; this.active = { line: a[0], character: a[1] }; } },
+  Selection: class {
+    constructor(...a) {
+      this.a = a;
+      const [sl, sc, el = sl, ec = sc] = a;
+      this.anchor = { line: sl, character: sc };
+      this.active = { line: el, character: ec };
+      this.start = { line: Math.min(sl, el), character: sl <= el ? sc : ec };
+      this.end = { line: Math.max(sl, el), character: sl <= el ? ec : sc };
+      this.isEmpty = sl === el && sc === ec;
+      this.isSingleLine = sl === el;
+    }
+  },
   EndOfLine: { LF: 1, CRLF: 2 },
   DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   commands: {
     registerTextEditorCommand: (id, fn) => { registeredCommands.set(id, fn); return { dispose() {} }; },
     registerCommand: (id, fn) => { plainCommands.set(id, fn); return { dispose() {} }; },
-    executeCommand: () => {},
+    executeCommand: (...a) => { vscode.commands._calls.push(a); },
+    _calls: [],
   },
   window: {
     visibleTextEditors: [],
@@ -644,19 +656,24 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[1] === "    Ollie|5"
       && editor.selection.active.line === 2 && editor.selection.active.character === 10;
-    console.log(ok && registeredCommands.size === 31
-      ? "PASS (table editor: 31 commands; Tab aligns and moves to the next cell)"
+    console.log(ok && registeredCommands.size === 33
+      ? "PASS (table editor: 33 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
 
-// 5b) Tab pressed in the leading indent shifts the whole table one level;
-// Shift+Tab shifts it back. Inside the cells the keys keep navigating.
+// 5b) Tab travels the cells from ANYWHERE in a row — the leading spaces and
+// the head of a nested row's name included. It re-indents nothing: a row's
+// depth is its own leading spaces, and a key that moved them would move an
+// Example's place in the tree when all that was asked for was the next cell
+// (and would do nothing at all on a row with no sibling to nest under).
+// Lines *selected* are the indent edit, as everywhere else in the editor.
 (async () => {
   const lines = [
     "Otter",
-    "    name |size",
-    "    Ollie|5",
+    "    name   |size",
+    "    Ollie  |5",
+    "        Pup|1",
   ];
   const doc = {
     languageId: "aot", fileName: "c:\\repo\\World.aot", eol: vscode.EndOfLine.LF,
@@ -665,9 +682,11 @@ const listed = [
     getText: () => lines.join("\n"),
     lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
   };
+  const written = lines.join("\n");
   const editor = {
     document: doc,
-    selection: new vscode.Selection(2, 1, 2, 1), // inside the 4-space indent
+    // the head of the nested row's name: its own indent, which is its depth
+    selection: new vscode.Selection(3, 4, 3, 4),
     edit: (cb) => {
       cb({ replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); } });
       return Promise.resolve(true);
@@ -677,14 +696,24 @@ const listed = [
   };
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const indented = lines[1] === "        name |size" && lines[2] === "        Ollie|5";
-  const selOk = editor.selection.active.line === 2 && editor.selection.active.character === 5;
+  // nothing moved but the cursor, which is now in the value cell
+  const kept = lines.join("\n") === written;
+  const toValue = editor.selection.active.line === 3 && editor.selection.active.character === 12;
   registeredCommands.get("aot.table.prevCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const back = lines[1] === "    name |size" && lines[2] === "    Ollie|5";
-  console.log(indented && selOk && back
-    ? "PASS (table editor: Tab in the leading indent shifts the table a level; Shift+Tab back)"
-    : "UNEXPECTED table indent " + JSON.stringify({ lines, sel: editor.selection.a }));
+  const back = lines.join("\n") === written
+    && editor.selection.active.line === 3 && editor.selection.active.character === 4;
+  // lines selected: the editor's own indent, which is how a row is nested
+  // and how a whole table is re-filed
+  editor.selection = new vscode.Selection(2, 0, 3, 0);
+  vscode.commands._calls.length = 0;
+  registeredCommands.get("aot.table.nextCell")(editor);
+  await new Promise((r) => setImmediate(r));
+  const indents = lines.join("\n") === written
+    && vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines");
+  console.log(kept && toValue && back && indents
+    ? "PASS (table editor: Tab travels the cells and re-indents nothing; a selection indents)"
+    : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toValue, back, indents, sel: editor.selection.a }));
 })();
 
 // 5c) a first '|' typed on an otherwise empty line scaffolds a fresh table —

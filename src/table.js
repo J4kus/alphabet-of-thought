@@ -13,6 +13,25 @@
 // to their widest cell so they align, but carry no gutter spaces around the
 // pipes — a file's width is precious.
 //
+// One table has no pair of cells to divide: the table of a Concept with no
+// attributes, one column of names and nothing else. A divider between
+// nothing and nothing is no character at all, so such a table drawn by the
+// rule above would come back as plain outline lines — it would stop being a
+// table between one draw and the next. So a row of a table that has no
+// attributes CLOSES with its pipe instead:
+//
+//     Org Structure|
+//     Department A |
+//         Team 1   |
+//             Alice|
+//
+// which is the same pipe doing the only job it has left. It is drawn
+// wherever such a table is drawn — folded back from a one-column CSV,
+// flipped over from free text, typed by hand — and it is READ as the empty
+// last cell it looks like, exactly as any other trailing pipe is, which is
+// why drawing it again changes nothing: the padding of an empty last column
+// is trailing whitespace, and what is left when that goes is the pipe.
+//
 // The HEADER is the first row, and that is all it takes to be one. Before
 // 1.12 a '---+---' rule under it said so; the rule said nothing the order
 // did not, drew a line no reader needed, and is now dropped wherever one is
@@ -22,9 +41,9 @@
 // A data row's first cell is the Example's name; an empty cell leaves that
 // attribute unasserted. With no border to hold it open, an empty NAME cell
 // is written by the divider that closes it standing first on the line —
-// '|frag' — which is what a continuation row (and a row still being filled)
-// looks like. Every row therefore has at least one pipe, and one pipe is
-// all it takes to be a row.
+// '|frag' — which is what a row still being filled looks like. Every row
+// therefore has at least one pipe, and one pipe is all it takes to be a
+// row.
 //
 // A row may nest under the row above it. The depth is written as leading
 // spaces in front of the name — which, the border being gone, is the line's
@@ -79,13 +98,14 @@ function padCell(text, width) {
 // pipe divides, so the line opens the first cell and ends the last: the
 // content between two consecutive pipes is one cell, a LEADING pipe opens
 // on an empty name cell, and a TRAILING one leaves an empty cell after it
-// (which asserts nothing, exactly as any other empty cell does).
+// (which asserts nothing, exactly as any other empty cell does — and which
+// is how the closing pipe of an attribute-less table reads back).
 //
 // `indent` is the cell's own leading spaces. On the name cell that is where
 // a row's depth is written; everywhere else it is only padding. A cell with
 // nothing in it indents nothing — an all-spaces cell is empty, not deep,
-// which is what keeps a continuation row (an empty name cell) at the depth
-// of the row it continues.
+// which is what keeps a row whose name cell is still empty at the depth of
+// the table it is being typed into.
 function cells(line) {
   const text0 = String(line);
   if (!text0.trim()) return [];
@@ -178,117 +198,26 @@ const nameCell = (row) => " ".repeat((row.depth || 0) * INDENT) + (row.cells[0] 
 const NUMBER_PREFIX = /^\d+\.(\d+(\.\d+)*)?\s+/;
 const numberless = (name) => String(name || "").replace(NUMBER_PREFIX, "");
 
-// --- column width cookies and cell wrapping ---------------------------------
-// A header cell may end in an org-style width cookie: `|description <24>|`
-// caps that column at 24 characters, and longer plain cells wrap onto
-// continuation rows — data rows whose first (name) cell is empty, each
-// fragment a cell of its own — so the table stays narrow. Continuation
-// rows are recognised ONLY when the header carries at least one cookie:
-// the cookie is the per-table opt-in, so cookie-less files keep their
-// meaning exactly (an empty name cell there stays the error it always
-// was). Never wrapped: the name column (it is the Example's identity),
-// header cells, and formula cells (the formula owns its text) — such a
-// cell may exceed its cookie, and the column then pads to it. A wrapped
-// value reads back as its fragments joined with single spaces.
+// --- column widths ----------------------------------------------------------
+// A column is as wide as its widest cell and no wider, and a cell is never
+// broken to fit. Between 1.8 and 1.12 a header cell could carry an
+// org-style width cookie — `description <24>` — capping its column and
+// wrapping longer cells onto continuation rows, data rows with an empty
+// name cell each holding one fragment. It is gone: one row of a table is
+// one line of the file again, an empty name cell is the error it was
+// before the cookie made an exception of it, and `<24>` is now nothing but
+// part of a column's name. A table that has a genuinely long value is one
+// wide table, and every reader of it — the cursor, the CSV mirror, a
+// formula's `len()` — reads the value where it stands.
 
-const WIDTH_COOKIE = /\s*<(\d+)>\s*$/;
-
-// A cell's text with its width cookie stripped: { text, width } — width
-// null when the cell carries none. The cookie comes off before constraints
-// and (alias) are read: it is layout, never part of the name.
-function widthCookie(cell) {
-  const m = WIDTH_COOKIE.exec(cell || "");
-  return m
-    ? { text: cell.slice(0, m.index).trim(), width: Math.max(1, +m[1]) }
-    : { text: cell || "", width: null };
-}
-
-// The per-column cookies of a block's header row, or null when the block
-// has no header or no cookie at all (it then behaves as it always did).
-function headerWidths(block) {
-  const h = headerIndex(block);
-  if (h === -1) return null;
-  const widths = block.rows[h].cells.map((c) => widthCookie(c).width);
-  return widths.some((w) => w !== null) ? widths : null;
-}
-
-// Is block.rows[i] a continuation row — a data row continuing the one
-// above? Only in a cookie-carrying block, below a data row, with an empty
-// first cell and something in a later cell.
-function isContinuation(block, i) {
-  if (!headerWidths(block)) return false;
-  const h = headerIndex(block);
-  const r = block.rows[i];
-  if (!r || r.sep || i < h + 2) return false;
-  if ((r.cells[0] || "") !== "" || !r.cells.some((c, k) => k > 0 && (c || "") !== "")) return false;
-  for (let j = i - 1; j > h; j--) {
-    if (block.rows[j].sep) continue;
-    if ((block.rows[j].cells[0] || "") !== "") return true;
-  }
-  return false;
-}
-
-// Collapse the block's continuation rows into their logical rows, joining
-// each column's fragments with a single space. Mutates block.rows and
-// returns an array mapping each ORIGINAL row index to its logical row
-// index — null when the block has no cookies (then nothing changes). The
-// ops and the renderer both work on logical rows; render() wraps them out.
-function unwrapWithMap(block) {
-  if (!headerWidths(block)) return null;
-  const h = headerIndex(block);
-  const map = [], out = [];
-  for (let i = 0; i < block.rows.length; i++) {
-    const r = block.rows[i];
-    const prev = out[out.length - 1];
-    const continues = !r.sep && i > h + 1 && prev && !prev.sep
-      && (r.cells[0] || "") === "" && r.cells.some((c, k) => k > 0 && (c || "") !== "");
-    if (continues) {
-      r.cells.forEach((c, k) => {
-        if (k === 0 || !c) return;
-        prev.cells[k] = ((prev.cells[k] || "") + " " + c).trim();
-      });
-      map.push(out.length - 1);
-      continue;
-    }
-    map.push(out.length);
-    out.push(r);
-  }
-  block.rows.length = 0;
-  block.rows.push(...out);
-  return map;
-}
-const unwrap = (block) => { unwrapWithMap(block); return block; };
-
-// Break a cell's text into fragments no wider than `width`, at spaces
-// where possible; a single word longer than the width is hard-split.
-function wrapText(text, width) {
-  const out = [];
-  let rest = text.trim();
-  while (rest.length > width) {
-    let cut = rest.lastIndexOf(" ", width);
-    if (cut <= 0) cut = width;
-    out.push(rest.slice(0, cut).trimEnd());
-    rest = rest.slice(cut).trimStart();
-  }
-  out.push(rest);
-  return out;
-}
-
-// Each column's width: its widest cell across the rows — a plain data cell
-// in a cookie-capped column counting no more than its cookie (it wraps),
-// while the header, the name column and formula cells count whole (they
-// never wrap, so a long one widens the column past its cookie).
+// Each column's width: its widest cell across the rows.
 function widthsOf(block) {
-  const caps = headerWidths(block);
-  const head = headerIndex(block);
   const widths = [];
-  block.rows.forEach((row, i) => {
+  block.rows.forEach((row) => {
     if (row.sep) return;
     row.cells.forEach((c, k) => {
       // the name column must hold the deepest row's indent as well as its name
-      let w = k === 0 ? nameCell(row).length : c.length;
-      const cap = caps && i !== head && k > 0 ? caps[k] : null;
-      if (cap !== null && cap !== undefined && w > cap && splitCell(c).eq === -1) w = cap;
+      const w = k === 0 ? nameCell(row).length : c.length;
       widths[k] = Math.max(widths[k] || 0, w);
     });
   });
@@ -300,44 +229,30 @@ function widthsOf(block) {
 
 // Draw the block aligned: every column padded to its widest cell. No gutter
 // spaces around the pipes, and no rule row — a leftover one is dropped here,
-// which is how a pre-1.12 file loses it. With width cookies, continuation
-// rows first collapse into their logical rows, then over-wide plain cells
-// wrap back out at the final column widths; block.physStart maps each
-// logical row to its first drawn line.
+// which is how a pre-1.12 file loses it. One row is one line: nothing here
+// splits a cell across two.
 function render(block) {
-  const caps = headerWidths(block);
+  const widths = widthsOf(block);
   const drawn = (row, k) => (k === 0 ? nameCell(row) : row.cells[k] || "");
   // The pipes divide, so a drawn row opens with its name and ends with its
   // last written cell: the padding past that is trailing whitespace, and no
   // line keeps that. A row with nothing in its name cell is padded to the
   // column like any other, so it opens with spaces — those are the empty
   // cell, never an indent, and every reader of a row knows it.
-  const drawRow = (parts) => (block.indent + parts.join("|")).replace(/\s+$/, "");
-  if (!caps) {
-    const widths = widthsOf(block);
-    return block.rows.filter((row) => !row.sep)
-      .map((row) => drawRow(widths.map((w, k) => padCell(drawn(row, k), w))));
-  }
-  unwrap(block);
-  const head = headerIndex(block);
-  const widths = widthsOf(block);
-  const out = [];
-  const physStart = [];
-  block.rows.forEach((row, i) => {
-    physStart[i] = out.length;
-    if (row.sep) return;
-    const frags = widths.map((w, k) => {
-      const cell = drawn(row, k);
-      if (i === head || k === 0 || cell.length <= w || splitCell(cell).eq !== -1) return [cell];
-      return wrapText(cell, w);
-    });
-    const tall = Math.max(1, ...frags.map((f) => f.length));
-    for (let d = 0; d < tall; d++) {
-      out.push(drawRow(widths.map((w, k) => padCell(frags[k][d] || "", w))));
-    }
-  });
-  block.physStart = physStart;
-  return out;
+  //
+  // One column and no more is the table that has no attributes to divide
+  // off: there the row closes with its pipe, since a row drawn with no pipe
+  // at all would read back as an outline line and the table would be gone.
+  // (A block read from the file already carries that pipe as its empty last
+  // cell, so this is the drawing that puts one there in the first place —
+  // a one-column CSV folded back, free text flipped over, a row appended to
+  // a table that has nothing in it yet.)
+  const closes = widths.length === 1;
+  const drawRow = (parts) => (closes
+    ? block.indent + parts.join("|") + "|"
+    : (block.indent + parts.join("|")).replace(/\s+$/, ""));
+  return block.rows.filter((row) => !row.sep)
+    .map((row) => drawRow(widths.map((w, k) => padCell(drawn(row, k), w))));
 }
 
 // Where a cell's text begins on an aligned line, so a command can land the
@@ -1473,7 +1388,7 @@ function headerNameCands(header) {
   const cands = [];
   (header || []).forEach((cell, k) => {
     if (k === 0) return;
-    let name = splitConstraint(widthCookie(cell).text).value, alias = null;
+    let name = splitConstraint(cell).value, alias = null;
     if (name.endsWith(")") && name.includes("(")) {
       const open = name.lastIndexOf("(");
       alias = name.slice(open + 1, -1).trim() || null;
@@ -1492,7 +1407,7 @@ function headerNameCands(header) {
 function referenceNamesFrom(header, rows) {
   const columns = [];
   (header || []).slice(1).forEach((cell) => {
-    let name = splitConstraint(widthCookie(cell).text).value;
+    let name = splitConstraint(cell).value;
     if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
     if (name) columns.push(name);
   });
@@ -1546,7 +1461,7 @@ function tableCtx(rows, row, header, registry, outer) {
   const outerCol = (c) => {
     if (typeof c === "string") return c;
     if (!outer) return null;
-    let name = splitConstraint(widthCookie((header || [])[c - 1] || "").text).value;
+    let name = splitConstraint((header || [])[c - 1] || "").value;
     if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
     const m = name ? outer.matchColumn(name) : null;
     return m && m.length === name.length ? m.id : null;
@@ -1634,12 +1549,11 @@ function tableCtx(rows, row, header, registry, outer) {
 }
 
 // The Concept a table block itself names: its header's first cell, minus
-// width cookie and (alias) — "" when the block has no header or the cell
-// is empty. This is the name the table declares (or fills in) since 1.9.
+// its (alias) — "" when the block has no header or the cell is empty. This is the name the table declares (or fills in) since 1.9.
 function ownName(block) {
   const head = headerIndex(block);
   if (head === -1) return "";
-  return cleanName(widthCookie(block.rows[head].cells[0] || "").text);
+  return cleanName(block.rows[head].cells[0] || "");
 }
 
 // The registry scope of the Concept the table describes: the one its first
@@ -1688,7 +1602,7 @@ function computeCell(rows, row, text, header, registry, outer) {
 function columnDefinitions(header) {
   return (header || []).map((cell, k) => {
     if (k === 0) return null; // the first cell names the Concept, not a column
-    const con = splitConstraint(widthCookie(cell).text);
+    const con = splitConstraint(cell);
     const eq = con.constraints.find((c) => c.op === "==");
     return eq ? eq.formula : null;
   });
@@ -1758,11 +1672,9 @@ function formulas(lines, registry, rootName) {
     const block = blockAt(lines, i);
     if (!block) continue;
     i = block.end;
-    // continuation rows collapse so the evaluator ranges over logical rows;
-    // formula cells never wrap, so every span still sits whole on its
-    // host's own physical line, remembered per row before the collapse
+    // a row's index in the block is its line past the block's start, which
+    // is where every span this reports is written
     const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
-    unwrap(block);
     const rows = dataRowsOf(block);
     if (!rows.length) continue;
     const header = block.rows[0].cells;
@@ -1866,9 +1778,8 @@ function formulaReferences(lines, registry, rootName) {
     const block = blockAt(lines, i);
     if (!block) continue;
     i = block.end;
-    // as in formulas(): logical rows for evaluation, physical lines for spans
+    // as in formulas(): each row's index is the line its spans stand on
     const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
-    unwrap(block);
     const rows = dataRowsOf(block);
     if (!rows.length) continue;
     const header = block.rows[0].cells;
@@ -1933,7 +1844,7 @@ function tablesOf(lines, rootName) {
     // (1.9); an older table (a 'name' label, or a cell that reads as no
     // Concept) still takes its name from the nearest shallower line.
     let name, nameLine;
-    const own = cleanName(widthCookie(block.rows[0].cells[0] || "").text);
+    const own = cleanName(block.rows[0].cells[0] || "");
     if (own && /^[A-Z]/.test(own)) {
       name = own;
       nameLine = block.start + 1;
@@ -1949,10 +1860,8 @@ function tablesOf(lines, rootName) {
       }
     }
     if (!name) continue;
-    // continuation rows collapse: a grid's rows are logical rows, each
-    // pinned to its first physical line
+    // each row is pinned to its own line
     const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
-    unwrap(block);
     const head = headerIndex(block);
     const header = block.rows[head].cells;
     // each data row with its 1-based line and its depth in the table's tree
@@ -2036,7 +1945,7 @@ function updateTable(lines, name, header, rows, rootName, registry) {
     const b = blockAt(lines, i);
     i = b.end;
     if (headerIndex(b) === -1) continue;
-    const cell0 = cleanName(widthCookie(b.rows[headerIndex(b)].cells[0] || "").text);
+    const cell0 = cleanName(b.rows[headerIndex(b)].cells[0] || "");
     if (cell0 && cell0.toLowerCase() === low) { selfBlock = b; break; }
   }
   if (selfBlock) {
@@ -2101,7 +2010,6 @@ function align(text, registry, rootName) {
     // a rule with no rows around it is not a table to draw
     if (headerIndex(block) === -1) continue; // a leftover rule alone is no table
     const extent = block.end - block.start + 1;
-    unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // formulas first, so the widths fit the fresh values
     recompute(block, registry, enclosingScope(lines, block, registry, rootName));
     const drawn = render(block);
@@ -2133,7 +2041,6 @@ function recomputeAll(text, registry, rootName) {
     // a rule with no rows around it is not a table to draw
     if (headerIndex(block) === -1) continue; // a leftover rule alone is no table
     const extent = block.end - block.start + 1;
-    unwrap(block); // wrapped rows collapse, so formulas range over logical rows
     // fresh values — leave the lines alone
     if (!recompute(block, registry, enclosingScope(lines, block, registry, rootName))) continue;
     const drawn = render(block);
@@ -2162,6 +2069,5 @@ module.exports = {
   readValue, Choice, truthOf, describeBound,
   valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
   mergeRegistries, enclosingScope,
-  widthCookie, headerWidths, isContinuation, unwrap, unwrapWithMap,
   numberless, columnDefinitions,
 };

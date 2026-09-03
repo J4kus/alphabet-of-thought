@@ -31,7 +31,7 @@
 // park from the command line.
 
 const { KIND } = require("./linter");
-const { cells, blockAt, isRowText, splitCell, widthCookie, cleanName, numberless } = require("./table");
+const { cells, blockAt, isRowText, splitCell, cleanName, numberless } = require("./table");
 
 const fold = (name) => numberless(String(name || "").trim()).toLowerCase();
 const isRow = (text) => isRowText(text);
@@ -60,9 +60,9 @@ function addressOf(node, rootName) {
   return join(concept, node.name, examples);
 }
 
-// The header cell's column name, minus its width cookie, its constraint and
-// its (alias) — the attribute the column declares.
-const columnName = (cell) => cleanName(widthCookie(cell || "").text);
+// The header cell's column name, minus its constraint and its (alias) —
+// the attribute the column declares.
+const columnName = (cell) => cleanName(cell || "");
 
 // Every addressable data cell of every grid: address -> { line, col }.
 //
