@@ -34,10 +34,16 @@
     Configuration|config/
     Tests        |tests/
 
-    Employee|role     |department |team
-    Alice   |Developer|Engineering|Backend
-    Bob     |Tester   |Engineering|Backend
-    Charlie |Designer |Engineering|Frontend
-    Dave    |Writer   |Marketing  |Content
+    Employee
+        Employee|role              |department |team    |person |reports to
+        Alice   |Developer         |Engineering|Backend |       |
+        Bob     |Tester            |Engineering|Backend |       |
+        Charlie |Designer          |Engineering|Frontend|       |
+        Dave    |Writer            |Marketing  |Content |       |
+        1       |                  |           |        |Estiaan|Tobie
+        2       |                  |           |        |Jakus  |Estiaan
+        3       |                  |           |        |Wesley |Jakus
+        4       |Principal Engineer|           |        |Rehan  |Estiaan
+        5       |                  |           |        |Tobie  |
 
     

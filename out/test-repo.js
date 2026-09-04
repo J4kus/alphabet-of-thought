@@ -4,7 +4,7 @@
 // tool may settle stay put as errors.
 //
 // Plain Node script, no framework — run with: node out/test-repo.js
-const { lint } = require("../src/linter");
+const { lint, KIND } = require("../src/linter");
 const repo = require("../src/repo");
 const { conceptRegistry } = require("../src/derive");
 const { mergeRegistries } = require("../src/table");
@@ -207,14 +207,16 @@ const JAKUS = {
 }
 
 // ---------------------------------------------------------------------------
-// a Concept written as a table: the note only goes where it can actually be
-// the Concept's own child, and strays from before that rule are cleared
+// a Concept written as a table: the note goes one level under the grid, and
+// strays from before that rule are cleared
 // ---------------------------------------------------------------------------
 {
   // A standalone table names its Concept in the first header cell, so the
-  // Concept and its rows sit at the same depth: a line one level in attaches
-  // to the last row, not to the Concept. Writing a note there anyway meant
-  // the next pass could not see it and wrote another — once per save.
+  // Concept and its rows sit at the same depth and one level under the grid
+  // is one level under the Concept — which is where its Map child belongs.
+  // The linter files a '...' written there on the Concept rather than on the
+  // row above it, so the next pass finds this line instead of writing
+  // another, which is what a standalone table used to collect on every save.
   const standalone = {
     "close.aot": aot(
       "- Motivation",
@@ -224,12 +226,26 @@ const JAKUS = {
     "bank.aot": aot("- Motivation", "    Jakus", "        - All Transactions Are Reconciled"),
   };
   const table = reconciled(standalone, "close.aot");
-  check("a standalone table gets no `...` — there is no slot under it to hold one",
-    !table.text.includes("more in"));
+  check("a standalone table gets its `...` one level under the grid",
+    table.text === aot(
+      "- Motivation",
+      "    Jakus                 |role",
+      "    Do Monthly Processing |",
+      "        ... 1 more in bank.aot:2",
+    ));
+  // being the Concept's own child is the whole point: it is what the next
+  // pass finds, and finding it is what keeps one note one note
+  const written = lint(table.text, "close").nodes
+    .find((n) => n.kind === KIND.CONCEPT && n.name === "Jakus");
+  check("the note is the table Concept's own Map child, not the last row's",
+    !!written && !!written.cell
+    && written.children.some((c) => c.kind === KIND.MAP && c.name === "1 more in bank.aot:2")
+    && written.children.some((c) => c.kind === KIND.INDIVIDUAL && c.name === "Do Monthly Processing")
+    && !written.children.some((c) => c.kind === KIND.INDIVIDUAL && c.children.length));
 
   // and the same input twice running must not grow
   const twice = reconciled({ ...standalone, "close.aot": table.text }, "close.aot");
-  check("a standalone table is stable across saves", twice.ops.length === 0);
+  check("a table's note is stable across saves", twice.ops.length === 0);
 
   // the strays an earlier pass left behind are the tool's own lines, so they
   // are cleared rather than orphaned
@@ -244,9 +260,9 @@ const JAKUS = {
       "        ... 4 more in bank.aot:2",
     ),
   }, "close.aot");
-  check("strays left under a row are cleared away",
-    !strays.text.includes("more in")
-    && strays.ops.filter((o) => o.type === "delete").length === 3);
+  check("strays left by an older pass are cleared, one true note in their place",
+    strays.text.split("\n").filter((l) => l.includes("more in")).length === 1
+    && strays.text.split("\n").includes("        ... 1 more in bank.aot:2"));
 
   // the merge form — a Concept with its own line above its table — does have
   // a slot, and must keep working

@@ -265,7 +265,16 @@ The total comes first, then `file:line` locations — Ctrl+click any of them to 
 
 A `...` line **you** wrote is never touched: only the maintained shape (`N more in …`) is rewritten, so `... still to do` sits beside it untouched. Turn the whole thing off with `aot.autoReconcile`, and the drift is reported as a warning instead of being closed for you. Files that were never open when a peer changed catch up with **AOT: Reconcile Concepts Across Files**, or `node verify.js --workspace --reconcile`.
 
-**A Concept written as a standalone table gets no `...` line**, because there is nowhere to put one: the table's first header cell *is* the Concept, so the Concept and its rows sit at the same depth, and a line one level in would attach to the last row rather than to the Concept. Give the Concept its own line above the grid — the [merge form](#tables) — and the `...` has its usual slot, one level in, alongside the rows. Everything else still applies to a table either way: attributes a peer declares arrive as new columns, and a row gains the values its Example was given elsewhere.
+**A Concept written as a table carries its `...` one level under the grid.** A table's first header cell *is* the Concept, so one level under the grid is one level under the Concept — where its children belong — and a `...` written there is read as **the table's own**, never as a note about the row it happens to follow:
+
+```aot
+Employee|role     |department
+Alice   |Developer|Engineering
+Dave    |Writer   |Marketing
+    ... 4 more in team roster.aot:12
+```
+
+That is the only place a table has for a Map, and it is why the note is found again on the next save and kept true rather than written a second time. (A *row* that needs a `...` of its own is written in line form, where it has a line to hang one under.) Everything else applies to a table either way: attributes a peer declares arrive as new columns, and a row gains the values its Example was given elsewhere.
 
 ### Aliases and Maps
 

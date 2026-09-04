@@ -44,15 +44,6 @@ const fold = (name) => numberless(name).trim().toLowerCase();
 const isAttr = (c) => c.kind === KIND.ATTRIBUTE || c.kind === KIND.DEFAULT;
 const examplesOf = (node) => node.children.filter((c) => c.kind === KIND.INDIVIDUAL);
 
-// Whether a Concept has anywhere to put a Map child.
-//
-// A Concept written as a standalone table has not: its name is the table's
-// first header cell, so the Concept and its rows sit at the *same* depth and
-// nothing indented under it belongs to it — a line one level in attaches to
-// the last row instead. Written as a line (on its own, or above a table in
-// the merge form) it has the usual slot, one level in.
-const canHoldNote = (node) => !node.cell;
-
 // Every maintained `...` in a Concept's own scope, in document order —
 // including any that landed on a row rather than on the Concept, which is
 // how a standalone table used to collect one on every save. The search stops
@@ -260,7 +251,7 @@ function findings(file, all, opts) {
       }
 
       if (!stale) continue;
-      const want = canHoldNote(occ.node) ? noteFor(occ, peers) : null;
+      const want = noteFor(occ, peers);
       const have = maintainedNotes(occ.node).find((n) => n.parent === occ.node) || null;
       if (want && (!have || have.name !== want)) {
         warnings.push({
@@ -415,10 +406,15 @@ function reconcileOps(lines, occ, peers, rootName, registry) {
   //    true. These are the only lines reconcileOps ever removes, and it only
   //    ever removes ones it wrote itself.
   //
-  //    A Concept with nowhere to hold a Map gets none: writing one anyway is
-  //    what made a standalone table gather a fresh copy on every save, since
-  //    the line landed under a row where the next pass could not see it.
-  const want = canHoldNote(node) ? noteFor(occ, peers) : null;
+  //    The line goes one level under the Concept's own, wherever that is:
+  //    under its line in the line form, and under the last row of a table —
+  //    a table names its Concept in its first header cell, so one level
+  //    under the grid is exactly one level under the Concept, and the
+  //    linter files a '...' written there on the Concept rather than on the
+  //    row above it. That is what lets the next pass find this line instead
+  //    of writing a second one, which is what a standalone table used to
+  //    collect on every save.
+  const want = noteFor(occ, peers);
   const notes = maintainedNotes(node);
   // reuse a note that really is the Concept's own; every other one is a
   // stray to clear away, whether from an older pass or a restructured file
@@ -488,6 +484,6 @@ function applyOps(lines, ops) {
 module.exports = {
   occurrences, peersOf, unionExamples, findings,
   reconcileOps, reconcileFile, applyOps,
-  noteFor, noteSpans, maintainedNotes, canHoldNote, declared, effective, genusOf,
+  noteFor, noteSpans, maintainedNotes, declared, effective, genusOf,
   NOTE_RE,
 };

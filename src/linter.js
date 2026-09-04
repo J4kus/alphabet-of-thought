@@ -183,7 +183,17 @@ function parse(text, rootName, report) {
     // a row carries a '|' between its cells; a row deeper than the table's
     // own line is nested inside it, so only a shallower line ends the table
     const isRow = isRowText(trimmed);
-    if (table && (!isRow || depth < table.depth)) table = null;
+    // A '...' Map written under a table is the table's OWN — a child of the
+    // Concept the table names, not of the row it happens to follow. A
+    // standalone table names its Concept in its first header cell, so the
+    // Concept and its rows share a line depth and the Concept's children
+    // have nowhere else to sit: one level under the table is where they
+    // belong, and it is where a reader already reads them ('... 4 more in
+    // other.aot:12' under a grid says what the grid is missing, never what
+    // its last row is missing). A row that needs a Map of its own is
+    // written in line form, where it has a line to hang one under.
+    const tableMap = !!table && !isRow && depth > table.depth && trimmed.startsWith("...");
+    if (table && !tableMap && (!isRow || depth < table.depth)) table = null;
     // a dash Example needs its space ('- '); rows carry no gutter
     // spaces, so a cell may start right after its '|'
     if (!isRow && marker === "-" && !trimmed.startsWith("- ")) {
@@ -364,7 +374,7 @@ function parse(text, rootName, report) {
     if (value === "") {
       report.error(line, `'${name}:' has 0 characters after ':', expected a value — a colon assigns a value (as in 'colour: red'); add the value, or drop the colon to leave '${name}' as a bare attribute`);
     }
-    const parent = stack[Math.min(depth, stack.length - 1)];
+    const parent = tableMap ? table.owner : stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, alias: alias || null, parent, children: [] };
     if (constraints && kind === ATTRIBUTE) node.constraints = constraints;
     // a line-form value may carry an '=' formula exactly as a table cell

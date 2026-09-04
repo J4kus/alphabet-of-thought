@@ -9,11 +9,8 @@ xlookup test: 10 =xlookup(`A`,@Person@first name,@Person@age)
 direct lookup: A =@Person@first name@Aristotle
 sum if test: 60 =sumifs(@Person@age,@Person@is alive,`No`)
 
-Life|test
-1   |
-2   |
-    
-Org Structure
+
+
 
 Life Event|beneficiary (person)
    
@@ -28,7 +25,9 @@ Life Event|beneficiary (person)
     Socratic Method|Socrates            |Teaching through a back-and-forth series of questions rather than lecturing.
     Ignorance      |Socrates            |Admitting his own lack of knowledge to spark true wisdom, famously saying "I know that I know nothing".
     Ethics         |Socrates            |Shifting focus away from the physical universe and toward human virtue and how to live a good life.
-        
+
+
+
 City         |residents known as
 Athens       |Athenians
 George       |
