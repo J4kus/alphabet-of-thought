@@ -21,17 +21,28 @@
 // as a grid row or as a `- ` line. A table and a `- ` list are one idea in
 // two spellings, so one address serves both.
 //
-// Bounds are not derivations and never park. `age >=18` is a rule about
-// values, not a recipe for one; there is nothing to write in its place. A
-// `==` definition on an attribute declaration does not park either — it is
-// already written once, where the attribute is declared, which is where this
-// module is trying to get everything else to.
+// The constraints go with them. A bound (`age >=18`) or a definition
+// (`vat ==@price*0.2`) on an attribute declaration is written once, but it
+// is written *on the name* — in a header cell it widens the column's title
+// exactly as a formula widens its cells — so a file read for its data is
+// clearer without it. Unlike a derivation, though, a bound computes nothing
+// that could be written in its place: taking it out of the file would
+// silently switch it off. So a parked constraint is **still enforced** — the
+// editor and verify.js read it back out of the store (parkedConstraints) and
+// hold every value to it exactly as when it stood on the declaration. A
+// parked `==` definition keeps its values frozen, as a parked `=` does; a
+// value it no longer matches is reported, and recomputes once it is home.
+//
+// A stored entry says which it is by how it opens: a derivation with one
+// '=', a constraint with its operator — `==`, `<=`, `>=`, `<` or `>`.
 //
 // Pure: no I/O, no vscode. Shared by the extension and anything that wants to
 // park from the command line.
 
 const { KIND } = require("./linter");
-const { cells, blockAt, isRowText, splitCell, cleanName, numberless } = require("./table");
+const {
+  cells, blockAt, isRowText, splitCell, splitConstraint, columnTerm, cleanName, numberless,
+} = require("./table");
 
 const fold = (name) => numberless(String(name || "").trim()).toLowerCase();
 const isRow = (text) => isRowText(text);
@@ -61,8 +72,13 @@ function addressOf(node, rootName) {
 }
 
 // The header cell's column name, minus its constraint and its (alias) —
-// the attribute the column declares.
-const columnName = (cell) => cleanName(cell || "");
+// the attribute the column declares. The constraint must go: a column's
+// constraint parks now, so an address that carried it would name a column
+// that no longer exists by the time the derivation comes home.
+const columnName = (cell) => columnTerm(cell || "");
+
+// A stored entry that is a constraint rather than a derivation.
+const isConstraintEntry = (formula) => /^(==|<=|>=|<|>)/.test(String(formula || "").trim());
 
 // Every addressable data cell of every grid: address -> { line, col }.
 //
@@ -71,7 +87,11 @@ const columnName = (cell) => cleanName(cell || "");
 // and those are exactly the cells worth parking. The row's Example *is* a
 // node, though, so the Example path (and the Concept above it) still comes
 // from the tree, which is what gets a table filed under an Example right.
-function cellIndex(lines, nodes, rootName) {
+//
+// `legacy` also answers the addresses a store written before constraints
+// parked may hold — a constrained column's name with its constraint still
+// on it — so such a store still comes home.
+function cellIndex(lines, nodes, rootName, legacy) {
   const index = new Map();
   const exampleAt = new Map();
   for (const node of nodes) {
@@ -97,6 +117,11 @@ function cellIndex(lines, nodes, rootName) {
           const attr = columnName(header[c]);
           if (!attr) continue;
           index.set(join(concept, attr, examples), { line, col: c });
+          const old = cleanName(header[c] || "");
+          if (legacy && old && old !== attr) {
+            const key = join(concept, old, examples);
+            if (!index.has(key)) index.set(key, { line, col: c });
+          }
         }
       }
     }
@@ -120,6 +145,39 @@ function nodeAt(nodes, rootName, address) {
     if (owner.examples.every((n, i) => fold(n) === fold(examples[i]))) return node;
   }
   return null;
+}
+
+// The attribute declaration an address names, or null — nodeAt's twin for a
+// parked constraint, which belongs to the declaration rather than to a value.
+function declAt(nodes, rootName, address) {
+  const parts = String(address).split("@").slice(1).map((s) => s.trim());
+  if (parts.length < 2) return null;
+  const [concept, attr, ...examples] = parts;
+  for (const node of nodes) {
+    if (node.kind !== KIND.ATTRIBUTE || fold(node.name) !== fold(attr)) continue;
+    const owner = ownerFrom(node.parent, rootName);
+    if (fold(owner.concept) !== fold(concept)) continue;
+    if (owner.examples.length !== examples.length) continue;
+    if (owner.examples.every((n, i) => fold(n) === fold(examples[i]))) return node;
+  }
+  return null;
+}
+
+// Where a declaration's term stands on its line — the header cell's text,
+// or a bare attribute line's term up to any constraint still written on it
+// — as { k (the header cell's index, or -1), start, end }. null when the
+// line no longer holds it.
+function declSpan(text, node) {
+  if (node.cell) {
+    const cs = cells(text);
+    const k = cs.findIndex((c) => c.col === node.nameCol);
+    if (k < 1) return null;
+    return { k, start: cs[k].col, end: cs[k].col + cs[k].text.length };
+  }
+  const start = text.length - text.trimStart().length;
+  const con = splitConstraint(text.trim());
+  const term = con.eq === -1 ? text.trim() : con.value;
+  return term ? { k: -1, start, end: start + term.length } : null;
 }
 
 // A row rebuilt from its cell texts, keeping whatever stands to the left of
@@ -184,6 +242,45 @@ function park(lines, nodes, rootName) {
     out[at] = text.slice(0, span.colon + 1) + (split.value ? " " + split.value : "");
   }
 
+  // the constraints, on the declarations: a header line may carry several,
+  // so it is rewritten once with all of its cells settled; a bare attribute
+  // line carries its chain after the term. Header lines are never data rows,
+  // so the grid pass above left them as they stood.
+  const declsByLine = new Map();
+  for (const node of nodes) {
+    if (node.kind !== KIND.ATTRIBUTE || !node.constraints || !node.constraints.length) continue;
+    const list = declsByLine.get(node.line) || [];
+    list.push(node);
+    declsByLine.set(node.line, list);
+  }
+  for (const line of [...declsByLine.keys()].sort((a, b) => a - b)) {
+    const at = line - 1;
+    const text = out[at];
+    if (text === undefined) continue;
+    const decls = declsByLine.get(line);
+    if (isRow(text)) {
+      const texts = cells(text).map((c) => c.text);
+      let touched = false;
+      for (const node of decls) {
+        const where = node.cell ? declSpan(text, node) : null;
+        if (!where) continue;
+        const con = splitConstraint(texts[where.k]);
+        if (con.eq === -1) continue;
+        found.push({ line, address: addressOf(node, rootName), formula: texts[where.k].slice(con.eq).trim() });
+        texts[where.k] = con.value;
+        touched = true;
+      }
+      if (touched) out[at] = renderRow(text, texts);
+      continue;
+    }
+    const node = decls.find((n) => !n.cell);
+    if (!node) continue;
+    const opCol = node.constraints[0].opCol;
+    if (opCol === undefined || opCol >= text.length) continue;
+    found.push({ line, address: addressOf(node, rootName), formula: text.slice(opCol).trim() });
+    out[at] = text.slice(0, opCol).trimEnd();
+  }
+
   // the store reads like the file it came from
   found.sort((a, b) => a.line - b.line);
   return { lines: out, parked: found.map(({ address, formula }) => ({ address, formula })) };
@@ -196,12 +293,22 @@ function park(lines, nodes, rootName) {
 function unpark(lines, nodes, rootName, parked) {
   const out = lines.slice();
   const missing = [];
-  const index = cellIndex(lines, nodes, rootName);
+  const index = cellIndex(lines, nodes, rootName, true);
   // resolve every address first — a grid cell by the grid, a line-form value
   // by its node — then rewrite line by line, so a row carrying two of them is
-  // rebuilt once
+  // rebuilt once. A constraint goes back on its declaration, after the term:
+  // a header line may take several, a bare attribute line its one chain.
   const byLine = new Map();
+  const declsByLine = new Map();
   for (const entry of parked || []) {
+    if (isConstraintEntry(entry.formula)) {
+      const decl = declAt(nodes, rootName, entry.address);
+      if (!decl) { missing.push(entry.address); continue; }
+      const list = declsByLine.get(decl.line) || [];
+      list.push({ node: decl, formula: entry.formula, address: entry.address });
+      declsByLine.set(decl.line, list);
+      continue;
+    }
     const cell = index.get(entry.address);
     const node = cell ? null : nodeAt(nodes, rootName, entry.address);
     if (!cell && !node) { missing.push(entry.address); continue; }
@@ -233,6 +340,25 @@ function unpark(lines, nodes, rootName, parked) {
     if (!span) continue;
     const value = splitCell(span.value).value;
     out[at] = text.slice(0, span.colon + 1) + " " + (value ? value + " " : "") + formula;
+  }
+  for (const line of [...declsByLine.keys()].sort((a, b) => a - b)) {
+    const at = line - 1;
+    const text = out[at];
+    if (text === undefined) continue;
+    const group = declsByLine.get(line);
+    if (isRow(text)) {
+      const texts = cells(text).map((c) => c.text);
+      let touched = false;
+      for (const { node, formula, address } of group) {
+        const where = node.cell ? declSpan(text, node) : null;
+        if (!where) { missing.push(address); continue; }
+        texts[where.k] = `${texts[where.k]} ${formula}`;
+        touched = true;
+      }
+      if (touched) out[at] = renderRow(text, texts);
+      continue;
+    }
+    out[at] = [text.trimEnd(), ...group.map((g) => g.formula)].join(" ");
   }
   return { lines: out, missing };
 }
@@ -276,12 +402,25 @@ function lineSpan(text) {
 }
 
 // Where each parked derivation's value sits now: [{ line, startCol, endCol,
-// address, formula }], in document order. Columns are 0-based, as the editor
-// counts them; the line is 1-based, as the parse counts them.
+// address, formula, constraint }], in document order. Columns are 0-based, as
+// the editor counts them; the line is 1-based, as the parse counts them. A
+// parked constraint marks its declaration's term instead — the name it was
+// written on — and says so (constraint: true).
 function parkedSpans(lines, nodes, rootName, parked) {
   const out = [];
-  const index = cellIndex(lines, nodes, rootName);
+  const index = cellIndex(lines, nodes, rootName, true);
   for (const entry of parked || []) {
+    if (isConstraintEntry(entry.formula)) {
+      const decl = declAt(nodes, rootName, entry.address);
+      const text = decl ? lines[decl.line - 1] : undefined;
+      const span = text === undefined ? null : declSpan(text, decl);
+      if (!span || span.end <= span.start) continue;
+      out.push({
+        line: decl.line, startCol: span.start, endCol: span.end,
+        address: entry.address, formula: entry.formula, constraint: true,
+      });
+      continue;
+    }
     const cell = index.get(entry.address);
     const node = cell ? null : nodeAt(nodes, rootName, entry.address);
     if (!cell && !node) continue;
@@ -296,9 +435,11 @@ function parkedSpans(lines, nodes, rootName, parked) {
 }
 
 // --- the store ---------------------------------------------------------------
-// One line per derivation, written exactly as it reads in the file:
+// One line per derivation or constraint, written exactly as it reads in the
+// file:
 //
 //     @Invoice@vat@INV-1: =@price*@tax rate
+//     @Person@age: >=18 <=65
 //
 // The leading notice is not decoration. A file whose derivations are parked
 // looks, to anything that does not know about this store, like a file of
@@ -306,10 +447,10 @@ function parkedSpans(lines, nodes, rootName, parked) {
 // Whoever finds this file needs to be told where it belongs.
 
 const NOTICE = [
-  "// Derivations parked out of the data by AOT (Ctrl+`).",
-  "// The values they computed are already written in the .aot, which still",
-  "// verifies on its own; nothing here is read by the linter. Toggle again",
-  "// in the editor to put them back. Commit this beside the .aot.",
+  "// Derivations and constraints parked out of the data by AOT (Ctrl+Shift+`).",
+  "// The values the derivations computed are already written in the .aot;",
+  "// the constraints are still checked from here by the editor and verify.js.",
+  "// Toggle again in the editor to put them back. Commit this beside the .aot.",
   "",
 ];
 
@@ -330,4 +471,26 @@ function parse(text) {
   return out;
 }
 
-module.exports = { park, unpark, parkedSpans, addressOf, nodeAt, serialise, parse, NOTICE };
+// The constraints the store holds, handed back to the declarations they
+// were taken from: a Map of attribute node -> [{ op, formula }], the shape
+// the linter gives a written chain — what still bounds a value while its
+// constraint is parked (derive.auditValues). An entry that names nothing
+// any more bounds nothing: unpark reports it, and this stays silent, as the
+// marks do.
+function parkedConstraints(nodes, rootName, parked) {
+  const out = new Map();
+  for (const entry of parked || []) {
+    if (!isConstraintEntry(entry.formula)) continue;
+    const decl = declAt(nodes, rootName, entry.address);
+    if (!decl) continue;
+    const chain = splitConstraint("_ " + entry.formula).constraints
+      .map((c) => ({ op: c.op, formula: c.formula }));
+    if (chain.length) out.set(decl, (out.get(decl) || []).concat(chain));
+  }
+  return out;
+}
+
+module.exports = {
+  park, unpark, parkedSpans, parkedConstraints, addressOf, nodeAt, declAt, isConstraintEntry,
+  serialise, parse, NOTICE,
+};

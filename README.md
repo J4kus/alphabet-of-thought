@@ -488,7 +488,7 @@ Kite March Order|Japan  |JPY     |$780
   ```
 
   The header is the one row that cannot nest — it names the Concept the whole table describes — so the first data row is always top-level, and a row cannot skip a level any more than a line can. Anything under one level is **gutter**, not depth, so a pasted `Otter | size` still reads as one flat row.
-- **One pipe is what makes a row.** A blank line, or any line carrying no `|`, ends the table; a row written *deeper* than the header nests inside it rather than ending it. A literal pipe inside a value is written `¦`, the broken bar the CSV mirror already bends it to. **Two standalone tables in a row need a blank line between them**, or the second's header reads as more data rows of the first.
+- **One pipe is what makes a row — unless a colon stands before it.** A blank line, or any line carrying no `|`, ends the table; a row written *deeper* than the header nests inside it rather than ending it. A name never holds a colon, so a line whose first pipe comes *after* a colon is a `name: value` line with a pipe in its value — `rule: a | b`, `- Ann: x|y` — and never a row; a row's own colons stand in its cells, after the first divider (`|12:30`, `Ollie|http://…`). Only inside a table **cell**, where a pipe divides, is a literal pipe written `¦`, the broken bar the CSV mirror already bends it to. **Two standalone tables in a row need a blank line between them**, or the second's header reads as more data rows of the first.
 - **Format Document** (`Shift+Alt+F`) re-aligns every table as org's `TAB` does: each column padded to its widest cell. Columns carry **no gutter spaces** around the pipes — a file's width is precious — but stay vertically aligned. A row ends at its last written cell, since padding past it is only trailing whitespace: a row that stops short keeps the dividers of the empty cells it stops before, and a row whose *name* cell is empty — one still being filled — opens with the spaces of that cell, so the columns below still line up. A table with no attributes has no divider to draw, so its rows close with the pipe instead (`Org Structure|` over `Department A |`), and that pipe reads back as the empty last cell it looks like — which is why re-drawing it changes nothing.
 - **One row is one line, and a cell is never broken to fit.** A column is as wide as its widest cell, however long that is. *(Between 1.8 and 1.12 a header cell could carry a width cookie — `description <24>` — capping its column and wrapping longer values onto continuation rows. It is gone: a cookie bought a narrow table at the price of the plainest rule the language has, and `<24>` is now nothing but part of a column's name.)*
 
@@ -511,7 +511,46 @@ Org's table automations are built in. While the cursor is on a table row — any
 | `Ctrl+Alt+←` / `Ctrl+Alt+→` | **Copy** the cursor's whole column to its left / right, header and every value |
 | `Ctrl+Alt+Shift+` arrow | **Copy the cell** into its neighbour in that direction and follow it there, so holding the key fills a run |
 | `Tab` / `Shift+Tab` **with lines selected** | Indent / unindent the selected lines, exactly as anywhere else in the editor — which is how a row is **nested** under the row above it, since a row's depth *is* its leading spaces, and how a whole table is re-filed under a different parent |
-| `Ctrl+Alt+T` | Write the Concept at the cursor out as free text, and the same key writes it back as a table — see [Flipping between a table and free text](#flipping-between-a-table-and-free-text) |
+| `Ctrl+Alt+T` or `Ctrl+K T` | Write the Concept at the cursor out as free text, and the same key writes it back as a table — see [Flipping between a table and free text](#flipping-between-a-table-and-free-text). Also on the lightbulb (`Ctrl+.`) and the right-click menu, for a keyboard that loses the chord |
+
+The keys a spreadsheet hand reaches for without looking work here too, inside a table row:
+
+| Key | What it does |
+|-----|--------------|
+| `Ctrl+`arrow | Jump to the **edge of the data**: from a filled cell, to the last filled cell before a gap; from an empty one, to the next filled cell; with nothing that way, to the table's edge. Moves the cursor only — nothing is re-aligned |
+| `Ctrl+Shift+`arrow | The same jump, **selecting** as it goes |
+| `Ctrl+Home` / `Ctrl+End` | The table's first cell (the Concept's name) / its last (the last row's last column); pressed again from there, the top or bottom of the file. With `Shift`, selecting |
+| `Ctrl+A` | Select the table; pressed again, the whole file |
+| `Ctrl+D` | **Fill down**: the cell above into the cursor's cell — or, with rows selected, the first selected row into the rest, across every selected column |
+| `Ctrl+R` | **Fill right**: the cell to the left into the cursor's cell — or, with cells selected, the first selected column into the rest of each row |
+| `Ctrl+'` | Copy the **formula** from the cell above; the recompute writes its value |
+| `Ctrl+Shift+'` | Copy the **value** from the cell above, its formula left behind |
+| `Alt+=` | **AutoSum**: the cell becomes `=sum(@column)`, the total of its column's other rows |
+| `Ctrl+;` / `Ctrl+Shift+;` | Today's date (`YYYY-MM-DD`, the form a date constraint reads) / the time now — anywhere in a `.aot`, not only in tables |
+| `F9` | Recompute every formula in the file — anywhere in a `.aot` |
+
+Fills and copies move a cell's text exactly as written, formula and all, and never take the header or the name column as their source — an attribute's name or an Example's is no value a cell means to hold. Inside a table row — and on an Example's line or value in free text, [below](#the-table-editor) — `Ctrl+←`/`Ctrl+→` no longer steps a word at a time (it jumps cells instead), `Ctrl+D` no longer adds the next match to the selection, `Ctrl+R` no longer opens a recent folder, and `Alt+↑`/`↓` and `Ctrl+Alt+↑`/`↓` move and copy rows instead of lines and cursors; anywhere else every one of them is VS Code's own again. Deliberately left out: `Ctrl+Space` / `Shift+Space` (they would cost the suggestion list and a Shift-held space), `Ctrl+PgUp` / `Ctrl+PgDn` (editor tabs), and `Ctrl+-` / `Ctrl++` (zoom — `Alt+Shift+`arrows already insert and delete).
+
+**The same keys work in free text.** A table is [pure shorthand](#tables-are-pure-shorthand) for the `- Example` lines it parses to, so a Concept written as lines is a grid too: each **Example is a row** (its `- Name` line and the lines under it, sub-Examples after their parent), each **attribute a column** (in the order the Examples write them), and a **cell is an Example's `attribute: value` line** — a cell nobody wrote is a line nobody wrote. With the cursor on an Example's line or one of its values, every table key above but `Enter` works on that grid:
+
+```aot
+Person
+    age
+    - Ann             <- Tab: to 'age: 30'; Alt+↓: Ann, values and sub-Examples, below Bob
+        age: 30       <- Ctrl+Alt+Shift+↓: 'age: 30' into Bob, in column order
+        city: Paris
+    - Bob
+        city: Rome    <- Ctrl+D: 'city: Paris', from the Example above
+```
+
+- **`Tab` / `Shift+Tab`** walk the Examples' names and values in order, and past the last one grow a new `- ` Example. On a bare attribute line (`age`), the Concept's own line, or an empty line, `Tab` indents exactly as it always has.
+- **Rows:** `Alt+↑`/`↓` moves an Example over its neighbour (sub-Examples travel with it, a blank line between them stays between them), `Ctrl+Alt+↑`/`↓` copies one, `Alt+Shift+↓` inserts an empty `- ` above, `Alt+Shift+↑` deletes one with its sub-Examples.
+- **Columns:** `Alt+←`/`→` swaps the attribute's lines with its neighbour's in every Example that states both, `Alt+Shift+←` deletes the attribute everywhere (declaration included), `Alt+Shift+→` opens an empty declaration line for a new one, `Ctrl+Alt+←`/`→` duplicates it.
+- **Cells and the spreadsheet keys** behave as in a table: a value filled or copied into an Example that lacks the attribute gets a new line, placed in column order under the name; a value emptied loses its line, since an empty cell asserts nothing. `Alt+=` writes `=sum(@attribute)`, which sums the Example's siblings — the range a line-form aggregate reads — and every formula a key writes is computed at once.
+
+Every operation edits the lines it is about and nothing else — no line is reordered, re-indented, declared or re-spelled that the key did not ask for (flipping the Concept to a table and back would do all four). Where the text looks like an Example's line but the parse says otherwise (an attribute's allowed values, `- draft` under `status`), the key does what VS Code does with it.
+
+**Keyboard layouts.** VS Code does not tell a left modifier from a right one — but on a layout where the right `Alt` is **AltGr** (United Kingdom, US-International, most European layouts) that key is not `Alt` at all, and VS Code on Windows reads neither `Right Alt+↑` as `Alt+↑` nor `Right Ctrl+Right Alt+T` as `Ctrl+Alt+T`. No extension keybinding can tell AltGr apart, so use the left `Alt`, or switch the layout to US (*Settings → Time & language → Language & region →* your language *→ Language options → Keyboards*). The flip has `Ctrl+K T` and the lightbulb, which need no `Alt` at all. Windows' own **Left Alt+Shift** switches input languages, which is also the start of every `Alt+Shift+`arrow table key — if the layout seems to change under you, change that hotkey under *Settings → Time & language → Typing → Advanced keyboard settings → Input language hot keys*.
 
 **`Tab` never moves the data.** Inside a table it travels the cells and nothing else — pressed in the leading spaces, at the head of a name cell, or anywhere past it. It briefly re-indented in those first two places instead (nesting the cursor's row, or shifting the whole table a level), which put an edit on the one key a table is driven with: you pressed `Tab` for the next cell and an Example changed its place in the tree — and where the move was impossible, a first row having no sibling to nest under, the key did nothing at all. Indenting is what a *selection* does, and the cursor's row can be nested or lifted by name from the Command Palette (**AOT Table: Nest Row Under the Row Above** / **Lift Row Out of Its Parent Row**), sub-Examples travelling with it.
 
@@ -646,7 +685,7 @@ That is also exactly why an `==or(…)` stays a **bound** while `==@price*@tax r
 
 A grid that computes holds two things in one place: the **values**, which are what you read, and the **derivations**, which you wrote once and mostly never want to look at again. `20 =@price*@tax rate` in every cell of a column makes it three times as wide as its data and buries the number under the arithmetic that produced it.
 
-**`Ctrl+Shift+`` takes every `=` derivation out of the data**, and the same key puts them back. The order is the whole design:
+**`Ctrl+Shift+`` takes every `=` derivation — and every constraint on an attribute declaration — out of the data**, and the same key puts them back. The order is the whole design:
 
 1. The **recompute runs first**, so every derived value is materialised where it stood.
 2. Only then do the formulas leave, for `aot.files/<file>.formulas`.
@@ -654,24 +693,25 @@ A grid that computes holds two things in one place: the **values**, which are wh
 
 ```aot
 before                                    after Ctrl+Shift+`
-Invoice|price|vat           |            |Invoice|price|vat
-INV-1  |100  |20 =@price*0.2|            |INV-1  |100  |20
-INV-2  |250  |50 =@price*0.2|            |INV-2  |250  |50
+Invoice|price >=0|vat           |        |Invoice|price|vat
+INV-1  |100      |20 =@price*0.2|        |INV-1  |100  |20
+INV-2  |250      |50 =@price*0.2|        |INV-2  |250  |50
 ```
 
 ```
 aot.files/Ledger.formulas
+    @Invoice@price: >=0
     @Invoice@vat@INV-1: =@price*0.2
     @Invoice@vat@INV-2: =@price*0.2
 ```
 
-**The parked file still stands on its own.** Every value is present, so it still says exactly what it said and still reaches the same `V` — `node verify.js` judges what is in front of it and **never reads the store**, because there is nothing in the store it needs. A parked file is not a file with holes in it; it is a file whose arithmetic has already been done. Nothing in the linter, the CSV mirror, or the cross-file reconcile knows the store exists.
+**The parked file still stands on its own.** Every value is present, so it still says exactly what it said. The derivations are done with — their arithmetic is already written in the data — but the **constraints are not**: a bound computes nothing that could stand in its place, so taking it out of the file would silently switch it off. So a parked constraint is **still enforced**. The editor and `node verify.js` both read the constraints back out of the store and hold every value to them exactly as when they stood on the declaration: `price: -5` still warns, now as a breach of the *parked* bound, and a bound that cannot compute is still an error, pinned to the attribute's name. A parked `==` definition leaves its values frozen, as a parked `=` does; a value it no longer matches says so, and recomputes once the definition is home. Nothing in the CSV mirror or the cross-file reconcile knows the store exists.
 
 Each derivation is addressed with the **`@` path the language already uses for references**. `@Invoice@vat@INV-1` is the `vat` of the Example `INV-1` of the Concept `Invoice` — and because [a table and a `- ` list are one idea in two spellings](#tables-are-pure-shorthand), that one address finds the Example whichever way it is written. A value on the Concept itself is two segments (`@Invoice@tax rate`); an Example nested inside another adds a segment, outermost first.
 
 **A parked value says so.** The same plainness that lets a parked file stand on its own is the one trap it sets: `20` in a cell looks exactly like a `20` somebody typed, so it invites being typed over — and that edit stands only until the derivations come home and recompute it. So every value the store owns is **tinted where it stands**, in the editor's inlay-hint colours, because that is what it is: a number the editor is showing you rather than one you wrote. Hover names the formula, the address it is filed under and the store it is in, and offers to [put the derivations back](#parking-the-derivations) in one click — which is where you change what a value computes. The mark is a background and never added text, so a marked cell keeps the width its column aligned it to, and it is drawn from the store rather than the data, so it appears the moment the store lands and goes the moment it is deleted — by the key, by hand, or by a pull. Off with `aot.parkedValueMarks`.
 
-- **Bounds never park.** `age >=18` is a rule about values, not a recipe for one, and there is nothing to write in its place. A `==` definition on an attribute declaration does not park either: it is already written once, where the attribute is declared — which is where parking is trying to get everything else to.
+- **Constraints park with the derivations.** `age >=18`, `status ==or(…)` and `vat ==@price*0.2` leave their declarations — a header cell narrows to its column's bare name, a bare attribute line to its term — and are filed under the declaration's own address, `@Person@age: >=18`. A stored entry says which it is by how it opens: a derivation with one `=`, a constraint with its operator. The attribute's name is tinted like a parked value, and its hover names the constraint and says it is still checked.
 - **A cell holding only a formula parks too**, and leaves its computed value behind: that is what step 1 is for.
 - **Nothing is ever invented back.** Rename or delete a row while its derivation is parked and that address no longer names anything; it is reported and **kept in the store** rather than guessed at, and the store stays until it resolves.
 - **The store's existence is the state.** A file is parked when it has one; putting the formulas back deletes it. Commit it beside the `.aot` — it is the only copy of the derivations while they are out.
@@ -775,7 +815,7 @@ That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreads
 
 ### Flipping between a table and free text
 
-If the two forms say the same thing, the choice between them is a question about the *data*, not about the model — and it is a question you answer differently as the data grows. Six short attributes across twenty Examples want to be a grid; two Examples carrying a paragraph each want to be lines. **`Ctrl+Alt+T` writes the Concept at the cursor out in the other form, and the same key writes it back.** The cursor may stand anywhere inside the Concept — its own line, a header cell, a row, an attribute name, a value — and it lands on the Concept's first line in the new form.
+If the two forms say the same thing, the choice between them is a question about the *data*, not about the model — and it is a question you answer differently as the data grows. Six short attributes across twenty Examples want to be a grid; two Examples carrying a paragraph each want to be lines. **`Ctrl+Alt+T` writes the Concept at the cursor out in the other form, and the same key writes it back.** Where the operating system or the keyboard layout takes `Ctrl+Alt+T` for itself, `Ctrl+K T` does the same, and so do the lightbulb (`Ctrl+.`) and the right-click menu. The cursor may stand anywhere inside the Concept — its own line, a header cell, a row, an attribute name, a value — and it lands on the Concept's first line in the new form.
 
 ```aot
 Person                                  |Person   |first name|age      |
@@ -876,7 +916,7 @@ On top of rules 1–16, a third tier of errors comes from the **Formal Concept A
 | 17 | **Drift** | An Example carries every attribute the Examples of some Concept share, yet is filed elsewhere. Move it under that Concept, or give the Concept a differentia that genuinely excludes it. |
 | 18 | **Exhaustion (overlap)** | Two sibling sub-Concepts read as different kinds but their Examples carry identical attributes. Differentiate them, or merge them. |
 | 19 | **Exhaustion (gaps)** | Some of a parent's Examples match none of its sub-Concepts by attributes. The division misses a kind, or the Example lacks the attributes of its kind. |
-| 20 | **Clash** | Two unrelated Concepts or Examples with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart. Give one a differentia, or merge them. (The weaker same-name case — equal radicals, differing values — is not itself a violation.) |
+| 20 | **Clash** | Two unrelated Concepts with equal Gödel numbers — identical attributes *and* values — so the data cannot tell them apart; or two Examples that share their **name** as well. An Example's name is part of what it is, so `P1` and `P2` carrying the same amount to the same payee are two payments, never a clash. Give one a differentia, or merge them. (The weaker same-name case — equal radicals, differing values — is not itself a violation.) |
 
 A `...` Map child marks a node intentionally incomplete and excuses it from the drift and exhaustion checks (its missing siblings or attributes are declared, not forgotten) — for drift on **either side** since 1.8: no drift toward an open Concept, and none away from an open home, whether the marker is a Map or the Example form `- ...`. Drift needs **both sides of the fence to assert something explicitly** — inherited attributes never count. A Concept whose Examples share nothing beyond their ancestor's is skipped as a target, as is a Concept whose whole shared intent is inherited from above; and since 1.6 the Concept the Example is filed **under** must own at least one explicit attribute too (declared on it or beneath it) — a home that declares nothing states no differentia to hold or release an Example by, so no drift is reported from it.
 
@@ -952,7 +992,7 @@ The characteristic number `chi = prime × chi(parent)` is a squarefree product: 
 
 So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what*. Every question a model asks of its content is then plain arithmetic on `G`: whether idea *n* carries attribute *a* (`prime(a)` divides `G(n)`), whether two ideas carry the same attributes (equal radicals) or identical content (equal `G`), what value an attribute takes on a line (the exponent of its prime, decoded), which ideas override an inherited default (a prime dividing both `G(n)` and `G(ancestor)` with unequal exponents ≥ 2), and which attributes are present but not yet valued (primes with exponent exactly 1).
 
-The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V` (rule 20). Like the FCA findings, it is meaningless over a tree that does not yet verify, so it runs only once the syntactic and subsumption passes are clean — but when it fires, it is a violation, not an advisory.
+The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V` (rule 20) — two Concepts whatever they are called, since a kind *is* its definition, but two Examples only when they share their name too, since an individual is told apart by what it is called before anything it carries (case and a numbering prefix aside, as everywhere). Like the FCA findings, it is meaningless over a tree that does not yet verify, so it runs only once the syntactic and subsumption passes are clean — but when it fires, it is a violation, not an advisory.
 
 ### Armstrong's axioms (dependency inference)
 

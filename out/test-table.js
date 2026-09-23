@@ -14,7 +14,8 @@ const {
   copyCell, moveCell, copyRow, copyColumn, headerIndex,
   subtreeOf, prevSibling, demoteRow, promoteRow,
   mergeRegistries, readValue, truthOf,
-  columnDefinitions,
+  columnDefinitions, isRowText, jumpCell, cornerCell, fillDown, fillRight,
+  copyFormulaFromAbove, copyValueFromAbove, autoSum, columnTerm,
 } = require("../src/table");
 const { lint } = require("../src/linter");
 const { conceptRegistry } = require("../src/derive");
@@ -1206,6 +1207,103 @@ const fresh = () => blockAt(doc, 2);
   const audit = formulas(withFormula, undefined, "Sheet");
   check("formulas: len() counts the value where it stands, all 18 characters",
     audit.length === 1 && !audit[0].stale && !audit[0].error);
+}
+
+// ---------------------------------------------------------------------------
+// a pipe in a value: a colon before the first pipe keeps a line a line
+// ---------------------------------------------------------------------------
+{
+  check("isRowText: 'name: value' with a pipe in the value is not a row",
+    !isRowText("    rule: a | b") && !isRowText("- Ann: x|y") && !isRowText("Reload: Ctrl+K|T"));
+  check("isRowText: rows keep their colons after the first divider",
+    isRowText("Otter|size") && isRowText("|12:30") && isRowText("Ollie|http://x.org|5"));
+  check("isRowText: a leftover rule with alignment colons is still a row",
+    isRowText("---:|:---") && isRowText(":--+--:"));
+  const lines = ["Otter|size", "Ollie|5", "    note: a | b", "Pebble|3"];
+  const block = blockAt(lines, 0);
+  check("blockAt: a value line holding a pipe ends the table",
+    block && block.start === 0 && block.end === 1 && blockAt(lines, 2) === null);
+}
+
+// ---------------------------------------------------------------------------
+// the spreadsheet keys: Ctrl+arrow, Ctrl+Home/End, fills, copies from above
+// ---------------------------------------------------------------------------
+{
+  const lines = [
+    "Otter |size|colour|note",
+    "Ollie |5   |brown |",
+    "Pebble|    |grey  |x",
+    "Pup   |3   |      |",
+    "Kit   |4   |red   |y",
+  ];
+  const b = () => blockAt(lines, 0);
+  const at = (t) => t && `${t.row},${t.col}`;
+  check("jumpCell: from a filled cell over a gap, to the next filled cell",
+    at(jumpCell(b(), 1, 1, 1, 0)) === "3,1");
+  check("jumpCell: from a filled cell with a filled neighbour, to the end of the run",
+    at(jumpCell(b(), 3, 1, 1, 0)) === "4,1" && at(jumpCell(b(), 1, 0, 0, 1)) === "1,2");
+  check("jumpCell: from an empty cell, to the next filled one",
+    at(jumpCell(b(), 2, 1, 1, 0)) === "3,1" && at(jumpCell(b(), 2, 1, -1, 0)) === "1,1");
+  check("jumpCell: the header is a row like any other",
+    at(jumpCell(b(), 1, 1, -1, 0)) === "0,1");
+  check("jumpCell: nothing filled that way reaches the table's edge",
+    at(jumpCell(b(), 1, 2, 0, 1)) === "1,3" && at(jumpCell(b(), 4, 3, 1, 0)) === "4,3"
+    && at(jumpCell(b(), 3, 2, 0, 1)) === "3,3");
+  check("cornerCell: home is the header's first cell, end the last row's last column",
+    at(cornerCell(b(), "home")) === "0,0" && at(cornerCell(b(), "end")) === "4,3");
+
+  let x = b();
+  check("fillDown: the cell above fills the cursor's cell",
+    at(fillDown(x, 2, 1)) === "2,1" && x.rows[2].cells[1] === "5");
+  check("fillDown: never from the header, never into a name",
+    fillDown(b(), 1, 1) === null && fillDown(b(), 2, 0) === null);
+  x = b();
+  const down = fillDown(x, 4, 2, { anchor: { row: 1, col: 1 }, active: { row: 4, col: 2 } });
+  check("fillDown: a selection's first row fills the rest, every selected column",
+    down && down.anchor.row === 1 && down.row === 4
+    && x.rows.slice(1).every((r) => r.cells[1] === "5" && r.cells[2] === "brown")
+    && x.rows[2].cells[3] === "x");
+  x = b();
+  check("fillDown: a selection starting on the header fills from the first data row",
+    fillDown(x, 3, 1, { anchor: { row: 0, col: 1 }, active: { row: 3, col: 1 } }) !== null
+    && x.rows[3].cells[1] === "5" && x.rows[0].cells[1] === "size");
+  x = b();
+  check("fillRight: the cell to the left fills the cursor's cell",
+    fillRight(x, 1, 2) !== null && x.rows[1].cells[2] === "5");
+  check("fillRight: never from the name column",
+    fillRight(b(), 1, 1) === null);
+  x = b();
+  check("fillRight: a selection's first column fills the rest of each row",
+    fillRight(x, 4, 3, { anchor: { row: 3, col: 1 }, active: { row: 4, col: 3 } }) !== null
+    && x.rows[3].cells.slice(1).join() === "3,3,3" && x.rows[4].cells.slice(1).join() === "4,4,4");
+
+  const withFormula = ["Sheet|price|total", "A|2|4 =@price*2", "B|3|"];
+  x = blockAt(withFormula, 0);
+  check("copyFormulaFromAbove: the formula alone, for the recompute to value",
+    copyFormulaFromAbove(x, 2, 2) !== null && x.rows[2].cells[2] === "=@price*2");
+  x = blockAt(withFormula, 0);
+  check("copyValueFromAbove: the value alone, its derivation left behind",
+    copyValueFromAbove(x, 2, 2) !== null && x.rows[2].cells[2] === "4");
+  check("copy from above: nothing from the header, no formula to copy is nothing",
+    copyFormulaFromAbove(blockAt(withFormula, 0), 1, 2) === null
+    && copyFormulaFromAbove(blockAt(withFormula, 0), 2, 1) === null);
+  x = blockAt(withFormula, 0);
+  fillDown(x, 2, 2);
+  recompute(x);
+  check("fillDown: a formula copied down computes in its new row",
+    x.rows[2].cells[2] === "6 =@price*2");
+
+  const priced = ["Sheet|price (cost) >=0|qty", "A|2|1", "B|3|1", "Total||"];
+  x = blockAt(priced, 0);
+  check("autoSum: the cell sums its column by the column's bare name",
+    autoSum(x, 3, 1) !== null && x.rows[3].cells[1] === "=sum(@price)");
+  recompute(x);
+  check("autoSum: the sum computes over the other rows",
+    x.rows[3].cells[1] === "5 =sum(@price)");
+  check("autoSum: never on the header or a name",
+    autoSum(blockAt(priced, 0), 0, 1) === null && autoSum(blockAt(priced, 0), 3, 0) === null);
+  check("columnTerm: a header cell's name without its alias or constraint",
+    columnTerm("price (cost) >=0") === "price" && columnTerm("tax rate") === "tax rate");
 }
 
 

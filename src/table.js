@@ -43,7 +43,8 @@
 // is written by the divider that closes it standing first on the line —
 // '|frag' — which is what a row still being filled looks like. Every row
 // therefore has at least one pipe, and one pipe is all it takes to be a
-// row.
+// row — unless a colon stands before it, which makes the line a
+// 'name: value' line with a pipe in its value (isRowText).
 //
 // A row may nest under the row above it. The depth is written as leading
 // spaces in front of the name — which, the border being gone, is the line's
@@ -76,9 +77,19 @@ const isSeparator = (text) => /^[\s\-+:|]*$/.test(text) && text.includes("-") &&
 // A line is a table row when it carries a '|': the divider between two
 // cells is the only pipe a row has, so one is all it takes. A leftover rule
 // counts too — it divides its columns with '+' and may carry no pipe at all.
+//
+// Except behind a colon. A name never holds one (the line grammar splits
+// on it), so a colon standing before the first pipe says the line is a
+// 'name: value' line whose VALUE carries the pipe — `rule: a | b`,
+// `- Ann: x|y` — and a value is the one place a pipe is only a character.
+// A row's own colons stand after its first divider, in the cells: `|12:30`
+// and `Ollie|http://…` are rows as they always were.
 const isRowText = (text) => {
   const t = String(text).trim();
-  return !!t && (t.includes("|") || isSeparator(t));
+  if (!t) return false;
+  if (isSeparator(t)) return true;
+  const pipe = t.indexOf("|");
+  return pipe !== -1 && !t.slice(0, pipe).includes(":");
 };
 
 // The block's header: its first row. With the rule gone, standing first is
@@ -596,6 +607,143 @@ function copyColumn(block, row, col, dir) {
     if (!r.sep) r.cells.splice(at, 0, r.cells[col] || "");
   }
   return { row, col: at };
+}
+
+// --- the spreadsheet keys ----------------------------------------------------
+// The keys a spreadsheet hand reaches for without looking. The jumps only
+// answer where the cursor goes — the caller moves it and redraws nothing,
+// since moving is not editing. The fills and the copies from above are
+// table operations like every other, re-aligned and recomputed by the
+// caller.
+
+// Does the cell hold anything? Padding is not content.
+const filledAt = (block, row, col) => !!String(block.rows[row].cells[col] || "").trim();
+
+// Ctrl+arrow: the spreadsheet's jump to the edge of the data. From a filled
+// cell whose neighbour is filled too, the cursor runs to the last filled
+// cell before a gap; from anywhere else, to the next filled cell; with none
+// that way, to the table's edge. The header is a row like any other, as it
+// is to Tab, and a leftover rule is stepped over.
+function jumpCell(block, row, col, dRow, dCol) {
+  const here = block.rows[row];
+  if (!here || here.sep) return null;
+  const numCols = widthsOf(block).length;
+  const from = Math.min(col, numCols - 1);
+  // the cells along the direction of travel, nearest first
+  const path = [];
+  if (dRow) {
+    for (let i = dataRow(block, row, dRow); i !== -1; i = dataRow(block, i, dRow)) path.push({ row: i, col: from });
+  } else {
+    for (let k = from + dCol; k >= 0 && k < numCols; k += dCol) path.push({ row, col: k });
+  }
+  if (!path.length) return { row, col: from };
+  const has = (c) => filledAt(block, c.row, c.col);
+  if (filledAt(block, row, from) && has(path[0])) {
+    let at = 0;
+    while (at + 1 < path.length && has(path[at + 1])) at++;
+    return path[at];
+  }
+  return path.find(has) || path[path.length - 1];
+}
+
+// Ctrl+Home / Ctrl+End: the table's first cell — the header's, which names
+// the Concept — and its last, the last row's last column.
+function cornerCell(block, which) {
+  if (which === "home") {
+    const head = headerIndex(block);
+    return head === -1 ? null : { row: head, col: 0 };
+  }
+  const last = dataRow(block, block.rows.length, -1);
+  return last === -1 ? null : { row: last, col: widthsOf(block).length - 1 };
+}
+
+// Ctrl+D / Ctrl+R: the spreadsheet's fill, down or right. `span` is the
+// selection, { anchor: { row, col }, active: { row, col } } relative to the
+// block, or absent for the cursor's cell alone.
+//
+// Down: over a run of selected rows, the first is copied into the rest;
+// over one row (or none selected), the row above is copied into it. Right:
+// the same across, the first selected column into the rest, or the column
+// to the left into a lone one. Text and formula arrive exactly as written,
+// as the directional copies do. The header and the name column are never
+// a source — an attribute's name or an Example's is no value a cell means
+// to hold — so a fill that would start from either does nothing.
+function fill(block, row, col, span, axis) {
+  const here = block.rows[row];
+  if (!here || here.sep) return null;
+  const head = headerIndex(block);
+  const numCols = widthsOf(block).length;
+  const isData = (i) => i > head && i < block.rows.length && !block.rows[i].sep;
+  const sel = span || { anchor: { row, col }, active: { row, col } };
+  const top = Math.max(Math.min(sel.anchor.row, sel.active.row), 0);
+  const bottom = Math.min(Math.max(sel.anchor.row, sel.active.row), block.rows.length - 1);
+  const left = Math.max(Math.min(sel.anchor.col, sel.active.col), 1);
+  const right = Math.min(Math.max(sel.anchor.col, sel.active.col), numCols - 1);
+  const rows = [];
+  for (let i = top; i <= bottom; i++) if (isData(i)) rows.push(i);
+  if (!rows.length || right < left) return null;
+  padRows(block);
+  if (axis === "down") {
+    const source = rows.length > 1 ? rows[0] : dataRow(block, rows[0], -1);
+    if (!isData(source)) return null;
+    const targets = rows.length > 1 ? rows.slice(1) : rows;
+    for (let k = left; k <= right; k++) {
+      for (const t of targets) block.rows[t].cells[k] = block.rows[source].cells[k] || "";
+    }
+  } else {
+    const source = right > left ? left : left - 1;
+    if (source < 1) return null;
+    for (const t of rows) {
+      for (let k = right > left ? left + 1 : left; k <= right; k++) block.rows[t].cells[k] = block.rows[t].cells[source] || "";
+    }
+  }
+  return span ? { row: sel.active.row, col: sel.active.col, anchor: sel.anchor } : { row, col };
+}
+
+const fillDown = (block, row, col, span) => fill(block, row, col, span, "down");
+const fillRight = (block, row, col, span) => fill(block, row, col, span, "right");
+
+// Ctrl+' / Ctrl+Shift+': the spreadsheet's copy from the cell above — the
+// formula alone (the recompute that follows writes its value in front of
+// it), or the value alone, its derivation left behind. The header stands
+// above nothing, and a name is never copied.
+function fromAbove(block, row, col, part) {
+  const here = block.rows[row];
+  const head = headerIndex(block);
+  if (!here || here.sep || row <= head || col < 1 || col >= widthsOf(block).length) return null;
+  const above = dataRow(block, row, -1);
+  if (above <= head) return null;
+  const text = block.rows[above].cells[col] || "";
+  const split = splitCell(text);
+  if (part === "formula" && split.eq === -1) return null;
+  padRows(block);
+  here.cells[col] = part === "formula" ? text.slice(split.eq).trim() : split.value;
+  return { row, col };
+}
+
+const copyFormulaFromAbove = (block, row, col) => fromAbove(block, row, col, "formula");
+const copyValueFromAbove = (block, row, col) => fromAbove(block, row, col, "value");
+
+// A header cell's column name: the attribute it declares, its trailing
+// constraint and (alias) set aside — the name a reference writes.
+function columnTerm(cell) {
+  let name = splitConstraint(cell || "").value;
+  if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
+  return name;
+}
+
+// Alt+=: the spreadsheet's AutoSum. The cursor's cell becomes the sum of its
+// own column, which ranges over the table's other rows — so a total row,
+// typed last, adds up everything above it.
+function autoSum(block, row, col) {
+  const here = block.rows[row];
+  const head = headerIndex(block);
+  if (!here || here.sep || head === -1 || row <= head || col < 1) return null;
+  const name = columnTerm(block.rows[head].cells[col]);
+  if (!name) return null;
+  padRows(block);
+  here.cells[col] = `=sum(@${name})`;
+  return { row, col };
 }
 
 // C-c |: turn plain delimited lines (tab-, comma- or multi-space-separated)
@@ -1407,8 +1555,7 @@ function headerNameCands(header) {
 function referenceNamesFrom(header, rows) {
   const columns = [];
   (header || []).slice(1).forEach((cell) => {
-    let name = splitConstraint(cell).value;
-    if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
+    const name = columnTerm(cell);
     if (name) columns.push(name);
   });
   const rowNames = rows.map((cells) => splitCell(cells[0] || "").value).filter((n) => n);
@@ -2061,6 +2208,8 @@ module.exports = {
   insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
   subtreeOf, prevSibling, demoteRow, promoteRow,
   copyCell, moveCell, copyRow, copyColumn,
+  jumpCell, cornerCell, fill, fillDown, fillRight, copyFormulaFromAbove, copyValueFromAbove,
+  autoSum, columnTerm,
   padCell, headerIndex,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, evalFormula, formatValue, recompute, recomputeAll, formulas,

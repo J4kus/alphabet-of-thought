@@ -58,7 +58,8 @@ const override = [
   check("'- Water' inherits, no override reported", !report.findings.some((f) => f.message.includes("Water")));
 }
 
-// 3) clash: two unrelated nodes with identical content -> G equal + clash
+// 3) clash: two unrelated nodes with identical content -> G equal; a clash
+// when they are Concepts, or Examples sharing their name too
 const clash = [
   "Left",
   "    - Twin A",
@@ -75,16 +76,35 @@ const clash = [
   const a = node(root, nodes, "Twin A"), b = node(root, nodes, "Twin B");
   buildGodel(root, nodes);
   check("identical content -> equal G", a.godel === b.godel && a.godel > 1n);
+  // an Example's name is part of what it is: two differently named Examples
+  // are two individuals, whatever they carry
+  check("clash: differently named Examples never clash, identical content or not",
+    clashes(root, nodes).findings.length === 0);
+}
+{
+  // the same name, the same content, two places: one idea written twice
+  const same = clash.replace("Twin A", "Twin").replace("Twin B", "1. twin");
+  const { root, nodes, errors } = lint(same, "Pair");
+  check("clash: same-name fixture parses clean", errors.length === 0);
+  const twins = nodes.filter((n) => /twin/i.test(n.name));
   const report = clashes(root, nodes);
   const pair = report.findings.filter((f) => f.kind === "content");
-  check("clash: both twins report, each related to the other",
+  check("clash: same-named twins both report, each related to the other (case and numbering aside)",
     pair.length === 2
-    && pair[0].line === a.line && pair[1].line === b.line
-    && pair[0].related[0].line === b.line && pair[1].related[0].line === a.line);
+    && pair[0].line === twins[0].line && pair[1].line === twins[1].line
+    && pair[0].related[0].line === twins[1].line && pair[1].related[0].line === twins[0].line);
   check(
     "clash: identical-content finding for the twins",
     report.findings.some((f) => /^clash:/.test(f.message) && f.message.includes("identical attributes and values")),
   );
+}
+{
+  // a Concept is its definition: two Concepts of one content clash, whatever
+  // they are called
+  const kinds = ["Left", "    Tall One", "        height: tall", "Right", "    High One", "        height: tall"].join("\n");
+  const { root, nodes } = lint(kinds, "Pair");
+  check("clash: differently named Concepts of one content still clash",
+    clashes(root, nodes).findings.filter((f) => f.kind === "content").length === 2);
 }
 
 // 4) valuation: an absent attribute has exponent 0, a present one >= 1

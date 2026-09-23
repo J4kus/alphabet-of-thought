@@ -29,10 +29,11 @@
 // The feature universe (attribute names, with crosslinked Concept names folded
 // in) and the override-aware "nearest value wins" walk mirror fca.buildContext
 // exactly, so G and the FCA context agree on what a node carries. Pure: no I/O,
-// depends only on ./linter and ./crosslinks.
+// depends only on ./linter, ./crosslinks and ./table (for name folding).
 
 const { KIND, primes, gcd } = require("./linter");
 const { index, wordStarts, instantiates } = require("./crosslinks");
+const { numberless } = require("./table");
 const { INDIVIDUAL, DEFAULT, CONCEPT, ATTRIBUTE, MAP } = KIND;
 
 // gcd takes the min exponent per prime (the content two numbers agree on);
@@ -232,6 +233,16 @@ const isAncestor = (a, c) => {
 };
 const related = (a, b) => a === b || isAncestor(a, b) || isAncestor(b, a);
 
+// What a node is, for the clash: its content — and, for an Example, its
+// name as well. An Example is an individual, and an individual is told
+// apart by what it is called before anything it carries: two payments of
+// 100 to one shop on one day, P1 and P2, are two payments, the way two rows
+// of a spreadsheet are two rows. So only Examples that share a name (case
+// and a numbering prefix are presentation) can be one idea written twice.
+// A Concept is a kind, and a kind is its definition: two Concepts with one
+// content still clash whatever they are called.
+const identityOf = (n) => (n.kind === INDIVIDUAL ? `${numberless(n.name).trim().toLowerCase()}\0` : "");
+
 // Two distinct, unrelated substance nodes that carry the same attributes are a
 // clash. Reported in two strengths: identical full content (G equal) is a
 // stronger finding than a shared attribute-name set with differing values
@@ -240,7 +251,9 @@ const related = (a, b) => a === b || isAncestor(a, b) || isAncestor(b, a);
 // editor hint does) while the CLI reports both. Nodes that assert no attribute
 // of their own (an implied `...`, even when they inherit attributes that make G
 // match a sibling's), and `...`-Map-marked nodes (intentionally incomplete),
-// are skipped — as the differentia/FCA/subsumption checks do.
+// are skipped — as the differentia/FCA/subsumption checks do. An Example's
+// name is part of what it is (identityOf), so two Examples clash only when
+// they share their name as well as their content.
 function clashes(root, nodes) {
   const { attrPrime } = buildGodel(root, nodes);
   const primeList = [...attrPrime.values()];
@@ -263,10 +276,12 @@ function clashes(root, nodes) {
   // share a radical, and grouping finds them without comparing every node
   // with every other. The pair scan this replaces was O(n²) over wide
   // BigInts — about 5 ms on a 250-line file but 100 ms on a 2000-line one,
-  // on every keystroke a file linted clean.
+  // on every keystroke a file linted clean. An Example's name joins the key,
+  // so differently named Examples never meet.
+  const keyOfNode = (n) => identityOf(n) + rad(n);
   const byRadical = new Map();
   for (let i = 0; i < eligible.length; i++) {
-    const key = rad(eligible[i]);
+    const key = keyOfNode(eligible[i]);
     const group = byRadical.get(key);
     if (group) group.push(i); else byRadical.set(key, [i]);
   }
@@ -277,7 +292,7 @@ function clashes(root, nodes) {
   // visits the pairs in the order the full scan did — no list of pairs to
   // build and no sort to undo it.
   for (let i = 0; i < eligible.length; i++) {
-    const group = byRadical.get(rad(eligible[i]));
+    const group = byRadical.get(keyOfNode(eligible[i]));
     if (!group || group.length < 2) continue;
     for (const j of group) {
       if (j <= i) continue;

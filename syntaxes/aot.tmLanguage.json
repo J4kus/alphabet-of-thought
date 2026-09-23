@@ -4,8 +4,8 @@
     "fileTypes": ["aot"],
 	"patterns": [
 		{
-            "comment": "table row: any line carrying a divider, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
-            "begin": "^(?=[^|]*\\|)",
+            "comment": "table row: any line carrying a divider with no colon before it, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. A colon before the first pipe makes a 'name: value' line whose value holds the pipe, which the line rules below colour. The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
+            "begin": "^(?=[^|:]*\\|)",
             "end": "$",
             "patterns": [
                 { "match": "[|+]|(?<![^\\s|+])-+(?![^\\s|+])", "name": "punctuation.definition.table.aot" },

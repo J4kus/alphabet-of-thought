@@ -635,13 +635,15 @@ check("verify: a well-formed tree yields no errors",
 // HINTS — godel.clashes (content): identical-content nodes
 // ---------------------------------------------------------------------------
 {
+  // one name, one content, two places: an Example's name is part of what it
+  // is, so only same-named Examples can be one idea written twice
   const twins = aot(
     "Left",
-    "    - Twin A",
+    "    - Twin",
     "        height: tall",
     "        mood: calm",
     "Right",
-    "    - Twin B",
+    "    - Twin",
     "        height: tall",
     "        mood: calm",
   );
@@ -656,6 +658,50 @@ check("verify: a well-formed tree yields no errors",
   const distinct = lint(aot("Left", "    - A", "        h: tall", "Right", "    - B", "        h: short"), "Pair");
   check("hint/clash: differing content raises no content clash",
     godel.clashes(distinct.root, distinct.nodes).findings.filter((f) => f.kind === "content").length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// HINTS — an Example's name is part of what it is: a ledger's twins are two
+// ---------------------------------------------------------------------------
+{
+  const ledger = aot(
+    "Payment|amount|payee",
+    "P1     |100   |Shop",
+    "P2     |100   |Shop",
+  );
+  const { root, nodes, errors } = lint(ledger, "Books");
+  check("name identity: two payments of one amount to one payee verify",
+    errors.length === 0
+    && godel.clashes(root, nodes).findings.filter((f) => f.kind === "content").length === 0);
+  const again = lint(aot(
+    "Payment|amount|payee",
+    "P1     |100   |Shop",
+    "",
+    "Refund",
+    "    Payment|amount|payee",
+    "    P1     |100   |Shop",
+  ), "Books");
+  check("name identity: the same Example written twice, name and all, still clashes",
+    godel.clashes(again.root, again.nodes).findings.some((f) => f.kind === "content" && /'- P1' and '- P1'/.test(f.message)));
+}
+
+// ---------------------------------------------------------------------------
+// a pipe inside a value is part of the value, not a table
+// ---------------------------------------------------------------------------
+{
+  const piped = lint(aot(
+    "Person",
+    "    rule: a | b",
+    "    - Ann",
+    "        motto: keep | going",
+    "    - Bob",
+    "        motto: onward",
+  ), "People");
+  const values = piped.nodes.filter((n) => n.kind === KIND.DEFAULT).map((n) => `${n.name}=${n.value}`);
+  check("pipe in value: a 'name: value' line with a pipe lints clean",
+    piped.errors.length === 0);
+  check("pipe in value: the pipe stays in the value, whole",
+    values.includes("rule=a | b") && values.includes("motto=keep | going"));
 }
 
 // ---------------------------------------------------------------------------

@@ -3,8 +3,7 @@
         interest (How much the stakeholder cares about the outcome)
         influence  (Their ability to affect decisions, resources, or outcomes)
         
-        Human (Natural Person)|title|date of birth|gender|home language|nationality (country)
-        Jakus                 |     |             |      |             |
+        Human (Natural Person)
             first name: Joe
             surname: Slim
             is living: yes
@@ -63,128 +62,30 @@
                     - Standard Deviation
                     - Sample Size
                     - ...
-            
-            
-            
-
             - Refinement
         data type
-            Numeric
-                - Amount
-                    - Cyclomatic Complexity
+            - Numeric
+                - Count
                     - Lines Of Code
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Current
-                    - Amps
                     - ...
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Length
-                    - Meter
-                    - ...
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Light
-                    - Candela
-                    - ...
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Mass
-                    - Kilogram
-                    - ...
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Temperature Unit
-                    - Kelvin
-                    - ...
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Time
-                    - Second
-                    - ...
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - ...
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Cyclomatic Complexity
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Lines Of Code
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
                 - Amps
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
                 - Meter
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
                 - Candela
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
                 - Kilogram
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
                 - Kelvin
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                - Second
-                    is integer: No
-                    numeric base: 10
-                    is signed: true
-                is integer: No
-                offset scaling magnitude
-                    - 0
-                        is integer: Yes
-                    - ... anything other than 0
-                        is integer: No
-                numeric base: 10
-                is signed: true
-                relative zero point
-
+                - Duration
+                - Frequency
+                - Cyclomatic Complexity
             - Text (characters)
             - Audio
             - Video
             - Image
             - Ignore
-            offset scaling magnitude
-            numeric base
+            is integer: No
             numeric base: 10
             is signed: true
+            offset scaling magnitude: 0
+            relative zero point: 0
             multiplier measurement
             minimum number of elements: 1
             maximum number of elements (length): 1

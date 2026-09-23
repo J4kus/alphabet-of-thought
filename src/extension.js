@@ -24,6 +24,7 @@ const derive = require("./derive");
 const repo = require("./repo");
 const urls = require("./urls");
 const hold = require("./hold");
+const lineform = require("./lineform");
 
 const DEBOUNCE_MS = 300;
 // past this many Examples the lattice is no longer keystroke-cheap
@@ -360,7 +361,9 @@ function analyse(doc) {
   const formulaErrors = [], formulaWarnings = [];
   const docLines = doc.getText().split(/\r?\n/);
   const registry = formulaRegistry(doc, { root, nodes });
-  for (const f of [...table.formulas(docLines, registry, rootName), ...derive.auditValues(root, nodes, docLines, registry)]) {
+  // a constraint parked in the formula store still bounds the values
+  const parkedCons = park.parkedConstraints(nodes, rootName, parkedFormulas(doc));
+  for (const f of [...table.formulas(docLines, registry, rootName), ...derive.auditValues(root, nodes, docLines, registry, parkedCons)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
     else if (f.stale || f.warning) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
   }
@@ -447,6 +450,17 @@ function parkedMarks(doc) {
   return spans.map((s) => {
     const md = new vscode.MarkdownString();
     md.isTrusted = true;
+    if (s.constraint) {
+      // a parked constraint marks the name it was written on, and still holds
+      md.appendMarkdown(`**Constrained** — ${codeSpan(s.formula)}\n\n`);
+      md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`, and still checked: `
+        + "a value that breaks it is flagged exactly as if it were written here. "
+        + "[Put the formulas back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``) to see or change it.");
+      return {
+        range: new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
+        hoverMessage: md,
+      };
+    }
     md.appendMarkdown(`**Computed** — ${codeSpan(s.formula)}\n\n`);
     md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`. `);
     md.appendMarkdown("A value typed over this one stands only until the derivations come home, "
@@ -1614,6 +1628,20 @@ const codeActionProvider = {
         actions.push(action);
       }
     }
+    // the Concept the cursor stands in flips between its two spellings from
+    // the lightbulb too — no chord to press, so no keyboard layout to lose it
+    if (at) {
+      try {
+        const { root, nodes } = parsedDoc(doc);
+        const concept = conceptAtCursor(root, nodes, doc.getText().split(/\r?\n/), at.line);
+        if (concept && concept.children.some((c) => c.kind === KIND.INDIVIDUAL)) {
+          const flip = new vscode.CodeAction(
+            `Flip '${concept.name}' between table and free text`, vscode.CodeActionKind.RefactorRewrite);
+          flip.command = { command: "aot.toggleTableForm", title: `Flip '${concept.name}' between table and free text` };
+          actions.push(flip);
+        }
+      } catch { /* an unparseable document offers no flip */ }
+    }
     return actions;
   },
 };
@@ -1814,16 +1842,19 @@ function recomputeFormulas(editor) {
 }
 
 // --- parking the derivations (Ctrl+Shift+`) ----------------------------------
-// One key takes every '=' derivation out of the data and puts it in a store
-// beside the file; the same key puts them back.
+// One key takes every '=' derivation — and every constraint on an attribute
+// declaration — out of the data and puts it in a store beside the file; the
+// same key puts them back.
 //
 // The order is the whole design. **The recompute runs first**, so every
 // derived value is materialised in the data, and only then do the formulas
 // leave. What is left in the .aot is a complete set of values that still says
-// exactly what it said and still verifies on its own terms — `node verify.js`
-// judges what is in front of it and never reads the store, because there is
-// nothing in the store it needs. A parked file is not a file with holes in
-// it; it is a file whose arithmetic has already been done.
+// exactly what it said. The derivations are done with; the constraints are
+// not, because a bound computes nothing that could stand in its place — so
+// the editor and `node verify.js` read the parked constraints back out of the
+// store and hold every value to them (park.parkedConstraints). A parked file
+// is not a file with holes in it; it is a file whose arithmetic has already
+// been done, with its rules still in force.
 //
 // The store is `aot.files/<file>.formulas`, beside the CSV mirror. Its
 // existence is the state: a file is parked when it has one.
@@ -1888,7 +1919,7 @@ async function parkFormulas(editor, store) {
   catch { return vscode.window.showWarningMessage("AOT: the file does not parse — fix it before parking its formulas."); }
   const { lines: parkedLines, parked } = park.park(lines, tree.nodes, rootName);
   if (!parked.length) {
-    return vscode.window.setStatusBarMessage("AOT: no derivations to park.", 3000);
+    return vscode.window.setStatusBarMessage("AOT: no derivations or constraints to park.", 3000);
   }
   await rewriteDocument(editor, parkedLines);
   try {
@@ -1898,8 +1929,16 @@ async function parkFormulas(editor, store) {
   } catch (e) {
     return vscode.window.showErrorMessage(`AOT: could not write ${path.basename(store)} — ${e.message}`);
   }
+  // the parked constraints hold from the store now, so judge the file again
+  // with the store in place
+  relintAll();
+  const bounds = parked.filter((p) => park.isConstraintEntry(p.formula)).length;
+  const derivations = parked.length - bounds;
+  const counted = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  const what = [derivations && counted(derivations, "derivation"), bounds && counted(bounds, "constraint")]
+    .filter(Boolean).join(" and ");
   vscode.window.setStatusBarMessage(
-    `AOT: ${parked.length} derivation${parked.length === 1 ? "" : "s"} parked in ${path.basename(store)} — Ctrl+Shift+\` puts them back.`, 5000);
+    `AOT: ${what} parked in ${path.basename(store)} — Ctrl+Shift+\` puts them back.`, 5000);
 }
 
 async function unparkFormulas(editor, store) {
@@ -1921,14 +1960,17 @@ async function unparkFormulas(editor, store) {
     if (missing.length) {
       fs.writeFileSync(store, park.serialise(parked.filter((p) => missing.includes(p.address))));
       vscode.window.showWarningMessage(
-        `AOT: ${missing.length} derivation${missing.length === 1 ? "" : "s"} no longer name anything in the file `
-        + `(${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", …" : ""}) — they are kept in ${path.basename(store)}.`);
+        `AOT: ${missing.length} parked ${missing.length === 1 ? "entry no longer names" : "entries no longer name"} anything in the file `
+        + `(${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", …" : ""}) — kept in ${path.basename(store)}.`);
     } else {
       fs.unlinkSync(store);
     }
   } catch (e) {
     vscode.window.showErrorMessage(`AOT: the formulas are back, but ${path.basename(store)} could not be updated — ${e.message}`);
   }
+  // the constraints are written on their declarations again, and no longer
+  // held from the store as well
+  relintAll();
 }
 
 function toggleFormulaPark(editor) {
@@ -2142,6 +2184,10 @@ const aotRoot = (doc) =>
 // Set on activation: watchers for an 'aot.files' the workspace globs cannot
 // see, because the repository root is above the folder that was opened.
 let watchAotRoot = () => {};
+
+// Set on activation: judge every open document again, for a change that
+// lives outside any of them (the formula store's parked constraints).
+let relintAll = () => {};
 
 // One 'aot.files' folder holds every table's CSV. CSVs are named plainly
 // after their Concept, so every .aot in the repo shares one folder; two
@@ -2625,15 +2671,32 @@ function runTableOp(editor, op) {
   const block = table.blockAt(lines, pos.line);
   if (!block) return;
   const cursorRow = pos.line - block.start;
-  const target = op(block, cursorRow, table.colAt(lines[pos.line], pos.character));
+  const col = table.colAt(lines[pos.line], pos.character);
+  // A selection travels as cells — its two ends' rows (clamped into the
+  // block) and columns — for the operations that act on a range, the fills;
+  // every other operation takes the cursor's cell and ignores it.
+  const sel = editor.selection;
+  const span = sel.isEmpty ? undefined : {
+    anchor: {
+      row: Math.max(0, Math.min(sel.anchor.line - block.start, block.rows.length - 1)),
+      col: table.colAt(lines[sel.anchor.line] || "", sel.anchor.character),
+    },
+    active: { row: cursorRow, col },
+  };
+  const target = op(block, cursorRow, col, span);
   if (!target) return;
   table.recompute(block, formulaRegistry(doc)); // every table keystroke recalculates, as org's TAB does
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
     const line = block.start + target.row;
-    const character = table.cellStart(block, target.col, target.row);
-    editor.selection = new vscode.Selection(line, character, line, character);
+    const character = table.cellStart(block, target.col);
+    // an operation that acted on a range hands its anchor back, so the
+    // selection it filled stays selected, as a spreadsheet's does
+    const from = target.anchor
+      ? { line: block.start + target.anchor.row, character: table.cellStart(block, target.anchor.col) }
+      : { line, character };
+    editor.selection = new vscode.Selection(from.line, from.character, line, character);
     editor.revealRange(new vscode.Range(line, character, line, character));
   });
 }
@@ -2669,7 +2732,263 @@ const tableOps = {
   "aot.table.copyRowUp": (b, r, c) => table.copyRow(b, r, c, -1),
   "aot.table.copyColumnLeft": (b, r, c) => table.copyColumn(b, r, c, -1),
   "aot.table.copyColumnRight": (b, r, c) => table.copyColumn(b, r, c, 1),
+  // the spreadsheet's own editing keys: fill down / right over the cell or
+  // the selection (Ctrl+D / Ctrl+R), the formula or the value from the cell
+  // above (Ctrl+' / Ctrl+Shift+'), and AutoSum (Alt+=)
+  "aot.table.fillDown": table.fillDown,
+  "aot.table.fillRight": table.fillRight,
+  "aot.table.copyFormulaFromAbove": table.copyFormulaFromAbove,
+  "aot.table.copyValueFromAbove": table.copyValueFromAbove,
+  "aot.table.autoSum": table.autoSum,
 };
+
+// --- the spreadsheet's movement keys ----------------------------------------
+// Ctrl+arrow and Ctrl+Home/End move the cursor as a spreadsheet does, and
+// with Shift they select; Ctrl+A takes the table before the file. Moving is
+// not editing, so nothing is redrawn: the cursor lands on the target cell's
+// text wherever it stands on its line, aligned or not.
+
+// The table at the cursor, with the cursor's row and column in it; null off
+// a table.
+function tableAtCursor(editor) {
+  const lines = editor.document.getText().split(/\r?\n/);
+  const pos = editor.selection.active;
+  const block = table.blockAt(lines, pos.line);
+  if (!block) return null;
+  return { lines, block, row: pos.line - block.start, col: table.colAt(lines[pos.line], pos.character) };
+}
+
+// Where a cell's text begins on its own line as written; a row too short to
+// have the cell ends where its line does.
+function cellPosition(here, target) {
+  const line = here.block.start + target.row;
+  const text = here.lines[line] || "";
+  const cell = table.cells(text)[target.col];
+  return { line, character: cell ? cell.col : text.length };
+}
+
+function placeCursor(editor, at, extend) {
+  const from = extend ? editor.selection.anchor : at;
+  editor.selection = new vscode.Selection(from.line, from.character, at.line, at.character);
+  editor.revealRange(new vscode.Range(at.line, at.character, at.line, at.character));
+}
+
+function moveInTable(editor, here, target, extend) {
+  placeCursor(editor, cellPosition(here, target), extend);
+}
+
+// --- the table keys in free text --------------------------------------------
+// A Concept written as lines is a grid too — its Examples the rows, its
+// attributes the columns, an Example's 'attribute: value' line a cell — so
+// every table key but Enter works there as well (src/lineform.js). The
+// aot.inGrid context says, from the text alone, when the cursor stands on
+// an Example's line or one of its values; the parse has the last word when
+// a key is pressed, and where it finds no grid after all the key does what
+// VS Code does with it, so it is never dead.
+
+// The line-form grid the cursor stands in, with the lines it was read from.
+function lineGridAt(editor) {
+  const doc = editor.document;
+  const lines = doc.getText().split(/\r?\n/);
+  try {
+    const { nodes } = parsedDoc(doc);
+    const grid = lineform.gridAt(lines, nodes, editor.selection.active.line);
+    return grid ? { lines, grid } : null;
+  } catch {
+    return null; // an unparseable document is no grid
+  }
+}
+
+// VS Code's own command for each key the table editor takes.
+const OWN_KEY = {
+  "aot.table.nextCell": "tab",
+  "aot.table.prevCell": "outdent",
+  "aot.table.moveRowUp": "editor.action.moveLinesUpAction",
+  "aot.table.moveRowDown": "editor.action.moveLinesDownAction",
+  "aot.table.copyRowUp": "editor.action.insertCursorAbove",
+  "aot.table.copyRowDown": "editor.action.insertCursorBelow",
+  "aot.table.insertRow": "editor.action.copyLinesDownAction",
+  "aot.table.deleteRow": "editor.action.copyLinesUpAction",
+  "aot.table.insertColumn": "editor.action.smartSelect.expand",
+  "aot.table.deleteColumn": "editor.action.smartSelect.shrink",
+  "aot.table.fillDown": "editor.action.addSelectionToNextFindMatch",
+  "aot.table.fillRight": "workbench.action.openRecent",
+  "aot.table.jumpUp": "scrollLineUp",
+  "aot.table.jumpDown": "scrollLineDown",
+  "aot.table.jumpLeft": "cursorWordStartLeft",
+  "aot.table.jumpRight": "cursorWordEndRight",
+  "aot.table.selectToEdgeLeft": "cursorWordStartLeftSelect",
+  "aot.table.selectToEdgeRight": "cursorWordEndRightSelect",
+  "aot.table.firstCell": "cursorTop",
+  "aot.table.lastCell": "cursorBottom",
+  "aot.table.selectToFirstCell": "cursorTopSelect",
+  "aot.table.selectToLastCell": "cursorBottomSelect",
+  "aot.table.selectTable": "editor.action.selectAll",
+};
+const ownKey = (id) => (OWN_KEY[id] ? vscode.commands.executeCommand(OWN_KEY[id]) : undefined);
+
+// The whole-line replacement that turns `lines` into the changed run
+// lineform.changedLines found — a deletion takes its line break with it.
+function lineChangeEdit(doc, lines, change) {
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const text = change.lines.join(eol);
+  if (change.to >= change.from) {
+    if (change.lines.length) return [new vscode.Range(change.from, 0, change.to, lines[change.to].length), text];
+    if (change.to + 1 < lines.length) return [new vscode.Range(change.from, 0, change.to + 1, 0), ""];
+    if (change.from > 0) {
+      return [new vscode.Range(change.from - 1, lines[change.from - 1].length, change.to, lines[change.to].length), ""];
+    }
+    return [new vscode.Range(0, 0, change.to, lines[change.to].length), ""];
+  }
+  if (change.from < lines.length) return [new vscode.Range(change.from, 0, change.from, 0), text + eol];
+  const last = lines.length - 1;
+  return [new vscode.Range(last, lines[last].length, last, lines[last].length), eol + text];
+}
+
+// The line-form values a derivation owns, computed now rather than when the
+// cursor leaves the line — as a table cell's are on every table key.
+async function recomputeLineValues(editor) {
+  const doc = editor.document;
+  let tree;
+  try { tree = lint(doc.getText(), docRootName(doc)); } catch { return; }
+  const edits = derive.recomputeValues(tree.root, tree.nodes, doc.getText().split(/\r?\n/), formulaRegistry(doc));
+  if (!edits.length) return;
+  await editor.edit((b) => {
+    for (const e of edits) b.replace(lineEditRange(doc, e), lineEditText(doc, e));
+  }, { undoStopBefore: false, undoStopAfter: true });
+}
+
+// A table key pressed in free text: the operation lineform answers, applied
+// in place as one edit, the cursor (and a filled selection) put back.
+async function runLineOp(editor, id) {
+  if (id === "aot.table.copyFormulaDown") return copyFormulaToSiblings(editor); // line form's own copy-down
+  const here = lineGridAt(editor);
+  if (!here) return ownKey(id);
+  const op = lineform.ops[id.replace("aot.table.", "")];
+  if (!op) return;
+  const sel = editor.selection;
+  const span = sel.isEmpty ? undefined : {
+    anchor: { line: sel.anchor.line, ch: sel.anchor.character },
+    active: { line: sel.active.line, ch: sel.active.character },
+  };
+  const answer = op(here.grid, span);
+  if (!answer) return;
+  const done = lineform.resolve(here.lines, answer);
+  const change = lineform.changedLines(here.lines, done.lines);
+  if (change) {
+    const [range, text] = lineChangeEdit(editor.document, here.lines, change);
+    await editor.edit((b) => b.replace(range, text));
+    await recomputeLineValues(editor);
+  }
+  if (!done.cursor) return;
+  const from = done.anchor || done.cursor;
+  editor.selection = new vscode.Selection(from.line, from.ch, done.cursor.line, done.cursor.ch);
+  editor.revealRange(new vscode.Range(done.cursor.line, done.cursor.ch, done.cursor.line, done.cursor.ch));
+}
+
+// A line-form move: the cursor to where lineform's answer puts it.
+function moveInLines(editor, here, answer, extend) {
+  const at = answer && lineform.resolve(here.lines, answer).cursor;
+  if (at) placeCursor(editor, { line: at.line, character: at.ch }, extend);
+}
+
+// Each movement key answers false when the cursor is in no grid at all, and
+// the key then does what VS Code does with it.
+
+// Ctrl+arrow (Shift: select): to the edge of the data, table.jumpCell — or,
+// in free text, lineform.jump.
+function jumpInTable(editor, dRow, dCol, extend) {
+  const here = tableAtCursor(editor);
+  if (here) {
+    const target = table.jumpCell(here.block, here.row, here.col, dRow, dCol);
+    if (target) moveInTable(editor, here, target, extend);
+    return true;
+  }
+  const lines = lineGridAt(editor);
+  if (!lines) return false;
+  moveInLines(editor, lines, lineform.jump(lines.grid, dRow, dCol), extend);
+  return true;
+}
+
+// Ctrl+Home / Ctrl+End (Shift: select): the table's corner — and from the
+// corner already, the file's, so a second press leaves the table as it
+// would leave a sheet's data. In free text, the first Example's name and
+// the last Example's last value.
+function cornerOfTable(editor, which, extend) {
+  const leave = () => {
+    const move = which === "home" ? "cursorTop" : "cursorBottom";
+    return vscode.commands.executeCommand(extend ? move + "Select" : move);
+  };
+  const here = tableAtCursor(editor);
+  if (here) {
+    const target = table.cornerCell(here.block, which);
+    if (!target || (here.row === target.row && here.col === target.col)) return leave();
+    moveInTable(editor, here, target, extend);
+    return true;
+  }
+  const lines = lineGridAt(editor);
+  if (!lines) return false;
+  const at = lineform.resolve(lines.lines, lineform.corner(lines.grid, which)).cursor;
+  if (!at || at.line === editor.selection.active.line) return leave();
+  placeCursor(editor, { line: at.line, character: at.ch }, extend);
+  return true;
+}
+
+// Ctrl+A: the table the cursor stands in — in free text, the Concept whose
+// Examples it is among — and with that already selected, the whole file: a
+// spreadsheet's current region, then everything.
+function selectTable(editor) {
+  let from, to, lines;
+  const here = tableAtCursor(editor);
+  if (here) {
+    ({ lines } = here);
+    from = here.block.start;
+    to = here.block.end;
+  } else {
+    const grid = lineGridAt(editor);
+    const span = grid && lineform.conceptSpan(grid.grid);
+    if (!span) return false;
+    ({ lines } = grid);
+    ({ from, to } = span);
+  }
+  const start = { line: from, character: 0 };
+  const end = { line: to, character: (lines[to] || "").length };
+  const sel = editor.selection;
+  const same = (a, b) => a.line === b.line && a.character === b.character;
+  if (same(sel.start, start) && same(sel.end, end)) {
+    return vscode.commands.executeCommand("editor.action.selectAll");
+  }
+  editor.selection = new vscode.Selection(start.line, start.character, end.line, end.character);
+  return true;
+}
+
+const tableMoves = {
+  "aot.table.jumpUp": (e) => jumpInTable(e, -1, 0, false),
+  "aot.table.jumpDown": (e) => jumpInTable(e, 1, 0, false),
+  "aot.table.jumpLeft": (e) => jumpInTable(e, 0, -1, false),
+  "aot.table.jumpRight": (e) => jumpInTable(e, 0, 1, false),
+  "aot.table.selectToEdgeUp": (e) => jumpInTable(e, -1, 0, true),
+  "aot.table.selectToEdgeDown": (e) => jumpInTable(e, 1, 0, true),
+  "aot.table.selectToEdgeLeft": (e) => jumpInTable(e, 0, -1, true),
+  "aot.table.selectToEdgeRight": (e) => jumpInTable(e, 0, 1, true),
+  "aot.table.firstCell": (e) => cornerOfTable(e, "home", false),
+  "aot.table.lastCell": (e) => cornerOfTable(e, "end", false),
+  "aot.table.selectToFirstCell": (e) => cornerOfTable(e, "home", true),
+  "aot.table.selectToLastCell": (e) => cornerOfTable(e, "end", true),
+  "aot.table.selectTable": selectTable,
+};
+
+// Ctrl+; / Ctrl+Shift+;: today's date, or the time now, at every cursor.
+// The date is written YYYY-MM-DD, the one form every reader of a value — a
+// formula's comparison, a date constraint, the CSV mirror — takes as a date.
+function insertNow(editor, what) {
+  const now = new Date();
+  const two = (n) => String(n).padStart(2, "0");
+  const text = what === "date"
+    ? `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`
+    : `${two(now.getHours())}:${two(now.getMinutes())}`;
+  return editor.edit((b) => { for (const s of editor.selections) b.replace(s, text); });
+}
 
 // Turn the selected delimited lines (CSV, TSV, or multi-space columns) into
 // an aligned table, org's C-c |: the first line is the header.
@@ -2690,12 +3009,20 @@ function fromSelection(editor) {
 // The cursor sits in a table when its line is a row: one divider is all a
 // row has left to show for itself, and a separator rule counts too — even
 // the half-typed '--' that Tab completes.
+//
+// Free text is a grid too, so aot.inGrid is set on an Example's '- ' line
+// and on its value lines as well — every table key but Enter works there
+// (src/lineform.js). A bare attribute line is neither, so Tab still indents
+// it. Decided from the text alone: this runs on every cursor move.
 function updateTableContext() {
   const editor = vscode.window.activeTextEditor;
-  const inTable = !!(editor && editor.document.languageId === "aot"
-    && editor.selection.active.line < editor.document.lineCount
-    && table.isRowText(editor.document.lineAt(editor.selection.active.line).text));
+  const doc = editor && editor.document;
+  const line = editor ? editor.selection.active.line : -1;
+  const ok = !!(doc && doc.languageId === "aot" && line >= 0 && line < doc.lineCount);
+  const inTable = ok && table.isRowText(doc.lineAt(line).text);
+  const inGrid = inTable || (ok && lineform.looksLikeCell((i) => doc.lineAt(i).text, line));
   vscode.commands.executeCommand("setContext", "aot.inTable", inTable);
+  vscode.commands.executeCommand("setContext", "aot.inGrid", inGrid);
 }
 
 // --- keeping your place in a wide or long table -----------------------------
@@ -3069,7 +3396,8 @@ function activate(context) {
     state.timer = setTimeout(() => releaseHold(doc), LONE_GRACE_MS);
   };
 
-  vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
+  relintAll = () => vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
+  relintAll();
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((doc) => refresh(diagnostics, decorationTypes, doc)),
     vscode.workspace.onDidChangeTextDocument((event) => {
@@ -3139,7 +3467,7 @@ function activate(context) {
     }),
     // the Quick Fix that accepts a hinted word into aot.acceptedWords
     vscode.languages.registerCodeActionsProvider({ language: "aot" }, codeActionProvider, {
-      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix, vscode.CodeActionKind.RefactorRewrite],
     }),
     vscode.commands.registerCommand("aot.acceptWord", acceptWord),
     // the two lightbulbs on a synonym warning: fold one name into the other,
@@ -3212,8 +3540,21 @@ function activate(context) {
           return vscode.commands.executeCommand(
             dir > 0 ? "editor.action.indentLines" : "editor.action.outdentLines");
         }
-        return runTableOp(editor, op);
+        // a table row takes the table's operation; anywhere else the same key
+        // works on the Concept's Examples written as lines
+        const line = editor.selection.active.line;
+        if (line < editor.document.lineCount && table.isRowText(editor.document.lineAt(line).text)) {
+          return runTableOp(editor, op);
+        }
+        return runLineOp(editor, id);
       })),
+    // the spreadsheet's movement keys, which move the cursor and edit nothing;
+    // in no grid at all, a key does what VS Code does with it
+    ...Object.entries(tableMoves).map(([id, move]) => vscode.commands.registerTextEditorCommand(id, (editor) => {
+      if (move(editor) === false) return ownKey(id);
+    })),
+    vscode.commands.registerTextEditorCommand("aot.insertDate", (editor) => insertNow(editor, "date")),
+    vscode.commands.registerTextEditorCommand("aot.insertTime", (editor) => insertNow(editor, "time")),
     vscode.commands.registerTextEditorCommand("aot.table.fromSelection", fromSelection),
     // the formula commands: whole-document recompute, and the copy-downs
     vscode.commands.registerTextEditorCommand("aot.recomputeFormulas", recomputeFormulas),
@@ -3307,6 +3648,8 @@ function activate(context) {
   const parkWatcher = vscode.workspace.createFileSystemWatcher("**/aot.files/*.formulas");
   const onParkFsEvent = (uri) => {
     parkCache.delete(uri.fsPath);
+    // the store's constraints bound the values, so the findings follow it too
+    relintAll();
     for (const editor of vscode.window.visibleTextEditors) decorate(editor, decorationTypes);
   };
   parkWatcher.onDidChange(onParkFsEvent);

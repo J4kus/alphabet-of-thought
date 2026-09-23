@@ -23,6 +23,7 @@ const armstrong = require("./src/armstrong");
 const table = require("./src/table");
 const derive = require("./src/derive");
 const repo = require("./src/repo");
+const park = require("./src/park");
 
 // past this many Examples the lattice is no longer cheap; matches the extension
 const MAX_FCA_OBJECTS = 200;
@@ -86,6 +87,25 @@ function buildFormulaRegistry(targetFile, targetText, targetRoot) {
     own.push(derive.conceptRegistry(root, nodes));
   } catch { /* as above */ }
   return table.mergeRegistries(...concepts, ...own);
+}
+
+// The repo's shared aot.files, found as the editor finds it: at the
+// repository root above the file, or — for a file in no repository — where
+// the CLI runs, the workspace root's stand-in.
+function aotFilesDirOf(file) {
+  let dir = path.resolve(path.dirname(file));
+  for (;;) {
+    if (fs.existsSync(path.join(dir, ".git"))) return path.join(dir, "aot.files");
+    const up = path.dirname(dir);
+    if (up === dir) return path.resolve("aot.files");
+    dir = up;
+  }
+}
+
+// A file's text, or "" when there is none — for the optional stores in
+// aot.files, whose absence is an ordinary state, never an error.
+function readOptional(f) {
+  try { return fs.readFileSync(f, "utf-8"); } catch { return ""; }
 }
 
 // Read a file or exit with a message instead of a stack trace.
@@ -198,6 +218,11 @@ function main() {
   const rootName = path.basename(file).replace(/\.[^.]*$/, "");
   const text = readFile(file);
   const { root, nodes, errors, warnings, subsumption } = lint(text, rootName);
+  // the constraints parked out of the file into aot.files, read exactly as
+  // the editor reads them: they still bound the file's values
+  const filesDir = aotFilesDirOf(file);
+  const parkedStore = path.join(filesDir, path.basename(file).replace(/\.aot$/i, "") + ".formulas");
+  const parkedCons = park.parkedConstraints(nodes, rootName, park.parse(readOptional(parkedStore)));
 
   let i;
   if ((i = args.indexOf("--ask")) !== -1) {
@@ -362,7 +387,7 @@ function main() {
   const formulaErrors = [], formulaWarnings = [];
   const textLines = text.split(/\r?\n/);
   const registry = buildFormulaRegistry(file, text, rootName);
-  for (const f of [...table.formulas(textLines, registry, rootName), ...derive.auditValues(root, nodes, textLines, registry)]) {
+  for (const f of [...table.formulas(textLines, registry, rootName), ...derive.auditValues(root, nodes, textLines, registry, parkedCons)]) {
     if (f.error) formulaErrors.push({ line: f.line, message: f.message });
     else if (f.stale || f.warning) formulaWarnings.push({ line: f.line, message: f.message });
   }

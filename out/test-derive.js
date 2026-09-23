@@ -1184,5 +1184,42 @@ const parsed = (text) => {
     (gridOfConcept(gLines, known, "Sheet") || {}).start === 0);
 }
 
+// ---------------------------------------------------------------------------
+// parked constraints still bound the values (park.parkedConstraints)
+// ---------------------------------------------------------------------------
+{
+  const park = require("../src/park");
+  const lines = [
+    "Person",
+    "    age >=18",
+    "    - Ann",
+    "        age: 12",
+    "",
+    "Invoice|price|vat ==@price*0.2|qty >=@nope",
+    "INV-1|100|25|2",
+  ];
+  const before = lint(lines.join("\n"), "Sheet");
+  const written = auditValues(before.root, before.nodes, lines).filter((f) => f.message);
+  const out = park.park(lines, before.nodes, "Sheet");
+  const after = lint(out.lines.join("\n"), "Sheet");
+  const held = park.parkedConstraints(after.nodes, "Sheet", out.parked);
+  const parked = auditValues(after.root, after.nodes, out.lines, undefined, held).filter((f) => f.message);
+  check("parked: without the store, a parked file's bounds hold nothing",
+    auditValues(after.root, after.nodes, out.lines).filter((f) => f.message).length === 0);
+  check("parked: a bound still flags the value that breaks it",
+    parked.some((f) => f.warning && f.line === 4 && /violates parked 'age >= 18'/.test(f.message)));
+  check("parked: a stale value under a parked definition says how to recompute it",
+    parked.some((f) => f.warning && f.line === 7 && /parked definition 'vat ==@price\*0\.2'/.test(f.message)
+      && /put the formulas back/.test(f.message)));
+  const broken = parked.find((f) => f.error);
+  check("parked: a bound that cannot compute is an error on the declaration's name",
+    broken && broken.line === 6 && out.lines[5].slice(broken.startCol, broken.endCol) === "qty"
+    && /parked constraint '>=@nope' on 'qty'/.test(broken.message));
+  check("parked: the same findings as when the constraints were written",
+    written.length === parked.length && written.filter((f) => f.error).length === parked.filter((f) => f.error).length);
+  check("parked: a parked '==' leaves its values frozen, never recomputed",
+    recomputeValues(after.root, after.nodes, out.lines).length === 0);
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

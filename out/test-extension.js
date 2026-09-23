@@ -27,7 +27,7 @@ const vscode = {
   MarkdownString: class { constructor() { this.value = ""; } appendMarkdown(s) { this.value += s; return this; } },
   Hover: class { constructor(contents, range) { Object.assign(this, { contents, range }); } },
   CodeAction: class { constructor(title, kind) { Object.assign(this, { title, kind }); } },
-  CodeActionKind: { QuickFix: "quickfix" },
+  CodeActionKind: { QuickFix: "quickfix", RefactorRewrite: "refactor.rewrite" },
   SymbolKind: { Class: 4, Property: 6, Field: 7, Constant: 13, Variable: 12 },
   DocumentSymbol: class {
     constructor(name, detail, kind, range, selectionRange) {
@@ -261,6 +261,14 @@ console.log(errorsD.length === 0 && advisoryOnly
     "    - Bin 4",
     "        sku: Q",
     "        name: Gadget",
+    // the bins differ by name, so they are four bins; the clash is one
+    // Example written twice, name and all
+    "Left",
+    "    - Twin",
+    "        mood: calm",
+    "Right",
+    "    - Twin",
+    "        mood: calm",
   ].join("\n");
   // dependency squiggles are opt-in since 1.2.0 (correlated attributes are
   // allowed), so the on-case flips the setting first
@@ -656,8 +664,8 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[1] === "    Ollie|5"
       && editor.selection.active.line === 2 && editor.selection.active.character === 10;
-    console.log(ok && registeredCommands.size === 33
-      ? "PASS (table editor: 33 commands; Tab aligns and moves to the next cell)"
+    console.log(ok && registeredCommands.size === 53
+      ? "PASS (table editor: 53 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -1332,6 +1340,156 @@ if (process.platform === "win32" || process.platform === "darwin") {
     : "UNEXPECTED distinctConcepts " + JSON.stringify(configStore.distinctConcepts));
   delete configStore.distinctConcepts;
 }
+
+// 7d2) an Example's name is part of what it is: two ledger rows carrying
+// the same values are two payments, not a clash. And the flip between a
+// table and free text is on the lightbulb, no chord needed.
+{
+  const text = ["Payment|amount|payee", "P1     |100   |Shop", "P2     |100   |Shop"].join("\n");
+  const doc = makeDoc("c:\\repo\\Books.aot", text);
+  vscode.workspace._open(doc);
+  const diags = published.get(doc.uri.toString()) || [];
+  console.log(!diags.some((d) => /^clash: /.test(d.message))
+    ? "PASS (name identity: differently named Examples with one content do not clash)"
+    : "UNEXPECTED ledger clash " + JSON.stringify(diags.map((d) => d.message)));
+  const flip = codeActionsProvider.provideCodeActions(doc, new vscode.Range(1, 2, 1, 2), { diagnostics: [] })
+    .find((f) => f.command && f.command.command === "aot.toggleTableForm");
+  console.log(flip && /Flip 'Payment' between table and free text/.test(flip.title) && flip.kind === "refactor.rewrite"
+    ? "PASS (flip: the lightbulb offers the flip, no chord needed)"
+    : "UNEXPECTED flip action " + JSON.stringify(flip && flip.title));
+}
+
+// 7d3) the spreadsheet's movement keys move the cursor and edit nothing;
+// Ctrl+A takes the table first; Ctrl+; writes today's date
+(async () => {
+  const lines = [
+    "Otter |size|colour",
+    "Ollie |5   |brown",
+    "Pebble|    |grey",
+    "Pup   |3   |",
+  ];
+  const doc = makeDoc("c:\\repo\\Keys.aot", lines.join("\n"));
+  let edited = 0;
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(1, 7, 1, 7), // in Ollie's size
+    edit: () => { edited++; return Promise.resolve(true); },
+    revealRange: () => {},
+  };
+  registeredCommands.get("aot.table.jumpDown")(editor);
+  const jumped = editor.selection.active.line === 3 && editor.selection.active.character === 7;
+  registeredCommands.get("aot.table.selectToEdgeUp")(editor);
+  const selected = editor.selection.anchor.line === 3 && editor.selection.active.line === 1;
+  registeredCommands.get("aot.table.lastCell")(editor);
+  const last = editor.selection.active.line === 3 && editor.selection.isEmpty;
+  vscode.commands._calls.length = 0;
+  registeredCommands.get("aot.table.lastCell")(editor);
+  const leaves = vscode.commands._calls.some((c) => c[0] === "cursorBottom");
+  console.log(jumped && selected && last && leaves && edited === 0
+    ? "PASS (spreadsheet keys: Ctrl+arrow jumps, Shift selects, Ctrl+End twice leaves the table — no edit)"
+    : "UNEXPECTED spreadsheet moves " + JSON.stringify({ jumped, selected, last, leaves, edited, sel: editor.selection.a }));
+
+  registeredCommands.get("aot.table.selectTable")(editor);
+  const table1 = editor.selection.start.line === 0 && editor.selection.end.line === 3;
+  vscode.commands._calls.length = 0;
+  registeredCommands.get("aot.table.selectTable")(editor);
+  const all = vscode.commands._calls.some((c) => c[0] === "editor.action.selectAll");
+  console.log(table1 && all
+    ? "PASS (spreadsheet keys: Ctrl+A selects the table, then the file)"
+    : "UNEXPECTED select table " + JSON.stringify({ table1, all, sel: editor.selection.a }));
+
+  let inserted = null;
+  const dated = {
+    document: doc,
+    selections: [new vscode.Selection(0, 0, 0, 0)],
+    edit: (cb) => { cb({ replace: (range, t) => { inserted = t; } }); return Promise.resolve(true); },
+  };
+  await registeredCommands.get("aot.insertDate")(dated);
+  console.log(/^\d{4}-\d{2}-\d{2}$/.test(inserted || "")
+    ? "PASS (spreadsheet keys: Ctrl+; writes today's date as YYYY-MM-DD)"
+    : "UNEXPECTED date " + JSON.stringify(inserted));
+})();
+
+// 7d4) the table keys in free text: an Example's lines are a row, its values
+// the cells — Tab walks them, Ctrl+D fills a value down, Alt+= sums and
+// computes at once, Alt+↓ moves the whole Example; on a bare attribute line
+// the key is VS Code's own again
+(async () => {
+  let lines = [
+    "Person",
+    "    age",
+    "    - Ann",
+    "        age: 30",
+    "        city: Paris",
+    "    - Bob",
+    "        age: 12",
+    "        city: Rome",
+  ];
+  const doc = makeDoc("c:\\repo\\Lines.aot", lines.join("\n"));
+  doc.eol = vscode.EndOfLine.LF;
+  doc.getText = () => lines.join("\n");
+  doc.lineAt = (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] });
+  Object.defineProperty(doc, "lineCount", { get: () => lines.length });
+  const offset = (l, c) => lines.slice(0, l).reduce((n, s) => n + s.length + 1, 0) + c;
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(2, 6, 2, 6), // on '- Ann'
+    edit: (cb) => {
+      cb({ replace: (range, t) => {
+        const [sl, sc, el, ec] = range.a;
+        const text = lines.join("\n");
+        lines = (text.slice(0, offset(sl, sc)) + t + text.slice(offset(el, ec))).split("\n");
+      } });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {},
+    setDecorations: () => {},
+  };
+  const active = vscode.window.activeTextEditor;
+  vscode.window.activeTextEditor = editor;
+  const gridContext = () => {
+    vscode.commands._calls.length = 0;
+    vscode.window._selectionChanged({ textEditor: editor, selections: [editor.selection] });
+    const set = vscode.commands._calls.find((c) => c[0] === "setContext" && c[1] === "aot.inGrid");
+    return set && set[2];
+  };
+  const onExample = gridContext() === true;
+  editor.selection = new vscode.Selection(1, 4, 1, 4); // the bare 'age' declaration
+  const onDeclaration = gridContext() === false;
+  console.log(onExample && onDeclaration
+    ? "PASS (free text: an Example's line takes the table keys; a bare attribute line does not)"
+    : "UNEXPECTED grid context " + JSON.stringify({ onExample, onDeclaration }));
+
+  editor.selection = new vscode.Selection(2, 6, 2, 6);
+  await registeredCommands.get("aot.table.nextCell")(editor);
+  const tabbed = editor.selection.active.line === 3 && editor.selection.active.character === 13;
+  editor.selection = new vscode.Selection(1, 4, 1, 4);
+  vscode.commands._calls.length = 0;
+  await registeredCommands.get("aot.table.nextCell")(editor);
+  const ownTab = vscode.commands._calls.some((c) => c[0] === "tab");
+  console.log(tabbed && ownTab
+    ? "PASS (free text: Tab walks from an Example's name to its value; on an attribute it is VS Code's own Tab)"
+    : "UNEXPECTED free-text Tab " + JSON.stringify({ tabbed, ownTab, sel: editor.selection.a }));
+
+  editor.selection = new vscode.Selection(7, 14, 7, 14); // Bob's city
+  await registeredCommands.get("aot.table.fillDown")(editor);
+  const filled = lines[7] === "        city: Paris" && lines.length === 8;
+  editor.selection = new vscode.Selection(6, 13, 6, 13); // Bob's age
+  await registeredCommands.get("aot.table.autoSum")(editor);
+  const summed = lines[6] === "        age: 30 =sum(@age)";
+  console.log(filled && summed
+    ? "PASS (free text: Ctrl+D fills from the Example above; Alt+= sums its siblings and computes at once)"
+    : "UNEXPECTED free-text fill " + JSON.stringify(lines));
+
+  editor.selection = new vscode.Selection(3, 13, 3, 13); // Ann's age
+  await registeredCommands.get("aot.table.moveRowDown")(editor);
+  const moved = lines.slice(2).join("|")
+    === "    - Bob|        age: 30 =sum(@age)|        city: Paris|    - Ann|        age: 30|        city: Paris";
+  console.log(moved && editor.selection.active.line === 6
+    ? "PASS (free text: Alt+↓ moves the whole Example, the cursor with it)"
+    : "UNEXPECTED free-text move " + JSON.stringify({ lines, sel: editor.selection.a }));
+  vscode.window.activeTextEditor = active;
+})();
 
 // 7e) keeping your place in a long or wide table: the outline makes the
 // header line the parent of its rows (which is what sticky scroll pins),

@@ -1,9 +1,11 @@
 // Unit tests for parking derivations out of the data (src/park.js): the
-// addresses, the round trip through both notations, what deliberately stays,
-// and the store's own format.
+// addresses, the round trip through both notations, the constraints that
+// park with the derivations and still hold, and the store's own format.
 //
 // Plain Node script, no framework — run with: node out/test-park.js
-const { park, unpark, parkedSpans, addressOf, nodeAt, serialise, parse } = require("../src/park");
+const {
+  park, unpark, parkedSpans, parkedConstraints, isConstraintEntry, addressOf, nodeAt, serialise, parse,
+} = require("../src/park");
 const { lint, KIND } = require("../src/linter");
 
 let failures = 0;
@@ -97,12 +99,12 @@ const parsed = (lines, rootName) => {
 }
 
 // ---------------------------------------------------------------------------
-// what stays: bounds are rules about values, not recipes for one
+// constraints park with the derivations — and are still enforced
 // ---------------------------------------------------------------------------
 {
   const lines = [
     "Person",
-    "    age >=18",
+    "    age (years) >=18 <=65",
     "    status ==or(`draft`,`sent`)",
     "    - Socrates",
     "        age: 70",
@@ -110,10 +112,65 @@ const parsed = (lines, rootName) => {
   ];
   const { nodes } = parsed(lines);
   const out = park(lines, nodes, "Sheet");
-  check("park: a bound on an attribute declaration never parks",
-    out.parked.length === 0 && out.lines.join("\n") === lines.join("\n"));
+  check("park: a bare declaration's chained bounds leave its line, alias kept",
+    out.lines[1] === "    age (years)" && out.lines[2] === "    status");
+  check("park: each declaration's chain is stored whole, under the declaration's address",
+    out.parked.length === 2
+    && out.parked[0].address === "@Person@age" && out.parked[0].formula === ">=18 <=65"
+    && out.parked[1].address === "@Person@status" && out.parked[1].formula === "==or(`draft`,`sent`)");
   check("park: an escaped '=' is a value, not a derivation",
     out.lines[5] === "        note: a \\= b");
+  const after = parsed(out.lines);
+  const back = unpark(out.lines, after.nodes, "Sheet", out.parked);
+  check("unpark: the bounds come home exactly as they were written",
+    back.lines.join("\n") === lines.join("\n") && back.missing.length === 0);
+  const held = parkedConstraints(after.nodes, "Sheet", out.parked);
+  const age = [...held.keys()].find((n) => n.name === "age");
+  check("parkedConstraints: a parked chain is handed back to its declaration",
+    held.size === 2 && age && held.get(age).length === 2
+    && held.get(age)[0].op === ">=" && held.get(age)[1].formula === "65");
+  const spans = parkedSpans(out.lines, after.nodes, "Sheet", out.parked);
+  check("spans: a parked constraint marks the name it was written on",
+    spans.length === 2 && spans[0].constraint
+    && out.lines[1].slice(spans[0].startCol, spans[0].endCol) === "age (years)");
+  check("isConstraintEntry: an operator opens a constraint, one '=' a derivation",
+    isConstraintEntry(">=1") && isConstraintEntry("==@a") && isConstraintEntry("<2")
+    && !isConstraintEntry("=@a") && !isConstraintEntry("=1"));
+}
+{
+  // a constrained grid column: the header cell sheds its bound, and the
+  // derivations under it are addressed by the column's bare name
+  const lines = [
+    "Invoice|price|vat ==@price*0.2|qty >=1",
+    "INV-1  |100  |20 =@price/5    |2",
+  ];
+  const { nodes } = parsed(lines);
+  const out = park(lines, nodes, "Sheet");
+  check("park: a header cell sheds its constraint, the column keeps its name",
+    out.lines[0].split("|").map((c) => c.trim()).join("|") === "Invoice|price|vat|qty");
+  check("park: a cell's derivation is addressed by the column's bare name",
+    out.parked.some((p) => p.address === "@Invoice@vat@INV-1" && p.formula === "=@price/5")
+    && out.parked.some((p) => p.address === "@Invoice@vat" && p.formula === "==@price*0.2")
+    && out.parked.some((p) => p.address === "@Invoice@qty" && p.formula === ">=1"));
+  const back = unpark(out.lines, parsed(out.lines).nodes, "Sheet", out.parked);
+  const norm = (ls) => ls.map((l) => l.split("|").map((c) => c.trim()).join("|")).join("\n");
+  check("unpark: the header's constraints and the cell's derivation all come home",
+    norm(back.lines) === norm(lines) && back.missing.length === 0);
+  // a store written before constraints parked addressed the cell by the
+  // column's name WITH its constraint; it still comes home
+  const legacy = unpark(lines.map((l, i) => (i === 1 ? "INV-1|100|20|2" : l)),
+    parsed(lines).nodes, "Sheet", [{ address: "@Invoice@vat ==@price*0.2@INV-1", formula: "=@price/5" }]);
+  check("unpark: a legacy address carrying the column's constraint still resolves",
+    legacy.missing.length === 0 && legacy.lines[1].includes("20 =@price/5"));
+}
+{
+  // a renamed declaration keeps its constraint in the store
+  const lines = ["Person", "    age >=18", "    - Ann", "        age: 30"];
+  const out = park(lines, parsed(lines).nodes, "Sheet");
+  const renamed = out.lines.map((l) => l.replace("    age", "    years").replace("        years", "        years"));
+  const back = unpark(renamed, parsed(renamed).nodes, "Sheet", out.parked);
+  check("unpark: a constraint whose declaration was renamed is reported missing",
+    back.missing.length === 1 && back.missing[0] === "@Person@age");
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +243,7 @@ const parsed = (lines, rootName) => {
 {
   const text = serialise([{ address: "@Invoice@vat@INV-1", formula: "=@price*0.2" }]);
   check("store: the notice leads, then one line per derivation",
-    text.startsWith("// Derivations parked") && text.includes("@Invoice@vat@INV-1: =@price*0.2"));
+    text.startsWith("// Derivations and constraints parked") && text.includes("@Invoice@vat@INV-1: =@price*0.2"));
   const read = parse(text);
   check("store: it reads back exactly what was written",
     read.length === 1 && read[0].address === "@Invoice@vat@INV-1" && read[0].formula === "=@price*0.2");

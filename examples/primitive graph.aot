@@ -27,23 +27,60 @@
                 second node
     Record
         attribute: value
+        direct lookup: 10 =@Person@Aristotle@age
+
 - Example
 
-    Repository   |path
-    Source code  |src/
-    Configuration|config/
-    Tests        |tests/
+    Repository
+        path
+        - Source code
+            path: src/
+        - Configuration
+            path: config/
+        - Tests
+            path: tests/
 
-    Employee
-        Employee|role              |department |team    |person |reports to
-        Alice   |Developer         |Engineering|Backend |       |
-        Bob     |Tester            |Engineering|Backend |       |
-        Charlie |Designer          |Engineering|Frontend|       |
-        Dave    |Writer            |Marketing  |Content |       |
-        1       |                  |           |        |Estiaan|Tobie
-        2       |                  |           |        |Jakus  |Estiaan
-        3       |                  |           |        |Wesley |Jakus
-        4       |Principal Engineer|           |        |Rehan  |Estiaan
-        5       |                  |           |        |Tobie  |
-
+    Person      | |age          |is alive
+    Aristotle   | |10           |No
+    Socrates    | |20           |No
+    Sophroniscus| |30 =sum(@age)|No
+    Bob         | |             |Yes
+    Charlie     | |             |Yes
+    Dave        | |             |Yes
     
+    
+    sum if test: 60 =sumifs(@Person@age,@Person@is alive,`No`)
+
+
+
+
+    Employee |person   |department |team     |reports to (employee)|
+    Developer|Socrates |Engineering|Back-end |CEO                  |
+    Tester   |Bob      |Engineering|Back-end |CEO                  |
+    Designer |Charlie  |Engineering|Front-end|CEO                  |
+    Writer   |Dave     |Marketing  |Content  |CEO                  |
+    CEO      |Aristotle|Exco       |Exco     |                     |
+
+    Life Event|beneficiary (person)
+   
+        Birth          |father (person)|mother (person)|birth place (city)|beneficiary (person)
+        Socrates Birth |Sophroniscus   |               |Athens            |Socrates
+        Aristotle Birth|...            |               |Pella             |Aristotle
+        
+        Residence         |resident (person)|city  |time
+        Socrates Residency|Socrates         |Athens|Bronze age Greece
+
+        Known For      |beneficiary (person)|description
+        Socratic Method|Socrates            |Teaching through a back-and-forth series of questions rather than lecturing.
+        Ignorance      |Socrates            |Admitting his own lack of knowledge to spark true wisdom, famously saying "I know that I know nothing".
+        Ethics         |Socrates            |Shifting focus away from the physical universe and toward human virtue and how to live a good life.
+
+    City         |residents known as
+    Athens       |Athenians
+    George       |
+    San Francisco|
+    Macedonia    |
+    Pella        |
+
+    Occupation |
+    Philosopher|

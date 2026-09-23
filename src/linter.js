@@ -235,10 +235,10 @@ function parse(text, rootName, report) {
         } else if (sameAsParent) {
           owner = parent; // the table fills in the line it is filed under
         } else if (cName[0] >= "a" && cName[0] <= "z") {
-          // a colon in the cell says this was meant as a line-form value: one
-          // pipe is all it takes to be a row now, so the value's own pipe is
-          // what turned it into one
-          report.error(line, `the first header cell '${cName}' is lowercase — it names the Concept the table describes (the old 'name' label was dropped in 1.9); write the Concept's name there, capitalised${cName.includes(":") ? `. If this is a value rather than a table, its '|' is what made it a row — write a literal pipe as the broken bar '¦'` : ""}`,
+          // (a 'name: value' line whose value holds a pipe never reaches
+          // here: the colon before its first pipe keeps it a line —
+          // table.isRowText)
+          report.error(line, `the first header cell '${cName}' is lowercase — it names the Concept the table describes (the old 'name' label was dropped in 1.9); write the Concept's name there, capitalised`,
             { startCol: row[0].col, endCol: row[0].col + row[0].text.length });
         } else {
           const concept = {

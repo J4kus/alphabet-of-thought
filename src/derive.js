@@ -283,13 +283,23 @@ function spanOf(lines, node) {
 // on a Concept holds for its Examples, its table's columns hold their
 // cells, everything deeper inherits it, and a nearer declaration shadows
 // an outer one.
-function constraintOf(d) {
+//
+// `parked` (optional) is park.parkedConstraints' Map of declaration ->
+// [{ op, formula }]: a constraint taken off its declaration into the store
+// still bounds the values, so a declaration it names counts as constrained.
+// Answers { a, constraints } — the declaration and the chain that holds,
+// written clauses first — or null.
+function constraintOf(d, parked) {
   const keys = [d.name.toLowerCase()];
   if (d.alias) keys.push(d.alias.toLowerCase());
   for (let p = d.parent; p; p = p.parent) {
     for (const c of p.children) {
-      if (c.kind !== KIND.ATTRIBUTE || !c.constraints) continue;
-      if (keys.includes(c.name.toLowerCase()) || (c.alias && keys.includes(c.alias.toLowerCase()))) return c;
+      if (c.kind !== KIND.ATTRIBUTE) continue;
+      const hidden = parked && parked.get(c);
+      if (!c.constraints && !hidden) continue;
+      if (keys.includes(c.name.toLowerCase()) || (c.alias && keys.includes(c.alias.toLowerCase()))) {
+        return { a: c, constraints: [...(c.constraints || []), ...(hidden || [])] };
+      }
     }
   }
   return null;
@@ -327,7 +337,12 @@ function valueSpanOf(lines, d) {
 // violation pinned to the value itself as a **warning** — a breached
 // constraint is worth knowing, not a broken file, so it never counts in V
 // (paint: false — a plain value is not derivation text).
-function auditValues(root, nodes, lines, registry) {
+//
+// `parked` (optional) is park.parkedConstraints' Map: constraints taken off
+// their declarations into the formula store, which bound the values exactly
+// as the written ones do. They have no text to colour, so a parked bound
+// that cannot compute is pinned to the declaration's name instead.
+function auditValues(root, nodes, lines, registry, parked) {
   const out = [];
   const current = (n) => n.value || "";
   for (const d of hostsOf(nodes)) {
@@ -351,7 +366,7 @@ function auditValues(root, nodes, lines, registry) {
   // the constraints: one coloured span per bound (a declaration may chain
   // several), one check per value per bound
   const constrained = nodes.filter((n) => n.kind === KIND.ATTRIBUTE && n.constraints);
-  if (!constrained.length) return out;
+  if (!constrained.length && !(parked && parked.size)) return out;
   const declared = new Map(); // constraint -> its pushed span
   for (const a of constrained) {
     a.constraints.forEach((con, k) => {
@@ -361,15 +376,29 @@ function auditValues(root, nodes, lines, registry) {
       out.push(span);
     });
   }
+  // a parked clause has no text of its own: its error, when it has one,
+  // stands on the name of the declaration it was taken from
+  for (const [a, chain] of parked || []) {
+    const raw = lines[a.line - 1] || "";
+    const startCol = a.nameCol !== undefined ? a.nameCol : raw.length - raw.trimStart().length;
+    for (const con of chain) {
+      declared.set(con, {
+        line: a.line, startCol, endCol: startCol + a.name.length, op: con.op, formula: con.formula,
+        paint: false, parked: true,
+      });
+    }
+  }
   const violation = (d, message) => {
     const at = valueSpanOf(lines, d) || { startCol: 0, endCol: (lines[d.line - 1] || "").length };
     out.push({ line: d.line, startCol: at.startCol, endCol: at.endCol, paint: false, warning: true, message });
   };
   for (const d of nodes) {
     if (d.kind !== KIND.DEFAULT || !d.value) continue;
-    const a = constraintOf(d);
-    if (!a) continue;
-    for (const con of a.constraints) {
+    const held = constraintOf(d, parked);
+    if (!held) continue;
+    const a = held.a;
+    for (const con of held.constraints) {
+      const hidden = !!(declared.get(con) || {}).parked;
       // the bound: the value must satisfy each comparison in the chain
       let bound;
       try {
@@ -379,7 +408,8 @@ function auditValues(root, nodes, lines, registry) {
         const span = declared.get(con);
         if (span && !span.error) {
           span.error = true;
-          span.message = `constraint '${con.op}${con.formula}' on '${a.name}' does not compute — ${e.message}`;
+          span.message = `${hidden ? "parked " : ""}constraint '${con.op}${con.formula}' on '${a.name}' does not compute — ${e.message}`;
+          if (hidden) out.push(span);
         }
         continue;
       }
@@ -391,12 +421,14 @@ function auditValues(root, nodes, lines, registry) {
         let computed;
         try { computed = formatValue(bound, d.value); } catch { continue; }
         if (computed !== d.value) {
-          violation(d, `value '${d.value}' does not match its definition '${a.name} ==${con.formula}' (= ${computed}, line ${a.line}) — it recomputes when the cursor leaves the line, or on save`);
+          violation(d, hidden
+            ? `value '${d.value}' does not match its parked definition '${a.name} ==${con.formula}' (= ${computed}, line ${a.line}) — put the formulas back (Ctrl+Shift+\`) to recompute it`
+            : `value '${d.value}' does not match its definition '${a.name} ==${con.formula}' (= ${computed}, line ${a.line}) — it recomputes when the cursor leaves the line, or on save`);
         }
         continue;
       }
       if (!compareValues(con.op, d.value, bound)) {
-        violation(d, `value '${d.value}' violates '${a.name} ${con.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
+        violation(d, `value '${d.value}' violates ${hidden ? "parked " : ""}'${a.name} ${con.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
       }
     }
   }
@@ -458,7 +490,10 @@ function recomputeValues(root, nodes, lines, registry) {
   const defined = [];
   for (const d of nodes) {
     if (d.kind !== KIND.DEFAULT || d.cell || d.formula !== undefined) continue;
-    const formula = definitionOf(constraintOf(d));
+    // written declarations only: a parked '==' leaves its values frozen,
+    // exactly as a parked '=' does
+    const held = constraintOf(d);
+    const formula = definitionOf(held && held.a);
     if (formula) defined.push({ d, formula });
   }
   const values = new Map();
