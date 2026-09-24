@@ -436,6 +436,14 @@ function addExample(root, nodes, lines, concept, value, rootName, registry) {
 // in **descending line order**, so no edit shifts the lines under another.
 // At most one op ever targets a given line, so that order is all a caller
 // has to get right.
+// A value as the file writes it: an `=` that would open a derivation
+// escaped, `\=` — the reader never sees the backslash (readValue).
+const asWritten = (v) => String(v == null ? "" : v).replace(/(^|\s)=(?!=)/g, "$1\\=");
+// Two spellings of one value: escaped or not, and a pipe or the broken bar
+// the mirror bends one to — so a round trip through a CSV rewrites nothing.
+const sameValue = (a, b) =>
+  readValue(String(a == null ? "" : a)).replace(/¦/g, "|") === readValue(String(b == null ? "" : b)).replace(/¦/g, "|");
+
 function updateExamples(lines, concept, header, rows) {
   const attrs = header.slice(1);
   const indent = " ".repeat(INDENT * (concept.depth + 1));
@@ -465,7 +473,7 @@ function updateExamples(lines, concept, header, rows) {
         (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
         && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key)));
       if (!hit) { missing.push(childIndent + `${a}: ${v}`); return; }
-      if (hit.formula !== undefined || hit.value === v) return;
+      if (hit.formula !== undefined || sameValue(hit.value, v)) return;
       const raw = lines[hit.line - 1] || "";
       const colon = raw.indexOf(":");
       if (colon === -1) return;
@@ -712,7 +720,10 @@ function mirrorGrids(root, nodes) {
 // Returns ops in the updateExamples shape — plus { type: "block", from,
 // to, block } (0-based inclusive lines) for a touched table, redrawn
 // aligned exactly as updateTable redraws one.
-function updateScope(lines, root, nodes, concept, header, rows, rootName) {
+function updateScope(lines, root, nodes, concept, header, csvRows, rootName) {
+  // a CSV is data, written by whoever edited it: nothing it carries becomes
+  // code here, so an `=` that would open a derivation arrives escaped, `\=`
+  const rows = csvRows.map((r) => r.map((c, k) => (k === 0 ? c : asWritten(c))));
   const csvIdx = new Map(); // lowercased column name -> index in a CSV row
   header.slice(1).forEach((h, k) => {
     const key = String(h || "").trim().toLowerCase();
@@ -751,11 +762,12 @@ function updateScope(lines, root, nodes, concept, header, rows, rootName) {
       for (let k = 1; k < t.header.length; k++) {
         const at = colNames[k] && csvIdx.get(colNames[k].toLowerCase());
         if (!at) continue;
-        const v = (csvRow[at] || "").trim();
+        // a pipe divides cells, so one in a value is the broken bar here
+        const v = (csvRow[at] || "").trim().replace(/\|/g, "¦");
         if (!v) continue; // a blank cell says nothing
         const cur = splitCell(next[k] || "");
         if (cur.eq !== -1) continue; // a formula owns its value
-        if (readValue(cur.value.trim()) === v) continue;
+        if (sameValue(cur.value.trim(), v)) continue;
         next[k] = v;
         changed = true;
       }

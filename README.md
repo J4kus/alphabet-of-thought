@@ -730,10 +730,37 @@ The file name is the value's `@` address, reduced to safe characters. It is neve
 - **Always there:** `math`, `statistics`, `re`, `json`, `random`, `itertools`, `functools`, `Path`, `date`, `datetime`, `timedelta`, `Decimal`, `Counter` and `defaultdict`.
 - **Imported in the background once Python is on:** **`pd`** (pandas) and **`np`** (numpy).
 - **Imported the first time a derivation uses them:** **`plt`** (matplotlib, on the non-interactive `Agg` backend, so no window ever opens), **`sns`** (seaborn), **`stats`** (scipy.stats), **`Image`** (PIL), **`requests`** and **`relativedelta`**.
-- **A missing library fails only on the line that uses it**, naming the command that installs it. **AOT: Show Python Environment** lists the interpreter and what it has.
+- **A missing library fails only on the line that uses it**, naming what installs it. **AOT: Show Python Environment** lists the interpreter, what it has, and what it is held to.
 - **Worth installing:** `openpyxl` for `pd.read_excel` and `pyarrow` for parquet.
 - **Anything else is there by its name.** See [the repository's Python](#the-repositorys-python).
-- **The interpreter** is `aot.python.path`, else `python` on PATH. Point the setting at a virtual environment's `python` to use one.
+
+#### The environment (uv)
+
+A repository can carry its own Python environment, set up with [uv](https://docs.astral.sh/uv/), so every writer runs the derivations with the same libraries.
+
+**AOT: Set Up Python Environment (uv)** does it in four steps:
+
+1. **The project.** It asks which libraries you want (pandas, numpy and matplotlib come ticked) and writes `aot.files/pyproject.toml`. A repository that is already a uv project (a `uv.lock` beside a `pyproject.toml` at its root) is used as it is.
+2. **The lock.** `uv lock` resolves the project into `uv.lock` from built wheels only. Commit both files.
+3. **The review.** Before anything is installed, it shows what the lock would install: every package, and by name any that comes from outside PyPI (a git repository, a URL, another index). Nothing installs without "Install".
+4. **The install.** `uv sync --locked --no-build --no-install-project --compile-bytecode` installs exactly what the lock says into `aot.files/.venv`, from built wheels alone, so nothing is built or run to install it. uv keeps `.venv` out of git itself.
+   - It compiles the environment to bytecode as it installs. The runtime never writes `.pyc` files itself, so without them every session would compile pandas from source, 40 seconds and more, before its first derivation could run.
+
+- **An unchanged project installs again without asking.** One whose `pyproject.toml` or `uv.lock` changed since (a pull) is reviewed again first.
+- **A run never installs anything.** When the project has moved on since the setup, the run says so, once, and goes on with the packages as they were installed. Run the setup to bring it up to date.
+- **To add a library,** add it to `aot.files/pyproject.toml` and run the setup again. A missing library's message says exactly that.
+
+**Which Python runs** (`aot.python.manager`):
+- **`auto`** (the default): `aot.python.path` when it is set, else the uv environment set up here, else `python` on PATH.
+- **`uv`**: the environment only; a run with none says to set one up.
+- **`python`**: never an environment.
+
+A uv environment is started **isolated** (`-I`): no `PYTHON*` variables, no user site-packages, no current directory on the path.
+
+**An environment is used only as it was set up here.** The setup records a hash of the environment's interpreter, and a run starts that interpreter only while the hash still matches.
+- A `.venv` a repository arrived with is never run.
+- An interpreter that changed since the setup is never run either; the run says to set up again.
+- The setup replaces a `.venv` it did not make rather than taking it over.
 
 #### In the editor
 
@@ -805,16 +832,44 @@ More about parking:
 
 #### Trust
 
-A `.aot` with Python in it is **a program**, and it runs with your permissions. It can read your files, reach the network, and write what it finds into the document, where a commit and the CSV mirror carry it on. Python cannot be sandboxed inside its own process, so this is a **marked trust boundary**, not a sandbox:
+A `.aot` with Python in it is **a program**, and it runs with your permissions. It can read your files, reach the network, and write what it finds into the document, where a commit and the CSV mirror carry it on. Python cannot be sandboxed inside its own process, so this is a **marked trust boundary**, not a sandbox. The boundary is drawn in layers:
 
+**What may run at all**
 - **`aot.python.enabled` is off by default**, and nothing runs in a workspace VS Code does not trust.
+- **The settings that decide what runs are yours alone.** `aot.python.enabled`, `aot.python.manager`, `aot.python.path`, `aot.uv.path` and every guard below are user settings, so no repository's `.vscode/settings.json` can turn Python on, choose the program that runs, or loosen a guard.
+- **A program is found on PATH and nowhere else.** On Windows, launching `python` by its bare name also looks in the folder the process starts in, and a run starts in `aot.files`, where a repository could leave a `python.exe` of its own. So `python` and `uv` are resolved to absolute paths from PATH's absolute entries before anything is launched.
+
+**What is asked about first**
+- **The Python a `.aot` carries is asked about piece by piece.** Each derivation and each constraint's bound is known by a hash of its text.
+  - One written in this editor is yours and runs without asking, saved or not.
+  - One that arrived from outside is asked about before anything starts. That covers code on disk that never ran here (a pull, a clone, another tool), and code the editor brought in itself: a store coming home, a CSV folded back, a peer file reconciled.
+  - The question names the lines and the code; **Show Them** lists them all.
 - **Every Python file is asked about by its path the first time a run reaches it.** That includes the sidecar, a module a derivation names, and a module those import, because a file's top-level code runs the moment it loads.
-  - The answer is kept per file, by a hash of its content.
-  - A change saved **in this editor** is your own and runs without asking. A change that arrives from **outside** (a pull, another tool) is asked about again.
-  - The answers are kept in VS Code's workspace state, never in the repository, so no repository can ship its own.
+  - The answer is kept per file, by a SHA-256 hash of its content.
+  - A change saved **in this editor** is yours and runs without asking. A change that arrives from **outside** is asked about again, and **Show Changes** opens the version you allowed beside the one that is there now.
   - No folder is put on Python's import path. The runtime finds the repository's files itself, after the standard library and installed packages, so nothing in the repository can stand in for them.
-- **`verify.js` never runs Python**, so a CI job checking a pull request cannot be made to. The `.formulas` store says it may hold Python.
+- **An install is asked about before it happens**, listing what it will install (see [the environment](#the-environment-uv)), since an installed package runs whenever Python starts.
+- **Every answer is kept in VS Code's workspace state**, never in the repository, so no repository can ship its own.
+
+**What the process is held to** (checked at start, before any repository code runs, and never lifted; **Show Python Environment** reports them):
+
+| Setting | Default | What it does |
+|---|---|---|
+| `aot.python.maxMemoryMb` | 4096 | Memory is capped by the operating system: a job object on Windows, an address-space limit on Linux. Past the cap an allocation fails instead of the machine grinding. |
+| `aot.python.allowSubprocess` | off | The process may not start another program. On Windows this is the operating system's refusal (the job object admits no second process), which nothing inside Python can undo. Elsewhere Python refuses the calls that start one. |
+| `aot.python.allowNetwork` | on | When off, Python refuses connections beyond this machine. |
+| `aot.python.protectCredentials` | on | Python refuses the places credentials are kept: `~/.ssh`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.gnupg`, `.netrc`, `.git-credentials`, the browsers' profiles, and the Windows credential store. The process also starts without the editor's secrets: variables such as `GITHUB_TOKEN` and `AWS_SECRET_ACCESS_KEY`, the ssh agent's socket, and VS Code's own askpass handles are withheld. |
+
+Python's own refusals are its audit hooks. They stop the calls that make them, not code written to get round them (ctypes, an extension module), so they guard against the ordinary payload and the honest mistake. Only the operating system's limits hold against anything.
+
+**What a result may write**
+- **Data never becomes code.** A value Python writes has any `=` that would open a derivation escaped (`\=`, which a reader never sees). A column or row name that would read as a bound or a derivation has its operators made full-width. A CSV folded back is escaped the same way. So a downloaded table holding `x =os.system(…)`, or a column named `n >=evil()`, stays text.
+- **A result that looks like a credential is not written.** That covers a private key, and AWS, GitHub, Slack, Anthropic, OpenAI-style or Google keys and tokens. What is written into the file is committed and pushed, so such a result is refused with a message saying why.
+
+**What it does not do**
+- **`verify.js` never runs Python**, so a CI job checking a pull request cannot be made to. Nor should CI run `uv sync` for a pull request it has not reviewed. The `.formulas` store says it may hold Python.
 - **What it costs:** "the file stands on its own" holds in letter, since every value is written and `V` judges them. But a Python value's provenance is no longer checkable from the text alone. The run records the interpreter and library versions, and the hover shows them.
+- **Real containment is not done here.** Running the process in a container or an operating-system sandbox, with no network and a read-only repository, is the only way to hold code that is written to escape. Until then, the switch, workspace trust and the questions above are the protection.
 
 [`examples/python edge cases.aot`](examples/python%20edge%20cases.aot) is a catalogue of the cases worth knowing, each with what should happen. Run it with its sidecar, [`aot.files/python edge cases.py`](aot.files/python%20edge%20cases.py), to see.
 
@@ -933,8 +988,14 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | `aot.chainHints` | `true` | Write the first dependency chain in small print (an inlay hint) at the end of each crosslinked line; the full chains stay on hover. |
 | `aot.urlMetadata` | `true` | Hovering a URL fetches its status, content type, and last-modified date (one cached HEAD request); Ctrl+click opens it regardless. |
 | `aot.parkedValueMarks` | `true` | Tint every value whose derivation is [parked](#parking-the-derivations), so a computed number is never mistaken for a typed one; hover names the derivation and offers the key back. |
-| `aot.python.enabled` | `false` | Run the [Python](#python) derivations a file carries, when asked (`Ctrl+Enter`, or the park key). Restricted: an untrusted workspace can neither turn it on nor run anything. |
-| `aot.python.path` | `""` | The interpreter — a virtual environment's `python`, say. Empty uses `python` on PATH. Restricted, like the switch above. |
+| `aot.python.enabled` | `false` | Run the [Python](#python) a file carries, when asked (`Ctrl+Enter`, `F9`, or the park key). A user setting only, and never in an untrusted workspace. |
+| `aot.python.manager` | `auto` | Which Python runs: `auto` (the path below if set, else the [uv environment](#the-environment-uv) set up here, else `python` on PATH), `uv`, or `python`. User setting only. |
+| `aot.python.path` | `""` | The interpreter, as an absolute path. Empty uses the uv environment or `python` on PATH, never one in the folder the run starts in. User setting only. |
+| `aot.uv.path` | `""` | uv, for **AOT: Set Up Python Environment**. Empty finds `uv` on PATH. User setting only. |
+| `aot.python.maxMemoryMb` | `4096` | The memory Python may take, enforced by the operating system; `0` for no limit. User setting only. See [Trust](#trust). |
+| `aot.python.allowSubprocess` | `false` | Let Python start other programs. User setting only. |
+| `aot.python.allowNetwork` | `true` | Let Python open connections beyond this machine. User setting only. |
+| `aot.python.protectCredentials` | `true` | Refuse Python the places credentials are kept, and withhold the secrets in the editor's environment. User setting only. |
 | `aot.python.timeoutMs` | `15000` | How long one derivation may run before its session is stopped. |
 | `aot.python.idleTimeoutMs` | `300000` | How long an idle session — and the live results it holds — is kept. |
 | `aot.python.maxResultBytes` | `8000000` | The largest result a derivation may send back; a bigger one stops the session with a message. |
@@ -1239,8 +1300,9 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`src/table.js`](src/table.js) | The table editor, reading a cell's value and its derivation or bound apart, and the CSV mirror |
 | [`src/derive.js`](src/derive.js) | Derivations on line-form values, the constraint that holds each value, the Example edits and the table/line flip |
 | [`src/pyshape.js`](src/pyshape.js) | Whether text reads as a Python expression, without running it — what tells a constraint's bound from prose (`speed > none noted`) |
-| [`src/python.js`](src/python.js) | The Python derivations and constraint checks of a file, their `@` references resolved, the functions they call, the order they run in, the JSON-lines session, and what a result writes back |
-| [`src/aot_runtime.py`](src/aot_runtime.py) | The Python side: one process per document, the typed values in and out, the lazy libraries, the sidecar loaded by its path |
+| [`src/python.js`](src/python.js) | The Python derivations and constraint checks of a file, their `@` references resolved, the functions they call, the order they run in, the JSON-lines session, what a result may write back (never code, never a credential), and a program found on PATH alone |
+| [`src/uvenv.js`](src/uvenv.js) | The [uv environment](#the-environment-uv): where the project is, what a lock would install and what in it comes from outside PyPI, and uv run as a child process |
+| [`src/aot_runtime.py`](src/aot_runtime.py) | The Python side: one process per document, the typed values in and out, the lazy libraries, the sidecar loaded by its path, the constraint checks, and the guards it is held to |
 | [`src/urls.js`](src/urls.js) | URL and file-path spans, their hover metadata, and image detection |
 | [`src/hold.js`](src/hold.js) | Hold-near-cursor: squiggles wait for the line to be finished |
 | [`src/repo.js`](src/repo.js) | [Concepts across files](#concepts-across-files): the save-time reconcile and the two contradictions (error rules 22–23) |
@@ -1250,7 +1312,7 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`examples/numbering.aot`](examples/numbering.aot) | A file to try [Numbering](#numbering) on: save it and watch the Examples and Concepts number themselves |
 | [`examples/monthly close.aot`](examples/monthly%20close.aot), [`examples/bank recon.aot`](examples/bank%20recon.aot) | One Concept written in two files: the same definition in both, the Examples split, a maintained `...` line in each |
 | [`examples/python edge cases.aot`](examples/python%20edge%20cases.aot) | The [Python](#python) edge cases, each with what should happen — live where running it is harmless, escaped where it would break the file — with its sidecar in `aot.files` |
-| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all fourteen; `test-python.js` runs the real Python runtime when there is a `python` on PATH, and skips it when there is not) |
+| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all fifteen; `test-python.js` runs the real Python runtime when there is a `python` on PATH, and `test-uv.js` the real uv when there is a `uv`, and each skips it when there is not) |
 | [`docs/features-1.1-1.2.md`](docs/features-1.1-1.2.md) | Per-feature reference for the 1.1 → 1.2 line: what changed, a snippet to exercise it, and its edge cases |
 | [`docs/features-1.3-1.5.md`](docs/features-1.3-1.5.md) | The same for 1.3 → 1.5: how each feature worked *before*, a snippet for the case that works and the neighbouring one that does not, and the test that holds it |
 | [`docs/features-1.6.md`](docs/features-1.6.md) | The same for 1.6: tables and free text as one notation — the unified registry, the outer scope, the union CSV mirror, chained constraints |

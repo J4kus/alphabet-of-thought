@@ -328,6 +328,32 @@ function check(name, ok) {
     named.header.join() === "Quarter,quarter" && named.rows[0][0] === "A");
 }
 
+// --- 7d. data never becomes code, and no credential is written --------------
+{
+  const v = (text) => python.resultOf({ kind: "value", value: "", address: "@t@x" }, { kind: "text", text }, 120).text;
+  const written = v("x =__import__('os').system('boom')");
+  check("inert: a written value's '=' never opens a derivation — it is escaped as the language escapes one",
+    written === "x \\=__import__('os').system('boom')" && table.splitCell(written).eq === -1 && table.readValue(written) === "x =__import__('os').system('boom')");
+  check("inert: a value opening with '=' is escaped too; '==' and a=b were never derivations",
+    v("=evil()") === "\\=evil()" && v("a ==b") === "a ==b" && v("a=b") === "a=b");
+  const g = python.gridOf({ kind: "frame", columns: ["n >=__import__('os').getpid()", "plain", "x =f()"], rows: [["1", "=boom()", 2, "k"]] }, "T");
+  check("inert: a column that would read as a bound or a derivation has its operators made full-width",
+    g.header[1] === "n ＞＝__import__('os').getpid()" && g.header[2] === "plain" && g.header[3] === "x ＝f()"
+    && table.splitConstraint(g.header[1]).eq === -1);
+  check("inert: a cell Python wrote can never be a derivation", g.rows[0][1] === "\\=boom()");
+  check("inert: prose with an operator in it is no code, and is left alone", python.inertName("speed > none noted") === "speed > none noted");
+  const secret = (text) => { try { v(text); return null; } catch (e) { return e.message; } };
+  check("secrets: a private key is refused, and says why",
+    /looks like a private key, so it is not written into the file/.test(secret("-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blbn...")));
+  check("secrets: access keys and tokens are refused",
+    /AWS access key/.test(secret("AKIAABCDEFGHIJKLMNOP")) && /GitHub token/.test(secret("ghp_" + "a".repeat(36)))
+    && /Anthropic API key/.test(secret("sk-ant-api03-" + "b".repeat(30))) && /JWT/.test(secret("eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4f")));
+  check("secrets: ordinary text is written", secret("revenue grew 12% in Q2") === null && secret("sk-learn pipeline") === null);
+  let gridRefused = null;
+  try { python.gridOf({ kind: "frame", columns: ["key"], rows: [["1", "AKIAABCDEFGHIJKLMNOP"]] }, "T"); } catch (e) { gridRefused = e.message; }
+  check("secrets: a table holding one is refused whole", /AWS access key/.test(gridRefused || ""));
+}
+
 // --- 8. the protocol, against a fake process --------------------------------
 function fakeProcess(onLine) {
   const proc = new EventEmitter();
@@ -348,9 +374,14 @@ function fakeProcess(onLine) {
     { python: "py3", runtime: "/rt.py", cwd: "/w" }).start();
   const r1 = await s1.request({ op: "hello" });
   check("protocol: a request is answered by its id", r1.echo === "hello");
-  check("security: spawned with -B -E, no bytecode, the Agg backend",
-    seen.cmd === "py3" && seen.args.slice(0, 2).join() === "-B,-E" && seen.opts.env.PYTHONDONTWRITEBYTECODE === "1"
+  check("security: spawned with -E -B, no bytecode, the Agg backend",
+    seen.cmd === "py3" && seen.args.slice(0, 2).join() === "-E,-B" && seen.opts.env.PYTHONDONTWRITEBYTECODE === "1"
     && seen.opts.env.MPLBACKEND === "Agg" && seen.opts.cwd === "/w");
+  let seenIsolated = null;
+  new python.Session((cmd, args) => { seenIsolated = args; return fakeProcess(echo); },
+    { python: "venv-python", runtime: "/rt.py", cwd: "/w", isolated: true }).start().kill();
+  check("security: an environment of the project's own starts isolated (-I), -E and all",
+    seenIsolated && seenIsolated[0] === "-I" && !seenIsolated.includes("-E") && seenIsolated.includes("-B"));
 
   // two responses in one chunk, one split across two
   let held = [];
@@ -394,6 +425,21 @@ function fakeProcess(onLine) {
   let tErr = null;
   try { await hung.request({ op: "eval" }); } catch (e) { tErr = e.message; }
   check("protocol: a hang times out, and the session is stopped with it", /timed out/.test(tErr) && !hung.alive && hungProc.killed);
+
+  // queued behind slow work: a request's clock starts when the one before
+  // it is answered — the runtime answers one at a time — so a warm-up
+  // importing pandas for longer than a run's timeout does not time out the
+  // run waiting behind it (the fake answers in order, the first after 120 ms)
+  const serial = new python.Session(() => fakeProcess((proc, s) => {
+    const req = JSON.parse(s);
+    const answer = () => proc.stdout.emit("data", JSON.stringify({ id: req.id, ok: true, op: req.op }) + "\n");
+    if (req.op === "warm") setTimeout(answer, 120);
+    else serial._afterWarm = serial._afterWarm.then(() => new Promise((r) => setTimeout(() => { answer(); r(); }, 10)));
+  }), { timeoutMs: 60 }).start();
+  serial._afterWarm = new Promise((r) => setTimeout(r, 125));
+  const [warmed, opened] = await Promise.all([serial.request({ op: "warm" }, 1000), serial.request({ op: "open" })]).catch((e) => [null, e]);
+  check("protocol: a request queued behind a slow one is not timed out while it waits",
+    warmed && warmed.op === "warm" && opened && opened.op === "open" && serial.alive);
 
   // the process exits mid-request: everything pending is rejected
   const dying = new python.Session(() => fakeProcess((proc) => setImmediate(() => { proc.stderr.emit("data", "Traceback...\nMemoryError\n"); proc.emit("exit", 1); })), {}).start();
@@ -582,7 +628,7 @@ function realRuntime() {
       .then((r) => r, (e) => ({ error: e.message, consent: e.consent }));
     const unallowed = await openWith({});
     check("runtime: a sidecar not yet allowed is not loaded, and says so", unallowed.consent && unallowed.consent.path === sidecarFile);
-    const sidecarSha = require("crypto").createHash("sha1").update(fs.readFileSync(sidecarFile)).digest("hex");
+    const sidecarSha = require("crypto").createHash("sha256").update(fs.readFileSync(sidecarFile)).digest("hex");
     const opened = await openWith({ [sidecarFile]: sidecarSha });
     check("runtime: the sidecar loads, and an os.py beside it shadows nothing", opened.sidecar && opened.functions.includes("twice"));
     check("runtime: arithmetic", (await ev("math.factorial(10)")).value === 3628800);
@@ -649,14 +695,14 @@ function realRuntime() {
     const osPy = w("os.py", "raise SystemExit('shadowed os')\n");
     const spaced = w("tools/my helpers.py", "def hi():\n    return 'hi'\n");
     const pyFiles = [helpers, financePy, pkgInit, pkgSub, nsMod, dupA, dupB, osPy, spaced];
-    const sha = (p) => require("crypto").createHash("sha1").update(fs.readFileSync(p)).digest("hex");
+    const sha = (p) => require("crypto").createHash("sha256").update(fs.readFileSync(p)).digest("hex");
     const allow = (...ps) => s.request({ op: "approve", files: Object.fromEntries(ps.map((p) => [p, sha(p)])) });
     await s.request({ op: "open", root: "t", repo, aotFiles: path.join(repo, "aot.files"), pyFiles, approved: {}, tree: { kind: "Concept", name: "t", children: [] } });
     const evr = (code) => s.request({ op: "eval", address: "@t@r", code, targets: [], host: "value" })
       .then((r) => ({ ok: r.result }), (e) => ({ error: e.message, consent: e.consent, file: e.file }));
     let got = await evr("finance.revenue(3)");
     check("repository: a file not yet allowed does not run, and the question names it by path and hash",
-      got.consent && got.consent.path.endsWith(path.join("tools", "finance.py")) && got.consent.sha1 === sha(financePy));
+      got.consent && got.consent.path.endsWith(path.join("tools", "finance.py")) && got.consent.digest === sha(financePy));
     await allow(financePy);
     got = await evr("finance.revenue(3)");
     check("repository: a module it imports is asked about in its turn", got.consent && got.consent.path.endsWith("helpers.py"));
@@ -678,6 +724,47 @@ function realRuntime() {
     check("repository: a file changed on disk is asked about again", got.consent && got.consent.path.endsWith("helpers.py"));
     await allow(helpers);
     check("repository: ...and once allowed, runs as it is now", (await evr("finance.revenue(3)")).ok.value === 90);
+
+    // the guards, in a session of their own: set at hello, before anything
+    // of the repository's runs, and never lifted
+    const gs = new python.Session(spawn, {
+      python: "python", runtime: path.join(__dirname, "..", "src", "aot_runtime.py"), cwd: os.tmpdir(), timeoutMs: 30000,
+    }).start();
+    const gev = (code) => gs.request({ op: "eval", address: "@g@x", code, targets: [], host: "value" })
+      .then((r) => ({ ok: r.result }), (e) => ({ error: e.message }));
+    const gh = await gs.request({ op: "hello", guards: { memoryMb: 512, subprocess: false, network: false, credentials: true } });
+    check("guards: hello reports what holds",
+      /at most 512 MB/.test(gh.guards.memory) && /refused/.test(gh.guards.subprocess) && /refused/.test(gh.guards.network) && /protected/.test(gh.guards.credentials));
+    check("guards: another program is refused, and says which setting allows it",
+      /may not start another program here \(aot\.python\.allowSubprocess is off\)/.test((await gev(`__import__("subprocess").run([__import__("sys").executable, "-c", "1"])`)).error || ""));
+    if (process.platform === "win32") {
+      // past Python's own hook, straight to Windows: the job object refuses
+      // what the same call does unguarded
+      const createProcess = [
+        '(lambda c: (lambda k, si, pi: (si.__setitem__(0, 104), k.CreateProcessW(None, c.create_unicode_buffer("cmd.exe /c exit 0"),',
+        ' None, None, False, 0x08000000, None, None, c.byref(si), c.byref(pi)))[1])',
+        '(c.WinDLL("kernel32"), (c.c_uint32 * 26)(), (c.c_byte * 24)()))(__import__("ctypes"))',
+      ].join("");
+      const unguarded = await ev(createProcess);
+      const raw = await gev(createProcess);
+      check("guards: on Windows the operating system refuses a second process, whatever Python is told",
+        unguarded && unguarded.value === 1 && raw.ok && raw.ok.value === 0);
+    }
+    check("guards: the network beyond this machine is refused",
+      /may not reach 192\.0\.2\.1 here \(aot\.python\.allowNetwork is off\)/.test((await gev('__import__("socket").create_connection(("192.0.2.1", 9), 1)')).error || ""));
+    check("guards: this machine's own loopback still works (a socketpair, as asyncio makes)",
+      (await gev('(lambda p: [s.close() for s in p] and 1)(__import__("socket").socketpair())')).ok !== undefined);
+    check("guards: the places credentials are kept are refused",
+      /is where credentials are kept, and a derivation may not read it/.test((await gev('open(__import__("os").path.expanduser("~/.ssh/id_rsa")).read()')).error || "")
+      && /is where credentials are kept/.test((await gev('__import__("os").listdir(__import__("os").path.expanduser("~/.aws"))')).error || ""));
+    check("guards: an ordinary file still reads", (await gev(`len(open(${JSON.stringify(path.join(__dirname, "test-python.js"))}, encoding="utf-8").read()) > 0`)).ok.text === "Yes");
+    check("guards: past the memory limit an allocation fails, and the session goes on",
+      /MemoryError/.test((await gev("len(bytearray(900 * 1024 * 1024))")).error || "") && (await gev("1 + 1")).ok.value === 2);
+    const loosened = await gs.request({ op: "hello", guards: { memoryMb: 0, subprocess: true, network: true, credentials: false } });
+    check("guards: a later hello cannot loosen them",
+      /refused/.test(loosened.guards.subprocess) && /may not start another program/.test((await gev('__import__("os").system("exit 0")')).error || ""));
+    await gs.request({ op: "bye" });
+    gs.kill();
 
     await s.request({ op: "bye" });
     fs.rmSync(dir, { recursive: true, force: true });

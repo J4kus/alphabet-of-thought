@@ -8,6 +8,10 @@ vsc-extension-quickstart.md
 *.vsix
 # bytecode anywhere: a stale .pyc beside the runtime must never ship
 **/__pycache__/**
+# a Python environment, and this repository's own aot.files (its CSV mirror,
+# sidecars and uv project), are the working copy's, never the extension's
+**/.venv/**
+aot.files/**
 out/**
 lp.py
 install.py

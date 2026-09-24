@@ -8,6 +8,7 @@
 const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const crypto = require("crypto");
 const childProcess = require("child_process");
 const { lint, KIND } = require("./linter");
@@ -28,6 +29,7 @@ const urls = require("./urls");
 const hold = require("./hold");
 const lineform = require("./lineform");
 const python = require("./python");
+const uvenv = require("./uvenv");
 
 const DEBOUNCE_MS = 300;
 // past this many Examples the lattice is no longer keystroke-cheap
@@ -1781,7 +1783,9 @@ async function reconcileAcrossFiles() {
     const doc = await vscode.workspace.openTextDocument(entry.file);
     const edit = new vscode.WorkspaceEdit();
     edit.set(doc.uri, opsToTextEdits(doc, ops));
+    const beforeText = doc.getText();
     if (await vscode.workspace.applyEdit(edit)) {
+      markBroughtIn(doc, beforeText); // what a peer file says, not what was written here
       await doc.save();
       changed++;
     }
@@ -1820,7 +1824,9 @@ async function setValueEverywhere(conceptName, attr, value) {
     if (!edits.length) continue;
     const edit = new vscode.WorkspaceEdit();
     edit.set(doc.uri, edits);
+    const beforeText = doc.getText();
     if (await vscode.workspace.applyEdit(edit)) {
+      markBroughtIn(doc, beforeText);
       await doc.save();
       changed++;
     }
@@ -1980,7 +1986,11 @@ async function unparkFormulas(editor, store) {
   catch { return vscode.window.showWarningMessage("AOT: the file does not parse — fix it before putting its formulas back."); }
   const lines = doc.getText().split(/\r?\n/);
   const { lines: back, missing } = park.unpark(lines, tree.nodes, rootName, parked);
+  const beforeText = doc.getText();
   await rewriteDocument(editor, back);
+  // the store is a file on disk like any other: what comes home from it that
+  // never ran here is asked about before it runs
+  markBroughtIn(doc, beforeText);
   // a derivation whose row was renamed or deleted while it was parked is
   // never invented back: it stays in the store, and the store stays
   try {
@@ -2033,9 +2043,15 @@ function toggleFormulaPark(editor) {
 const PY_KIND_NAMES = ["Example", "Default Value", "Concept", "attribute", "Map"];
 const PY_RUNS_KEY = "aot.python.runs";
 // the Python files the writer has allowed to run, each by the hash of the
-// content allowed: fileKey -> sha1
+// content allowed: fileKey -> sha256
 const PY_APPROVED_KEY = "aot.python.approved";
-let pySpawn = childProcess.spawn; // the tests swap in a fake runtime
+// the uv projects installed, each by the digest of the pyproject.toml and
+// uv.lock that were reviewed and installed: projectKey -> sha256
+const UV_SYNCED_KEY = "aot.python.uvSynced";
+let pySpawn = childProcess.spawn; // the tests swap in a fake runtime (and a fake uv)
+// a bare command found on PATH alone, never in the folder the run starts in
+// (python.resolveExecutable); the tests' fake launches whatever it is given
+let pyResolve = (cmd, base) => python.resolveExecutable(cmd, { base });
 const pySessions = new Map(); // uri -> { session, hello, live: Set<address>, idle, starting }
 const pyStatus = new Map();   // uri -> Map<address, { state, source, ms, rows, message, … }>
 const pyDims = new Map();     // uri -> [{ range, message }] values older than their derivation
@@ -2102,18 +2118,22 @@ function pyIndex(doc) {
   return files;
 }
 const forgetPyIndex = () => pyIndexCache.clear();
+// A path pyIndex would walk to: not under a hidden folder (.venv, .git) or
+// one of the folders it skips.
+const isRepoPython = (p) => !/[\\/](\.[^\\/]+|node_modules|__pycache__|site-packages)[\\/]/.test(String(p));
 
-// A file's sha1 over its bytes — the runtime hashes the same bytes — kept
-// until the file moves.
+// A file's sha256 over its bytes — the runtime hashes the same bytes — kept
+// until the file moves. (SHA-256, not SHA-1: a SHA-1 collision can be
+// chosen, so a file allowed and its replacement could share one.)
 const fileHashCache = new Map(); // path -> { mtimeMs, size, hash }
-function fileSha1(file) {
+function fileDigest(file) {
   let st;
   try { st = fs.statSync(file); } catch { return null; }
   const hit = fileHashCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.hash;
   let body;
   try { body = fs.readFileSync(file); } catch { return null; }
-  const hash = crypto.createHash("sha1").update(body).digest("hex");
+  const hash = crypto.createHash("sha256").update(body).digest("hex");
   fileHashCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, hash });
   return hash;
 }
@@ -2139,7 +2159,7 @@ function codeHash(doc, host, index, defs) {
     }
   }
   const h = crypto.createHash("sha1");
-  for (const f of [...files].sort()) h.update(f + "\0" + (fileSha1(f) || "") + "\0");
+  for (const f of [...files].sort()) h.update(f + "\0" + (fileDigest(f) || "") + "\0");
   return h.digest("hex").slice(0, 16);
 }
 
@@ -2154,35 +2174,55 @@ function codeHash(doc, host, index, defs) {
 // never in a file, so no repository can ship its own answer.
 
 const approvals = () => pyMemento().get(PY_APPROVED_KEY, {}) || {};
+// A copy of each allowed version, in the extension's own storage, so a file
+// that changed outside the editor can be shown against what was allowed.
+let pySnapshotRoot = null; // set on activation
+const snapshotOf = (digest) => path.join(pySnapshotRoot || path.join(os.tmpdir(), "aot-approved"), `${digest}.py`);
 async function approveFile(file, digest) {
   await pyMemento().update(PY_APPROVED_KEY, Object.assign({}, approvals(), { [fileKey(file)]: digest }));
+  try {
+    const body = fs.readFileSync(file);
+    if (crypto.createHash("sha256").update(body).digest("hex") === digest) {
+      fs.mkdirSync(path.dirname(snapshotOf(digest)), { recursive: true });
+      fs.writeFileSync(snapshotOf(digest), body);
+    }
+  } catch { /* nothing to keep: the question simply offers the file */ }
 }
 const isApproved = (file, digest) => !!digest && approvals()[fileKey(file)] === digest;
 
-// Ask about one file a run reached. true when the writer lets it run.
+// Ask about one file a run reached. true when the writer lets it run. A file
+// allowed before and changed since offers the change itself, beside what
+// was allowed.
 async function askToRun(doc, consent) {
   const file = consent.path;
   const rel = path.relative(aotRoot(doc), file).split(path.sep).join("/");
   const before = approvals()[fileKey(file)];
   const why = before ? "has changed since you last allowed it, and not in this editor" : "has not been run here before";
+  const diffable = !!before && fs.existsSync(snapshotOf(before));
+  const look = diffable ? "Show Changes" : "Open File";
   const pick = await vscode.window.showWarningMessage(
     `AOT: run ${rel}? A Python derivation reaches it, and it ${why}. Its top-level code runs the moment it loads, with your permissions — read it first if you did not write it.`,
-    { modal: true }, "Run", "Open File");
+    { modal: true }, "Run", look);
   if (pick === "Run") {
-    await approveFile(file, consent.sha1);
+    await approveFile(file, consent.digest);
     return true;
   }
-  if (pick === "Open File" && vscode.window.showTextDocument) vscode.window.showTextDocument(vscode.Uri.file(file));
+  if (pick === "Show Changes") {
+    vscode.commands.executeCommand("vscode.diff", vscode.Uri.file(snapshotOf(before)), vscode.Uri.file(file), `${rel}: as allowed ↔ as it is now`);
+    vscode.window.setStatusBarMessage("AOT: nothing ran — Ctrl+Enter asks again once you have read the change.", 6000);
+  } else if (pick === "Open File" && vscode.window.showTextDocument) {
+    vscode.window.showTextDocument(vscode.Uri.file(file));
+  }
   return false;
 }
 
 // A Python file saved in this editor: its new content is allowed when what it
 // replaced was (or when it is new) — the writer's own edit is never asked
 // about. The digest before the save is taken as the save begins.
-const pyBeforeSave = new Map(); // fileKey -> sha1 | null (a new file)
+const pyBeforeSave = new Map(); // fileKey -> sha256 | null (a new file)
 function pyWillSave(doc) {
   const file = doc.fileName;
-  pyBeforeSave.set(fileKey(file), fs.existsSync(file) ? fileSha1(file) : null);
+  pyBeforeSave.set(fileKey(file), fs.existsSync(file) ? fileDigest(file) : null);
 }
 async function pyDidSave(doc) {
   const file = doc.fileName;
@@ -2193,9 +2233,139 @@ async function pyDidSave(doc) {
   pyBeforeSave.delete(key);
   if (before === null) forgetPyIndex(); // a new file: the repository has one more
   if (before === null || isApproved(file, before)) {
-    const now = fileSha1(file);
+    const now = fileDigest(file);
     if (now) await approveFile(file, now);
   }
+}
+
+// --- allowing the Python a .aot carries ---------------------------------------
+// A .aot is a program too: every derivation and every constraint's bound in
+// it runs on Ctrl+Enter. So the same rule the Python files follow holds for
+// it, piece by piece. Each piece is known by a hash of its text:
+//
+//   - one written in this editor is the writer's own, and runs without a
+//     question: it stands in the editor and not yet on disk, or it was on
+//     neither when the file was saved here;
+//   - one that arrived from outside — on disk and never run here (a pull,
+//     a clone, another tool), or brought in by the editor itself from
+//     somewhere else (unparking a store, folding a CSV back, reconciling a
+//     peer file) — is asked about before anything runs;
+//   - once allowed, or once run, a piece is the writer's for this file.
+//
+// The answers are kept in the workspace state, as every consent is.
+
+const PY_CODE_KEY = "aot.python.approvedCode";
+const externalCode = new Map(); // fileKey -> Set(code key): brought in from elsewhere
+
+const codeKey = (kind, text) => crypto.createHash("sha256").update(kind + "\0" + String(text).trim()).digest("hex");
+
+// Every piece of Python a text carries: code key -> { kind, text, line } —
+// each derivation, each bound written on a declaration, and each bound the
+// file's store still holds (a parked constraint is checked on every run).
+function codeItemsOf(text, rootName, parkedEntries) {
+  const out = new Map();
+  let parsed;
+  try { parsed = lint(text, rootName); } catch { return out; }
+  const add = (kind, code, line) => {
+    if (!String(code).trim()) return;
+    const k = codeKey(kind, code);
+    if (!out.has(k)) out.set(k, { kind, text: String(code).trim(), line });
+  };
+  try {
+    for (const h of python.hostsOf(parsed.nodes, text.split(/\r?\n/), rootName)) add("derivation", h.source, h.line);
+  } catch { /* an unparseable grid carries no derivation it can run */ }
+  for (const n of parsed.nodes) {
+    if (n.kind === KIND.ATTRIBUTE && n.constraints) for (const c of n.constraints) add("bound", c.op + c.formula, n.line);
+  }
+  if (parkedEntries && parkedEntries.length) {
+    try {
+      for (const [decl, chain] of park.parkedConstraints(parsed.nodes, rootName, parkedEntries)) {
+        for (const c of chain) add("bound", c.op + c.formula, decl.line);
+      }
+    } catch { /* a store that names nothing holds nothing */ }
+  }
+  return out;
+}
+
+const approvedCodeAll = () => pyMemento().get(PY_CODE_KEY, {}) || {};
+const approvedCodeOf = (file) => approvedCodeAll()[fileKey(file || "")] || {};
+async function approveCode(file, keys) {
+  if (!keys.length) return;
+  const all = Object.assign({}, approvedCodeAll());
+  const mine = Object.assign({}, all[fileKey(file)] || {});
+  for (const k of keys) mine[k] = 1;
+  all[fileKey(file)] = mine;
+  await pyMemento().update(PY_CODE_KEY, all);
+}
+
+// The pieces of a document's Python: { own: [key], asked: [{ key, kind,
+// text, line }] } — own the writer's (written here, or run here before this
+// was asked), asked the ones from outside, not yet allowed.
+function codeConsent(doc) {
+  const rootName = docRootName(doc);
+  const parked = parkedFormulas(doc);
+  const now = codeItemsOf(doc.getText(), rootName, parked);
+  let diskText = "";
+  try { diskText = fs.readFileSync(doc.fileName, "utf8"); } catch { /* never saved */ }
+  const disk = codeItemsOf(diskText, rootName, parked);
+  const allowed = approvedCodeOf(doc.fileName);
+  const brought = externalCode.get(fileKey(doc.fileName)) || new Set();
+  // a derivation that ran here before this was asked is the writer's already
+  const ran = new Set(Object.values(runRecords(doc)).map((r) => r.source));
+  const own = [], asked = [];
+  for (const [key, item] of now) {
+    if (allowed[key]) continue;
+    if (item.kind === "derivation" && ran.has(python.sourceHash(item.text))) own.push(key);
+    else if (disk.has(key) || brought.has(key)) asked.push(Object.assign({ key }, item));
+    else own.push(key);
+  }
+  return { own, asked };
+}
+
+// Whatever an edit the editor makes brings in from somewhere else: the
+// pieces of Python it adds are marked as arrived, not written.
+function markBroughtIn(doc, beforeText) {
+  const rootName = docRootName(doc);
+  const before = codeItemsOf(beforeText, rootName, null);
+  const key = fileKey(doc.fileName || "");
+  const set = externalCode.get(key) || new Set();
+  for (const k of codeItemsOf(doc.getText(), rootName, null).keys()) if (!before.has(k)) set.add(k);
+  externalCode.set(key, set);
+}
+
+// A .aot about to be saved here: what the writer wrote since the last save
+// — in the editor, not on disk, not brought in — is theirs. Taken as the save
+// begins, before any edit the save itself makes (a reconcile) is applied.
+function aotWillSave(doc) {
+  if (!doc.fileName) return;
+  try {
+    const { own } = codeConsent(doc);
+    if (own.length) approveCode(doc.fileName, own);
+  } catch { /* a file that does not parse holds nothing to allow */ }
+}
+
+// Ask about the pieces of a .aot's Python that came from outside. true when
+// the writer lets them run.
+async function askToRunCode(doc, asked) {
+  const rel = relToRepo(doc, doc.fileName);
+  const n = (kind) => asked.filter((a) => a.kind === kind).length;
+  const parts = [];
+  if (n("derivation")) parts.push(`${n("derivation")} derivation${n("derivation") === 1 ? "" : "s"}`);
+  if (n("bound")) parts.push(`${n("bound")} constraint bound${n("bound") === 1 ? "" : "s"}`);
+  const first = asked.slice(0, 3).map((a) => `line ${a.line}: ${a.kind === "derivation" ? "=" : ""}${a.text.length > 60 ? a.text.slice(0, 57) + "…" : a.text}`).join("; ");
+  const pick = await vscode.window.showWarningMessage(
+    `AOT: run the Python in ${rel}? ${parts.join(" and ")} in it ${asked.length === 1 ? "has" : "have"} not run here before and did not come from this editor — ${first}${asked.length > 3 ? "; …" : ""}. It runs with your permissions: read it first if you did not write it.`,
+    { modal: true }, "Run", "Show Them");
+  if (pick === "Run") return true;
+  if (pick === "Show Them") {
+    try {
+      const listing = asked.map((a) => `# line ${a.line} (${a.kind})\n${a.kind === "derivation" ? "=" : ""}${a.text}\n`).join("\n");
+      const shown = await vscode.workspace.openTextDocument({ content: listing, language: "python" });
+      if (vscode.window.showTextDocument) await vscode.window.showTextDocument(shown, { preview: true });
+      vscode.window.setStatusBarMessage("AOT: nothing ran — Ctrl+Enter asks again once you have read them.", 6000);
+    } catch { /* nowhere to show them */ }
+  }
+  return false;
 }
 
 // The functions a Python file defines, read off its text — nothing is run
@@ -2317,7 +2487,7 @@ async function reconsentAfterWrite(file, before) {
   fileHashCache.delete(file);
   if (before === null) forgetPyIndex();
   if (before !== null && !isApproved(file, before)) return;
-  const now = fileSha1(file);
+  const now = fileDigest(file);
   if (now) await approveFile(file, now);
 }
 
@@ -2348,7 +2518,193 @@ async function pythonGate(doc, quiet) {
   return true;
 }
 
+// --- the interpreter ----------------------------------------------------------
+// Which Python a document's derivations run in (aot.python.manager):
+//   "auto"    aot.python.path when it is set, else the uv environment when
+//             there is one, else `python` on PATH
+//   "uv"      the uv environment only (AOT: Set Up Python Environment)
+//   "python"  aot.python.path, else `python` on PATH
+// Both paths are user settings only, so no repository can choose the
+// program that runs.
+
+const relToRepo = (doc, p) => path.relative(aotRoot(doc), p).split(path.sep).join("/") || ".";
+
+// { exe, project } — project is the uv project when the interpreter is its
+// environment's. Throws when "uv" is asked for and there is none yet.
+function pythonCommand(doc) {
+  const cfg = pyConfig();
+  const manager = cfg.get("python.manager", "auto");
+  const explicit = String(cfg.get("python.path", "") || "").trim();
+  if (manager === "python" || (manager !== "uv" && explicit)) return { exe: explicit || "python", project: null };
+  const project = uvenv.projectDir(aotRoot(doc), aotFilesDir(doc), fs.existsSync);
+  // an environment is used only as it was set up here: a .venv a repository
+  // arrived with — or one changed since — could hold a python of anyone's
+  const exe = project && uvenv.venvPython(project, process.platform);
+  const record = project && uvRecord(project);
+  const ours = !!(exe && record && record.exe && fs.existsSync(exe) && fileDigest(exe) === record.exe);
+  if (ours) return { exe, project };
+  if (manager === "uv" || (record && fs.existsSync(exe || ""))) {
+    throw new Error(!project ? "there is no uv environment here yet — run AOT: Set Up Python Environment"
+      : record ? `the Python in ${relToRepo(doc, project)}/.venv changed since it was set up here — run AOT: Set Up Python Environment to look at it again`
+        : `the uv environment in ${relToRepo(doc, project)} was not set up here — run AOT: Set Up Python Environment`);
+  }
+  return { exe: "python", project: null };
+}
+
+// --- setting up the environment with uv ---------------------------------------
+// AOT: Set Up Python Environment. uv resolves the project into uv.lock, the
+// writer is shown what the lock would install — every package, and anything
+// from outside PyPI — and only then does `uv sync --locked --no-build`
+// install exactly that, from built wheels alone, so nothing is compiled or
+// run to install it. The digest of what was reviewed is kept (workspace
+// state, as every consent is), so an unchanged project installs without
+// asking again, and one changed by a pull asks first.
+
+const uvPath = () => String(pyConfig().get("uv.path", "") || "").trim() || "uv";
+let pyOutputChannel = null;
+function pyOutput() {
+  if (!pyOutputChannel && vscode.window.createOutputChannel) pyOutputChannel = vscode.window.createOutputChannel("AOT Python");
+  return pyOutputChannel || { append() {}, appendLine() {}, show() {} };
+}
+const readText = (f) => { try { return fs.readFileSync(f, "utf8"); } catch { return ""; } };
+const uvDigestOf = (project) =>
+  uvenv.projectDigest(readText(path.join(project, "pyproject.toml")), readText(path.join(project, "uv.lock")));
+const uvSynced = () => pyMemento().get(UV_SYNCED_KEY, {}) || {};
+// what was installed here for a project: { digest, exe } — the project as
+// reviewed, and its environment's interpreter as uv made it
+const uvRecord = (project) => uvSynced()[fileKey(project)] || null;
+
+// One uv command, logged to the AOT Python output.
+function uv(args, cwd) {
+  const out = pyOutput();
+  out.appendLine(`> uv ${args.join(" ")}`);
+  const exe = pyResolve(uvPath(), cwd);
+  if (!exe) return Promise.resolve({ code: null, stdout: "", stderr: "", missing: true });
+  return uvenv.runUv(pySpawn, exe, args, { cwd, onOutput: (s) => out.append(s) });
+}
+
+// { ok, project?, message } — the setup, start to finish. Asks what a new
+// project should hold, and before anything is installed.
+async function setUpPython() {
+  const editor = vscode.window.activeTextEditor;
+  const doc = editor && editor.document;
+  if (!doc || doc.languageId !== "aot" || !doc.fileName) {
+    vscode.window.showInformationMessage("AOT: open an .aot file to set up the Python its derivations run in.");
+    return { ok: false, message: "no .aot file" };
+  }
+  if (!workspaceTrusted()) {
+    vscode.window.showWarningMessage("AOT: this workspace is not trusted, so nothing is installed for it.");
+    return { ok: false, message: "untrusted" };
+  }
+  const version = await uv(["--version"], aotRoot(doc));
+  if (version.code !== 0) {
+    const pick = await vscode.window.showErrorMessage(version.missing
+      ? `AOT: '${uvPath()}' was not found. Install uv — https://docs.astral.sh/uv/ — or set aot.uv.path to it.`
+      : `AOT: uv did not start — ${uvenv.lastWords(version)}`, "Install uv");
+    if (pick === "Install uv" && vscode.env && vscode.env.openExternal) vscode.env.openExternal(vscode.Uri.parse("https://docs.astral.sh/uv/getting-started/installation/"));
+    return { ok: false, message: "no uv" };
+  }
+
+  // the project: the one there is, or a new one in aot.files holding the
+  // libraries the writer picks
+  let project = uvenv.projectDir(aotRoot(doc), aotFilesDir(doc), fs.existsSync);
+  if (!project) {
+    const picked = vscode.window.showQuickPick
+      ? await vscode.window.showQuickPick(
+        uvenv.LIBRARIES.map((l) => ({ label: l.name, description: l.why, picked: !!l.picked })),
+        { canPickMany: true, title: "AOT: Python libraries for this repository", placeHolder: "Written to aot.files/pyproject.toml — add more there later" })
+      : uvenv.LIBRARIES.filter((l) => l.picked).map((l) => ({ label: l.name }));
+    if (!picked) return { ok: false, message: "cancelled" };
+    project = aotFilesDir(doc);
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(path.join(project, "pyproject.toml"), uvenv.pyprojectText(picked.map((p) => p.label)));
+  }
+  const rel = relToRepo(doc, project);
+  const fail = (what, r) => {
+    const message = `${what} — ${uvenv.lastWords(r)}`;
+    vscode.window.showErrorMessage(`AOT: ${message}`, "Show Output").then((p) => { if (p) pyOutput().show(); });
+    return { ok: false, project, message };
+  };
+
+  // the lock: made, or brought up to the project, from built wheels alone
+  const check = await uv(["lock", "--project", project, "--check"], project);
+  if (check.code !== 0) {
+    const locked = await uv(["lock", "--project", project, "--no-build"], project);
+    if (locked.code !== 0) return fail(`uv could not resolve ${rel}/pyproject.toml`, locked);
+  }
+
+  // the review: what would be installed, unless it is exactly what was
+  // installed before
+  const digest = uvDigestOf(project);
+  const venvDir = path.join(project, ".venv");
+  const venv = uvenv.venvPython(project, process.platform);
+  const key = fileKey(project);
+  const record = uvRecord(project);
+  // a .venv that was not set up here — or whose interpreter changed since —
+  // is not trusted to hold what it says, and is made again rather than
+  // taken over
+  const foreign = fs.existsSync(venvDir)
+    && (!record || (fs.existsSync(venv) && fileDigest(venv) !== record.exe));
+  if (!record || foreign || record.digest !== digest || !fs.existsSync(venv)) {
+    const review = uvenv.lockReview(uvenv.parseLock(readText(path.join(project, "uv.lock"))));
+    const shown = review.packages.slice(0, 12).join(", ") + (review.count > 12 ? `, and ${review.count - 12} more` : "");
+    const outside = review.outside.length
+      ? ` ${review.outside.length} of them come from outside PyPI — ${review.outside.map((o) => `${o.name} (${o.from})`).join("; ")} — read those before you install.`
+      : "";
+    const before = record && record.digest !== digest ? `${rel}/pyproject.toml or uv.lock has changed since it was last installed here. ` : "";
+    const replaced = foreign ? ` The .venv already in ${rel} was not set up here${record ? " as it is now" : ""}, so it is replaced.` : "";
+    const pick = await vscode.window.showWarningMessage(
+      `AOT: install ${review.count} Python package${review.count === 1 ? "" : "s"} into ${rel}/.venv? ${before}${shown}.${outside}${replaced} Only built wheels are installed, so nothing is compiled or run to install them — but every installed package runs whenever the derivations' Python starts.`,
+      { modal: true }, "Install", "Open uv.lock");
+    if (pick === "Open uv.lock" && vscode.window.showTextDocument) vscode.window.showTextDocument(vscode.Uri.file(path.join(project, "uv.lock")));
+    if (pick !== "Install") return { ok: false, project, message: "not installed" };
+    if (foreign) fs.rmSync(venvDir, { recursive: true, force: true });
+  }
+
+  // exactly what the lock says, and nothing that has to be built — compiled
+  // to bytecode as it installs: the runtime runs with -B and never writes a
+  // .pyc, so without them every session would compile pandas from source
+  // (40 s and more) before its first derivation could run
+  const synced = await uv(["sync", "--project", project, "--locked", "--no-build", "--no-install-project", "--compile-bytecode"], project);
+  if (synced.code !== 0) return fail(`uv could not install ${rel}/uv.lock`, synced);
+  fileHashCache.delete(venv);
+  await pyMemento().update(UV_SYNCED_KEY, Object.assign({}, uvSynced(), { [key]: { digest, exe: fileDigest(venv) } }));
+  // every session starts again, in the environment as it is now
+  for (const k of [...pySessions.keys()]) pyStop(k, "the environment changed");
+  forgetPyIndex();
+  const message = `Python environment ready — ${rel}/.venv${fs.existsSync(venv) ? "" : " (its interpreter was not found where uv puts it)"}`;
+  vscode.window.setStatusBarMessage(`AOT: ${message}`, 6000);
+  return { ok: true, project, message };
+}
+
+// The uv project's lock changed since it was installed (a pull, a hand
+// edit): the run goes on in the environment as it is, and says so, once.
+const uvDriftSaid = new Set();
+function uvDrift(doc, cmd) {
+  if (!cmd || !cmd.project) return;
+  const key = fileKey(cmd.project);
+  const installed = uvRecord(cmd.project);
+  if (!installed || installed.digest === uvDigestOf(cmd.project) || uvDriftSaid.has(key)) return;
+  uvDriftSaid.add(key);
+  vscode.window.showWarningMessage(
+    `AOT: ${relToRepo(doc, cmd.project)}/pyproject.toml or uv.lock changed since the environment was set up — the derivations run with the packages as they were installed.`,
+    "Set Up Python Environment").then((p) => { if (p) vscode.commands.executeCommand("aot.setUpPython"); });
+}
+
 // --- the session ------------------------------------------------------------
+
+// What the derivations' Python is held to (user settings only): the
+// runtime installs it at hello, once.
+const pyGuards = () => {
+  const cfg = pyConfig();
+  const mb = Number(cfg.get("python.maxMemoryMb", 4096));
+  return {
+    memoryMb: Number.isFinite(mb) && mb > 0 ? Math.round(mb) : 0,
+    subprocess: cfg.get("python.allowSubprocess", false) === true,
+    network: cfg.get("python.allowNetwork", true) !== false,
+    credentials: cfg.get("python.protectCredentials", true) !== false,
+  };
+};
 
 function pySession(doc) {
   const key = doc.uri.toString();
@@ -2357,18 +2713,31 @@ function pySession(doc) {
   const cfg = pyConfig();
   let cwd = aotFilesDir(doc);
   if (!fs.existsSync(cwd)) cwd = aotRoot(doc);
+  const cmd = pythonCommand(doc);
+  const exe = pyResolve(cmd.exe, aotRoot(doc));
+  if (!exe) throw new Error(python.spawnMessage({ code: "ENOENT" }, cmd.exe));
+  const guards = pyGuards();
+  // the credentials the editor's own environment carries are not handed on
+  const scrubbed = guards.credentials ? python.scrubbedEnv(process.env) : { env: undefined, withheld: [] };
   const session = new python.Session(pySpawn, {
-    python: String(cfg.get("python.path", "") || "").trim() || "python",
+    python: exe,
+    // a uv environment is the project's own, so Python is started isolated
+    // from anything outside it: no PYTHON* variables, no user site-packages,
+    // no current directory on the path
+    isolated: !!cmd.project,
     runtime: path.join(__dirname, "aot_runtime.py"),
     cwd,
+    env: scrubbed.env,
     timeoutMs: cfg.get("python.timeoutMs", 15000),
     maxResultBytes: cfg.get("python.maxResultBytes", 8000000),
   });
-  const entry = { session, hello: null, live: new Set(), idle: null, starting: null };
+  const entry = { session, hello: null, live: new Set(), idle: null, starting: null, cmd, withheld: scrubbed.withheld };
   session.onExit = () => entry.live.clear();
   pySessions.set(key, entry);
   session.start();
-  entry.starting = session.request({ op: "hello" }, 30000).then((h) => {
+  // the guards go in with the first request, before any code of the
+  // repository's can run, and hold for the life of the process
+  entry.starting = session.request({ op: "hello", guards }, 30000).then((h) => {
     if (h.protocol !== python.PROTOCOL) {
       throw new Error(`the Python runtime speaks protocol ${h.protocol} and the editor ${python.PROTOCOL} — reinstall the extension`);
     }
@@ -2470,6 +2839,15 @@ async function runPython(editor, opts) {
   const gate = await pythonGate(doc, opts.quiet);
   if (gate !== true) return { ran: 0, failed: 0, blocked: gate };
 
+  // the Python this file carries that came from outside is asked about
+  // before anything starts; what the writer wrote here runs without asking
+  const code = codeConsent(doc);
+  if (code.own.length) await approveCode(doc.fileName, code.own);
+  if (code.asked.length) {
+    if (!(await askToRunCode(doc, code.asked))) return { ran: 0, failed: 0, blocked: "refused" };
+    await approveCode(doc.fileName, code.asked.map((a) => a.key));
+  }
+
   const registry = formulaRegistry(doc);
   const ctx = { lines, registry, rootName, index: python.hostIndex(hosts) };
   const byAddress = new Map(hosts.map((h) => [h.address, h]));
@@ -2500,6 +2878,7 @@ async function runPython(editor, opts) {
   }
   const session = entry.session;
   pyTouch(doc, entry);
+  uvDrift(doc, entry.cmd);
   if (opts.mode === "fresh") {
     await session.request({ op: "reset" });
     entry.live.clear();
@@ -2542,7 +2921,7 @@ async function runPython(editor, opts) {
       refused.add(fileKey(consent.path));
       return false;
     }
-    await session.request({ op: "approve", files: { [consent.path]: consent.sha1 } });
+    await session.request({ op: "approve", files: { [consent.path]: consent.digest } });
     return true;
   };
 
@@ -2557,6 +2936,7 @@ async function runPython(editor, opts) {
         op: "open", file: doc.fileName, root: rootName, aotFiles: aotFilesDir(doc), tree: pyTree(root),
         sidecar: sideMtime === null ? null : side, sidecarMtime: sideMtime,
         repo: aotRoot(doc), pyFiles: index, approved: approvals(),
+        install: entry.cmd && entry.cmd.project ? uvenv.installHint(entry.cmd.project, relToRepo(doc, entry.cmd.project)) : null,
       });
       pyDiagnostics.delete(vscode.Uri.file(side));
       break;
@@ -3254,6 +3634,8 @@ async function showPythonEnvironment() {
     return vscode.window.showInformationMessage("AOT: open an .aot file to see the Python it would run with.");
   }
   if (!pythonEnabled() || !workspaceTrusted()) return pythonGate(doc, false);
+  const SET_UP = "Set Up Python Environment";
+  const offerSetUp = (pick) => (pick === SET_UP ? vscode.commands.executeCommand("aot.setUpPython") : undefined);
   let entry;
   try {
     entry = pySession(doc);
@@ -3261,17 +3643,29 @@ async function showPythonEnvironment() {
     pyTouch(doc, entry);
   } catch (e) {
     pyStop(doc.uri.toString(), "failed to start");
-    return vscode.window.showErrorMessage(`AOT: ${e.message}`);
+    return vscode.window.showErrorMessage(`AOT: ${e.message}`, SET_UP).then(offerSetUp);
   }
   const h = entry.hello;
+  const project = entry.cmd && entry.cmd.project;
   const libs = Object.entries(h.libraries || {});
   const missing = libs.filter(([, v]) => !v).map(([k]) => k);
+  const g = h.guards || {};
+  const withheld = (entry.withheld || []).length;
   const detail = [
+    project ? `uv environment: ${relToRepo(doc, project)}/.venv` : "No uv environment — the interpreter aot.python.path names, else python on PATH",
     h.executable, "",
     ...libs.map(([k, v]) => `${v ? "✓" : "✗"} ${k}${v ? " " + v : ""}`), "",
-    missing.length ? `Install the rest with:\n"${h.executable}" -m pip install ${missing.join(" ")}` : "Everything listed is installed.",
+    "Held to:",
+    `  memory — ${g.memory || "not limited"}`,
+    `  other programs — ${g.subprocess || "allowed"}`,
+    `  the network — ${g.network || "allowed"}`,
+    `  credentials — ${g.credentials || "not protected"}${withheld ? `; ${withheld} environment variable${withheld === 1 ? "" : "s"} holding secrets withheld` : ""}`,
+    "Python's own guards stop the ordinary calls, not code written to get round them.", "",
+    !missing.length ? "Everything listed is installed."
+      : project ? `Add what you need of the rest to ${relToRepo(doc, project)}/pyproject.toml, then run AOT: Set Up Python Environment.`
+        : `Install the rest with:\n"${h.executable}" -m pip install ${missing.join(" ")}\n\nor give this repository an environment of its own with AOT: Set Up Python Environment (uv).`,
   ].join("\n");
-  return vscode.window.showInformationMessage(`AOT: Python ${h.python}`, { modal: true, detail });
+  return vscode.window.showInformationMessage(`AOT: Python ${h.python}`, { modal: true, detail }, SET_UP).then(offerSetUp);
 }
 
 // A name the derivation calls that no one defines: the builtins, the
@@ -3320,7 +3714,7 @@ function writeSidecar(doc, text) {
 async function createPythonFunction(uri, name) {
   const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri);
   if (!doc || !/^[A-Za-z_]\w*$/.test(name || "")) return;
-  const before = fs.existsSync(sidecarPath(doc)) ? fileSha1(sidecarPath(doc)) : null;
+  const before = fs.existsSync(sidecarPath(doc)) ? fileDigest(sidecarPath(doc)) : null;
   let text = sidecarText(doc) || SIDECAR_HEADER(docRootName(doc));
   if (!new RegExp(`^def\\s+${name}\\s*\\(`, "m").test(text)) {
     text = text.replace(/\s*$/, "\n") + `\n\ndef ${name}():\n    """What ${name} computes."""\n    raise NotImplementedError("write ${name} in aot.files/${path.basename(sidecarPath(doc))}")\n`;
@@ -3365,7 +3759,7 @@ async function movePythonToSidecar(uri, line) {
     last = s.start + s.length;
   }
   body += h.source.slice(last);
-  const before = fs.existsSync(sidecarPath(doc)) ? fileSha1(sidecarPath(doc)) : null;
+  const before = fs.existsSync(sidecarPath(doc)) ? fileDigest(sidecarPath(doc)) : null;
   const text = (sidecarText(doc) || SIDECAR_HEADER(docRootName(doc))).replace(/\s*$/, "\n")
     + `\n\ndef ${name}(${[...params.values()].join(", ")}):\n    return ${body}\n`;
   writeSidecar(doc, text);
@@ -3893,7 +4287,9 @@ async function foldCsvIntoScope(doc, lines, rootName, name, grid) {
       edit.insert(doc.uri, new vscode.Position(op.afterLine, 0), op.text + eol);
     }
   }
+  const beforeText = doc.getText();
   await vscode.workspace.applyEdit(edit);
+  markBroughtIn(doc, beforeText); // a CSV is written by whoever edited it
   const saved = await doc.save(); // the save re-mirrors, converging both copies
   if (!saved) vscode.window.showWarningMessage(`AOT: folded '${name}.csv' into ${path.basename(doc.fileName)}, but could not save it.`);
   return true;
@@ -4746,6 +5142,10 @@ function activate(context) {
   // not yet made, is never a verdict on the model, so never in V
   pyDiagnostics = vscode.languages.createDiagnosticCollection("aot-python");
   pyState = context.workspaceState || null;
+  // the allowed versions of the Python files, kept beside the workspace's
+  // own state rather than in the repository
+  const storage = context.storageUri || context.globalStorageUri;
+  if (storage && storage.fsPath) pySnapshotRoot = path.join(storage.fsPath, "allowed-python");
   context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual,
     decorationTypes.parked, decorationTypes.stale, decorationTypes.pyLink, renameHintType, pyDiagnostics);
 
@@ -4900,6 +5300,11 @@ function activate(context) {
     // every open document so the findings track it immediately
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration("aot")) return;
+      // a session holds the interpreter and the guards it started with; the
+      // next run starts one under the settings as they are now
+      if (event.affectsConfiguration("aot.python") || event.affectsConfiguration("aot.uv")) {
+        for (const k of [...pySessions.keys()]) pyStop(k, "the Python settings changed");
+      }
       vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
     }),
     // Format Document re-aligns every table's columns, as org-mode's TAB
@@ -4974,6 +5379,7 @@ function activate(context) {
     vscode.commands.registerTextEditorCommand("aot.runPython", runPythonHere),
     vscode.commands.registerTextEditorCommand("aot.runPythonFresh", (editor) => runPython(editor, { mode: "fresh" })),
     vscode.commands.registerCommand("aot.showPythonEnvironment", showPythonEnvironment),
+    vscode.commands.registerCommand("aot.setUpPython", setUpPython),
     vscode.commands.registerCommand("aot.createPythonFunction", createPythonFunction),
     vscode.commands.registerCommand("aot.movePythonToSidecar", movePythonToSidecar),
     // inside Python: the sidecar's functions after '=', a table's columns after '@Name.'
@@ -4999,6 +5405,9 @@ function activate(context) {
       // be allowed if that was
       if (/\.py$/i.test(doc.fileName || "")) pyWillSave(doc);
       if (doc.languageId !== "aot") return;
+      // the Python written here since the last save is the writer's own —
+      // taken now, before this save's own edits (a reconcile) land
+      aotWillSave(doc);
       event.waitUntil(Promise.resolve().then(() => {
         const renumber = renumberEdits(doc);
         // reconcile last and only where the renumber is not already
@@ -5062,6 +5471,9 @@ function activate(context) {
   // one changes what a module name reaches
   const pyWatcher = vscode.workspace.createFileSystemWatcher("**/*.py");
   const onPyFsEvent = (listChanged) => (uri) => {
+    // an environment being installed writes thousands of these, none of
+    // them the repository's own code
+    if (!isRepoPython(uri.fsPath)) return;
     fileHashCache.delete(uri.fsPath);
     if (listChanged) forgetPyIndex();
     relintAll();
@@ -5152,7 +5564,10 @@ function deactivate() {
 // The tests run the editor's Python half against a fake runtime: a spawn
 // function of their own, and the live sessions to look at.
 const _test = {
-  setSpawn: (fn) => { pySpawn = fn || childProcess.spawn; },
+  setSpawn: (fn) => {
+    pySpawn = fn || childProcess.spawn;
+    pyResolve = fn ? (cmd) => cmd : (cmd, base) => python.resolveExecutable(cmd, { base });
+  },
   sessions: pySessions,
   runPython,
   ranAt,

@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.27",
+  "version": "1.11.29",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -28,12 +28,18 @@
       "description": "Python derivations never run in an untrusted workspace: they are code the files carry. Everything else works.",
       "restrictedConfigurations": [
         "aot.python.enabled",
-        "aot.python.path"
+        "aot.python.manager",
+        "aot.python.path",
+        "aot.uv.path",
+        "aot.python.allowSubprocess",
+        "aot.python.allowNetwork",
+        "aot.python.protectCredentials",
+        "aot.python.maxMemoryMb"
       ]
     }
   },
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js"
   },
   "contributes": {
     "configurationDefaults": {
@@ -130,12 +136,61 @@
         "aot.python.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Run the Python derivations a file carries \u2014 an '=' whose text the formula language cannot read (`=load()`, `=@rows.units.sum()`). Off by default: a derivation is code, and it runs with your permissions. Runs happen only when asked (Ctrl+Enter, or the park key), only in a trusted workspace, and the Python files in aot.files are asked about before they first run and again after they change."
+          "scope": "machine",
+          "description": "Run the Python a file carries: its '=' derivations and its constraints' bounds. Off by default: a derivation is code, and it runs with your permissions. Runs happen only when asked (Ctrl+Enter, F9, or the park key), only in a trusted workspace, and each .aot's Python and each Python file are asked about before they first run and again when they change outside this editor. A user setting only: no repository can turn it on for you."
+        },
+        "aot.python.manager": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "uv",
+            "python"
+          ],
+          "enumDescriptions": [
+            "aot.python.path when it is set, else the uv environment 'AOT: Set Up Python Environment' made here, else 'python' on PATH.",
+            "The uv environment only; a run with none says to set one up.",
+            "aot.python.path, else 'python' on PATH; never a uv environment."
+          ],
+          "default": "auto",
+          "scope": "machine",
+          "description": "Which Python the derivations run in. A user setting only."
         },
         "aot.python.path": {
           "type": "string",
           "default": "",
-          "description": "The Python interpreter to run derivations with \u2014 for a virtual environment, its python executable (e.g. '.venv\\\\Scripts\\\\python.exe'). Empty uses 'python' from PATH."
+          "scope": "machine",
+          "description": "The Python interpreter to run derivations with, as an absolute path. Empty uses the uv environment (see aot.python.manager), else 'python' found on PATH \u2014 never one in the folder the run starts in. A user setting only: no repository can choose the program that runs."
+        },
+        "aot.uv.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "uv, the Python package manager 'AOT: Set Up Python Environment' uses, as an absolute path. Empty finds 'uv' on PATH. A user setting only."
+        },
+        "aot.python.maxMemoryMb": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 0,
+          "scope": "machine",
+          "description": "The most memory a derivations' Python may take, in megabytes; past it an allocation fails instead of the machine grinding. Enforced by the operating system (a job object on Windows, an address-space limit elsewhere). 0 sets no limit. A user setting only."
+        },
+        "aot.python.allowSubprocess": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Let the derivations' Python start other programs (os.system, subprocess). Off: on Windows the operating system refuses any child process; elsewhere Python refuses the calls that start one \u2014 a guard that code determined to escape can get past. A user setting only."
+        },
+        "aot.python.allowNetwork": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "Let the derivations' Python open network connections \u2014 an API, a URL pd.read_csv reads. Off, Python refuses to connect: a guard, not a firewall, that code determined to escape can get past. A user setting only."
+        },
+        "aot.python.protectCredentials": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "Refuse the derivations' Python any file in the places credentials are kept \u2014 ~/.ssh, ~/.aws, ~/.azure, ~/.config/gcloud, ~/.kube, ~/.docker, ~/.gnupg, ~/.netrc, ~/.git-credentials, the browsers' profiles, the Windows credential store. A guard that code determined to escape can get past. A user setting only."
         },
         "aot.python.timeoutMs": {
           "type": "number",
@@ -395,6 +450,11 @@
       {
         "command": "aot.showPythonEnvironment",
         "title": "Show Python Environment",
+        "category": "AOT"
+      },
+      {
+        "command": "aot.setUpPython",
+        "title": "Set Up Python Environment (uv)",
         "category": "AOT"
       },
       {

@@ -722,7 +722,9 @@ class Session {
 
   start() {
     const o = this.options;
-    const args = ["-B", "-E", "-u", "-X", "utf8", o.runtime];
+    // -E: no PYTHON* variable steers it. -I (an environment of the project's
+    // own) is that, and no user site-packages or current directory either.
+    const args = [o.isolated ? "-I" : "-E", "-B", "-u", "-X", "utf8", o.runtime];
     const env = Object.assign({}, o.env || process.env, {
       PYTHONDONTWRITEBYTECODE: "1", PYTHONIOENCODING: "utf-8", MPLBACKEND: "Agg",
     });
@@ -785,22 +787,33 @@ class Session {
   request(msg, timeoutMs) {
     if (!this.alive) return Promise.reject(new Error("the Python session is not running"));
     const id = this.nextId++;
-    return new Promise((resolve, reject) => {
+    // The runtime answers one request at a time, in the order they arrive.
+    // So a request's clock starts when the one before it has been answered:
+    // time spent queued behind another's work — the warm-up importing
+    // pandas, say — is not this request's, and must not time it out.
+    const turn = this.tail || Promise.resolve();
+    const answered = new Promise((resolve, reject) => {
       const ms = timeoutMs || this.options.timeoutMs || 15000;
-      const timer = setTimeout(() => {
-        // a hung expression holds the interpreter: the only way to stop it is
-        // to stop the process, and every request in flight goes with it
-        this.pending.delete(id);
-        reject(new Error(`timed out after ${Math.round(ms / 1000)} s (aot.python.timeoutMs) — the session was stopped`));
-        this.kill("timed out");
-      }, ms);
-      this.pending.set(id, { resolve, reject, timer });
+      const entry = { resolve, reject, timer: null };
+      this.pending.set(id, entry);
+      turn.then(() => {
+        if (!this.pending.has(id)) return; // answered, or the session died
+        entry.timer = setTimeout(() => {
+          // a hung expression holds the interpreter: the only way to stop it
+          // is to stop the process, and every request in flight goes with it
+          this.pending.delete(id);
+          reject(new Error(`timed out after ${Math.round(ms / 1000)} s (aot.python.timeoutMs) — the session was stopped`));
+          this.kill("timed out");
+        }, ms);
+      });
       try {
         this.proc.stdin.write(JSON.stringify(Object.assign({ id }, msg)) + "\n");
       } catch (e) {
         this.settle(id, null, `could not reach Python — ${e.message}`);
       }
     });
+    this.tail = answered.then(() => {}, () => {});
+    return answered;
   }
 
   die(reason) {
@@ -818,6 +831,58 @@ class Session {
 }
 
 const lastLine = (s) => String(s).trim().split(/\r?\n/).pop();
+
+// The environment the runtime starts with, the credentials held back. The
+// editor's own environment carries whatever the shell that launched it did —
+// GITHUB_TOKEN, AWS_SECRET_ACCESS_KEY, the ssh agent's socket — and a
+// derivation reads os.environ as easily as any file. So a variable whose name
+// says it is a secret is withheld, and so are the editor's own (VSCODE_*,
+// ELECTRON_*, the askpass helpers: doors back into the editor and its git
+// credentials). { env, withheld: [names] }.
+const SECRET_ENV = /(TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|AUTH|COOKIE|SESSION)/i;
+const EDITOR_ENV = /^(VSCODE_|ELECTRON_)|^(GIT|SSH|SUDO)_ASKPASS$/i;
+function scrubbedEnv(env) {
+  const out = {};
+  const withheld = [];
+  for (const [k, v] of Object.entries(env || {})) {
+    if (SECRET_ENV.test(k) || EDITOR_ENV.test(k)) withheld.push(k);
+    else out[k] = v;
+  }
+  return { env: out, withheld };
+}
+
+// The program a bare command names, found on PATH and nowhere else: never
+// in the directory the child starts in. On Windows, launching `python` by
+// its bare name looks in the child's working directory first — and the run
+// starts in aot.files, where a repository could leave a `python.exe` of its
+// own. So the name is resolved here, against PATH's absolute entries alone
+// (a relative entry is a directory relative to wherever that is), and the
+// absolute path is what is launched. A path is taken as written, a relative
+// one against `base`. null when nothing on PATH answers.
+function resolveExecutable(command, o) {
+  const opts = o || {};
+  const platform = opts.platform || process.platform;
+  const p = platform === "win32" ? pathLib.win32 : pathLib.posix;
+  const exists = opts.exists || ((f) => { try { return require("fs").statSync(f).isFile(); } catch { return false; } });
+  const cmd = String(command || "").trim();
+  if (!cmd) return null;
+  if (p.isAbsolute(cmd)) return cmd;
+  if (/[\\/]/.test(cmd)) return opts.base ? p.resolve(opts.base, cmd) : null;
+  const env = opts.env || process.env;
+  const PATH = env.PATH || env.Path || env.path || "";
+  const exts = platform === "win32"
+    ? (/\.[A-Za-z0-9]+$/.test(cmd) ? [""] : [".exe", ".com"])
+    : [""];
+  for (const dir of PATH.split(platform === "win32" ? ";" : ":")) {
+    const d = dir.trim().replace(/^"(.*)"$/, "$1");
+    if (!d || !p.isAbsolute(d)) continue;
+    for (const ext of exts) {
+      const f = p.join(d, cmd + ext);
+      if (exists(f)) return f;
+    }
+  }
+  return null;
+}
 
 function spawnMessage(e, python) {
   if (e && e.code === "ENOENT") {
@@ -840,6 +905,53 @@ function outputStem(address) {
 // A number as the language writes a computed one.
 const formatNumber = (n, old) => table.formatValue(n, old || "");
 
+// --- what a result may write ----------------------------------------------------
+// Two things a result is never allowed to put into the file.
+//
+// Code. What Python writes is data — a value read off a downloaded CSV, a
+// column named by somebody's spreadsheet — and data must never become code.
+// A value holding ` =os.system(…)` would read as a derivation on the next
+// run, and a column named `n >=evil()` as a constraint's bound, each written
+// by this editor's own run and so never asked about. So a written value's
+// `=` that would open a derivation is escaped, `\=` (the language's own
+// escape, which a reader never sees), and a name that would read as a bound
+// or a derivation has its operators swapped for their full-width forms.
+//
+// A credential. What is written into the file is committed and pushed, and
+// mirrored into aot.files; a private key or an access token read into a
+// derivation — by accident or by design — would go with it. A result that
+// looks like one is refused, and says why.
+
+const inertValue = (s) => String(s).replace(/(^|\s)=(?!=)/g, "$1\\=");
+function inertName(s) {
+  const t = String(s);
+  const code = table.splitConstraint(t).eq !== -1 || table.splitCell(t).eq !== -1;
+  return code ? t.replace(/[<>=]/g, (c) => ({ "<": "＜", ">": "＞", "=": "＝" })[c]) : t;
+}
+
+const SECRETS = [
+  [/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/, "a private key"],
+  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/, "an AWS access key"],
+  [/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/, "a GitHub token"],
+  [/\bxox[abposr]-[A-Za-z0-9-]{10,}/, "a Slack token"],
+  [/\bsk-ant-[A-Za-z0-9_-]{20,}/, "an Anthropic API key"],
+  [/\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}/, "an API secret key"],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/, "a Google API key"],
+  [/\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/, "a signed token (JWT)"],
+];
+// What a text looks like, when it looks like a credential: "a private key", …
+function looksSecret(text) {
+  const s = String(text || "");
+  for (const [re, what] of SECRETS) if (re.test(s)) return what;
+  return null;
+}
+function refuseSecret(text) {
+  const what = looksSecret(text);
+  if (what) {
+    throw new Error(`the result looks like ${what}, so it is not written into the file, where a commit would carry it — return something else`);
+  }
+}
+
 // A grid cell as the runtime sends it: numbers as JSON numbers (formatted
 // here, so a formula's and Python's numbers read alike), everything else
 // already text.
@@ -848,11 +960,12 @@ function cellText(v) {
   if (typeof v === "number") {
     try { return formatNumber(v, ""); } catch { return String(v); }
   }
-  return String(v).replace(/\r?\n/g, " ").replace(/\|/g, "¦");
+  return inertValue(String(v).replace(/\r?\n/g, " ").replace(/\|/g, "¦"));
 }
 
 // An Example name: never thousands-separated (`2026` names a year, not a sum)
-const nameText = (v) => (v === null || v === undefined ? "" : String(v).replace(/\r?\n/g, " ").replace(/\|/g, "¦").trim());
+const nameText = (v) => (v === null || v === undefined ? ""
+  : inertName(String(v).replace(/\r?\n/g, " ").replace(/\|/g, "¦").trim()));
 
 // The table a Concept derivation writes: header [Concept, ...columns], rows
 // [[Example, ...cells]]. Its rows are numbered 1, 2, 3 — unless a column
@@ -862,7 +975,7 @@ const nameText = (v) => (v === null || v === undefined ? "" : String(v).replace(
 // numbered then, and the column stays. A grid Python named row by row
 // (aot.grid) keeps its names.
 function gridOf(result, conceptName) {
-  let columns = (result.columns || []).map((c) => String(c));
+  let columns = (result.columns || []).map((c) => inertName(String(c)));
   let rows = (result.rows || []).map((r) => [nameText(r[0]), ...r.slice(1).map(cellText)]);
   const own = result.named ? -1 : columns.findIndex((c) => fold(c) === fold(conceptName));
   if (own !== -1) {
@@ -873,6 +986,7 @@ function gridOf(result, conceptName) {
       rows = rows.map((r, i) => [names[i], ...r.slice(1).filter((_, j) => j !== own)]);
     }
   }
+  for (const s of [...columns, ...rows.flat()]) refuseSecret(s);
   return { header: [conceptName, ...columns], rows };
 }
 
@@ -1010,15 +1124,20 @@ function resultOf(host, result, maxInlineText) {
     case "number": return { text: formatNumber(r.value, host.value) };
     case "text": {
       const s = String(r.text || "");
+      refuseSecret(s);
       if (s.length > (maxInlineText || 120) || /\r|\n/.test(s)) {
         const stem = outputStem(host.address);
         return { file: stem + ".md", body: s.endsWith("\n") ? s : s + "\n" };
       }
-      return { text: s.replace(/\|/g, "¦") };
+      return { text: inertValue(s.replace(/\|/g, "¦")) };
     }
     case "image": return { file: outputStem(host.address) + "." + (r.ext || "png"), bytes: Buffer.from(r.base64 || "", "base64") };
     case "frame": return { text: r.summary || `<DataFrame ${(r.rows || []).length} rows>` };
-    default: return { text: String(r.summary || r.text || "").replace(/\|/g, "¦") };
+    default: {
+      const s = String(r.summary || r.text || "");
+      refuseSecret(s);
+      return { text: inertValue(s.replace(/\|/g, "¦")) };
+    }
   }
 }
 
@@ -1026,5 +1145,6 @@ module.exports = {
   PROTOCOL, readsAsExpression,
   hostsOf, hostIndex, constraintChecks, checkItems, referenceStarts, callSites, resolveHost, valueDerivation, moduleFiles, referencedModules,
   orderDerivations, affected, runHash, sourceHash,
-  Session, spawnMessage, outputStem, resultOf, gridOf, writeGrid, writeValue, cellText,
+  inertValue, inertName, looksSecret,
+  Session, spawnMessage, resolveExecutable, scrubbedEnv, outputStem, resultOf, gridOf, writeGrid, writeValue, cellText,
 };

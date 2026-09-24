@@ -46,6 +46,33 @@ const parsed = (text) => {
 }
 
 // ---------------------------------------------------------------------------
+// a CSV is data: what comes back through the mirror never becomes code, and
+// a value round-trips unchanged — escape, pipe and all
+// ---------------------------------------------------------------------------
+{
+  const text = aot(
+    "Case",
+    "    - Pipe",
+    "        case: Flags \\=a() | b()",
+    "    Case|note",
+    "    Row |a \\= b",
+  );
+  const { root, nodes, lines } = parsed(text);
+  const grid = mirrorGrids(root, nodes).find((g) => g.name === "Case");
+  const concept = nodes.find((n) => n.name === "Case");
+  const same = updateScope(lines, root, nodes, concept, grid.header, grid.rows, "Sheet");
+  check("fold: the mirror's own CSV folds back as no change — an escaped '=' and a pipe survive the round trip",
+    same.length === 0);
+  const csvHeader = ["Case", "case", "note"];
+  const edited = [["Pipe", "x =__import__('os').getpid()", ""], ["Row", "", "y =boom()"], ["Fresh", "", "=evil()"]];
+  const ops = updateScope(lines, root, nodes, concept, csvHeader, edited, "Sheet");
+  const written = ops.map((o) => o.text || (o.block || []).join("\n")).join("\n");
+  check("fold: a value a CSV brings is escaped, never a derivation — in line form, in a table cell, and on a fresh row",
+    /case: x \\=__import__\('os'\)\.getpid\(\)/.test(written) && /Row {2}\|y \\=boom\(\)/.test(written) && /Fresh\|\\=evil\(\)/.test(written)
+    && !/(^|[^\\])=(__import__|boom|evil)/.test(written));
+}
+
+// ---------------------------------------------------------------------------
 // where the code stands: each derivation from its '=' to its end, and each
 // constraint's bound — what the colouring paints and spelling skips
 // ---------------------------------------------------------------------------

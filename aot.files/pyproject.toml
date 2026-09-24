@@ -1,0 +1,12 @@
+# The Python the .aot files of this repository run their derivations in.
+# Set up with 'AOT: Set Up Python Environment', which installs exactly
+# what uv.lock says into .venv here. Commit this file and uv.lock.
+[project]
+name = "aot-python"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "numpy",
+    "matplotlib",
+]

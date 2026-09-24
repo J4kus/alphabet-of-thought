@@ -75,6 +75,15 @@ def _clean(v):
 
 # --- the libraries -----------------------------------------------------------
 
+# What a missing library's message says to do: pip's command, unless the
+# editor says the environment is a uv project's (open's "install").
+_install = {"hint": None}
+
+
+def _install_advice(pip):
+    return _install["hint"] or f"python -m pip install {pip}"
+
+
 class _Lazy:
     """A module (or one name in it) imported the first time it is used."""
 
@@ -92,7 +101,7 @@ class _Lazy:
             except ImportError:
                 pip = object.__getattribute__(self, "_pip")
                 raise ModuleNotFoundError(
-                    f"{pip} is not installed — python -m pip install {pip}") from None
+                    f"{pip} is not installed — {_install_advice(pip)}") from None
             object.__setattr__(self, "_obj", obj)
         return obj
 
@@ -595,7 +604,7 @@ _repo = {
     "files": set(),     # every Python file the editor listed, by key
     "stems": {},        # module name -> [paths] of the files so named
     "dirs": set(),      # every directory holding one of them, at any depth
-    "approved": {},     # key -> the sha1 of the content allowed to run
+    "approved": {},     # key -> the sha256 of the content allowed to run
     "loaded": {},       # key -> mtime, of every repository file run so far
     "modules": set(),   # the module names this finder loaded
     "used": {},         # key -> (mtime, module), for aot.use
@@ -632,13 +641,14 @@ class NeedsConsent(ImportError):
         self.digest = digest
 
 
-def _sha1(path):
+def _digest(path):
+    # sha256, not sha1: a sha1 collision can be chosen
     with open(path, "rb") as fh:
-        return hashlib.sha1(fh.read()).hexdigest()
+        return hashlib.sha256(fh.read()).hexdigest()
 
 
 def _allowed(path):
-    digest = _sha1(path)
+    digest = _digest(path)
     if _repo["approved"].get(_key(path)) != digest:
         raise NeedsConsent(path, digest)
     _repo["loaded"][_key(path)] = os.path.getmtime(path)
@@ -855,7 +865,7 @@ def _error(e, extra=None):
     out = {"ok": False, "error": f"{type(e).__name__}: {e}".rstrip(": ")}
     if isinstance(e, NeedsConsent):
         # the question the editor asks before anything of it runs
-        out["consent"] = {"path": e.path, "sha1": e.digest}
+        out["consent"] = {"path": e.path, "digest": e.digest}
     tb = traceback.extract_tb(e.__traceback__)
     sidecar = _sidecar.get("path")
     # the innermost frame in the sidecar, or in any file of the repository,
@@ -984,11 +994,199 @@ def _check(req):
     return out
 
 
+# --- the guards --------------------------------------------------------------
+# What the editor asks this process to refuse, set once, at hello — before
+# any code of the repository's has run — and never lifted: a later hello
+# cannot loosen them, and an audit hook cannot be removed.
+#
+#   memory       the operating system's own limit: a job object on Windows,
+#                an address-space limit elsewhere. Past it an allocation fails.
+#   subprocess   on Windows the job object admits no second process, which
+#                nothing inside Python can undo; elsewhere an audit hook
+#                refuses the calls that start one.
+#   network      an audit hook refuses connections beyond this machine.
+#   credentials  an audit hook refuses the places credentials are kept.
+#
+# The hooks are Python's own: they stop the calls that make them, not code
+# written to get round them (ctypes, an extension module). They are a guard
+# against the ordinary payload and the honest mistake, not a sandbox, and the
+# editor says so.
+
+_guards = {"set": False, "report": {}}
+
+_SUBPROCESS_EVENTS = frozenset({
+    "subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn",
+    "os.startfile", "os.fork", "os.forkpty", "pty.spawn", "_winapi.CreateProcess",
+})
+_NET_EVENTS = frozenset({
+    "socket.connect", "socket.bind", "socket.sendto", "socket.sendmsg",
+    "socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr",
+})
+_PATH_EVENTS = frozenset({"open", "os.listdir", "os.scandir", "os.chdir", "shutil.copyfile", "shutil.copytree", "shutil.make_archive"})
+
+
+def _credential_dirs():
+    home = os.path.expanduser("~")
+    j = os.path.join
+    places = [j(home, p) for p in (
+        ".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", j(".config", "gcloud"), j(".config", "gh"),
+        ".netrc", "_netrc", ".git-credentials", ".pypirc", ".mozilla", j(".config", "google-chrome"),
+        j(".config", "chromium"), j(".config", "BraveSoftware"), j("Library", "Keychains"),
+        j("Library", "Application Support", "Google", "Chrome"), j("Library", "Application Support", "Firefox"),
+    )]
+    for var, subs in (
+        ("APPDATA", (j("Microsoft", "Credentials"), j("Microsoft", "Protect"), j("Mozilla", "Firefox"))),
+        ("LOCALAPPDATA", (j("Microsoft", "Credentials"), j("Google", "Chrome", "User Data"),
+                          j("Microsoft", "Edge", "User Data"), j("BraveSoftware", "Brave-Browser", "User Data"))),
+    ):
+        base = os.environ.get(var)
+        if base:
+            places += [j(base, s) for s in subs]
+    return tuple(os.path.normcase(os.path.abspath(p)) for p in places)
+
+
+def _loopback(host):
+    h = str(host or "").strip("[]").lower()
+    return h in ("", "localhost", "::1") or h.startswith("127.")
+
+
+def _windows_job(memory_mb, one_process):
+    """Put this process in a job object the operating system enforces."""
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_ulonglong) for n in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+    class BASIC(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
+
+    class EXTENDED(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", BASIC), ("IoInfo", IO_COUNTERS),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+    kernel32.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError(ctypes.get_last_error(), "CreateJobObject failed")
+    info = EXTENDED()
+    flags = 0
+    if memory_mb:
+        flags |= 0x100  # JOB_OBJECT_LIMIT_PROCESS_MEMORY
+        info.ProcessMemoryLimit = int(memory_mb) * 1024 * 1024
+    if one_process:
+        flags |= 0x8    # JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+        info.BasicLimitInformation.ActiveProcessLimit = 1
+    info.BasicLimitInformation.LimitFlags = flags
+    if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):  # extended limits
+        raise OSError(ctypes.get_last_error(), "SetInformationJobObject failed")
+    if not kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess()):
+        raise OSError(ctypes.get_last_error(), "AssignProcessToJobObject failed")
+    _guards["job"] = job  # held for the life of the process
+
+
+def _set_guards(policy):
+    """Install the guards a policy asks for. Once only; a report of what holds."""
+    if _guards["set"]:
+        return _guards["report"]
+    _guards["set"] = True
+    report = {}
+    memory_mb = int(policy.get("memoryMb") or 0)
+    allow_sub = bool(policy.get("subprocess"))
+    allow_net = policy.get("network", True) is not False
+    protect = bool(policy.get("credentials"))
+
+    os_sub = False
+    if os.name == "nt" and (memory_mb or not allow_sub):
+        try:
+            _windows_job(memory_mb, not allow_sub)
+            os_sub = not allow_sub
+            if memory_mb:
+                report["memory"] = f"at most {memory_mb:,} MB (a job object)"
+        except Exception as e:
+            report["memory"] = f"not limited — the job object failed: {e}"
+    elif memory_mb:
+        try:
+            import resource
+            limit = memory_mb * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+            report["memory"] = (f"at most {memory_mb:,} MB (an address-space limit"
+                                + (", which macOS does not enforce)" if sys.platform == "darwin" else ")"))
+        except Exception as e:
+            report["memory"] = f"not limited — {e}"
+    report.setdefault("memory", "not limited")
+    report["subprocess"] = ("allowed" if allow_sub else
+                            "refused by the operating system (a job object)" if os_sub else
+                            "refused by Python's audit hook")
+    report["network"] = "allowed" if allow_net else "refused beyond this machine, by Python's audit hook"
+    report["credentials"] = "protected by Python's audit hook" if protect else "not protected"
+
+    dirs = _credential_dirs() if protect else ()
+    skip = tuple(os.path.normcase(os.path.abspath(p)) for p in {sys.prefix, sys.base_prefix, sys.exec_prefix})
+    busy = [False]
+
+    def refused(message):
+        return PermissionError(message)
+
+    def hook(event, args):
+        if busy[0]:
+            return
+        if not allow_sub and event in _SUBPROCESS_EVENTS:
+            raise refused("a derivation may not start another program here (aot.python.allowSubprocess is off)")
+        if not allow_net and event in _NET_EVENTS:
+            if event in ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr"):
+                host = args[0] if args else None
+            else:
+                address = args[1] if len(args) > 1 else None
+                if isinstance(address, (str, bytes)):  # a Unix socket: a door into this machine's services
+                    raise refused("a derivation may not open a socket here (aot.python.allowNetwork is off)")
+                host = address[0] if isinstance(address, tuple) and address else None
+            if not _loopback(host.decode() if isinstance(host, bytes) else host):
+                raise refused(f"a derivation may not reach {host} here (aot.python.allowNetwork is off)")
+        if dirs and event in _PATH_EVENTS and args:
+            target = args[0]
+            if isinstance(target, int) or target is None:
+                return
+            busy[0] = True
+            try:
+                p = os.path.normcase(os.path.abspath(os.fsdecode(target)))
+                if not p.startswith(skip):
+                    real = os.path.normcase(os.path.realpath(p))
+                    for d in dirs:
+                        for q in (p, real):
+                            if q == d or q.startswith(d + os.sep):
+                                raise refused(f"{os.fsdecode(target)} is where credentials are kept, and a derivation "
+                                              "may not read it (aot.python.protectCredentials)")
+            except PermissionError:
+                raise
+            except Exception:
+                pass
+            finally:
+                busy[0] = False
+
+    if not allow_sub or not allow_net or protect:
+        sys.addaudithook(hook)
+    _guards["report"] = report
+    return report
+
+
 def _handle(req):
     op = req.get("op")
     if op == "hello":
+        guards = _set_guards(req["guards"]) if isinstance(req.get("guards"), dict) else {}
         return {"ok": True, "protocol": PROTOCOL, "python": platform.python_version(),
-                "executable": sys.executable, "libraries": _library_versions()}
+                "executable": sys.executable, "libraries": _library_versions(), "guards": guards}
     if op == "warm":
         warmed = []
         for name in ("pandas", "numpy"):
@@ -1003,6 +1201,7 @@ def _handle(req):
         _api.file = req.get("file")
         _api.root = req.get("root")
         _api.files = Path(req["aotFiles"]) if req.get("aotFiles") else None
+        _install["hint"] = req.get("install") or None
         # the repository's Python: which files there are, and which of them
         # the writer has allowed to run, as they are now
         if req.get("repo"):

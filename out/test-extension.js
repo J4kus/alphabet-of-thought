@@ -2358,6 +2358,22 @@ setTimeout(async () => {
     : "UNEXPECTED unflipped " + JSON.stringify(text.split("\n")));
 }, 2000);
 
+// 11b) the settings that choose what runs, and what it is held to, are the
+// writer's alone: user settings, which no repository's .vscode can set
+{
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+  const props = manifest.contributes.configuration.properties;
+  const userOnly = ["aot.python.enabled", "aot.python.manager", "aot.python.path", "aot.uv.path",
+    "aot.python.maxMemoryMb", "aot.python.allowSubprocess", "aot.python.allowNetwork", "aot.python.protectCredentials"];
+  const wrong = userOnly.filter((k) => !props[k] || props[k].scope !== "machine");
+  const restricted = manifest.capabilities.untrustedWorkspaces.restrictedConfigurations;
+  console.log(!wrong.length && userOnly.every((k) => restricted.includes(k))
+    && props["aot.python.allowSubprocess"].default === false && props["aot.python.protectCredentials"].default === true
+    && props["aot.python.enabled"].default === false
+    ? "PASS (security: what runs and what it is held to are user settings only — no repository can set them — off and guarded by default)"
+    : "UNEXPECTED setting scopes " + JSON.stringify({ wrong }));
+}
+
 // 12) Python derivations end to end, against a fake runtime — no Python
 // needed: the gates, Ctrl+Enter writing values, a Concept's table, a picture
 // and a long text into aot.files, a failure kept to its own line and what
@@ -2380,9 +2396,9 @@ setTimeout(async () => {
   const fakeApproved = new Map();
   const fkey = (p) => path.normalize(p).toLowerCase();
   const needs = (p) => {
-    const digest = crypto.createHash("sha1").update(fs.readFileSync(p)).digest("hex");
+    const digest = crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
     return fakeApproved.get(fkey(p)) === digest ? null
-      : { ok: false, error: `NeedsConsent: ${path.basename(p)} has not been allowed to run here`, consent: { path: p, sha1: digest } };
+      : { ok: false, error: `NeedsConsent: ${path.basename(p)} has not been allowed to run here`, consent: { path: p, digest } };
   };
   const finance = path.join(root, "tools", "finance.py");
   // a constraint's bound, for the few the tests write: a number, a tuple of
@@ -2430,8 +2446,10 @@ setTimeout(async () => {
       default: return { ok: false, error: `the fake runtime was not taught ${req.code}` };
     }
   };
-  ext._test.setSpawn(() => {
+  let lastSpawn = null;
+  const fakeRuntime = (cmd, args, opts) => {
     spawns++;
+    lastSpawn = { cmd, args, opts };
     const proc = new EventEmitter();
     proc.stdout = new EventEmitter();
     proc.stderr = new EventEmitter();
@@ -2445,7 +2463,8 @@ setTimeout(async () => {
     };
     proc.kill = () => setImmediate(() => proc.emit("exit", null));
     return proc;
-  });
+  };
+  ext._test.setSpawn(fakeRuntime);
   const ran = () => requests.filter((r) => r.op === "open" || r.op === "eval").length;
 
   // a document whose text the editor really changes
@@ -2491,6 +2510,8 @@ setTimeout(async () => {
   };
 
   try {
+    process.env.AOT_TEST_API_TOKEN = "a secret the editor was started with";
+    process.env.VSCODE_TEST_HANDLE = "a door back into the editor";
     const f = live(path.join(root, "Ledger.aot"), [
       "Report",
       "    n: =math.factorial(10)",
@@ -2529,12 +2550,33 @@ setTimeout(async () => {
       : "UNEXPECTED run while untrusted " + JSON.stringify({ untrusted, spawns }));
     vscode.workspace.isTrusted = true;
 
+    // the file's own Python arrived on disk, not written in this editor: it
+    // is asked about before anything starts
+    vscode.window._warningAnswer = undefined;
+    const codeAsked = vscode.window._warnings.length;
+    const refusedCode = await run(f, 1);
+    console.log(refusedCode.blocked === "refused" && spawns === 0
+      && /^AOT: run the Python in Ledger\.aot\? 8 derivations in it have not run here before and did not come from this editor — line 2: =math\.factorial\(10\); line 3: =frame\(\)/.test(vscode.window._warnings[codeAsked] || "")
+      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Run", "Show Them"])
+      ? "PASS (python: a .aot's own Python that came from outside is asked about before anything starts — no answer, nothing runs)"
+      : "UNEXPECTED .aot consent " + JSON.stringify({ refusedCode, spawns, warning: vscode.window._warnings[codeAsked] }));
+    vscode.window._warningAnswer = "Run";
+
     // Ctrl+Enter on one derivation: that one, in place
     const first = await run(f, 1);
     console.log(first.ran === 2 && f.lines()[1] === "    n: 3,628,800 =math.factorial(10)"
       && f.lines()[9] === "    vat: 725,760 =@n*@tax rate"
       ? "PASS (python: Ctrl+Enter writes the value in front of its derivation, and what reads it runs after it)"
       : "UNEXPECTED Ctrl+Enter one " + JSON.stringify({ first, lines: f.lines() }));
+
+    // what the process is held to goes in with its first request, and the
+    // editor's own secrets never reach it
+    const helloSent = requests.find((r) => r.op === "hello");
+    const env = (lastSpawn && lastSpawn.opts && lastSpawn.opts.env) || {};
+    console.log(helloSent && JSON.stringify(helloSent.guards) === JSON.stringify({ memoryMb: 4096, subprocess: false, network: true, credentials: true })
+      && !("AOT_TEST_API_TOKEN" in env) && !("VSCODE_TEST_HANDLE" in env) && Object.keys(env).some((k) => /^path$/i.test(k))
+      ? "PASS (python: the guards go in with hello — 4 GB, no other programs, credentials protected — and no secret in the environment reaches Python)"
+      : "UNEXPECTED guards " + JSON.stringify({ guards: helloSent && helloSent.guards, leaked: Object.keys(env).filter((k) => /AOT_TEST|VSCODE_TEST/.test(k)) }));
 
     // Ctrl+Enter off any derivation: every stale one, dependencies first
     const all = await run(f, 0);
@@ -2647,8 +2689,18 @@ setTimeout(async () => {
     const again = await run(f, 1);
     console.log(again.blocked === "refused" && vscode.window._warnings.length === asked + 1
       && /has changed since you last allowed it, and not in this editor/.test(vscode.window._warnings[asked])
+      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Run", "Show Changes"])
       ? "PASS (python: a sidecar changed outside the editor is asked about again)"
-      : "UNEXPECTED changed sidecar " + JSON.stringify({ again, warnings: vscode.window._warnings.slice(asked) }));
+      : "UNEXPECTED changed sidecar " + JSON.stringify({ again, warnings: vscode.window._warnings.slice(asked), items: vscode.window._warningItems }));
+    // and the change itself is one click away: the version allowed, beside this one
+    vscode.window._warningAnswer = "Show Changes";
+    vscode.commands._calls.length = 0;
+    const looked = await run(f, 1);
+    const diff = vscode.commands._calls.find((c) => c[0] === "vscode.diff");
+    console.log(looked.blocked === "refused" && diff && diff[2].fsPath === side
+      && fs.readFileSync(diff[1].fsPath, "utf8") === "def helper():\n    return 1\n"
+      ? "PASS (python: 'Show Changes' opens the version allowed beside the changed one, and runs nothing)"
+      : "UNEXPECTED show changes " + JSON.stringify({ looked, diff }));
     vscode.window._warningAnswer = "Run";
     await run(f, 1);
 
@@ -2664,7 +2716,8 @@ setTimeout(async () => {
     await run(g, 0);
     const approveSent = requests.filter((r) => r.op === "approve").slice(approvesBefore);
     console.log(g.lines()[1] === "    rev: 60 =finance.revenue(3)" && g.lines()[2] === "    n: 3,628,800 =math.factorial(10)"
-      && /^AOT: run tools\/finance\.py\? A Python derivation reaches it/.test(vscode.window._warnings[reached] || "")
+      && /^AOT: run the Python in Books\.aot\?/.test(vscode.window._warnings[reached] || "")
+      && /^AOT: run tools\/finance\.py\? A Python derivation reaches it/.test(vscode.window._warnings[reached + 1] || "")
       && approveSent.length === 1 && Object.keys(approveSent[0].files)[0] === finance
       ? "PASS (python: a module anywhere in the repository runs once allowed, asked about by its own path)"
       : "UNEXPECTED repository module " + JSON.stringify({ lines: g.lines(), warnings: vscode.window._warnings.slice(reached), approveSent }));
@@ -2791,6 +2844,155 @@ setTimeout(async () => {
       && cf().filter((d) => /age >=nobody/.test(d.message)).length === 1
       ? "PASS (constraints: a bound that fails is one error, on the clause that wrote it)"
       : "UNEXPECTED failing bound " + JSON.stringify(cf().map((d) => [d.range.a, d.message])));
+
+    // a .aot's own Python, piece by piece: what is written here runs without
+    // a question, saved or not; what arrives from outside — a pull, a store
+    // coming home — is asked about
+    {
+      const kPath = path.join(root, "Keys.aot");
+      const k = live(kPath, ["Keys", "    a: =math.factorial(3)"]);
+      vscode.workspace.textDocuments = [f.doc, g.doc, c.doc, k.doc];
+      vscode.window._warningAnswer = "Run";
+      await run(k, 1);
+      const n0 = vscode.window._warnings.length;
+      vscode.window._warningAnswer = undefined; // any question now is a "no"
+      k.set(k.text() + "\n    b: =math.factorial(4)");
+      const typed = await run(k, 2);
+      const typedOk = !typed.blocked && vscode.window._warnings.length === n0;
+      await vscode.workspace._willSave({ document: k.doc, waitUntil: () => {} });
+      fs.writeFileSync(kPath, k.text());
+      const saved = await run(k, 2);
+      const savedOk = !saved.blocked && vscode.window._warnings.length === n0;
+      console.log(typedOk && savedOk
+        ? "PASS (python: a derivation written in this editor runs without a question, before and after it is saved here)"
+        : "UNEXPECTED typed code asked about " + JSON.stringify({ typed, saved, warnings: vscode.window._warnings.slice(n0) }));
+
+      // a pull rewrites a line on disk, and the editor reloads it
+      const pulled = k.text().replace("=math.factorial(4)", "=__import__('os').getpid()");
+      fs.writeFileSync(kPath, pulled);
+      k.set(pulled);
+      const refusedPull = await run(k, 2);
+      const pullQuestion = vscode.window._warnings.slice(n0).find((w) => /^AOT: run the Python in Keys\.aot\?/.test(w)) || "";
+      console.log(refusedPull.blocked === "refused" && /1 derivation in it has not run here before/.test(pullQuestion) && /line 3: =__import__\('os'\)\.getpid\(\)/.test(pullQuestion)
+        ? "PASS (python: a derivation a pull changed is asked about, naming the line and the code, and does not run unanswered)"
+        : "UNEXPECTED pulled code " + JSON.stringify({ refusedPull, pullQuestion }));
+
+      // parked, the store changed on disk, and brought home: asked about too
+      vscode.window._warningAnswer = "Run";
+      await registeredCommands.get("aot.toggleFormulaPark")(k.editor);
+      const kStore = path.join(root, "aot.files", "Keys.formulas");
+      fs.writeFileSync(kStore, fs.readFileSync(kStore, "utf8").replace("=math.factorial(3)", "=__import__('os').getcwd()"));
+      await registeredCommands.get("aot.toggleFormulaPark")(k.editor);
+      vscode.window._warningAnswer = undefined;
+      const n1 = vscode.window._warnings.length;
+      const refusedStore = await run(k, 1);
+      const storeQuestion = vscode.window._warnings.slice(n1).find((w) => /^AOT: run the Python in Keys\.aot\?/.test(w)) || "";
+      console.log(k.lines()[1] === "    a: =__import__('os').getcwd()" && refusedStore.blocked === "refused" && /getcwd/.test(storeQuestion)
+        ? "PASS (python: a derivation brought home from a store that changed on disk is asked about before it runs)"
+        : "UNEXPECTED store code " + JSON.stringify({ lines: k.lines(), refusedStore, storeQuestion }));
+      vscode.window._warningAnswer = "Run";
+    }
+
+    // AOT: Set Up Python Environment, against a fake uv: the project made in
+    // aot.files, the lock reviewed before anything installs, exactly the lock
+    // installed from built wheels, and the environment's own interpreter
+    // started isolated — and only as it was set up here
+    {
+      const uvCalls = [];
+      let lockChecks = 0;
+      const projectOf = (args) => args[args.indexOf("--project") + 1];
+      const fakeUv = (cmd, args, opts) => {
+        uvCalls.push(args.join(" "));
+        const proc = new EventEmitter();
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        proc.kill = () => {};
+        let code = 0, out = "";
+        if (args[0] === "--version") out = "uv 0.11.17\n";
+        else if (args[0] === "lock" && args.includes("--check")) code = lockChecks++ === 0 ? 1 : 0;
+        else if (args[0] === "lock") {
+          fs.writeFileSync(path.join(projectOf(args), "uv.lock"), [
+            "version = 1", "", "[[package]]", 'name = "aot-python"', 'version = "0.1.0"', 'source = { virtual = "." }', "",
+            "[[package]]", 'name = "pandas"', 'version = "3.0.6"', 'source = { registry = "https://pypi.org/simple" }', "",
+            "[[package]]", 'name = "helper"', 'version = "0.2.0"', 'source = { git = "https://example.com/helper.git" }', "",
+          ].join("\n"));
+        } else if (args[0] === "sync") {
+          const exe = require("../src/uvenv").venvPython(projectOf(args), process.platform);
+          fs.mkdirSync(path.dirname(exe), { recursive: true });
+          if (!fs.existsSync(exe)) fs.writeFileSync(exe, "the environment's own python");
+        }
+        setImmediate(() => { if (out) proc.stdout.emit("data", out); proc.emit("close", code); });
+        return proc;
+      };
+      ext._test.setSpawn((cmd, args, opts) => (cmd === "uv" ? fakeUv(cmd, args, opts) : fakeRuntime(cmd, args, opts)));
+      const setUp = plainCommands.get("aot.setUpPython");
+      const activeBefore = vscode.window.activeTextEditor;
+      vscode.window.activeTextEditor = c.editor;
+      const afDir = path.join(root, "aot.files");
+      const venvExe = require("../src/uvenv").venvPython(afDir, process.platform);
+
+      vscode.window._warningAnswer = undefined;
+      const asked = vscode.window._warnings.length;
+      const first = await setUp();
+      const question = vscode.window._warnings[asked] || "";
+      console.log(!first.ok && fs.existsSync(path.join(afDir, "pyproject.toml"))
+        && /"pandas",\n {4}"numpy",\n {4}"matplotlib",/.test(fs.readFileSync(path.join(afDir, "pyproject.toml"), "utf8"))
+        && /^AOT: install 2 Python packages into aot\.files\/\.venv\? pandas 3\.0\.6, helper 0\.2\.0\. 1 of them come from outside PyPI — helper \(git https:\/\/example\.com\/helper\.git\)/.test(question)
+        && /Only built wheels are installed/.test(question)
+        && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Install", "Open uv.lock"])
+        && uvCalls.includes(`lock --project ${afDir} --no-build`) && !uvCalls.some((a) => a.startsWith("sync"))
+        ? "PASS (uv: a new project in aot.files, locked from built wheels, and every package shown — the one from outside PyPI named — before anything installs)"
+        : "UNEXPECTED uv review " + JSON.stringify({ first, question, uvCalls, items: vscode.window._warningItems }));
+
+      vscode.window._warningAnswer = "Install";
+      const second = await setUp();
+      console.log(second.ok && uvCalls.includes(`sync --project ${afDir} --locked --no-build --no-install-project --compile-bytecode`) && fs.existsSync(venvExe)
+        ? "PASS (uv: once allowed, exactly the lock is installed — --locked, --no-build)"
+        : "UNEXPECTED uv install " + JSON.stringify({ second, uvCalls }));
+      const askedAfter = vscode.window._warnings.length;
+      const third = await setUp();
+      console.log(third.ok && vscode.window._warnings.length === askedAfter
+        ? "PASS (uv: an unchanged project installs again without asking)"
+        : "UNEXPECTED uv asked again " + JSON.stringify(vscode.window._warnings.slice(askedAfter)));
+
+      vscode.window._warningAnswer = "Run";
+      await run(c, 0);
+      const opened = requests.filter((r) => r.op === "open").pop();
+      console.log(lastSpawn && lastSpawn.cmd === venvExe && lastSpawn.args[0] === "-I" && !lastSpawn.args.includes("-E")
+        && opened && /^add it to aot\.files\/pyproject\.toml, then run AOT: Set Up Python Environment$/.test(opened.install)
+        ? "PASS (uv: the derivations run in the environment's own interpreter, isolated, and a missing library says how to add it)"
+        : "UNEXPECTED uv run " + JSON.stringify({ lastSpawn, install: opened && opened.install }));
+
+      // the interpreter changed since it was set up: not run
+      for (const e of ext._test.sessions.values()) e.session.kill("test");
+      fs.writeFileSync(venvExe, "somebody else's python");
+      const errorsBefore = vscode.window._errors.length;
+      const spawnsBefore = spawns;
+      await run(c, 0);
+      console.log(spawns === spawnsBefore && /changed since it was set up here/.test(vscode.window._errors[errorsBefore] || "")
+        ? "PASS (uv: an environment whose interpreter changed since it was set up here is never started)"
+        : "UNEXPECTED tampered interpreter " + JSON.stringify({ errors: vscode.window._errors.slice(errorsBefore), spawned: spawns - spawnsBefore }));
+
+      // set up again, and then the project moves on: the run says so, once
+      vscode.window._warningAnswer = "Install";
+      fs.writeFileSync(path.join(afDir, "uv.lock"), fs.readFileSync(path.join(afDir, "uv.lock"), "utf8") + "\n");
+      const again = await setUp();
+      fs.appendFileSync(path.join(afDir, "pyproject.toml"), "# pulled\n");
+      vscode.window._warningAnswer = "Run";
+      const warnedBefore = vscode.window._warnings.length;
+      await run(c, 0);
+      const drift = vscode.window._warnings.slice(warnedBefore).filter((w) => /changed since the environment was set up/.test(w));
+      await run(c, 0);
+      const driftAgain = vscode.window._warnings.slice(warnedBefore).filter((w) => /changed since the environment was set up/.test(w));
+      console.log(again.ok && drift.length === 1 && driftAgain.length === 1 && fs.readFileSync(venvExe, "utf8") !== "somebody else's python"
+        ? "PASS (uv: a set-up replaces an environment it did not make; a project changed since, by a pull, is said once, and the run goes on)"
+        : "UNEXPECTED uv drift " + JSON.stringify({ again, drift, driftAgain }));
+
+      ext._test.setSpawn(fakeRuntime);
+      vscode.window.activeTextEditor = activeBefore;
+      for (const e of ext._test.sessions.values()) e.session.kill("test");
+      for (const f of ["pyproject.toml", "uv.lock", ".venv"]) fs.rmSync(path.join(afDir, f), { recursive: true, force: true });
+    }
 
     // a file with no Python keeps Ctrl+Enter's own meaning
     const plain = live(path.join(root, "Plain.aot"), ["Plain", "    a: 1"]);
