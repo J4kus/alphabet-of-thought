@@ -48,6 +48,16 @@
     Charlie     | |             |Yes
     Dave        | |             |Yes
     
+    tax rate: 0.2
+    vat:       1215.6 =sum(@Sales@month)*@tax rate
+    total:   53760 =sum(@Sales@amount)
+    rows:      #ERR =sales_frame()
+    revenue: #ERR =@rows.units.sum()*15
+    chart: #ERR =plot(@rows)
+    Sales|month  |units|amount
+    P1   |2026-01|1,000|15,000
+    Q1   |2026-01|1,204|18,060
+    Q2   |2026-04|1,380|20,700
     
     sum if test: 60 =sumifs(@Person@age,@Person@is alive,`No`)
 

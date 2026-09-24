@@ -2,7 +2,7 @@ Mirror
     - Twin Left
         height: tall
         mood: calm
-    - Twin Right
+    - Twin Left
         height: tall
         mood: calm
     - Lone Figure
@@ -26,7 +26,7 @@ Twin Kind
         - A1
             flag
     Beta
-        - B1
+        - a1
             flag
 Co Varying Pair (No Longer Highlighted)
     - Mark Alpha
