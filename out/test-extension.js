@@ -5,8 +5,20 @@ const fs = require("fs");
 const path = require("path");
 const Module = require("module");
 
+// every check here prints PASS or UNEXPECTED; an UNEXPECTED fails the run,
+// so the chain in `npm test` stops on it rather than scrolling past
+const printLine = console.log;
+console.log = (...args) => {
+  if (typeof args[0] === "string" && args[0].startsWith("UNEXPECTED")) process.exitCode = 1;
+  printLine(...args);
+};
+
 const published = new Map();
+// every collection but the linter's "aot" publishes into its own map, so the
+// Python findings ("aot-python") never overwrite the linter's
+const publishedByName = new Map();
 const registeredCommands = new Map();
+let pythonCompletionProvider = null; // the '=' / '.' completion inside Python
 let definitionProvider = null;
 let formattingProvider = null;
 let semanticProvider = null;
@@ -51,12 +63,16 @@ const vscode = {
   DiagnosticRelatedInformation: class { constructor(location, message) { Object.assign(this, { location, message }); } },
   ThemeColor: class { constructor(id) { this.id = id; } },
   languages: {
-    createDiagnosticCollection: () => ({
-      set: (uri, diags) => published.set(uri.toString(), diags),
-      get: (uri) => published.get(uri.toString()),
-      delete: (uri) => published.delete(uri.toString()),
-      dispose: () => {},
-    }),
+    createDiagnosticCollection: (name) => {
+      const store = name === "aot" || !name ? published
+        : (publishedByName.get(name) || publishedByName.set(name, new Map()).get(name));
+      return {
+        set: (uri, diags) => store.set(uri.toString(), diags),
+        get: (uri) => store.get(uri.toString()),
+        delete: (uri) => store.delete(uri.toString()),
+        dispose: () => {},
+      };
+    },
     registerDefinitionProvider: (selector, provider) => { definitionProvider = provider; return { dispose() {} }; },
     registerHoverProvider: (selector, provider) => { hoverProvider = provider; return { dispose() {} }; },
     registerCodeActionsProvider: (selector, provider) => { codeActionsProvider = provider; return { dispose() {} }; },
@@ -71,14 +87,22 @@ const vscode = {
       // two are registered: the '@' reference completion and, with no trigger
       // character, the value completion
       if (triggers.includes("@")) completionProvider = provider;
+      else if (triggers.includes("=")) pythonCompletionProvider = provider;
       else valueCompletionProvider = provider;
       return { dispose() {} };
     },
   },
   CompletionItem: class { constructor(label, kind) { Object.assign(this, { label, kind }); } },
-  CompletionItemKind: { Field: 4, EnumMember: 19 },
+  CompletionItemKind: { Field: 4, EnumMember: 19, Function: 2, Module: 8 },
   DocumentLink: class { constructor(range, target) { Object.assign(this, { range, target }); } },
-  Uri: { parse: (s) => ({ toString: () => s }), file: (p) => ({ fsPath: p, scheme: "file", toString: () => "file:///" + p.replace(/\\/g, "/") }) },
+  Uri: {
+    parse: (s) => ({ toString: () => s }),
+    file: (p) => {
+      const u = { fsPath: p, scheme: "file", toString: () => "file:///" + p.replace(/\\/g, "/") };
+      u.with = (change) => Object.assign({}, u, change);
+      return u;
+    },
+  },
   EventEmitter: class {
     constructor() { this.listeners = []; }
     get event() { return (fn) => { this.listeners.push(fn); return { dispose() {} }; }; }
@@ -122,7 +146,13 @@ const vscode = {
     onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
     onDidChangeTextEditorSelection: (fn) => { vscode.window._selectionChanged = fn; return { dispose() {} }; },
     onDidChangeActiveTextEditor: () => ({ dispose() {} }),
-    showWarningMessage: (m) => { vscode.window._warnings.push(m); return Promise.resolve(); },
+    // the answer a test sets is the button the user "presses"; the items
+    // offered are recorded beside the message
+    showWarningMessage: (m, ...items) => {
+      vscode.window._warnings.push(m);
+      vscode.window._warningItems = items.filter((i) => typeof i === "string");
+      return Promise.resolve(vscode.window._warningAnswer);
+    },
     showInformationMessage: (m) => { vscode.window._info.push(m); return Promise.resolve(); },
     showErrorMessage: (m) => { vscode.window._errors.push(m); return Promise.resolve(); },
     setStatusBarMessage: (m) => { vscode.window._status = m; return { dispose() {} }; },
@@ -139,11 +169,12 @@ const vscode = {
   },
   workspace: {
     textDocuments: [],
+    isTrusted: true, // a test flips it to see the Python gate close
     workspaceFolders: undefined, // set per-test when a workspace root is needed
     getWorkspaceFolder: () => (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]) || null,
     onDidOpenTextDocument: (fn) => { vscode.workspace._open = fn; return { dispose() {} }; },
     onDidChangeTextDocument: (fn) => { vscode.workspace._changed = fn; return { dispose() {} }; },
-    onDidCloseTextDocument: () => ({ dispose() {} }),
+    onDidCloseTextDocument: (fn) => { vscode.workspace._close = fn; return { dispose() {} }; },
     onDidSaveTextDocument: (fn) => { vscode.workspace._save = fn; return { dispose() {} }; },
     onWillSaveTextDocument: (fn) => { vscode.workspace._willSave = fn; return { dispose() {} }; },
     onDidChangeConfiguration: (fn) => { vscode.workspace._configChanged = fn; return { dispose() {} }; },
@@ -153,6 +184,7 @@ const vscode = {
     createFileSystemWatcher: (glob) => {
       const slot = /\.formulas/.test(glob || "") ? "_park"
         : /aot\.files/.test(glob || "") ? "_csv"
+        : /\.py$/.test(glob || "") ? "_py"
         : "_aot";
       return {
         onDidChange: (fn) => { vscode.workspace[slot + "Changed"] = fn; },
@@ -664,8 +696,10 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[1] === "    Ollie|5"
       && editor.selection.active.line === 2 && editor.selection.active.character === 10;
-    console.log(ok && registeredCommands.size === 53
-      ? "PASS (table editor: 53 commands; Tab aligns and moves to the next cell)"
+    // 52 table and derivation commands (AutoSum went with the formula
+    // language), plus Ctrl+Enter's run and its fresh twin
+    console.log(ok && registeredCommands.size === 54
+      ? "PASS (table editor: 54 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -1411,8 +1445,8 @@ if (process.platform === "win32" || process.platform === "darwin") {
 })();
 
 // 7d4) the table keys in free text: an Example's lines are a row, its values
-// the cells — Tab walks them, Ctrl+D fills a value down, Alt+= sums and
-// computes at once, Alt+↓ moves the whole Example; on a bare attribute line
+// the cells — Tab walks them, Ctrl+D fills a value down, Alt+↓ moves the
+// whole Example; on a bare attribute line
 // the key is VS Code's own again
 (async () => {
   let lines = [
@@ -1474,17 +1508,15 @@ if (process.platform === "win32" || process.platform === "darwin") {
   editor.selection = new vscode.Selection(7, 14, 7, 14); // Bob's city
   await registeredCommands.get("aot.table.fillDown")(editor);
   const filled = lines[7] === "        city: Paris" && lines.length === 8;
-  editor.selection = new vscode.Selection(6, 13, 6, 13); // Bob's age
-  await registeredCommands.get("aot.table.autoSum")(editor);
-  const summed = lines[6] === "        age: 30 =sum(@age)";
-  console.log(filled && summed
-    ? "PASS (free text: Ctrl+D fills from the Example above; Alt+= sums its siblings and computes at once)"
-    : "UNEXPECTED free-text fill " + JSON.stringify(lines));
+  const noSum = !registeredCommands.has("aot.table.autoSum");
+  console.log(filled && noSum
+    ? "PASS (free text: Ctrl+D fills from the Example above; AutoSum went with the formula language)"
+    : "UNEXPECTED free-text fill " + JSON.stringify({ lines, noSum }));
 
   editor.selection = new vscode.Selection(3, 13, 3, 13); // Ann's age
   await registeredCommands.get("aot.table.moveRowDown")(editor);
   const moved = lines.slice(2).join("|")
-    === "    - Bob|        age: 30 =sum(@age)|        city: Paris|    - Ann|        age: 30|        city: Paris";
+    === "    - Bob|        age: 12|        city: Paris|    - Ann|        age: 30|        city: Paris";
   console.log(moved && editor.selection.active.line === 6
     ? "PASS (free text: Alt+↓ moves the whole Example, the cursor with it)"
     : "UNEXPECTED free-text move " + JSON.stringify({ lines, sel: editor.selection.a }));
@@ -1564,7 +1596,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
     "Invoice",
     "    tax rate: 0.2",
     "    Invoice|price|vat",
-    "    INV-1  |100  |=@price*0.2",
+    "    INV-1  |100  |20 =@price*0.2",
     "    - INV-9",
     "        price: 50",
     "        vat: 10 =@price*0.2",
@@ -1604,16 +1636,16 @@ if (process.platform === "win32" || process.platform === "darwin") {
     parkDecorated.clear();
     vscode.workspace._open(doc);
     vscode.window.visibleTextEditors = visible;
-    return [...parkDecorated.values()].find((set) => set.some((d) => /\*\*Computed\*\*/.test(d.hoverMessage.value))) || [];
+    return [...parkDecorated.values()].find((set) => set.some((d) => /\*\*Computed by Python\*\*/.test(d.hoverMessage.value))) || [];
   };
 
   const store = path.join(root, "aot.files", "Ledger.formulas");
   await registeredCommands.get("aot.toggleFormulaPark")(editor);
   const parkedLines = text.split("\n");
-  // the empty-valued cell got its number before the formula left, and the
-  // line-form value kept the one it already had
+  // Python is off here, so the values park as they stand: the derivation
+  // leaves, the value stays, the grid narrows
   console.log(parkedLines[2] === "    Invoice|price|vat" && parkedLines[3] === "    INV-1  |100  |20"
-    ? "PASS (park: the recompute writes the value first, the derivation leaves, the grid narrows)"
+    ? "PASS (park: with Python off the value parks as it stands, the derivation leaves, the grid narrows)"
     : "UNEXPECTED parked grid " + JSON.stringify(parkedLines));
   console.log(parkedLines[6] === "        vat: 10" && !/=/.test(text)
     ? "PASS (park: no '=' is left anywhere in the data)"
@@ -1650,14 +1682,14 @@ if (process.platform === "win32" || process.platform === "darwin") {
       ? "PASS (park: the mark names its formula, its store and its address, and offers the key back)"
       : "UNEXPECTED parked hover " + JSON.stringify(cell && cell.hoverMessage.value));
 
-    // a formula carries the language's own backtick literals, so the code
-    // span that shows it must be fenced wider than the formula itself
+    // Python may hold a backtick (in a string), so the code span that shows
+    // a derivation must be fenced wider than the derivation itself
     const parkModule = require("../src/park");
     fs.writeFileSync(store, parkModule.serialise(
-      [{ address: "@Invoice@vat@INV-1", formula: "=xlookup(`A`,@Person@name,@Person@age)" }]));
+      [{ address: "@Invoice@vat@INV-1", formula: "=lookup(\"`A`\", @Person)" }]));
     const quoted = redraw()[0];
-    console.log(quoted && quoted.hoverMessage.value.includes("`` =xlookup(`A`,@Person@name,@Person@age) ``")
-      ? "PASS (park: a formula quoting the language's backticks survives the hover's code span)"
+    console.log(quoted && quoted.hoverMessage.value.includes("`` =lookup(\"`A`\", @Person) ``")
+      ? "PASS (park: a derivation holding a backtick survives the hover's code span)"
       : "UNEXPECTED quoted hover " + JSON.stringify(quoted && quoted.hoverMessage.value));
     fs.writeFileSync(store, stored); // the store as parking left it
 
@@ -1685,29 +1717,31 @@ if (process.platform === "win32" || process.platform === "darwin") {
   fs.rmSync(root, { recursive: true, force: true });
 })();
 
-// 8) formulas: the span after the '=' is coloured as its own token, a
-// stale value publishes a pinned warning, and Tab recomputes it.
+// 8) derivations: the span after the '=' is coloured as Python, a value
+// nothing has computed yet draws no verdict from the linter, and Tab
+// computes nothing — only Ctrl+Enter runs Python.
 {
   const calc = [
     "Order",
-    "    name | price | total",
-    "    A    | 10    | 15 =@price*2",
+    "    Order | price | total",
+    "    A     | 10    | 15 =@price*2",
+    "    age >=18",
   ].join("\n");
   const doc8 = makeDoc("c:\repo\Calc.aot", calc);
   const { tokens } = semanticProvider.provideDocumentSemanticTokens(doc8);
-  const formulaTok = tokens.find((t) => t[3] === 3);
-  console.log(formulaTok && formulaTok[0] === 2 && formulaTok[1] === 22 && formulaTok[2] === 9
-    ? "PASS (formula: '=@price*2' carries its own colour token)"
-    : "UNEXPECTED formula token " + JSON.stringify(tokens.filter((t) => t[3] === 3)));
+  const pyToks = tokens.filter((t) => t[3] === 3);
+  console.log(pyToks.length === 2 && pyToks[0][0] === 2 && pyToks[0][1] === 23 && pyToks[0][2] === 9
+    && pyToks[1][0] === 3 && pyToks[1][1] === 8 && pyToks[1][2] === 4
+    ? "PASS (derivation: '=@price*2' and the bound '>=18' carry the Python colour)"
+    : "UNEXPECTED python tokens " + JSON.stringify(tokens));
 
   vscode.workspace._open(doc8);
   const calcDiags = published.get(doc8.uri.toString()) || [];
-  const stale = calcDiags.find((d) => /does not match its formula \(= 20\)/.test(d.message));
-  console.log(stale && stale.severity === vscode.DiagnosticSeverity.Warning && stale.range.a[1] === 22
-    ? "PASS (formula: a stale value warns on exactly its span)"
+  console.log(!calcDiags.some((d) => /formula|does not match|compute/i.test(d.message))
+    ? "PASS (derivation: the linter judges no computed value — that is the run's to say)"
     : "UNEXPECTED formula diagnostics " + JSON.stringify(calcDiags.map((d) => d.message)));
 
-  // Tab recomputes: the stale 15 becomes 20
+  // Tab aligns and computes nothing: the 15 stays until Python runs
   let applied8 = null;
   const editor8 = {
     document: doc8,
@@ -1717,8 +1751,8 @@ if (process.platform === "win32" || process.platform === "darwin") {
   };
   registeredCommands.get("aot.table.nextCell")(editor8);
   Promise.resolve().then(() => {
-    console.log(applied8 && applied8.includes("20 =@price*2")
-      ? "PASS (formula: Tab recomputes the value in place)"
+    console.log(applied8 && applied8.includes("15 =@price*2")
+      ? "PASS (derivation: Tab computes nothing — the value waits for Ctrl+Enter)"
       : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
   });
 }
@@ -1999,9 +2033,9 @@ if (process.platform === "win32" || process.platform === "darwin") {
     : "UNEXPECTED inlay setting " + JSON.stringify(none));
 }
 
-// 9b2) line-form formulas fill themselves in: once no cursor holds the
-// line, the computed value materialises in front of the formula, exactly
-// as a table cell's would on Tab.
+// 9b2) nothing fills itself in: a derivation is Python, and Python runs only
+// when asked (Ctrl+Enter). Opening a file, leaving a line, a stale table
+// cell — none of them computes a value.
 (async () => {
   const lines = [
     "Order",
@@ -2010,7 +2044,10 @@ if (process.platform === "win32" || process.platform === "darwin") {
     "        price: 2",
     "    - B",
     "        price: 3",
+    "    Order|price|total",
+    "    C    |10   |15 =@price*2",
   ];
+  const before = lines.join("\n");
   const doc = {
     lines,
     languageId: "aot", fileName: "c:\\repo\\Fill.aot", eol: vscode.EndOfLine.LF,
@@ -2019,16 +2056,6 @@ if (process.platform === "win32" || process.platform === "darwin") {
     lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
   };
   doc.uri = { toString: () => "file:///fill", __doc: doc };
-  vscode.workspace._open(doc);
-  await new Promise((r) => setImmediate(r));
-  console.log(lines[1] === "    total: 5 =sum(@price)"
-    ? "PASS (fill: a line formula computes itself once no cursor holds the line)"
-    : "UNEXPECTED auto fill " + JSON.stringify(lines));
-
-  // pressing Enter starts an edit burst, yet the formula on the line just
-  // left still fills at once (force bypasses the hold, busy spares the new
-  // line). Simulate: reset the value, fire the change then the selection.
-  lines[1] = "    total: =sum(@price)";
   const editor = {
     document: doc,
     selection: new vscode.Selection(1, 24, 1, 24),
@@ -2036,38 +2063,14 @@ if (process.platform === "win32" || process.platform === "darwin") {
     edit: (cb) => { cb({ replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); } }); return Promise.resolve(true); },
     revealRange: () => {}, setDecorations: () => {},
   };
-  vscode.window.visibleTextEditors.push(editor);
-  lines.splice(2, 0, ""); // Enter inserted a blank line under the formula
-  vscode.workspace._changed({ document: doc, contentChanges: [{ text: "\n", range: new vscode.Range(1, 24, 1, 24) }] });
-  vscode.window._selectionChanged({ textEditor: editor, selections: [new vscode.Selection(2, 0, 2, 0)] });
-  await new Promise((r) => setImmediate(r));
-  console.log(lines[1] === "    total: 5 =sum(@price)"
-    ? "PASS (fill: pressing Enter fills the formula on the line just left, mid edit-burst)"
-    : "UNEXPECTED enter fill " + JSON.stringify(lines));
-  vscode.window.visibleTextEditors.pop();
-})();
-
-// 9b3) table formulas fill themselves in too: a stale cell refreshes as
-// soon as the linter sees it — no Tab, no Format Document
-(async () => {
-  const lines = [
-    "Order",
-    "    name|price|total",
-    "    A   |10   |15 =@price*2",
-  ];
-  const doc = {
-    lines,
-    languageId: "aot", fileName: "c:\\repo\\TableFill.aot", eol: vscode.EndOfLine.LF,
-    get lineCount() { return lines.length; },
-    getText: () => lines.join("\n"),
-    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
-  };
-  doc.uri = { toString: () => "file:///tablefill", __doc: doc };
   vscode.workspace._open(doc);
+  vscode.window.visibleTextEditors.push(editor);
+  vscode.window._selectionChanged({ textEditor: editor, selections: [new vscode.Selection(3, 0, 3, 0)] });
   await new Promise((r) => setImmediate(r));
-  console.log(lines[2] === "    A   |10   |20 =@price*2"
-    ? "PASS (fill: a stale table cell recomputes itself, no Tab needed)"
-    : "UNEXPECTED table fill " + JSON.stringify(lines));
+  console.log(lines.join("\n") === before
+    ? "PASS (no fill: opening a file or leaving a line computes nothing — Ctrl+Enter does)"
+    : "UNEXPECTED fill " + JSON.stringify(lines));
+  vscode.window.visibleTextEditors.pop();
 })();
 
 // 9c) a URL in a value is Ctrl+clickable on exactly its span
@@ -2354,3 +2357,461 @@ setTimeout(async () => {
     ? "PASS (flip: the same key writes it back, every value and derivation intact)"
     : "UNEXPECTED unflipped " + JSON.stringify(text.split("\n")));
 }, 2000);
+
+// 12) Python derivations end to end, against a fake runtime — no Python
+// needed: the gates, Ctrl+Enter writing values, a Concept's table, a picture
+// and a long text into aot.files, a failure kept to its own line and what
+// reads it, the findings in a collection of their own, consent for the
+// sidecar asked again after it changes, the park key running Python first,
+// and the paths that must never run anything. Late, so no other block is
+// still moving the mock's shared workspace state.
+setTimeout(async () => {
+  const os = require("os");
+  const { EventEmitter } = require("events");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-pyed-"));
+  const before = vscode.workspace.workspaceFolders;
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const requests = [];
+  let spawns = 0;
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  // the fake keeps the runtime's one rule about the repository's Python: a
+  // file runs only when the content it holds now has been allowed
+  const crypto = require("crypto");
+  const fakeApproved = new Map();
+  const fkey = (p) => path.normalize(p).toLowerCase();
+  const needs = (p) => {
+    const digest = crypto.createHash("sha1").update(fs.readFileSync(p)).digest("hex");
+    return fakeApproved.get(fkey(p)) === digest ? null
+      : { ok: false, error: `NeedsConsent: ${path.basename(p)} has not been allowed to run here`, consent: { path: p, sha1: digest } };
+  };
+  const finance = path.join(root, "tools", "finance.py");
+  // a constraint's bound, for the few the tests write: a number, a tuple of
+  // allowed words, or twice a referenced value
+  const fakeCheck = (it) => {
+    const num = (s) => Number(String(s).replace(/[$,]/g, ""));
+    let bound;
+    if (/^\d+$/.test(it.code)) bound = Number(it.code);
+    else if (it.code === '("draft", "sent")') bound = ["draft", "sent"];
+    else if (it.code === "_aot_ref(0)*2") bound = num(it.targets[0].text) * 2;
+    else return { ok: false, error: `NameError: name '${it.code}' is not defined` };
+    const v = it.value === "" ? null : Number.isNaN(num(it.value)) ? it.value : num(it.value);
+    const rel = { "==": (a, b) => a === b, ">=": (a, b) => a >= b, "<=": (a, b) => a <= b, "<": (a, b) => a < b, ">": (a, b) => a > b }[it.rel];
+    const many = Array.isArray(bound) ? bound : null;
+    const out = { ok: true, holds: (many || [bound]).some((b) => rel(v, b)), bound: many ? "one of " + many.map((x) => `'${x}'`).join(", ") : String(bound) };
+    if (it.rel === "==" && !many) out.define = { kind: "number", value: bound };
+    return out;
+  };
+  const answer = (req) => {
+    if (req.op === "hello") return { ok: true, protocol: 1, python: "3.13.0", executable: "fakepython", libraries: { pandas: "2.2.2", seaborn: null } };
+    if (req.op === "open") {
+      for (const [k, d] of Object.entries(req.approved || {})) fakeApproved.set(fkey(k), d);
+      const stop = req.sidecar && needs(req.sidecar);
+      return stop || { ok: true, sidecar: !!req.sidecar, functions: [] };
+    }
+    if (req.op === "approve") {
+      for (const [k, d] of Object.entries(req.files || {})) fakeApproved.set(fkey(k), d);
+      return { ok: true };
+    }
+    if (req.op === "checks") return { ok: true, results: req.items.map(fakeCheck) };
+    if (req.op !== "eval") return { ok: true };
+    switch (req.code) {
+      case "finance.revenue(3)": return needs(finance) || { ok: true, result: { kind: "number", value: 60 }, ms: 2 };
+      case "math.factorial(10)": return { ok: true, result: { kind: "number", value: 3628800 }, ms: 3 };
+      case "_aot_ref(0)*_aot_ref(1)":
+        return req.targets[0].kind === "object" && req.targets[0].address === "@Report@n" && req.targets[1].text === "0.2"
+          ? { ok: true, result: { kind: "number", value: 725760 }, ms: 1 } : { ok: false, error: "vat read the wrong things" };
+      case "frame()": return { ok: true, ms: 5, result: { kind: "frame", columns: ["month", "units"], rows: [["Q1", "2026-01", 1204], ["Q2", "2026-04", 1380]], summary: "<DataFrame 2 rows × 2 cols>" } };
+      case "_aot_ref(0).units.sum()":
+        return req.targets[0].kind === "object" && req.targets[0].address === "@Sales"
+          ? { ok: true, result: { kind: "number", value: 2584 }, ms: 1 } : { ok: false, error: "the reference was not the live frame" };
+      case "chart()": return { ok: true, result: { kind: "image", ext: "png", base64: PNG.toString("base64") }, ms: 9 };
+      case "notes()": return { ok: true, result: { kind: "text", text: "line one\nline two" }, ms: 1 };
+      case "boom()": return { ok: false, error: "NameError: name 'boom' is not defined" };
+      default: return { ok: false, error: `the fake runtime was not taught ${req.code}` };
+    }
+  };
+  ext._test.setSpawn(() => {
+    spawns++;
+    const proc = new EventEmitter();
+    proc.stdout = new EventEmitter();
+    proc.stderr = new EventEmitter();
+    proc.stdin = {
+      write: (s) => {
+        const req = JSON.parse(s);
+        requests.push(req);
+        setImmediate(() => proc.stdout.emit("data", JSON.stringify(Object.assign({ id: req.id }, answer(req))) + "\n"));
+      },
+      end() {},
+    };
+    proc.kill = () => setImmediate(() => proc.emit("exit", null));
+    return proc;
+  });
+  const ran = () => requests.filter((r) => r.op === "open" || r.op === "eval").length;
+
+  // a document whose text the editor really changes
+  const live = (fsPath, lines) => {
+    let text = lines.join("\n");
+    fs.writeFileSync(fsPath, text);
+    const doc = {
+      languageId: "aot", fileName: fsPath, eol: vscode.EndOfLine.LF,
+      uri: { fsPath, toString: () => "file:///" + fsPath.replace(/\\/g, "/") },
+      getText: () => text,
+      get lineCount() { return text.split("\n").length; },
+      lineAt: (i) => { const ls = text.split("\n"); return { range: new vscode.Range(i, 0, i, ls[i].length), text: ls[i] }; },
+    };
+    const offset = (line, ch) => {
+      const ls = text.split("\n");
+      let o = 0;
+      for (let k = 0; k < line; k++) o += ls[k].length + 1;
+      return o + ch;
+    };
+    const editor = {
+      document: doc,
+      selection: new vscode.Selection(0, 0, 0, 0),
+      revealRange() {},
+      setDecorations() {},
+      edit: (cb) => {
+        const ops = [];
+        cb({
+          replace: (r, t) => ops.push([offset(r.a[0], r.a[1]), offset(r.a[2], r.a[3]), t]),
+          insert: (p, t) => ops.push([offset(p.line, p.character), offset(p.line, p.character), t]),
+          delete: (r) => ops.push([offset(r.a[0], r.a[1]), offset(r.a[2], r.a[3]), ""]),
+        });
+        ops.sort((a, b) => b[0] - a[0]);
+        for (const [s, e, t] of ops) text = text.slice(0, s) + t + text.slice(e);
+        return Promise.resolve(true);
+      },
+    };
+    return { doc, editor, text: () => text, lines: () => text.split("\n"), set: (t) => { text = t; } };
+  };
+  const pyFindings = (doc) => (publishedByName.get("aot-python") || new Map()).get(doc.uri.toString()) || [];
+  const run = (f, line) => {
+    f.editor.selection = new vscode.Selection(line, 0, line, 0);
+    return registeredCommands.get("aot.runPython")(f.editor);
+  };
+
+  try {
+    const f = live(path.join(root, "Ledger.aot"), [
+      "Report",
+      "    n: =math.factorial(10)",
+      "    Sales =frame()",
+      "    revenue: =@Sales.units.sum()",
+      "    chart: =chart()",
+      "    notes: =notes()",
+      "    bad: =boom()",
+      "    twice: =@bad.real * 2",
+      "    tax rate: 0.2",
+      "    vat: =@n*@tax rate",
+    ]);
+    vscode.workspace.textDocuments = [f.doc];
+
+    // off by default: nothing runs, nothing starts, and the note says so
+    vscode.workspace._open(f.doc);
+    const infoFirst = pyFindings(f.doc).filter((d) => d.severity === vscode.DiagnosticSeverity.Information);
+    console.log(infoFirst.length === 8 && infoFirst.every((d) => /^not run yet — Ctrl\+Enter runs it \(aot\.python\.enabled is off\)$/.test(d.message))
+      && infoFirst.every((d) => d.source === "aot-python")
+      ? "PASS (python: a derivation that has never run is noted as such, in a collection of its own)"
+      : "UNEXPECTED python notes " + JSON.stringify(pyFindings(f.doc).map((d) => d.message)));
+    console.log(!(published.get(f.doc.uri.toString()) || []).some((d) => /Python|does not compute/.test(d.message) && d.range.a[0] >= 1 && d.range.a[0] <= 7)
+      ? "PASS (python: no Python derivation is a linter error — V never counts them)"
+      : "UNEXPECTED python in the linter's findings " + JSON.stringify((published.get(f.doc.uri.toString()) || []).map((d) => d.message)));
+    const offRun = await run(f, 1);
+    console.log(offRun && offRun.blocked === "off" && spawns === 0 && ran() === 0
+      ? "PASS (python: with aot.python.enabled off, Ctrl+Enter runs nothing and starts nothing)"
+      : "UNEXPECTED run while off " + JSON.stringify({ offRun, spawns }));
+
+    // on, but the workspace untrusted
+    configStore["python.enabled"] = true;
+    vscode.workspace.isTrusted = false;
+    const untrusted = await run(f, 1);
+    console.log(untrusted && untrusted.blocked === "untrusted" && spawns === 0
+      ? "PASS (python: an untrusted workspace runs nothing and starts nothing)"
+      : "UNEXPECTED run while untrusted " + JSON.stringify({ untrusted, spawns }));
+    vscode.workspace.isTrusted = true;
+
+    // Ctrl+Enter on one derivation: that one, in place
+    const first = await run(f, 1);
+    console.log(first.ran === 2 && f.lines()[1] === "    n: 3,628,800 =math.factorial(10)"
+      && f.lines()[9] === "    vat: 725,760 =@n*@tax rate"
+      ? "PASS (python: Ctrl+Enter writes the value in front of its derivation, and what reads it runs after it)"
+      : "UNEXPECTED Ctrl+Enter one " + JSON.stringify({ first, lines: f.lines() }));
+
+    // Ctrl+Enter off any derivation: every stale one, dependencies first
+    const all = await run(f, 0);
+    const L = f.lines();
+    const chartFile = path.join(root, "aot.files", "Report.chart.png");
+    const notesFile = path.join(root, "aot.files", "Report.notes.md");
+    // the table IS the Concept: its line becomes the header, derivation and
+    // all, and the rows stand at the Concept's own indent
+    console.log(L.slice(2, 5).join("\n") === [
+      "    Sales =frame()|month  |units",
+      "    Q1            |2026-01|1,204",
+      "    Q2            |2026-04|1,380",
+    ].join("\n") && L[5] === "    revenue: 2,584 =@Sales.units.sum()"
+      ? "PASS (python: a Concept's derivation turns its line into the table's header, numbers separated)"
+      : "UNEXPECTED Concept table " + JSON.stringify(L));
+    console.log(L.includes("    revenue: 2,584 =@Sales.units.sum()")
+      ? "PASS (python: a derivation reading @Sales gets the live frame the Concept's Python made)"
+      : "UNEXPECTED revenue " + JSON.stringify(L));
+    console.log(L.includes("    chart: aot.files/Report.chart.png =chart()") && fs.existsSync(chartFile)
+      && fs.readFileSync(chartFile).equals(PNG)
+      ? "PASS (python: a picture is written into aot.files, and its path is the value)"
+      : "UNEXPECTED chart " + JSON.stringify(L));
+    console.log(L.includes("    notes: aot.files/Report.notes.md =notes()") && fs.existsSync(notesFile)
+      && fs.readFileSync(notesFile, "utf8") === "line one\nline two\n"
+      ? "PASS (python: a text with a line break goes to aot.files/<name>.md)"
+      : "UNEXPECTED notes " + JSON.stringify(L));
+    console.log(L.includes("    bad: =boom()") && L.includes("    twice: =@bad.real * 2")
+      && !requests.some((r) => r.op === "eval" && /real/.test(r.code))
+      ? "PASS (python: a failure keeps its old value, and what reads it is never sent to run)"
+      : "UNEXPECTED failure handling " + JSON.stringify(L));
+    const findings = pyFindings(f.doc);
+    const badLine = L.indexOf("    bad: =boom()");
+    const failedD = findings.find((d) => d.range.a[0] === badLine);
+    const skippedD = findings.find((d) => d.range.a[0] === badLine + 1);
+    console.log(all.failed === 2 && failedD && failedD.severity === vscode.DiagnosticSeverity.Error && /NameError: name 'boom'/.test(failedD.message)
+      && skippedD && skippedD.severity === vscode.DiagnosticSeverity.Warning && /@Report@bad failed/.test(skippedD.message)
+      ? "PASS (python: the failure is an error on its own line; what reads it says why it did not run)"
+      : "UNEXPECTED failure findings " + JSON.stringify(findings.map((d) => [d.range.a[0], d.severity, d.message])));
+    console.log(lint(f.text(), "Ledger").errors.length === 0
+      ? "PASS (python: the file Python wrote still verifies — V is unchanged)"
+      : "UNEXPECTED errors after the run " + JSON.stringify(lint(f.text(), "Ledger").errors.map((e) => e.message)));
+
+    // how each ran, and when, at the end of its line
+    const hintsNow = () => inlayProvider.provideInlayHints(f.doc, new vscode.Range(0, 0, 40, 0)).map((h) => h.label);
+    const hints = hintsNow();
+    console.log(hints.some((label) => /^✓ 2 rows · 5 ms · \d\d:\d\d$/.test(label)) && hints.some((label) => /^✗ NameError.* · \d\d:\d\d$/.test(label))
+      && hints.some((label) => /^✓ 1 ms · \d\d:\d\d$/.test(label))
+      ? "PASS (python: an inlay says how each derivation ran and when — its rows, its time, or what went wrong)"
+      : "UNEXPECTED python inlays " + JSON.stringify(hints));
+    const { ranAt } = ext._test;
+    const now = new Date(2026, 8, 24, 16, 30);
+    console.log(ranAt(new Date(2026, 8, 24, 9, 5), now) === "09:05" && ranAt(new Date(2026, 8, 23, 16, 4), now) === "2026-09-23 16:04"
+      && ranAt(undefined, now) === "" && ranAt("not a date", now) === ""
+      ? "PASS (python: a run today shows its time, an older one its date as the file writes one)"
+      : "UNEXPECTED ranAt " + JSON.stringify([ranAt(new Date(2026, 8, 24, 9, 5), now), ranAt(new Date(2026, 8, 23, 16, 4), now)]));
+
+    // nothing left to do: a second Ctrl+Enter off every derivation runs only the failures again
+    const evalsBefore = requests.filter((r) => r.op === "eval").length;
+    await run(f, 0);
+    const rerun = requests.filter((r) => r.op === "eval").slice(evalsBefore).map((r) => r.code);
+    console.log(rerun.length === 1 && rerun[0] === "boom()"
+      ? "PASS (python: a fresh derivation is not run again — only what is stale)"
+      : "UNEXPECTED rerun " + JSON.stringify(rerun));
+
+    // the file closed — the session and everything it knew gone — and the
+    // last run's time still shows: it is kept with the run records
+    vscode.workspace._close(f.doc);
+    const afterClose = hintsNow();
+    console.log(afterClose.some((label) => /^✓ 2 rows · 5 ms · \d\d:\d\d$/.test(label)) && afterClose.some((label) => /^✓ 1 ms · \d\d:\d\d$/.test(label))
+      && !afterClose.some((label) => /^✗/.test(label))
+      ? "PASS (python: when a derivation last ran outlasts its session)"
+      : "UNEXPECTED inlays after close " + JSON.stringify(afterClose));
+
+    // an edit dims the old value and says so, without running anything
+    f.set(f.text().replace("    n: 3,628,800 =math.factorial(10)", "    n: 3,628,800 =math.factorial(10) + 0"));
+    vscode.workspace._open(f.doc);
+    const edited = pyFindings(f.doc).find((d) => d.range.a[0] === 1);
+    console.log(edited && /edited since it last ran/.test(edited.message) && edited.severity === vscode.DiagnosticSeverity.Information
+      && hintsNow().some((label) => /^✎ edited since \d\d:\d\d — Ctrl\+Enter$/.test(label))
+      ? "PASS (python: a derivation edited since it ran is noted with when it last ran, and nothing runs until asked)"
+      : "UNEXPECTED edited note " + JSON.stringify({ findings: pyFindings(f.doc).map((d) => d.message), hints: hintsNow() }));
+    f.set(f.text().replace(" =math.factorial(10) + 0", " =math.factorial(10)"));
+
+    // the sidecar: asked before it first runs, and again once it changes
+    const side = path.join(root, "aot.files", "Ledger.py");
+    fs.writeFileSync(side, "def helper():\n    return 1\n");
+    vscode.window._warningAnswer = undefined;
+    const warned = vscode.window._warnings.length;
+    const evals = requests.filter((r) => r.op === "eval").length;
+    const refused = await run(f, 1);
+    console.log(refused.blocked === "refused" && vscode.window._warnings.length === warned + 1
+      && /^AOT: run aot\.files\/Ledger\.py\? A Python derivation reaches it, and it has not been run here before/.test(vscode.window._warnings[warned])
+      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Run", "Open File"])
+      && requests.filter((r) => r.op === "eval").length === evals
+      ? "PASS (python: the sidecar is asked about before it first runs; no answer is a no, and nothing runs)"
+      : "UNEXPECTED sidecar consent " + JSON.stringify({ refused, warnings: vscode.window._warnings.slice(warned) }));
+    vscode.window._warningAnswer = "Run";
+    const allowed = await run(f, 1);
+    const sentSidecar = requests.filter((r) => r.op === "open").pop();
+    console.log(allowed.ran >= 1 && sentSidecar && sentSidecar.sidecar === side
+      ? "PASS (python: once allowed, the sidecar is loaded by its path)"
+      : "UNEXPECTED allowed run " + JSON.stringify({ allowed, sentSidecar }));
+    const asked = vscode.window._warnings.length;
+    vscode.window._warningAnswer = undefined;
+    await run(f, 1);
+    console.log(vscode.window._warnings.length === asked
+      ? "PASS (python: an unchanged sidecar is not asked about again)"
+      : "UNEXPECTED asked again for an unchanged sidecar");
+    fs.writeFileSync(side, "def helper():\n    return 2  # changed\n");
+    const again = await run(f, 1);
+    console.log(again.blocked === "refused" && vscode.window._warnings.length === asked + 1
+      && /has changed since you last allowed it, and not in this editor/.test(vscode.window._warnings[asked])
+      ? "PASS (python: a sidecar changed outside the editor is asked about again)"
+      : "UNEXPECTED changed sidecar " + JSON.stringify({ again, warnings: vscode.window._warnings.slice(asked) }));
+    vscode.window._warningAnswer = "Run";
+    await run(f, 1);
+
+    // any Python file of the repository, named as a module — here one in
+    // tools/, found by its name — asked about when a derivation first reaches it
+    fs.mkdirSync(path.dirname(finance), { recursive: true });
+    fs.writeFileSync(finance, "def revenue(units):\n    return units * 20\n");
+    if (vscode.workspace._pyCreated) vscode.workspace._pyCreated({ fsPath: finance });
+    const g = live(path.join(root, "Books.aot"), ["Books", "    rev: =finance.revenue(3)", "    n: =math.factorial(10)"]);
+    vscode.workspace.textDocuments = [f.doc, g.doc];
+    const reached = vscode.window._warnings.length;
+    const approvesBefore = requests.filter((r) => r.op === "approve").length;
+    await run(g, 0);
+    const approveSent = requests.filter((r) => r.op === "approve").slice(approvesBefore);
+    console.log(g.lines()[1] === "    rev: 60 =finance.revenue(3)" && g.lines()[2] === "    n: 3,628,800 =math.factorial(10)"
+      && /^AOT: run tools\/finance\.py\? A Python derivation reaches it/.test(vscode.window._warnings[reached] || "")
+      && approveSent.length === 1 && Object.keys(approveSent[0].files)[0] === finance
+      ? "PASS (python: a module anywhere in the repository runs once allowed, asked about by its own path)"
+      : "UNEXPECTED repository module " + JSON.stringify({ lines: g.lines(), warnings: vscode.window._warnings.slice(reached), approveSent }));
+
+    // changed on disk, outside the editor: what names it is stale, nothing else is
+    await new Promise((r) => setTimeout(r, 30));
+    fs.writeFileSync(finance, "def revenue(units):\n    return units * 30\n");
+    if (vscode.workspace._pyChanged) vscode.workspace._pyChanged({ fsPath: finance });
+    vscode.workspace._open(g.doc);
+    const gNotes = pyFindings(g.doc);
+    console.log(gNotes.some((d) => d.range.a[0] === 1 && /something it reads changed/.test(d.message)) && !gNotes.some((d) => d.range.a[0] === 2)
+      ? "PASS (python: a module changing makes stale the derivations that name it, and no other)"
+      : "UNEXPECTED staleness after a module change " + JSON.stringify(gNotes.map((d) => [d.range.a[0], d.message])));
+    const askedAgain = vscode.window._warnings.length;
+    await run(g, 1);
+    console.log(/^AOT: run tools\/finance\.py\?.*has changed since you last allowed it, and not in this editor/.test(vscode.window._warnings[askedAgain] || "")
+      ? "PASS (python: a module changed outside the editor is asked about again)"
+      : "UNEXPECTED changed module " + JSON.stringify(vscode.window._warnings.slice(askedAgain)));
+
+    // saved in this editor: the writer's own edit, never asked about
+    const pyDoc = { fileName: finance, languageId: "python", uri: { fsPath: finance, toString: () => "file:///" + finance.replace(/\\/g, "/") }, getText: () => "" };
+    await vscode.workspace._willSave({ document: pyDoc, waitUntil: () => {} });
+    await new Promise((r) => setTimeout(r, 30));
+    fs.writeFileSync(finance, "def revenue(units):\n    return units * 40\n");
+    vscode.workspace._save(pyDoc);
+    await new Promise((r) => setTimeout(r, 30));
+    const beforeOwn = vscode.window._warnings.length;
+    vscode.window._warningAnswer = undefined; // any question now would be a "no"
+    await run(g, 1);
+    const gHints = inlayProvider.provideInlayHints(g.doc, new vscode.Range(0, 0, 10, 0)).map((h) => h.label);
+    console.log(vscode.window._warnings.length === beforeOwn && g.lines()[1] === "    rev: 60 =finance.revenue(3)"
+      && gHints.some((label) => /^✓/.test(label)) && !gHints.some((label) => /^✗/.test(label))
+      ? "PASS (python: a module saved in this editor runs without being asked about)"
+      : "UNEXPECTED own edit asked about " + JSON.stringify(vscode.window._warnings.slice(beforeOwn)));
+    vscode.window._warningAnswer = "Run";
+
+    // Ctrl+click on the function a derivation calls opens the file it is
+    // written in, at its def — the module's, or the one the sidecar imports
+    // it from — and the callee is underlined as a link; nothing is run to
+    // find out
+    const booksSide = path.join(root, "aot.files", "Books.py");
+    fs.writeFileSync(booksSide, "from finance import revenue as rev_of, other\n");
+    g.set(g.text() + "\n    via: =rev_of(2) + len(@n) + math.floor(1)");
+    const evalsAtLinks = requests.filter((r) => r.op === "eval").length;
+    const links = documentLinkProvider.provideDocumentLinks(g.doc).filter((l) => /finance\.py$/i.test(l.target.fsPath || ""));
+    const spanText = (l) => g.lines()[l.range.a[0]].slice(l.range.a[1], l.range.a[3]);
+    console.log(links.length === 2 && spanText(links[0]) === "finance.revenue" && spanText(links[1]) === "rev_of"
+      && links.every((l) => l.target.fragment === "L1")
+      && /tools\/finance\.py line 1 — def revenue\(units\)/.test(links[0].tooltip)
+      && requests.filter((r) => r.op === "eval").length === evalsAtLinks
+      ? "PASS (python: a derivation's function is a link to its def — a module's, or one the sidecar imports; len and math are nobody's file)"
+      : "UNEXPECTED python links " + JSON.stringify(links.map((l) => [l.range.a, spanText(l), l.tooltip, l.target])));
+    g.set(g.text().replace("\n    via: =rev_of(2) + len(@n) + math.floor(1)", ""));
+    fs.rmSync(booksSide);
+
+    // what must never run anything: a save, a CSV arriving, a store arriving
+    const quiet = ran();
+    await vscode.workspace._willSave({ document: f.doc, waitUntil: (p) => p });
+    vscode.workspace._save(f.doc);
+    if (vscode.workspace._csvChanged) await vscode.workspace._csvChanged({ fsPath: path.join(root, "aot.files", "Sales.csv") });
+    if (vscode.workspace._parkChanged) vscode.workspace._parkChanged({ fsPath: path.join(root, "aot.files", "Ledger.formulas") });
+    await new Promise((r) => setTimeout(r, 50));
+    console.log(ran() === quiet
+      ? "PASS (python: a save, a CSV arriving and a store arriving run no Python)"
+      : "UNEXPECTED Python ran from a save or a watcher " + JSON.stringify(requests.slice(-4)));
+
+    // the park key: Python first, fresh, then the derivations leave
+    const evalsAtPark = requests.filter((r) => r.op === "eval").length;
+    await registeredCommands.get("aot.toggleFormulaPark")(f.editor);
+    const store = path.join(root, "aot.files", "Ledger.formulas");
+    const stored = fs.existsSync(store) ? fs.readFileSync(store, "utf8") : "";
+    console.log(requests.filter((r) => r.op === "eval").length > evalsAtPark
+      && /^@Sales: =frame\(\)$/m.test(stored) && /^@Report@n: =math\.factorial\(10\)$/m.test(stored)
+      && f.lines()[2] === "    Sales|month  |units" && !/ =math|=frame/.test(f.text())
+      ? "PASS (park: the key runs every Python derivation first, then parks it — a Concept's under its own name)"
+      : "UNEXPECTED park with Python " + JSON.stringify({ stored, lines: f.lines() }));
+    console.log(/PYTHON/.test(stored) && /^\/\/ Python values computed .* with python 3\.13\.0 · pandas 2\.2\.2$/m.test(stored)
+      ? "PASS (park: the store says it holds code, and what computed its Python values)"
+      : "UNEXPECTED store notice " + JSON.stringify(stored.split("\n").slice(0, 9)));
+    const atUnpark = ran();
+    await registeredCommands.get("aot.toggleFormulaPark")(f.editor);
+    console.log(ran() === atUnpark && f.lines()[2] === "    Sales =frame()|month  |units"
+      ? "PASS (park: putting the derivations back runs nothing)"
+      : "UNEXPECTED unpark " + JSON.stringify({ ran: ran() - atUnpark, line: f.lines()[2] }));
+
+    // the constraints: checked with the run, a breach warned on its value, a
+    // '==' naming one value written into every value it defines — in a file
+    // with no derivation at all
+    const c = live(path.join(root, "Staff.aot"), [
+      "Staff",
+      "    age >=18",
+      '    status ==("draft", "sent")',
+      "    grade ==@level*2",
+      "    - Ann",
+      "        age: 30",
+      "        status: void",
+      "        level: 3",
+      "        grade:",
+      "    - Bob",
+      "        age: 15",
+      "        status: draft",
+      "        level: 1,204",
+      "        grade: 5",
+    ]);
+    vscode.workspace.textDocuments = [f.doc, g.doc, c.doc];
+    const checkedRun = await run(c, 0);
+    const cf = () => pyFindings(c.doc);
+    const W = vscode.DiagnosticSeverity.Warning;
+    console.log(checkedRun.broken === 2 && checkedRun.defined === 2
+      && c.lines()[8] === "        grade: 6" && c.lines()[13] === "        grade: 2,408"
+      && cf().some((d) => d.range.a[0] === 10 && d.severity === W && /^'15' breaks 'age >=18' — it is not >= 18$/.test(d.message))
+      && cf().some((d) => d.range.a[0] === 6 && d.severity === W && /^'void' breaks 'status ==\("draft", "sent"\)' — it is not one of 'draft', 'sent'$/.test(d.message))
+      && cf().filter((d) => d.severity === W).length === 2
+      ? "PASS (constraints: Ctrl+Enter checks every bound, warns a breach on its value, and fills what a '==' defines)"
+      : "UNEXPECTED constraint run " + JSON.stringify({ checkedRun, lines: c.lines(), findings: cf().map((d) => [d.range.a, d.message]) }));
+    c.set(c.text().replace("        age: 15", "        age: 21"));
+    vscode.workspace._open(c.doc);
+    console.log(!cf().some((d) => d.range.a[0] === 10) && cf().some((d) => d.range.a[0] === 6)
+      ? "PASS (constraints: an edit to a flagged value retires its warning until the next run)"
+      : "UNEXPECTED stale constraint finding " + JSON.stringify(cf().map((d) => [d.range.a, d.message])));
+    c.set(c.text().replace("    age >=18", "    age >=nobody"));
+    await run(c, 0);
+    console.log(cf().some((d) => d.range.a[0] === 1 && d.severity === vscode.DiagnosticSeverity.Error && /the bound 'age >=nobody' failed — NameError/.test(d.message))
+      && cf().filter((d) => /age >=nobody/.test(d.message)).length === 1
+      ? "PASS (constraints: a bound that fails is one error, on the clause that wrote it)"
+      : "UNEXPECTED failing bound " + JSON.stringify(cf().map((d) => [d.range.a, d.message])));
+
+    // a file with no Python keeps Ctrl+Enter's own meaning
+    const plain = live(path.join(root, "Plain.aot"), ["Plain", "    a: 1"]);
+    vscode.commands._calls.length = 0;
+    await run(plain, 1);
+    console.log(vscode.commands._calls.some((c) => c[0] === "editor.action.insertLineAfter")
+      ? "PASS (python: in a file with no Python, Ctrl+Enter inserts a line as it always did)"
+      : "UNEXPECTED Ctrl+Enter without Python " + JSON.stringify(vscode.commands._calls));
+
+    ext.deactivate();
+    console.log(ext._test.sessions.size === 0
+      ? "PASS (python: every session ends with the extension)"
+      : "UNEXPECTED sessions left " + ext._test.sessions.size);
+  } catch (e) {
+    console.log("UNEXPECTED python block threw " + (e && e.stack));
+  } finally {
+    delete configStore["python.enabled"];
+    vscode.window._warningAnswer = undefined;
+    vscode.workspace.textDocuments = [];
+    vscode.workspace.workspaceFolders = before;
+    ext._test.setSpawn(null);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}, 5000);

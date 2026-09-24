@@ -5,9 +5,10 @@
 	"patterns": [
 		{
             "comment": "table row: any line carrying a divider with no colon before it, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. A colon before the first pipe makes a 'name: value' line whose value holds the pipe, which the line rules below colour. The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
-            "begin": "^(?=[^|:]*\\|)",
+            "begin": "^(?=[^|:=]*(?:\\s=(?!=)[^|]*)?\\|)",
             "end": "$",
             "patterns": [
+                { "comment": "a table whose Python wrote it: the Concept and its derivation in the first header cell", "match": "^(\\s*[^|=\\s][^|=]*?)(\\s=(?!=)[^|]*)", "captures": { "1": { "name": "entity.name.type.concept.aot" }, "2": { "name": "meta.embedded.inline.python.aot" } } },
                 { "match": "[|+]|(?<![^\\s|+])-+(?![^\\s|+])", "name": "punctuation.definition.table.aot" },
                 { "match": "`[^`]*`", "name": "markup.inline.raw.literal.aot" },
                 { "match": "\\([^)|]*\\)", "name": "entity.other.attribute-name.alias.aot" },
@@ -21,9 +22,14 @@
             "match": "^[ \\t]*(?=[ \\t\\-+:|]*$)(?=.*-)[-+:|]{2,}[-+:|\\s]*$"
         },
 		{
-            "comment": "Concept: a type / class, the structural backbone. A quote ends the name, but an apostrophe inside a word is a letter of it — 'Aristotle's Ethics' is one name, so a ' followed by a letter is consumed rather than closing the run",
+            "comment": "Concept: a type / class, the structural backbone. A quote ends the name, but an apostrophe inside a word is a letter of it — 'Aristotle's Ethics' is one name, so a ' followed by a letter is consumed rather than closing the run. A derivation ends it too: in 'Sales =by_month(@raw)' the Concept is 'Sales' and the rest is the Python that writes its table",
             "name": "entity.name.type.concept.aot",
-            "match": "[A-Z](?:[^(:\"'`]|'(?=[A-Za-z]))*(?=[(:\"`]|'(?![A-Za-z])|$)"
+            "match": "[A-Z](?:(?!\\s=(?!=))[^(:\"'`]|'(?=[A-Za-z]))*(?=[(:\"`]|'(?![A-Za-z])|\\s=(?!=)|$)"
+        },
+        {
+            "comment": "derivation on a line with no value: a Concept's Python ('Sales =by_month(@raw)'), claimed whole so none of its names reads as a Concept or an attribute. A value's derivation stands after its colon and is coloured with the value; the extension's semantic tokens tell formula from Python on both",
+            "name": "meta.embedded.inline.python.aot",
+            "match": "(?<=\\S)\\s=(?!=).*$"
         },
         {
             "comment": "attribute: a property / slot",

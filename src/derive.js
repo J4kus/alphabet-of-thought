@@ -1,47 +1,43 @@
-// Formulas on line-form attribute values, and constraint validation — the
-// table spreadsheet (table.js) generalised to `attribute: value =formula`
-// lines, plus the schema check: a constraint lives on the ATTRIBUTE
-// declaration and every value the attribute takes is held to it:
+// Derivations on line-form attribute values, and the constraints on the
+// attributes — where they stand and what they reach, for the Python that
+// computes and checks them (python.js):
 //
 //     Order
-//         total: 30 =sum(@price)      <- ranges over Order's Examples
+//         total: 30 =sum(r["price"] for r in @Order)   <- a line-form derivation
 //         cap <=100                   <- bounds every 'cap' value beneath
 //         - A
 //             price: 10
 //             vat: 2 =@price*0.2      <- @name is a sibling attribute
-//             cap: 2                  <- validated against 'cap <=100'
+//             cap: 2                  <- held to 'cap <=100' when Python runs
 //         - B
 //             price: 20
-//             copy: 10 =@price@A      <- @Example reads the named sibling
+//             copy: 10 =@price@A      <- @attr@Example reads the named sibling
 //
 // Reference semantics: `@attribute name` is the same owner's attribute
-// (longest case-insensitive match, aliases included); aggregates and
-// count() range over the *other* sibling Examples under the same parent;
-// `@attr@Example` reads the named sibling Example's value; the lookups
-// (xlookup, sumifs, countifs) range over *every* Example, this one
-// included, as a spreadsheet range does. References are
-// name-only — a digits lead can name an Example ('- 35'), never a column
-// position (positional @N was removed in 1.6). A constraint's references
-// resolve per value, against that value's own Example or row — so
-// `total >=@price` holds each row's total to its own price.
+// (longest case-insensitive match, aliases included); `@attr@Example` reads
+// the named sibling Example's value; a name that is a Concept reaches that
+// Concept. References are name-only — a digits lead can name an Example
+// ('- 35'), never a column position. A constraint's references resolve per
+// value, against that value's own Example or row — so `total >=@price` holds
+// each row's total to its own price.
 //
-// Pure: parse once (linter.js), audit or recompute over the shared tree.
-// Used by the VS Code extension (extension.js). table.js provides the
-// evaluator; requiring linter.js here is safe (linter never requires this).
+// Pure: parse once (linter.js), read over the shared tree. Nothing here
+// evaluates anything. Used by the VS Code extension and python.js; requiring
+// linter.js here is safe (linter never requires this).
 
 const { KIND, INDENT } = require("./linter");
 const {
-  splitCell, splitConstraint, evalFormula, formatValue, compareValues, longestMatch,
-  tablesOf, updateTable, describeBound, readValue, render, isRowText,
-  referenceSpans, numberless, Choice,
+  splitCell, splitConstraint, longestMatch,
+  tablesOf, updateTable, readValue, render, isRowText,
+  numberless,
 } = require("./table");
 
-// The determinate `==` bound on an attribute declaration — the one that
-// *defines* every value of the attribute rather than bounding it. Answers
-// the formula, or null when the declaration carries no `==`. Whether the
-// bound is determinate is only known once computed (an `==or(…)` answers a
-// Choice, which lists allowed values rather than naming one), so the
-// callers check the computed value; this just finds the clause.
+// The `==` bound on an attribute declaration — the one that *defines* every
+// value of the attribute rather than bounding it, when what it computes is
+// one value. Answers the bound's source, or null when the declaration
+// carries no `==`. Whether the bound names one value is only known once it
+// runs (`==("draft", "sent")` answers a collection, which lists allowed
+// values rather than naming one), so the run checks; this finds the clause.
 function definitionOf(a) {
   const eq = a && a.constraints && a.constraints.find((c) => c.op === "==");
   return eq ? eq.formula : null;
@@ -330,210 +326,26 @@ function valueSpanOf(lines, d) {
   return { startCol: start, endCol: start + d.value.length };
 }
 
-// Audit the line-form '=' formulas (the exact shape of table.formulas())
-// and every attribute constraint: the declaration's span is returned for
-// the colouring (and carries the error when its formula cannot compute);
-// each value the attribute takes is validated in its own context, a
-// violation pinned to the value itself as a **warning** — a breached
-// constraint is worth knowing, not a broken file, so it never counts in V
-// (paint: false — a plain value is not derivation text).
-//
-// `parked` (optional) is park.parkedConstraints' Map: constraints taken off
-// their declarations into the formula store, which bound the values exactly
-// as the written ones do. They have no text to colour, so a parked bound
-// that cannot compute is pinned to the declaration's name instead.
-function auditValues(root, nodes, lines, registry, parked) {
+// Where every line-form derivation and every constraint stands: a
+// derivation's span from its '=' to its end, and each bound's span on its
+// declaration — for the colouring, for keeping spelling out of code, and for
+// the editor's notes on them. Nothing is evaluated here: a derivation and a
+// bound are both Python, run only when asked (python.js).
+function derivationSpans(root, nodes, lines) {
   const out = [];
-  const current = (n) => n.value || "";
   for (const d of hostsOf(nodes)) {
     const s = spanOf(lines, d);
     if (!s) continue;
-    const span = { line: d.line, startCol: s.startCol, endCol: s.endCol, op: s.op, formula: s.formula };
-    try {
-      const computed = formatValue(evalFormula(s.formula, makeCtx(d, current, registry)), s.value);
-      if (computed !== s.value) {
-        span.stale = true;
-        span.message = s.value === ""
-          ? `formula '=${s.formula}' is not yet computed (= ${computed}) — it fills in when the cursor leaves the line, or on save`
-          : `value '${s.value}' does not match its formula (= ${computed}) — it recomputes when the cursor leaves the line, or on save`;
-      }
-    } catch (e) {
-      span.error = true;
-      span.message = `formula '=${s.formula}' does not compute — ${e.message}`;
-    }
-    out.push(span);
+    out.push({ line: d.line, startCol: s.startCol, endCol: s.endCol, op: s.op, formula: s.formula, value: s.value });
   }
-  // the constraints: one coloured span per bound (a declaration may chain
-  // several), one check per value per bound
-  const constrained = nodes.filter((n) => n.kind === KIND.ATTRIBUTE && n.constraints);
-  if (!constrained.length && !(parked && parked.size)) return out;
-  const declared = new Map(); // constraint -> its pushed span
-  for (const a of constrained) {
+  for (const a of nodes) {
+    if (a.kind !== KIND.ATTRIBUTE || !a.constraints) continue;
     a.constraints.forEach((con, k) => {
       const s = constraintSpanOf(lines, a, k);
-      const span = { line: a.line, startCol: s.startCol, endCol: s.endCol, op: con.op, formula: con.formula };
-      declared.set(con, span);
-      out.push(span);
+      out.push({ line: a.line, startCol: s.startCol, endCol: s.endCol, op: con.op, formula: con.formula, constraint: true });
     });
   }
-  // a parked clause has no text of its own: its error, when it has one,
-  // stands on the name of the declaration it was taken from
-  for (const [a, chain] of parked || []) {
-    const raw = lines[a.line - 1] || "";
-    const startCol = a.nameCol !== undefined ? a.nameCol : raw.length - raw.trimStart().length;
-    for (const con of chain) {
-      declared.set(con, {
-        line: a.line, startCol, endCol: startCol + a.name.length, op: con.op, formula: con.formula,
-        paint: false, parked: true,
-      });
-    }
-  }
-  const violation = (d, message) => {
-    const at = valueSpanOf(lines, d) || { startCol: 0, endCol: (lines[d.line - 1] || "").length };
-    out.push({ line: d.line, startCol: at.startCol, endCol: at.endCol, paint: false, warning: true, message });
-  };
-  for (const d of nodes) {
-    if (d.kind !== KIND.DEFAULT || !d.value) continue;
-    const held = constraintOf(d, parked);
-    if (!held) continue;
-    const a = held.a;
-    for (const con of held.constraints) {
-      const hidden = !!(declared.get(con) || {}).parked;
-      // the bound: the value must satisfy each comparison in the chain
-      let bound;
-      try {
-        bound = evalFormula(con.formula, makeCtx(d, current, registry));
-      } catch (e) {
-        // an uncomputable bound is the declaration's problem, reported once
-        const span = declared.get(con);
-        if (span && !span.error) {
-          span.error = true;
-          span.message = `${hidden ? "parked " : ""}constraint '${con.op}${con.formula}' on '${a.name}' does not compute — ${e.message}`;
-          if (hidden) out.push(span);
-        }
-        continue;
-      }
-      // A determinate '==' *defines* the value rather than bounding it, so a
-      // value that differs is stale, not in violation: it recomputes exactly
-      // as an '=' formula does. (An '==or(…)' answers a Choice — a list of
-      // allowed values, which names no single one — and stays a bound.)
-      if (con.op === "==" && !(bound instanceof Choice) && d.formula === undefined) {
-        let computed;
-        try { computed = formatValue(bound, d.value); } catch { continue; }
-        if (computed !== d.value) {
-          violation(d, hidden
-            ? `value '${d.value}' does not match its parked definition '${a.name} ==${con.formula}' (= ${computed}, line ${a.line}) — put the formulas back (Ctrl+Shift+\`) to recompute it`
-            : `value '${d.value}' does not match its definition '${a.name} ==${con.formula}' (= ${computed}, line ${a.line}) — it recomputes when the cursor leaves the line, or on save`);
-        }
-        continue;
-      }
-      if (!compareValues(con.op, d.value, bound)) {
-        violation(d, `value '${d.value}' violates ${hidden ? "parked " : ""}'${a.name} ${con.op} ${describeBound(bound)}' (line ${a.line}) — change the value, or the constraint`);
-      }
-    }
-  }
   return out;
-}
-
-// Every name reference in every line-form '=' formula, resolved as
-// evaluation resolves it and pinned to the document — the line-form half
-// of table.js's formulaReferences, one record shape between them: local
-// attribute and Example names answer their declaring `nodes`, a foreign
-// grid answers a `site`, a line-form Concept its `conceptNode`/`attrKey`.
-// For the rename that follows a declaration.
-function formulaReferences(root, nodes, lines, registry) {
-  const out = [];
-  const current = (n) => n.value || "";
-  const isAttr = (n) => n.kind === KIND.DEFAULT || n.kind === KIND.ATTRIBUTE;
-  for (const d of hostsOf(nodes)) {
-    const s = spanOf(lines, d);
-    if (!s) continue;
-    const ctx = makeCtx(d, current, registry);
-    const { examples } = scopeOf(d);
-    const owners = [...new Set([d.parent, ...examples])].filter(Boolean);
-    const from = s.startCol + s.op.length;
-    const src = s.raw.slice(from, s.endCol);
-    for (const rec of referenceSpans(src, ctx)) {
-      const r = {
-        line: d.line, startCol: from + rec.start, endCol: from + rec.start + rec.length,
-        text: rec.text, kind: rec.kind, id: rec.id,
-      };
-      if (rec.kind === "table") {
-        // resolved through the registry by the caller
-      } else if (rec.scope === ctx) { // a sibling attribute or Example of this line
-        r.nodes = rec.kind === "column"
-          ? owners.flatMap((o) => o.children.filter((c) => isAttr(c) && c.name.toLowerCase() === rec.id))
-          : [rec.id];
-      } else if (rec.scope.node) { // a registry scope, read as a table
-        if (rec.kind === "column") { r.conceptNode = rec.scope.node; r.attrKey = rec.id; }
-        else r.nodes = [rec.scope.examples[rec.id]].filter(Boolean);
-      }
-      out.push(r);
-    }
-  }
-  return out;
-}
-
-// Recompute every derived line-form value, five fixpoint passes so one
-// derivation may reference another's value. Two kinds: a value's own '='
-// formula, and a value whose attribute declaration *defines* it with a
-// determinate '==' (`vat ==@price*0.2`) — the declaration carries the
-// derivation, so the value follows it without one of its own, exactly as a
-// '==' column fills its cells. The other constraints are never rewritten.
-// A defined value that cannot compute is left alone (the declaration's own
-// error says why); only an '=' formula shows #ERR in its place.
-// Returns whole-line replacements as { line, text } (1-based lines).
-function recomputeValues(root, nodes, lines, registry) {
-  const hosts = hostsOf(nodes).filter((n) => n.op === "=");
-  // values a '==' declaration defines: line-form, carrying no formula of
-  // their own (an explicit '=' on the value wins, being the nearer word)
-  const defined = [];
-  for (const d of nodes) {
-    if (d.kind !== KIND.DEFAULT || d.cell || d.formula !== undefined) continue;
-    // written declarations only: a parked '==' leaves its values frozen,
-    // exactly as a parked '=' does
-    const held = constraintOf(d);
-    const formula = definitionOf(held && held.a);
-    if (formula) defined.push({ d, formula });
-  }
-  const values = new Map();
-  const current = (n) => (values.has(n) ? values.get(n) : n.value || "");
-  for (let pass = 0; pass < 5; pass++) {
-    let changed = false;
-    for (const d of hosts) {
-      let out;
-      try { out = formatValue(evalFormula(d.formula, makeCtx(d, current, registry)), current(d)); }
-      catch { out = "#ERR"; }
-      if (out !== current(d)) { values.set(d, out); changed = true; }
-    }
-    for (const { d, formula } of defined) {
-      let out;
-      try {
-        const v = evalFormula(formula, makeCtx(d, current, registry));
-        if (v instanceof Choice) continue; // allowed values, not a definition
-        out = formatValue(v, current(d));
-      } catch { continue; }
-      if (out !== current(d)) { values.set(d, out); changed = true; }
-    }
-    if (!changed) break;
-  }
-  const edits = [];
-  for (const d of hosts) {
-    if (!values.has(d) || values.get(d) === (d.value || "")) continue;
-    const s = spanOf(lines, d);
-    if (!s) continue;
-    const text = s.raw.slice(0, s.colon + 1 + s.lead) + values.get(d) + " =" + s.formula;
-    edits.push({ line: d.line, text });
-  }
-  // a defined value carries no formula, so its line is `name: value` whole
-  for (const { d } of defined) {
-    if (!values.has(d) || values.get(d) === (d.value || "")) continue;
-    const raw = lines[d.line - 1] || "";
-    const colon = raw.indexOf(":");
-    if (colon === -1) continue;
-    edits.push({ line: d.line, text: raw.slice(0, colon + 1) + " " + values.get(d) });
-  }
-  return edits;
 }
 
 // The last line a node's subtree occupies, so an insertion lands after it.
@@ -544,8 +356,9 @@ function lastLineOf(node) {
 }
 
 // Copy the derivation at lines[lineIdx] onto the same attribute of every
-// sibling Example — replacing an existing derivation, keeping each peer's
-// own value, adding an `attr: =formula` line where the attribute is absent.
+// sibling Example — replacing what the attribute held, adding an
+// `attr: =formula` line where it is absent. A copy holds no value until the
+// next run computes one for its own Example.
 // Returns [{ type: "replace", line, text } | { type: "insert", afterLine,
 // text }] (1-based lines), or null when there is nothing to copy to.
 function copyToSiblings(root, nodes, lines, lineIdx) {
@@ -564,11 +377,7 @@ function copyToSiblings(root, nodes, lines, lineIdx) {
       const raw = lines[hit.line - 1];
       const colon = raw.indexOf(":");
       if (colon === -1) continue;
-      const value = hit.value || "";
-      ops.push({
-        type: "replace", line: hit.line,
-        text: raw.slice(0, colon + 1) + " " + (value ? value + " " : "") + d.op + d.formula,
-      });
+      ops.push({ type: "replace", line: hit.line, text: raw.slice(0, colon + 1) + " " + d.op + d.formula });
     } else if (!peer.children.some((c) => c.name && c.name.toLowerCase() === id)) {
       ops.push({
         type: "insert", afterLine: lastLineOf(peer),
@@ -1274,9 +1083,9 @@ function flipForm(lines, concept, rootName) {
 }
 
 module.exports = {
-  auditValues, recomputeValues, copyToSiblings, hostsOf, constraintOf,
+  derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, valueSpanOf, makeCtx, scopeOf,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
-  formulaReferences, mirrorGrids, updateScope,
+  mirrorGrids, updateScope,
   lastLineOf, headerColName, renumberExamples, renumberConcepts,
   flipForm, gridOfConcept, toTableForm, toLineForm,
 };

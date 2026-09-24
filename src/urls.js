@@ -4,7 +4,7 @@
 // timeout-bounded, and only ever on demand. Pure apart from the network;
 // the request function is injectable so the tests never touch the wire.
 
-const { isRowText } = require("./table");
+const { isRowText, splitCell } = require("./table");
 const http = require("http");
 const https = require("https");
 
@@ -82,6 +82,10 @@ function findFiles(lines, resolve) {
       }
     }
     for (const s of spans) {
+      // a value stands before its derivation — `aot.files/chart.png =plot(@Sales)`
+      // — so only the value part can name a file
+      const derived = splitCell(s.text);
+      if (derived.eq > 0) s.text = derived.value;
       if (!looksLikePath(s.text)) continue;
       const fsPath = resolve(s.text);
       if (!fsPath) continue;

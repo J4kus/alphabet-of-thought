@@ -6,9 +6,12 @@
 node_modules/gpt-tokenizer/**
 vsc-extension-quickstart.md
 *.vsix
-__pycache__/**
+# bytecode anywhere: a stale .pyc beside the runtime must never ship
+**/__pycache__/**
 out/**
 lp.py
 install.py
 parser.out
 *.aot
+# the Python runtime the editor starts for `=` derivations ships with it
+!src/aot_runtime.py

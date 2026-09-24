@@ -1,0 +1,513 @@
+Python Edge Case
+    area
+    case
+    expected
+    because
+    - Arithmetic Is Python
+        area: every derivation is Python
+        case: 42 =6*7
+        expected: 42 once run; typing it computes nothing
+        because: there is one language behind the equals sign, and it runs only when asked
+    - Round Is Python's Round
+        area: every derivation is Python
+        case: 3.14 =round(3.14159, 2)
+        expected: 3.14 once run
+    - A Typo In A Function Name
+        area: every derivation is Python
+        case: #ERR =roundd(2.5)
+        expected: noted as not run yet; once run, a NameError on its line, never in V
+        because: nothing names roundd, and no underline marks it as a function a file here defines
+    - A Formula Left In The File
+        area: every derivation is Python
+        case: 5 =len(`hello`)
+        expected: 5 stays; once run, a SyntaxError on its line, since a backtick is no Python; write len("hello")
+        because: the formula language is gone, and its text is not Python
+    - Max Of Two
+        area: every derivation is Python
+        case: 4 =max(3, 4)
+        expected: 4 once run
+    - The Caret Is Exclusive Or
+        area: every derivation is Python
+        case: 8 =2^10
+        expected: 8 once run; write 2**10 for a power, 1,024
+        because: in Python the caret is exclusive or
+    - Text Joins With Plus
+        area: every derivation is Python
+        case: alpha ="al" + "pha"
+        expected: alpha once run
+    - A String Hides Python Text
+        area: every derivation is Python
+        case: DF.HEAD() ="df.head()".upper()
+        expected: DF.HEAD() once run
+        because: what a string holds is characters, never code
+    - Any Python Number
+        area: every derivation is Python
+        case: 1,000 =.5*4 + 1e3 - 2
+        expected: 1,000 once run
+    - A Ternary Over References
+        area: references
+        flag: Yes
+        when yes: 1
+        when no: 0
+        case: 1 =@when yes if @flag else @when no
+        expected: 1 once run
+        because: a reference keeps the spaces in its name, and if and else between references are Python's words
+    - Matrix Multiply Is Python
+        area: references
+        case: <list 2 items> =(np.eye(2) @ np.ones(2)).tolist()
+        expected: a list of two items once run, or without numpy an error naming its install command
+        because: an at sign after an operand is the matrix operator, never a reference
+    - A Value Line
+        area: where it stands
+        case: 3,628,800 =math.factorial(10)
+        expected: 3,628,800 written in front of the derivation once run
+    - A Grid Cell
+        area: where it stands
+        expected: once run the size cell reads 6, and the width and height cells stay as typed
+        Box|width|height|size ==math.prod([@width, @height])
+        A  |2    |3     |6
+        B  |3    |3     |9
+    - A Concept Line Writes Its Table
+        area: where it stands
+        case: the Concept beneath
+        expected: once run, the Concept's line becomes the header of its table, Quarter and its derivation in the first cell, one row per quarter at the same indent; total_units is written total units, None leaves a cell empty, True and False read Yes and No, numbers are separated; a row typed into it is gone on the next run
+        because: a frame on a Concept line is the Concept's rows, and Python owns them outright; the table stands where the Concept stood, never beneath it repeating its name
+        Quarter =quarters()|total units|revenue |closed
+        Q1                 |1,204      |18,060.5|Yes
+        Q2                 |1,380      |20,700  |Yes
+        Q3                 |990        |14,850  |No
+        Q4                 |           |        |No
+
+        Test =[{'blue': 4, 'green': 2, 'red': 3}]|blue|green|red
+        1                                        |4   |2    |3
+    - A Column Named For Its Concept
+        area: where it stands
+        case: the Concept beneath, and Quarter above
+        expected: once run, one row per season named Spring and Summer from the season column, which is not written as a column of its own; Quarter above is named the same way, by its quarter key
+        because: a column carrying the Concept's own name names its Examples; without one the rows are numbered 1, 2, 3, as Test above shows
+        Season =[{"season": "Spring", "days": 92}, {"season": "Summer", "days": 93}]|days
+        Spring                                                                      |92
+        Summer                                                                      |93
+    - A Concept Column That Cannot Name
+        area: where it stands
+        case: the Concept beneath
+        expected: once run, rows numbered 1 and 2, and a twin pair column holding a twice
+        because: two rows would share the name a, so the numbers stay and so does the column
+        Twin Pair =[{"twin pair": "a", "n": 1}, {"twin pair": "a", "n": 2}]|twin pair|n
+        1                                                                  |a        |1
+        2                                                                  |a        |2
+    - A Colon Inside The Python
+        area: where it stands
+        case: the Concept beneath
+        expected: once run, a table headed by Top Quarter and its derivation, with one row; the slice stays part of the Python
+        because: the derivation comes off the line before the colon is read, so the slice never becomes an inline Example, and a colon inside a derivation never makes a header a value line
+        Top Quarter =[{"name": "Q2", "best units": 1380}][:1]|name|best units
+        1                                                    |Q2  |1,380
+    - A Pipe Inside The Python
+        area: where it stands
+        case: the Concept beneath
+        expected: the line stays a line, not a table row; once run, the line becomes the header of its table like any other, the whole derivation in its first cell, with one row, either, whose on cell reads Yes
+        because: a pipe inside Python still open, in a bracket or a string, is the Python's, never a divider
+        Flag Row =[{"name": "either", "on": True | False}]|name  |on
+        1                                                 |either|Yes
+    - A Pipe Outside The Brackets
+        area: where it stands
+        case: Flags =a() ¦ b()
+        expected: read as a table header, its first cell the Concept with a() and a column named b(); wrap the Python in brackets, Flags =(a() ¦ b()), to keep the pipe the Python's
+        because: a pipe outside every bracket and string divides cells, derivation or not
+    - A Concept With An Attribute Of Its Own
+        area: where it stands
+        case: the Concept beneath
+        expected: once run the Concept keeps its line, with its currency, and its table stands beneath it repeating its name
+        because: a table has no line for an attribute the Concept states itself
+        Unit Price =[{"name": "Widget", "price": 15}]
+            Unit Price|name  |price
+            1         |Widget|15
+            currency: EUR
+    - A Table Written Beneath Its Concept
+        area: where it stands
+        case: a Concept line with its table indented beneath it, repeating its name, from an earlier version or a run before this layout
+        expected: on its next run the line becomes the table's header and the repeated name goes; Flag Row above shows it
+    - A Concept Line That Is Not A Table
+        area: where it stands
+        case: the Concept beneath
+        expected: an error on its line once run, saying a Concept's derivation must produce a table; nothing is written
+        Not A Table =42
+    - An Empty Frame
+        area: where it stands
+        case: the Concept beneath
+        expected: a header alone once run, Empty Frame and its derivation in the first cell, declaring the column and holding no rows
+        Empty Frame =aot.grid(["Empty Frame", "units"], [])|units
+    - On A Bare Attribute
+        area: where it stands
+        case: rows \=f()
+        expected: an error that counts in V, saying to add a colon so the derivation sits on a value
+        because: a derivation computes a value, and a bare attribute declares none; escaped here so this file still verifies
+    - An Empty Concept Derivation
+        area: where it stands
+        case: Sales \=
+        expected: an error that counts in V, saying there is nothing after the equals sign
+    - A Bound Is Python
+        area: constraints
+        age >=18
+        age: 15
+        expected: once run, a warning on 15 saying it breaks age >=18, it is not >= 18; never in V, and gone once 15 is edited
+        because: a constraint's bound is Python, checked with the derivations and never on a keystroke
+    - A Bound Reads Its Own Row
+        area: constraints
+        expected: once run, a warning on A's margin of 5, which is under a tenth of its price; B's 20 holds
+        Margin Check|price|margin >=@price*0.1
+        A           |100  |1
+        B           |100  |20
+    - Allowed Values Are A Collection
+        area: constraints
+        status ==("draft", "sent")
+        status: void
+        expected: once run, a warning on void saying it is not one of 'draft', 'sent'; nothing is filled in
+        because: a collection lists the allowed values, and names no one value to write
+    - One Value Defines
+        area: constraints
+        expected: once run, I1's empty vat reads 10 and I2's 99 is corrected to 20; the cells carry the value alone
+        because: a == whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
+        Vat Check|price|vat ==@price*0.2
+        I1       |50   |10
+        I2       |100  |20
+    - A Derivation Beside A Definition
+        area: constraints
+        total ==100
+        total: 90 =40 + 50
+        expected: once run, total keeps its own derivation's 90, with a warning that it is not 100
+        because: a value's own derivation is the nearer word, and the definition still checks it
+    - A Bound That Fails
+        area: constraints
+        score >=nobody_defines_this
+        score: 3
+        expected: once run, one error on the bound, a NameError; the value is not judged
+    - Prose Is No Bound
+        area: constraints
+        case: speed > none noted, on a bare attribute line
+        expected: an attribute named speed > none noted; nothing is checked
+        because: a bound is believed only when what follows the operator reads as a Python expression, and none noted is two words side by side
+    - A Bound Still Open
+        area: constraints
+        case: cap <=@price*(2, on a bare attribute line
+        expected: an attribute named that whole text, not a bound; close the bracket
+        because: an open bracket is no Python yet
+    - A Parked Bound Still Holds
+        area: constraints
+        case: Ctrl+Shift+backtick with age >=18 above
+        expected: the bound leaves the declaration for the store, and each run still warns on 15
+    - Inside A Map
+        area: where it stands
+        case: ... \=load()
+        expected: never a derivation; a Map holds only Maps
+    - An Inline Example Keeps Its Text
+        area: where it stands
+        case: Run Command: code \=x
+        expected: the colon stands first, so the text after it is the name of the Concept's one Example, equals sign and all
+    - An Equals Sign In Prose
+        area: where it stands
+        case: a \= b
+        expected: the value reads with its equals sign
+        because: unescaped, a space then an equals sign starts a derivation
+    - A Money Value Arrives As A Number
+        area: references
+        price: $1,204
+        case: 1,205 =int(@price) + 1
+        expected: 1,205 once run
+        because: a value arrives typed, and only a whole number is a number; the dollar sign and the comma are read away
+    - A Month Stays Text
+        area: references
+        month: 2026-01
+        case: 01 =@month.split("-")[1]
+        expected: 01 once run
+        because: 2026-01 is not a whole number or a whole date, so it arrives as text
+    - A Date Arrives As A Date
+        area: references
+        due: 2026-09-22
+        case: 2026-10-02 =@due + timedelta(days=10)
+        expected: 2026-10-02 once run
+    - Yes And No Arrive As Booleans
+        area: references
+        active: No
+        case: Yes =not @active
+        expected: Yes once run
+    - A Derivation Reads Another Live Result
+        area: references
+        case: 3,574 =sum(r["total_units"] or 0 for r in @Quarter)
+        expected: 3,574 once run
+        because: Quarter has a derivation of its own, so it runs first and arrives whole, as the list it returned, not as text
+    - A Reference Naming Nothing
+        area: references
+        case: #ERR =@nobody.x
+        expected: an error on its line before anything runs, saying nobody names nothing here; not in V
+    - An At Sign Inside A String
+        area: references
+        case: @price costs 2 =f"@price costs {1 + 1}"
+        expected: @price costs 2 once run
+        because: an at sign inside a string is text, never a reference
+    - An At Sign In A Comment
+        area: references
+        case: 2 =1 + 1  # @nothing
+        expected: 2 once run
+        because: the comment is Python's, and nothing in it is read as a reference
+    - What Reads A Derivation Runs After It
+        area: references
+        seed: 120 =math.factorial(5)
+        case: 240 =@seed*2
+        expected: 240 once run, in the same run that writes seed
+        because: each run is a single pass, dependencies first, and a reference to another derivation is its live result
+    - Two Decimals At Most
+        area: what comes back
+        case: 3.14 =math.pi
+        expected: 3.14 once run
+        because: every computed number is written to two decimals; keep the precision in the live result, or return text
+    - A Year Becomes A Thousand
+        area: what comes back
+        case: 2,026 =2000 + 26
+        expected: 2,026 once run
+        because: every computed number is separated, a year included
+    - A Year Kept As Text
+        area: what comes back
+        case: 2026 =str(2000 + 26)
+        expected: 2026 once run
+        because: text is written as it is
+    - True Is Yes
+        area: what comes back
+        case: Yes =bool(1)
+        expected: Yes once run
+        because: Python's truths are written Yes and No
+    - None Is Empty
+        area: what comes back
+        case: =None
+        expected: an empty value once run
+    - Not A Number Is Empty
+        area: what comes back
+        case: =float("nan")
+        expected: an empty value once run
+    - Infinity Is An Error
+        area: what comes back
+        case: #ERR =math.inf
+        expected: an error on its line once run, saying the result is infinite; the value is left as it was
+    - A Date Is Written Year First
+        area: what comes back
+        case: 2026-09-22 =date(2026, 9, 22)
+        expected: 2026-09-22 once run
+    - A Time Is Kept
+        area: what comes back
+        case: 2026-09-22 14:30 =datetime(2026, 9, 22, 14, 30)
+        expected: 2026-09-22 14:30 once run
+    - A Pipe In Text Is Bent
+        area: what comes back
+        case: a¦b ="a|b"
+        expected: a¦b once run
+        because: a pipe cannot live inside a table, so text keeps the broken bar the CSV mirror already uses
+    - A Long Text Becomes A File
+        area: what comes back
+        case: aot.files/Python Edge Case.case.A Long Text Becomes A File.md ="word " * 30
+        expected: once run, the path of a .md file in aot.files named after this value's address
+        because: text longer than aot.python.maxInlineText, 120, is written to a file
+    - A Paragraph Becomes A File
+        area: what comes back
+        case: aot.files/Python Edge Case.case.A Paragraph Becomes A File.md =summarise(@Quarter)
+        expected: once run, the path of a .md file in aot.files holding two lines
+        because: text holding a line break has no place on one line
+    - A Picture Becomes A File
+        area: what comes back
+        case: aot.files/Python Edge Case.case.A Picture Becomes A File.png =dot()
+        expected: once run, the path of a one-pixel .png in aot.files; hover shows it
+    - A Chart Becomes A File
+        area: what comes back
+        case: aot.files/Python Edge Case.case.A Chart Becomes A File.png =bar_chart(@Quarter)
+        expected: once run, the path of a .png in aot.files, or without matplotlib an error naming its install command
+        because: a Figure, an Axes, a PIL image or image bytes are pictures; no window ever opens
+    - A List Is Summarised
+        area: what comes back
+        case: <list 3 items> =[1, 2, 3]
+        expected: a list of three items, summarised in angle brackets once run; the list itself stays live for any reference to it
+    - A Dict Is Summarised
+        area: what comes back
+        case: <dict 2 keys> ={"a": 1, "b": 2}
+        expected: a dict of two keys, summarised in angle brackets once run
+    - A DataFrame On An Attribute
+        area: what comes back
+        case: <DataFrame 1,204 rows × 1 col> =pd.DataFrame({"x": range(1204)})
+        expected: a DataFrame of 1,204 rows by 1 col, summarised in angle brackets once run, or without pandas an error naming its install command
+        because: on an attribute a frame is a value, summarised; only a Concept line writes a table
+    - A Money Value Keeps Its Dollar
+        area: what comes back
+        case: 1,500 =int("1500")
+        expected: $1,500 once run
+        because: a dollar sign on the value a number replaces is kept
+    - Ctrl Enter Runs One Line
+        area: running
+        case: Ctrl+Enter on a derivation
+        expected: that derivation, the stale ones it reads, and everything that reads it, all in place; then every constraint is checked
+    - Ctrl Enter Off Any Derivation
+        area: running
+        case: Ctrl+Enter anywhere else
+        expected: every stale derivation in the file, and every constraint checked; F9 does the same; in a file with no derivation and no constraint it inserts a line, as it always did
+    - Nothing Runs On A Keystroke
+        area: running
+        case: typing, Tab, Format Document, a save, a CSV arriving
+        expected: no Python runs; each value holds until it is asked for
+    - The Park Key Runs Everything First
+        area: running
+        case: Ctrl+Shift+backtick
+        expected: every derivation runs fresh and every constraint is checked, then everything parks; putting them back runs nothing
+    - A Fresh Derivation Is Not Rerun
+        area: running
+        case: Ctrl+Enter off a derivation, twice
+        expected: the second press runs only what is stale in its source, its inputs or the sidecar
+    - A Cycle
+        area: running
+        ping: #ERR =@pong.real
+        pong: #ERR =@ping.real
+        expected: neither runs, and both lines name the cycle, ping to pong to ping
+    - A Failure Keeps The Old Value
+        area: running
+        case: #ERR =1/0
+        after: #ERR =@case.real
+        expected: 7 stays, the line says ZeroDivisionError, and after says it did not run because case failed
+        because: a failed derivation writes nothing, rather than a marker over a good value
+    - Each Derivation Has Its Own Scope
+        area: running
+        case: 10 =(w := 5) * 2
+        then: #ERR =w + 1
+        expected: 10, then a NameError on the next line once run
+        because: a name one derivation makes never leaks into another; its result, read with an at sign, does
+    - A Print Is Captured
+        area: running
+        case: 7 =print("hello") or 7
+        expected: 7 once run; hello is shown in the hover and the inlay's tooltip, never written into the file
+    - Exit Ends Only The Expression
+        area: running
+        case: #ERR =exit()
+        expected: an error on its line once run; the session keeps running
+    - A Hang Stops The Session
+        area: running
+        case: time.sleep(60) after an equals sign
+        expected: after aot.python.timeoutMs, 15 seconds, the session stops, the line says it timed out, and each later derivation in that run says it did not run; the next run starts a fresh session
+        because: a hung expression holds the interpreter, so stopping the process is the only way to end it
+    - A Restarted Session Recomputes Upstream
+        area: running
+        case: Ctrl+Enter after the session ended, idle or stopped
+        expected: every derivation the line reads runs again first, since its live result went with the session
+    - Edited Since It Ran
+        area: running
+        case: a derivation changed after it last ran
+        expected: its value fades and the end of its line says edited since, with the time it last ran; nothing runs until Ctrl+Enter
+    - When It Last Ran
+        area: running
+        case: the end of any Python derivation's line
+        expected: after a run, the rows it wrote and the time it took, then when it ran, 16:04 today or 2026-09-23 16:04 on an older day; its hover gives the time to the second
+        because: the time is kept with the run records, so it outlasts the session and a restart of the editor
+    - Longer Code Lives In The Sidecar
+        area: sidecar
+        case: 4 =len(quarters())
+        expected: 4 once run
+        because: quarters is defined in aot.files/python edge cases.py
+    - The Sidecar Is Asked About
+        area: sidecar
+        case: the first run, and the first after the sidecar changes anywhere but in this editor
+        expected: a prompt naming the sidecar by its path; no answer means nothing runs
+        because: a sidecar's top-level code runs the moment it is loaded
+    - A Sidecar That Fails To Load
+        area: sidecar
+        case: an exception at the sidecar's top level
+        expected: an error on that line of the sidecar, and no derivation runs
+    - A Module Anywhere In The Repository
+        area: repository
+        case: HELLO! =edge_tools.shout("hello")
+        expected: HELLO! once run; the first run asks about examples/edge_tools.py by its path
+        because: a name nothing else defines is imported, and a repository file is found by its name wherever it is
+    - A Dotted Path From The Root
+        area: repository
+        case: DOTTED! =examples.edge_tools.shout("dotted")
+        expected: DOTTED! once run
+        because: a folder holding Python is a package, even without an __init__
+    - A File By Its Path
+        area: repository
+        case: BY PATH! =aot.use("examples/edge_tools.py").shout("by path")
+        expected: BY PATH! once run
+        because: aot.use loads any file of the repository by its path, for a name that is not an identifier, a space and all
+    - Any Installed Module By Its Name
+        area: repository
+        case: 1 =csv.QUOTE_ALL
+        expected: 1 once run, with no import written
+    - Where A Module Is Looked For
+        area: repository
+        case: a module name no derivation or sidecar defines
+        expected: the standard library and installed packages first, then aot.files, then the repository's root, then the one file of that name anywhere else in it
+    - The Standard Library Wins
+        area: repository
+        case: an os.py anywhere in the repository
+        expected: shadows nothing; os is always the standard library's, and the repository's os.py never runs
+    - Two Files Of One Name
+        area: repository
+        case: finance.py in two folders, named as finance
+        expected: an error naming both files and the dotted path to write instead, tools.finance
+    - Folders That Are Never Searched
+        area: repository
+        case: a virtual environment, node_modules, __pycache__, a folder whose name starts with a dot
+        expected: none of their files is ever found or run; they are not the repository's own code
+    - A Module Saved In This Editor
+        area: repository
+        case: a Python file edited and saved here, after it was allowed
+        expected: runs without being asked about again; the derivations that name it fade until they run
+        because: a change saved in this editor is the writer's own
+    - A Module Changed Outside The Editor
+        area: repository
+        case: a Python file changed by a pull or another tool, after it was allowed
+        expected: asked about again, by its path, the first time a run reaches it; the derivations that name it fade meanwhile
+    - A Module A Module Imports
+        area: repository
+        case: finance importing helpers, and helpers changing
+        expected: asked about in its turn when it first runs; but a derivation naming only finance does not fade when helpers changes, so run the line to take the change in
+    - A Function Is A Link To Its File
+        area: sidecar
+        case: quarters in
+        expected: each is underlined, and Ctrl+click opens the file that defines it at its def; len and csv are not underlined
+        because: a function a Python file here defines has a place to open, and the standard library's has none; the files are read to find it, never run
+    - A Function The Sidecar Imports
+        area: sidecar
+        case: a bare call to a name the sidecar takes with from helpers import load
+        expected: underlined, and Ctrl+click opens helpers.py at def load, not the sidecar
+    - A Function Nobody Defines
+        area: sidecar
+        case: #ERR =forecast()
+        expected: once run, a NameError; the lightbulb offers to create forecast in the sidecar as a stub
+    - Off Until Enabled
+        area: security
+        case: aot.python.enabled left off
+        expected: nothing runs and nothing starts; each derivation is noted as not run yet, and no constraint is checked
+    - Never In An Untrusted Workspace
+        area: security
+        case: a workspace VS Code does not trust
+        expected: nothing runs and nothing starts, whatever the settings say
+    - Verify Never Runs Python
+        area: security
+        case: node verify.js
+        expected: the value as it stands is judged; no Python runs, no derivation or bound is checked, and no Python finding counts in V
+    - An Output Name Cannot Escape
+        area: security
+        case: a Concept named to climb out of aot.files
+        expected: the file name is reduced to safe characters and checked to be inside aot.files; a result never names its own file
+    - A Derivation Can Read Your Files
+        area: security
+        case: open(os.path.expanduser("~/.ssh/id_rsa")).read() after an equals sign
+        expected: it would run, with your permissions, and write the key into this file; the gates are the only protection
+        because: Python cannot be sandboxed inside its own process, so the trust decision is yours
+    - The Formula Store Holds Code
+        area: security
+        case: aot.files/python edge cases.formulas
+        expected: its notice says it may hold Python; review a change to it as you would code
+    - Typed Values Are Never Reformatted
+        area: formatting
+        case: 1815
+        expected: stays 1815; only computed numbers gain separators
+    - Spelling Skips Python
+        area: formatting
+        case: teh recieve =" ".join(["teh", "recieve"])
+        expected: no spelling hint inside the derivation; once run, the text it writes is prose and is hinted like any value
+    ... more edge cases as they are found

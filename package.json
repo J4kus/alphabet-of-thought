@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.23",
+  "version": "1.11.27",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -22,8 +22,18 @@
     "Linters"
   ],
   "main": "./src/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Python derivations never run in an untrusted workspace: they are code the files carry. Everything else works.",
+      "restrictedConfigurations": [
+        "aot.python.enabled",
+        "aot.python.path"
+      ]
+    }
+  },
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js"
   },
   "contributes": {
     "configurationDefaults": {
@@ -116,6 +126,39 @@
           "type": "boolean",
           "default": true,
           "description": "Tint every value whose derivation is parked in 'aot.files/<file>.formulas', so a computed number is never mistaken for a typed one, and every attribute whose constraint is parked there, so a hidden rule is never mistaken for none. Hover names the formula or the constraint and offers to put them back. The mark is a background only \u2014 no text is added, so a marked cell keeps the width its column aligned it to."
+        },
+        "aot.python.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the Python derivations a file carries \u2014 an '=' whose text the formula language cannot read (`=load()`, `=@rows.units.sum()`). Off by default: a derivation is code, and it runs with your permissions. Runs happen only when asked (Ctrl+Enter, or the park key), only in a trusted workspace, and the Python files in aot.files are asked about before they first run and again after they change."
+        },
+        "aot.python.path": {
+          "type": "string",
+          "default": "",
+          "description": "The Python interpreter to run derivations with \u2014 for a virtual environment, its python executable (e.g. '.venv\\\\Scripts\\\\python.exe'). Empty uses 'python' from PATH."
+        },
+        "aot.python.timeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "description": "How long one Python derivation may run before its session is stopped. A derivation that hangs holds the interpreter, so stopping the process is the only way to end it; the next run starts a fresh one."
+        },
+        "aot.python.idleTimeoutMs": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 10000,
+          "description": "How long an idle Python session is kept. Its live results (a DataFrame one derivation made for the next) go with it; the next run recomputes what it needs."
+        },
+        "aot.python.maxResultBytes": {
+          "type": "number",
+          "default": 8000000,
+          "description": "The largest result one Python derivation may send back. A bigger one stops the session with a message rather than filling memory; return less, or write it to a file."
+        },
+        "aot.python.maxInlineText": {
+          "type": "number",
+          "default": 120,
+          "minimum": 1,
+          "description": "Text a Python derivation returns longer than this (or holding a line break) is written to 'aot.files/<name>.md', and the value becomes that file's path."
         }
       }
     },
@@ -133,8 +176,8 @@
         "description": "A table cell's Attribute Value"
       },
       {
-        "id": "aotFormula",
-        "description": "A formula or constraint"
+        "id": "aotPython",
+        "description": "A Python derivation"
       }
     ],
     "semanticTokenScopes": [
@@ -150,8 +193,8 @@
           "aotValue": [
             "string.unquoted.value.aot"
           ],
-          "aotFormula": [
-            "keyword.control.formula.aot"
+          "aotPython": [
+            "meta.embedded.inline.python.aot"
           ]
         }
       }
@@ -338,6 +381,23 @@
         "enablement": "editorLangId == aot"
       },
       {
+        "command": "aot.runPython",
+        "title": "Run Python Derivation",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.runPythonFresh",
+        "title": "Run All Python (Fresh)",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.showPythonEnvironment",
+        "title": "Show Python Environment",
+        "category": "AOT"
+      },
+      {
         "command": "aot.toggleTableForm",
         "title": "Flip Concept Between Table and Free Text",
         "category": "AOT",
@@ -345,7 +405,7 @@
       },
       {
         "command": "aot.recomputeFormulas",
-        "title": "Recompute Formulas",
+        "title": "Run Stale Python and Check Constraints",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },
@@ -498,12 +558,6 @@
         "enablement": "editorLangId == aot"
       },
       {
-        "command": "aot.table.autoSum",
-        "title": "AutoSum the Column",
-        "category": "AOT Table",
-        "enablement": "editorLangId == aot"
-      },
-      {
         "command": "aot.insertDate",
         "title": "Insert Today's Date",
         "category": "AOT",
@@ -596,6 +650,12 @@
         "command": "aot.toggleFormulaPark",
         "key": "ctrl+shift+`",
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot"
+      },
+      {
+        "command": "aot.runPython",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && !suggestWidgetVisible"
       },
       {
         "command": "aot.toggleTableForm",
@@ -705,11 +765,6 @@
       {
         "command": "aot.table.copyValueFromAbove",
         "key": "ctrl+shift+'",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
-      },
-      {
-        "command": "aot.table.autoSum",
-        "key": "alt+=",
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
       },
       {

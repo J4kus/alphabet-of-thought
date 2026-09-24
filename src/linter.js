@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless } = require("./table");
+const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation } = require("./table");
 
 const INDENT = 4;
 
@@ -219,6 +219,17 @@ function parse(text, rootName, report) {
         // the table's own line: its indent IS the table's, and every row
         // written deeper than it nests inside it
         let cName = row.length ? row[0].text : "", cAlias = null, cAliasCol;
+        // the Concept's own derivation rides in its first cell once its
+        // Python has written the table — `Quarter =quarters()|units|…` —
+        // exactly as it rode on the Concept's line before: off the name
+        let headDerivation = null;
+        {
+          const d = lineDerivation(cName);
+          if (d) {
+            headDerivation = { formula: d.formula, col: row[0].col + d.eq, end: row[0].col + row[0].text.length };
+            cName = d.head;
+          }
+        }
         if (cName.endsWith(")") && cName.includes("(")) {
           const open = cName.lastIndexOf("(");
           const inner = cName.slice(open + 1, -1);
@@ -248,6 +259,16 @@ function parse(text, rootName, report) {
           parent.children.push(concept);
           nodes.push(concept);
           owner = concept;
+        }
+        if (headDerivation && owner && owner.kind === CONCEPT && owner.formula === undefined) {
+          owner.formula = headDerivation.formula;
+          owner.op = "=";
+          owner.formulaCol = headDerivation.col;
+          owner.formulaEnd = headDerivation.end;
+          if (!headDerivation.formula) {
+            report.error(line, `'${cName} =' has nothing after '=' — a derivation on a Concept is the Python that writes its table; write the expression, or remove the '='`,
+              { startCol: headDerivation.col, endCol: headDerivation.end });
+          }
         }
         table.owner = owner;
         let last = null;
@@ -370,13 +391,43 @@ function parse(text, rootName, report) {
         trimmed = head;
       }
     }
+    // A derivation on a line that carries no value. On a Concept it is the
+    // Python that writes the Concept's table — `Sales =by_month(@raw)` — and
+    // it comes off the line before the line is classified, so the Concept is
+    // named `Sales` everywhere it is read (and a colon inside the Python,
+    // `Sales =df[:10]`, never becomes an inline Example). On a bare
+    // attribute it is misplaced: a derivation computes a value, and a
+    // declaration has none.
+    let derivation = null;
+    if (!constraints) {
+      const d = lineDerivation(trimmed);
+      if (d) {
+        derivation = { formula: d.formula, col: spaces + d.eq, end: spaces + trimmed.length };
+        trimmed = d.head;
+      }
+    }
     const { kind, name, value, alias } = classify(trimmed);
+    if (derivation && kind !== CONCEPT) {
+      report.error(line, `'${name} =${derivation.formula}' puts a derivation on a bare attribute — a derivation computes a value, and '${name}' declares none; add a colon so it sits on the value: '${name}: =${derivation.formula}'`,
+        { startCol: derivation.col, endCol: derivation.end });
+    } else if (derivation && !derivation.formula) {
+      report.error(line, `'${name} =' has nothing after '=' — a derivation on a Concept is the Python that writes its table; write the expression, or remove the '='`,
+        { startCol: derivation.col, endCol: derivation.end });
+    }
     if (value === "") {
       report.error(line, `'${name}:' has 0 characters after ':', expected a value — a colon assigns a value (as in 'colour: red'); add the value, or drop the colon to leave '${name}' as a bare attribute`);
     }
     const parent = tableMap ? table.owner : stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, alias: alias || null, parent, children: [] };
     if (constraints && kind === ATTRIBUTE) node.constraints = constraints;
+    // the Concept's derivation, kept off its name: the model never sees it,
+    // exactly as it never sees a value's formula
+    if (derivation && kind === CONCEPT) {
+      node.formula = derivation.formula;
+      node.op = "=";
+      node.formulaCol = derivation.col;
+      node.formulaEnd = derivation.end;
+    }
     // a line-form value may carry an '=' formula exactly as a table cell
     // does: `total: 30 =sum($price)` computes. Only the value part enters
     // the model; the formula is presentation, audited and coloured by the

@@ -129,9 +129,11 @@ const at = (r) => r && r.cursor && `${r.cursor.line}:${r.cursor.ch}`;
   const value = run(priced, 4, "copyValueFromAbove");
   check("Ctrl+Shift+': the value alone from the Example above",
     value && value.lines[4] === "        price: 2");
-  const sum = run(priced, 4, "autoSum");
-  check("Alt+=: the value becomes the sum of its attribute",
-    sum && sum.lines[4] === "        price: =sum(@price)");
+  const filled = run(priced, 4, "fillDown");
+  check("Ctrl+D: a derivation arrives alone — the value above was computed for the Example above",
+    filled && filled.lines[4] === "        price: =1+1");
+  check("AutoSum is gone with the formula language — a sum is Python's",
+    lf.ops.autoSum === undefined);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 Mirror
     - Twin Left
         height: tall
-        mood: calm
+        mood
+        ... to do fix that this dpnt flag because it is missing a value for mood
     - Twin Left
         height: tall
         mood: calm

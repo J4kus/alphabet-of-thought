@@ -8,6 +8,8 @@
 const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
+const childProcess = require("child_process");
 const { lint, KIND } = require("./linter");
 const {
   resolve, owningConcept, externalIndex, unlistedValues,
@@ -25,6 +27,7 @@ const repo = require("./repo");
 const urls = require("./urls");
 const hold = require("./hold");
 const lineform = require("./lineform");
+const python = require("./python");
 
 const DEBOUNCE_MS = 300;
 // past this many Examples the lattice is no longer keystroke-cheap
@@ -355,24 +358,17 @@ function analyse(doc) {
     // the weaker same-name clashes are not surfaced
     deepErrors = deepErrors.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
   }
-  // formulas and constraints, table cells and line-form values alike: one
-  // that cannot compute is an error; a breached constraint or a value the
-  // next recompute would change is a warning — pinned to the exact span
-  const formulaErrors = [], formulaWarnings = [];
-  const docLines = doc.getText().split(/\r?\n/);
-  const registry = formulaRegistry(doc, { root, nodes });
-  // a constraint parked in the formula store still bounds the values
-  const parkedCons = park.parkedConstraints(nodes, rootName, parkedFormulas(doc));
-  for (const f of [...table.formulas(docLines, registry, rootName), ...derive.auditValues(root, nodes, docLines, registry, parkedCons)]) {
-    if (f.error) formulaErrors.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
-    else if (f.stale || f.warning) formulaWarnings.push({ line: f.line, message: f.message, startCol: f.startCol, endCol: f.endCol });
-  }
+  // the derivations and the constraints are Python: code, not prose, so
+  // spelling leaves them alone. What they find when they run is Python's
+  // own business, in a collection of its own (pythonFindings) — never in V
+  const pythonSpans = codeSpans(doc.getText().split(/\r?\n/), root, nodes, rootName);
+  const inPython = (h) => pythonSpans.some((s) => s.line === h.line && h.startCol >= s.startCol && h.endCol <= s.endCol);
   // spelling is advisory prose-hygiene, independent of the tree's verdict:
   // words longer than four characters that no English dialect (nor the
   // user's accepted words) knows, off with aot.spellingHints
   const config = vscode.workspace.getConfiguration("aot");
   const hints = config.get("spellingHints", true)
-    ? spelling.check(doc.getText(), accepted)
+    ? spelling.check(doc.getText(), accepted).filter((h) => !inPython(h))
     : [];
   // a value naming no Example of the Concept typing its attribute is a gap
   // in the model rather than a contradiction in it, so it hints exactly as
@@ -382,14 +378,30 @@ function analyse(doc) {
     hints.push(...unlistedValues(doc.getText(), root, nodes, inWs ? externalFor() : undefined));
   }
   return {
-    errors: errors.concat(deepErrors, formulaErrors),
-    warnings: warnings.concat(depWarnings, formulaWarnings, synonymWarnings(doc, root, nodes)),
+    errors: errors.concat(deepErrors),
+    warnings: warnings.concat(depWarnings, synonymWarnings(doc, root, nodes)),
     hints,
     links,
     root,
     nodes,
     usagesOf,
   };
+}
+
+// Every span of Python in a document — each derivation from its '=' to its
+// end (a value's, a cell's, a Concept's) and each constraint's bound — for
+// the colouring, and to keep spelling out of code.
+function codeSpans(lines, root, nodes, rootName) {
+  const spans = [];
+  try {
+    for (const h of python.hostsOf(nodes, lines, rootName)) {
+      spans.push({ line: h.line, startCol: h.startCol, endCol: h.endCol });
+    }
+  } catch { /* an unparseable grid colours nothing */ }
+  for (const s of derive.derivationSpans(root, nodes, lines)) {
+    if (s.constraint) spans.push({ line: s.line, startCol: s.startCol, endCol: s.endCol });
+  }
+  return spans.sort((a, b) => (a.line - b.line) || (a.startCol - b.startCol));
 }
 
 function linkRange(link) {
@@ -412,14 +424,21 @@ function decorate(editor, decorationTypes) {
   }
   editor.setDecorations(decorationTypes.concept, concepts);
   editor.setDecorations(decorationTypes.individual, individuals);
-  editor.setDecorations(decorationTypes.parked, parkedMarks(editor.document));
+  editor.setDecorations(decorationTypes.parked, [...parkedMarks(editor.document), ...pythonMarks(editor.document)]);
+  if (decorationTypes.stale) editor.setDecorations(decorationTypes.stale, pyDims.get(editor.document.uri.toString()) || []);
+  // a function a derivation calls that a Python file here defines: underlined
+  // as the crosslinks are, since Ctrl+click opens it too
+  if (decorationTypes.pyLink) {
+    let calls = [];
+    try { calls = pythonCallLinks(editor.document); } catch { /* an unparseable file links nothing */ }
+    editor.setDecorations(decorationTypes.pyLink, calls.map((c) => ({ range: c.range })));
+  }
 }
 
-// A formula carries the language's own backtick literals — `` =xlookup(`A`,
-// @k,@v) `` — so the markdown code span showing it is fenced with one more
-// backtick than the formula holds, and padded, which is exactly what
-// CommonMark asks for. Fencing a formula in a bare pair would end the span
-// at its first literal.
+// A derivation may hold a backtick — in a Python string, `` =f("`A`") `` —
+// so the markdown code span showing it is fenced with one more backtick than
+// the derivation holds, and padded, which is exactly what CommonMark asks
+// for. Fencing it in a bare pair would end the span at its first backtick.
 function codeSpan(text) {
   const s = String(text);
   const longest = (s.match(/`+/g) || []).reduce((n, run) => Math.max(n, run.length), 0);
@@ -453,19 +472,20 @@ function parkedMarks(doc) {
     if (s.constraint) {
       // a parked constraint marks the name it was written on, and still holds
       md.appendMarkdown(`**Constrained** — ${codeSpan(s.formula)}\n\n`);
-      md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`, and still checked: `
+      md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`, and still checked when Python runs: `
         + "a value that breaks it is flagged exactly as if it were written here. "
-        + "[Put the formulas back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``) to see or change it.");
+        + "[Put the derivations back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``) to see or change it.");
       return {
         range: new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
         hoverMessage: md,
       };
     }
-    md.appendMarkdown(`**Computed** — ${codeSpan(s.formula)}\n\n`);
+    md.appendMarkdown(`**${s.concept ? "Written by Python" : "Computed by Python"}** — ${codeSpan(s.formula)}\n\n`);
+    if (s.concept) md.appendMarkdown("Every row of this table is the derivation's. ");
     md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`. `);
-    md.appendMarkdown("A value typed over this one stands only until the derivations come home, "
-      + "which recomputes it — change the formula instead: "
-      + "[put the formulas back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``).");
+    md.appendMarkdown("A value typed over this one stands only until the derivation comes home and runs again "
+      + "— change the derivation instead: "
+      + "[put the derivations back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``).");
     return {
       range: new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
       hoverMessage: md,
@@ -473,12 +493,7 @@ function parkedMarks(doc) {
   });
 }
 
-// Fill computed values in place — line-form '=' values and stale table
-// cells alike: runs after every refresh, but never under a cursor and
-// never while an edit burst is still held — type `total: =sum($price)`,
-// move off the line, and the value materialises in front of the formula;
-// change a cell a table formula reads, and the formula's cell follows.
-// A { line, text } edit from table.align/recomputeAll may instead span a
+// A { line, text } edit from table.align may instead span a
 // whole block ({ line, to }, both 1-based, inclusive) when cell wrapping
 // changed the block's line count; text then holds the block's lines joined
 // with '\n'. One range/text pair serves either shape, the text's newlines
@@ -489,47 +504,6 @@ function lineEditRange(doc, e) {
 }
 function lineEditText(doc, e) {
   return doc.eol === vscode.EndOfLine.CRLF ? e.text.replace(/\n/g, "\r\n") : e.text;
-}
-
-// Tracked per document, so one document's in-flight fill never swallows
-// another document's genuine keystrokes.
-const autoComputing = new Set(); // uri strings with a fill in flight
-async function autoComputeValues(doc, analysis, force) {
-  const key = doc.uri.toString();
-  if (autoComputing.has(key) || doc.languageId !== "aot") return;
-  // `force` is the line-change path (Enter, an arrow off the line): it
-  // fills the line just left even mid edit-burst — the cursor line is
-  // still protected by the busy filter below. The debounced path defers
-  // while typing, so it never churns other lines under the cursor's hand.
-  if (!force && holdState.has(key)) return;
-  // a caller that just analysed passes it in; the line-change path parses
-  // fresh so the value fills the moment the cursor leaves, no wait
-  if (!analysis) analysis = parsedDoc(doc);
-  const lines = doc.getText().split(/\r?\n/);
-  const registry = formulaRegistry(doc, analysis);
-  let edits = [
-    ...derive.recomputeValues(analysis.root, analysis.nodes, lines, registry),
-    ...table.recomputeAll(doc.getText(), registry, docRootName(doc)),
-  ];
-  if (!edits.length) return;
-  const busy = new Set();
-  for (const editor of vscode.window.visibleTextEditors) {
-    if (editor.document !== doc) continue;
-    for (const sel of editor.selections || [editor.selection]) {
-      if (sel && sel.active) busy.add(sel.active.line);
-    }
-  }
-  edits = edits.filter((e) => {
-    for (let l = e.line; l <= (e.to || e.line); l++) if (busy.has(l - 1)) return false;
-    return true;
-  });
-  if (!edits.length) return;
-  const fill = new vscode.WorkspaceEdit();
-  for (const e of edits) {
-    fill.replace(doc.uri, lineEditRange(doc, e), lineEditText(doc, e));
-  }
-  autoComputing.add(key);
-  try { await vscode.workspace.applyEdit(fill); } finally { autoComputing.delete(key); }
 }
 
 function refresh(diagnostics, decorationTypes, doc) {
@@ -581,16 +555,22 @@ function refresh(diagnostics, decorationTypes, doc) {
   const state = holdState.get(doc.uri.toString());
   if (state) publish = hold.partition(publish, state.baseline).show;
   diagnostics.set(doc.uri, publish);
+  // the Python findings live apart from the linter's: none of them is a
+  // verdict on the model, so none of them is in V
+  try { pythonFindings(doc); } catch { /* the linter's findings stand regardless */ }
+  pythonWarm(doc, pythonHostsIn(doc));
   for (const editor of vscode.window.visibleTextEditors) {
     if (editor.document === doc) decorate(editor, decorationTypes);
   }
   chainHintsChanged.fire(); // the inlay chains track the fresh analysis
-  autoComputeValues(doc, { root, nodes }); // computed line values fill themselves in
 }
 
 // Ctrl+click on a crosslink jumps to the defining node's line.
 const definitionProvider = {
   provideDefinition(doc, position) {
+    // a sidecar function called in a Python derivation opens its `def`
+    const def = pythonDefinition(doc, position);
+    if (def) return def;
     const { links } = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
     for (const link of links) {
       if (!linkRange(link).contains(position)) continue;
@@ -841,6 +821,9 @@ function resolveFilePath(doc, text) {
     if (doc.fileName) candidates.push(path.join(path.dirname(doc.fileName), raw));
     const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
     if (ws) candidates.push(path.join(ws.uri.fsPath, raw));
+    // `aot.files/…` is written from the repository's root — where a picture
+    // or text Python wrote is — even when the folder open is below it
+    if (doc.fileName) candidates.push(path.join(aotRoot(doc), raw));
   }
   for (const c of candidates) {
     try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch { /* keep trying */ }
@@ -1039,6 +1022,9 @@ const hoverProvider = {
     // a URL or file path answers (metadata / picture) before anything else
     const link = linkHoverAt(doc, position);
     if (link) return link;
+    // inside a Python derivation: the function it calls, or what computed its value
+    const py = pythonHover(doc, position);
+    if (py) return py;
     const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
     // a maintained `...` line answers with the whole extension: what this
     // file lists and what every peer lists, each one a place you can go
@@ -1115,10 +1101,10 @@ const referenceProvider = {
 
 // F2 renames a name everywhere it is meant: the declaration — a Concept,
 // an Example, an attribute, line-form or a table's header or first-column
-// cell — every crosslink that resolves to it, and every formula reference
-// that evaluation itself resolves to it (the instrumented walks of
-// table.formulaReferences and derive.formulaReferences), so a rename never
-// leaves a formula pointing at yesterday's name. An attribute renames with
+// cell — every crosslink that resolves to it, and every `@` reference in a
+// derivation or a constraint that resolves to it (python.resolveHost, the
+// resolution a run uses), so a rename never leaves Python pointing at
+// yesterday's name. An attribute renames with
 // its whole scope: the same-named copies its host's Examples carry, and
 // the ancestor declaration whose constraint governs it. An attribute
 // wearing a renamed Concept's name (the crosslink) follows it, and the
@@ -1139,10 +1125,33 @@ const underConcept = (n, c) => n.parent === c
 
 function renameRecords(doc, analysis, registry) {
   const lines = doc.getText().split(/\r?\n/);
-  return [
-    ...table.formulaReferences(lines, registry, docRootName(doc)),
-    ...derive.formulaReferences(analysis.root, analysis.nodes, lines, registry),
-  ];
+  const rootName = docRootName(doc);
+  const out = [];
+  let hosts;
+  try { hosts = python.hostsOf(analysis.nodes, lines, rootName); } catch { return out; }
+  const ctx = { lines, registry, rootName, index: python.hostIndex(hosts) };
+  // where the source begins on its line: past the '=' (or the operator) and
+  // the spaces after it — the resolver counts from there
+  const from = (raw, col) => { while (raw[col] === " ") col++; return col; };
+  const push = (line, at, r) => {
+    for (const n of r.names || []) out.push(Object.assign({}, n, { line, startCol: at + n.start, endCol: at + n.start + n.length }));
+  };
+  for (const h of hosts) {
+    let r;
+    try { r = python.resolveHost(h, ctx); } catch { continue; }
+    push(h.line, from(lines[h.line - 1] || "", h.startCol + 1), r);
+  }
+  // a constraint's bound reads the names its declaration's scope holds
+  for (const a of analysis.nodes) {
+    if (a.kind !== KIND.ATTRIBUTE || !a.constraints) continue;
+    const anchor = { kind: KIND.DEFAULT, name: a.name, parent: a.parent, children: [] };
+    for (const con of a.constraints) {
+      let r;
+      try { r = python.resolveHost({ kind: "value", node: anchor, line: a.line, source: con.formula }, ctx); } catch { continue; }
+      push(a.line, from(lines[a.line - 1] || "", con.opCol + con.op.length), r);
+    }
+  }
+  return out;
 }
 
 // The declared name at `position`: its node and the exact range of the
@@ -1283,7 +1292,7 @@ function renumberEdits(doc) {
   }
   // Concept numbering (`1. ` / `1.1 ` / `1.1.1 `) renames declarations
   // only: resolution strips the prefix (table.numberless), so crosslinks,
-  // typed attributes and formulas keep working without a rename cascade.
+  // typed attributes and derivations keep working without a rename cascade.
   const conceptPairs = derive.renumberConcepts(analysis.root, analysis.nodes);
   if (!pairs.length && !conceptPairs.length) return [];
   const registry = formulaRegistry(doc, analysis);
@@ -1404,9 +1413,12 @@ const MAX_HOPS = 3;
 const inlayProvider = {
   onDidChangeInlayHints: chainHintsChanged.event,
   provideInlayHints(doc, range) {
-    if (!vscode.workspace.getConfiguration("aot").get("chainHints", true)) return [];
+    // how each Python derivation last ran, at the end of its line
+    let py = [];
+    try { py = pythonInlays(doc, range); } catch { /* a chain hint still shows */ }
+    if (!vscode.workspace.getConfiguration("aot").get("chainHints", true)) return py;
     const analysis = analysisByDoc.get(doc.uri.toString());
-    if (!analysis) return [];
+    if (!analysis) return py;
     const chainCache = new Map();
     const chainsOf = (concept) => {
       if (!chainCache.has(concept)) {
@@ -1437,7 +1449,7 @@ const inlayProvider = {
       out.push(hint);
       hinted.add(line);
     }
-    return out;
+    return out.concat(py);
   },
 };
 
@@ -1582,16 +1594,6 @@ const codeActionProvider = {
         actions.push(action);
       }
     }
-    // a stale formula/value offers the one command that fixes them all
-    for (const diagnostic of context.diagnostics || []) {
-      if (diagnostic.source !== "aot") continue;
-      if (!/is not yet computed|does not match its formula/.test(diagnostic.message)) continue;
-      const action = new vscode.CodeAction("Recompute formulas", vscode.CodeActionKind.QuickFix);
-      action.diagnostics = [diagnostic];
-      action.command = { command: "aot.recomputeFormulas", title: "Recompute formulas" };
-      actions.push(action);
-      break;
-    }
     // a file-path value pointing outside the repo's own file store offers to
     // bring the file in, so the model carries what it cites
     const cursor = range && range.start;
@@ -1642,6 +1644,8 @@ const codeActionProvider = {
         }
       } catch { /* an unparseable document offers no flip */ }
     }
+    // a Python derivation: run it, stub what it calls, or move it out
+    try { actions.push(...pythonActions(doc, range)); } catch { /* none offered */ }
     return actions;
   },
 };
@@ -1825,20 +1829,23 @@ async function setValueEverywhere(conceptName, attr, value) {
     `AOT: '${attr}' set to '${value}' in ${changed} file${changed === 1 ? "" : "s"}`, 5000);
 }
 
-// AOT: Recompute Formulas — one pass over the whole document: every table
-// re-aligned and recomputed, every line-form '=' value refreshed.
-function recomputeFormulas(editor) {
+// Every table in the document re-aligned. Nothing is computed: a derivation
+// runs only when asked.
+function alignTables(editor) {
   const doc = editor.document;
   if (doc.languageId !== "aot") return;
-  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-  const { root, nodes } = lint(doc.getText(), rootName);
-  const lines = doc.getText().split(/\r?\n/);
-  const reg = formulaRegistry(doc);
-  const edits = [...table.align(doc.getText(), reg, rootName), ...derive.recomputeValues(root, nodes, lines, reg)];
+  const edits = table.align(doc.getText(), formulaRegistry(doc), docRootName(doc));
   if (!edits.length) return;
   return editor.edit((b) => {
     for (const e of edits) b.replace(lineEditRange(doc, e), lineEditText(doc, e));
   });
+}
+
+// AOT: Recompute (F9) — every stale Python derivation and every constraint,
+// run in place: what Ctrl+Enter does anywhere off a derivation.
+function recomputeFormulas(editor) {
+  if (editor.document.languageId !== "aot") return;
+  return runPython(editor, { mode: "here", line: -1 });
 }
 
 // --- parking the derivations (Ctrl+Shift+`) ----------------------------------
@@ -1909,9 +1916,21 @@ function rewriteDocument(editor, lines) {
 
 async function parkFormulas(editor, store) {
   const doc = editor.document;
-  // the values first: a derivation may only leave once the number it
-  // computes is written where it stood
-  await recomputeFormulas(editor);
+  // every derivation run fresh and every constraint checked first, so what
+  // parks is current. With Python switched off (or the workspace untrusted)
+  // the values park as they stand; a refused consent is a "no", and nothing
+  // parks.
+  let py = { ran: 0, failed: 0 };
+  if (pythonWorkIn(doc)) {
+    py = await runPython(editor, { mode: "all", quiet: true });
+    if (py.blocked === "refused") return;
+    if (py.blocked) {
+      vscode.window.setStatusBarMessage(`AOT: Python not run (${py.blocked === "off" ? "aot.python.enabled is off" : "the workspace is not trusted"}) — its values park as they stand.`, 5000);
+    }
+  }
+  // the values are written (the run above), the tables drawn, and only then
+  // do the derivations leave
+  await alignTables(editor);
   const rootName = docRootName(doc);
   const lines = doc.getText().split(/\r?\n/);
   let tree;
@@ -1922,9 +1941,14 @@ async function parkFormulas(editor, store) {
     return vscode.window.setStatusBarMessage("AOT: no derivations or constraints to park.", 3000);
   }
   await rewriteDocument(editor, parkedLines);
+  // a Python value's provenance goes with it: what computed it, and when
+  const entry = pySessions.get(doc.uri.toString());
+  const notes = py.ran && entry && entry.hello
+    ? [`Python values computed ${new Date().toISOString().slice(0, 16).replace("T", " ")} with ${pyVersions(entry.hello)}`]
+    : [];
   try {
     fs.mkdirSync(path.dirname(store), { recursive: true });
-    fs.writeFileSync(store, park.serialise(parked));
+    fs.writeFileSync(store, park.serialise(parked, notes));
     parkCache.delete(store); // the marks read the store the moment it lands
   } catch (e) {
     return vscode.window.showErrorMessage(`AOT: could not write ${path.basename(store)} — ${e.message}`);
@@ -1939,6 +1963,10 @@ async function parkFormulas(editor, store) {
     .filter(Boolean).join(" and ");
   vscode.window.setStatusBarMessage(
     `AOT: ${what} parked in ${path.basename(store)} — Ctrl+Shift+\` puts them back.`, 5000);
+  if (py.failed) {
+    vscode.window.showWarningMessage(
+      `AOT: ${py.failed} Python derivation${py.failed === 1 ? "" : "s"} did not run, and parked with ${py.failed === 1 ? "its" : "their"} previous value${py.failed === 1 ? "" : "s"} — see the Problems panel.`);
+  }
 }
 
 async function unparkFormulas(editor, store) {
@@ -1978,6 +2006,1396 @@ function toggleFormulaPark(editor) {
   if (doc.languageId !== "aot" || !doc.fileName) return;
   const store = parkPath(doc);
   return fs.existsSync(store) ? unparkFormulas(editor, store) : parkFormulas(editor, store);
+}
+
+// --- Python derivations (Ctrl+Enter) -----------------------------------------
+// `=` has two languages behind it (pyshape.js). The formula half runs on
+// every keystroke, in-process, and needs nothing. The Python half runs only
+// when asked — Ctrl+Enter runs the derivation under the cursor with whatever
+// it reads and whatever reads it, in place; the park key runs every one of
+// them fresh before the derivations leave — in one persistent Python process
+// per document (python.js, aot_runtime.py), so a DataFrame one derivation
+// makes is there for the next.
+//
+// Running code a document carries is a trust decision, so three gates stand
+// in front of it: aot.python.enabled (off by default), VS Code's workspace
+// trust, and — for the Python files in aot.files, whose top-level code runs
+// the moment they are loaded — consent keyed to a hash of those files, asked
+// again whenever one of them changes. The consent lives in the workspace
+// state, never in a file: a repository cannot ship its own.
+//
+// What a run leaves behind is ordinary text: values in front of their
+// derivations, a Concept's table beneath it, a picture or a long text in
+// aot.files with its path as the value. Nothing here counts toward V — a
+// failure is a verdict on a machine, not on the model — so every Python
+// finding goes to a collection of its own.
+
+const PY_KIND_NAMES = ["Example", "Default Value", "Concept", "attribute", "Map"];
+const PY_RUNS_KEY = "aot.python.runs";
+// the Python files the writer has allowed to run, each by the hash of the
+// content allowed: fileKey -> sha1
+const PY_APPROVED_KEY = "aot.python.approved";
+let pySpawn = childProcess.spawn; // the tests swap in a fake runtime
+const pySessions = new Map(); // uri -> { session, hello, live: Set<address>, idle, starting }
+const pyStatus = new Map();   // uri -> Map<address, { state, source, ms, rows, message, … }>
+const pyDims = new Map();     // uri -> [{ range, message }] values older than their derivation
+let pyState = null;           // context.workspaceState, or a stand-in
+let pyDiagnostics = null;     // the "aot-python" collection
+
+const pyConfig = () => vscode.workspace.getConfiguration("aot");
+const pythonEnabled = () => pyConfig().get("python.enabled", false) === true;
+const workspaceTrusted = () => vscode.workspace.isTrusted === true;
+
+function pyMemento() {
+  if (pyState) return pyState;
+  const store = new Map();
+  pyState = { get: (k, d) => (store.has(k) ? store.get(k) : d), update: async (k, v) => { store.set(k, v); } };
+  return pyState;
+}
+
+// Each derivation's last successful run, per file: { source, run, at } by
+// address — the source hash says whether it was edited since, the run hash
+// whether anything it reads moved.
+function runRecords(doc) {
+  const all = pyMemento().get(PY_RUNS_KEY, {}) || {};
+  return all[fileKey(doc.fileName || "")] || {};
+}
+async function saveRunRecords(doc, records) {
+  const all = Object.assign({}, pyMemento().get(PY_RUNS_KEY, {}) || {});
+  all[fileKey(doc.fileName || "")] = records;
+  await pyMemento().update(PY_RUNS_KEY, all);
+}
+
+// --- the repository's Python -------------------------------------------------
+// A derivation reaches the file's sidecar, aot.files/<file>.py, by its names
+// alone, and any other Python file of the repository by naming it as a
+// module — `=finance.revenue(@Sales)` — or by path, aot.use("tools/x.py").
+
+const sidecarPath = (doc) => path.join(aotFilesDir(doc), docRootName(doc) + ".py");
+
+// Every Python file of the repository a derivation may reach, walked once and
+// kept until a Python file is created, deleted or saved. A virtual
+// environment, node_modules, bytecode and hidden folders are not the
+// repository's own code, and are never offered.
+const PY_SKIP_DIRS = new Set(["node_modules", "__pycache__", "site-packages"]);
+const pyIndexCache = new Map(); // root key -> [absolute paths]
+function pyIndex(doc) {
+  const root = aotRoot(doc);
+  const key = fileKey(root);
+  const hit = pyIndexCache.get(key);
+  if (hit) return hit;
+  const files = [];
+  const walk = (dir, depth) => {
+    if (depth > 16 || files.length > 5000) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    if (entries.some((e) => e.isFile() && e.name === "pyvenv.cfg")) return; // a virtual environment
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (!e.name.startsWith(".") && !PY_SKIP_DIRS.has(e.name)) walk(path.join(dir, e.name), depth + 1);
+      } else if (e.isFile() && /\.py$/i.test(e.name)) files.push(path.join(dir, e.name));
+    }
+  };
+  walk(root, 0);
+  files.sort();
+  pyIndexCache.set(key, files);
+  return files;
+}
+const forgetPyIndex = () => pyIndexCache.clear();
+
+// A file's sha1 over its bytes — the runtime hashes the same bytes — kept
+// until the file moves.
+const fileHashCache = new Map(); // path -> { mtimeMs, size, hash }
+function fileSha1(file) {
+  let st;
+  try { st = fs.statSync(file); } catch { return null; }
+  const hit = fileHashCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.hash;
+  let body;
+  try { body = fs.readFileSync(file); } catch { return null; }
+  const hash = crypto.createHash("sha1").update(body).digest("hex");
+  fileHashCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, hash });
+  return hash;
+}
+
+// The code a derivation's value depends on, hashed: the file's sidecar, and
+// every repository file the modules and paths it names reach. A change to
+// one of them makes this derivation stale, and no other. (A module those
+// import in turn is not followed: run the line to take it in.)
+function codeHash(doc, host, index, defs) {
+  const root = aotRoot(doc), af = aotFilesDir(doc);
+  const files = new Set();
+  const own = sidecarPath(doc);
+  if (fs.existsSync(own)) files.add(own);
+  const { names, paths } = python.referencedModules(host.source);
+  for (const n of names) {
+    if (PY_PRELOADED.includes(n) || (defs && defs.has(n))) continue;
+    for (const f of python.moduleFiles(n, index, root, af)) files.add(f);
+  }
+  for (const p of paths) {
+    for (const base of [af, root]) {
+      const f = path.resolve(base, p);
+      if (fs.existsSync(f)) { files.add(f); break; }
+    }
+  }
+  const h = crypto.createHash("sha1");
+  for (const f of [...files].sort()) h.update(f + "\0" + (fileSha1(f) || "") + "\0");
+  return h.digest("hex").slice(0, 16);
+}
+
+// --- allowing the repository's Python to run ---------------------------------
+// A Python file runs only once its present content has been allowed. The
+// runtime checks each file as it loads — the sidecar, a module a derivation
+// names, one those import — and a file not allowed stops the derivation with
+// the question, asked here, naming exactly that file. Allowing it records the
+// hash of what was read: a change that arrives from outside (a pull, another
+// tool) is asked about again, while a change saved in this editor is the
+// writer's own and is allowed as it is saved. Kept in the workspace state,
+// never in a file, so no repository can ship its own answer.
+
+const approvals = () => pyMemento().get(PY_APPROVED_KEY, {}) || {};
+async function approveFile(file, digest) {
+  await pyMemento().update(PY_APPROVED_KEY, Object.assign({}, approvals(), { [fileKey(file)]: digest }));
+}
+const isApproved = (file, digest) => !!digest && approvals()[fileKey(file)] === digest;
+
+// Ask about one file a run reached. true when the writer lets it run.
+async function askToRun(doc, consent) {
+  const file = consent.path;
+  const rel = path.relative(aotRoot(doc), file).split(path.sep).join("/");
+  const before = approvals()[fileKey(file)];
+  const why = before ? "has changed since you last allowed it, and not in this editor" : "has not been run here before";
+  const pick = await vscode.window.showWarningMessage(
+    `AOT: run ${rel}? A Python derivation reaches it, and it ${why}. Its top-level code runs the moment it loads, with your permissions — read it first if you did not write it.`,
+    { modal: true }, "Run", "Open File");
+  if (pick === "Run") {
+    await approveFile(file, consent.sha1);
+    return true;
+  }
+  if (pick === "Open File" && vscode.window.showTextDocument) vscode.window.showTextDocument(vscode.Uri.file(file));
+  return false;
+}
+
+// A Python file saved in this editor: its new content is allowed when what it
+// replaced was (or when it is new) — the writer's own edit is never asked
+// about. The digest before the save is taken as the save begins.
+const pyBeforeSave = new Map(); // fileKey -> sha1 | null (a new file)
+function pyWillSave(doc) {
+  const file = doc.fileName;
+  pyBeforeSave.set(fileKey(file), fs.existsSync(file) ? fileSha1(file) : null);
+}
+async function pyDidSave(doc) {
+  const file = doc.fileName;
+  fileHashCache.delete(file);
+  const key = fileKey(file);
+  if (!pyBeforeSave.has(key)) return;
+  const before = pyBeforeSave.get(key);
+  pyBeforeSave.delete(key);
+  if (before === null) forgetPyIndex(); // a new file: the repository has one more
+  if (before === null || isApproved(file, before)) {
+    const now = fileSha1(file);
+    if (now) await approveFile(file, now);
+  }
+}
+
+// The functions a Python file defines, read off its text — nothing is run
+// to learn them: name -> { line (0-based), signature, doc }.
+function sidecarDefs(doc) {
+  return fileDefs(sidecarPath(doc));
+}
+// read again only when the file moves: the underlines ask on every redraw
+const defsCache = new Map(); // path -> { mtimeMs, size, defs }
+function fileDefs(file) {
+  let stat;
+  try { stat = fs.statSync(file); } catch { defsCache.delete(file); return new Map(); }
+  const seen = defsCache.get(file);
+  if (seen && seen.mtimeMs === stat.mtimeMs && seen.size === stat.size) return seen.defs;
+  const defs = readDefs(file);
+  defsCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, defs });
+  return defs;
+}
+function readDefs(file) {
+  let text;
+  try { text = fs.readFileSync(file, "utf8"); } catch { return new Map(); }
+  const out = new Map();
+  const lines = text.split(/\r?\n/);
+  lines.forEach((l, i) => {
+    const m = /^def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)/.exec(l);
+    if (!m) return;
+    let docText = "";
+    const first = (lines[i + 1] || "").trim();
+    const q = /^[rRuU]?("""|''')/.exec(first);
+    if (q) {
+      const fence = q[1];
+      const body = [first.slice(q[0].length)];
+      let j = i + 1;
+      while (!body[body.length - 1].includes(fence) && j + 1 < lines.length) body.push(lines[++j].trim());
+      docText = body.join("\n").split(fence)[0].trim();
+    }
+    out.set(m[1], { line: i, signature: `${m[1]}(${m[2].trim()})`, doc: docText });
+  });
+  return out;
+}
+
+// The names a Python file takes from other modules with `from x import a,
+// b as c` — name -> { module, name } — read off its text, so a derivation
+// calling `load()` that the sidecar imports from helpers.py reaches helpers.py.
+function fileImports(file) {
+  let text;
+  try { text = fs.readFileSync(file, "utf8"); } catch { return new Map(); }
+  const out = new Map();
+  for (const m of text.matchAll(/^from\s+([\w.]+)\s+import\s+\(?([^()#\r\n]+)\)?/gm)) {
+    for (const part of m[2].split(",")) {
+      const [name, alias] = part.trim().split(/\s+as\s+/);
+      if (/^[A-Za-z_]\w*$/.test(name || "")) out.set((alias || name).trim(), { module: m[1], name });
+    }
+  }
+  return out;
+}
+
+// Where a call in a derivation is defined: { file, def } — the sidecar's
+// own function, one it imports, a repository module's, or the file an
+// aot.use names — or null for anything else (the standard library, an
+// installed package, a builtin), which has no file here to open.
+function resolveCall(doc, call) {
+  let file = null, name = call.name;
+  if (call.used) file = usedFileOf(doc, call.used);
+  else if (call.module) file = moduleFileOf(doc, call.module);
+  else {
+    const side = sidecarPath(doc);
+    if (fileDefs(side).has(name)) file = side;
+    else {
+      const imported = fileImports(side).get(name);
+      if (imported) { file = moduleFileOf(doc, imported.module); name = imported.name; }
+    }
+  }
+  if (!file) return null;
+  const def = fileDefs(file).get(name);
+  return def ? { file, def } : null;
+}
+
+// Every call in the document's derivations that reaches a Python file of the
+// repository: the callee's span and where its `def` is. Underlined, and a
+// link — Ctrl+click opens the file at the function.
+function pythonCallLinks(doc) {
+  if (doc.languageId !== "aot") return [];
+  const out = [];
+  for (const h of pythonHostsIn(doc)) {
+    if (h.line - 1 >= doc.lineCount) continue;
+    const raw = doc.lineAt(h.line - 1).text;
+    const at = raw.indexOf(h.source, h.startCol);
+    if (at === -1) continue;
+    for (const call of python.callSites(h.source)) {
+      const target = resolveCall(doc, call);
+      if (!target) continue;
+      out.push({
+        range: new vscode.Range(h.line - 1, at + call.start, h.line - 1, at + call.start + call.length),
+        file: target.file, def: target.def,
+      });
+    }
+  }
+  return out;
+}
+
+const SIDECAR_HEADER = (root) => [
+  `"""Python for ${root}.aot — the functions its \`=\` derivations call.`,
+  "",
+  `Every public name here can be called from a derivation in ${root}.aot, and`,
+  "pd, np, plt, math, date, datetime, … and `aot` are available without being",
+  "imported. Top-level code runs the moment this file is loaded, so keep it to",
+  "definitions. The editor asks before running this file, and again after it",
+  "changes.",
+  '"""',
+  "",
+].join("\n");
+
+// A Python file the editor itself wrote at the writer's asking — a stub, a
+// moved expression — is allowed as written, so the writer is never asked to
+// approve their own click. Only when what it replaced was allowed (or it is
+// new): a file still unapproved stays so.
+async function reconsentAfterWrite(file, before) {
+  fileHashCache.delete(file);
+  if (before === null) forgetPyIndex();
+  if (before !== null && !isApproved(file, before)) return;
+  const now = fileSha1(file);
+  if (now) await approveFile(file, now);
+}
+
+// --- the gates --------------------------------------------------------------
+
+// true when this document's Python may run now; otherwise why not — "off" or
+// "untrusted". `quiet` skips the explanations (the park key parks
+// regardless). The files a run reaches are asked about as it reaches them
+// (askToRun) — that question is never quiet.
+async function pythonGate(doc, quiet) {
+  if (!pythonEnabled()) {
+    if (!quiet) {
+      const pick = await vscode.window.showInformationMessage(
+        "AOT: Python derivations are off. Turn on 'aot.python.enabled' to run them — they run the code this file carries, with your permissions.",
+        "Open Settings");
+      if (pick === "Open Settings") vscode.commands.executeCommand("workbench.action.openSettings", "aot.python");
+    }
+    return "off";
+  }
+  if (!workspaceTrusted()) {
+    if (!quiet) {
+      const pick = await vscode.window.showWarningMessage(
+        "AOT: this workspace is not trusted, so the Python its files carry is not run.", "Manage Workspace Trust");
+      if (pick) vscode.commands.executeCommand("workbench.trust.manage");
+    }
+    return "untrusted";
+  }
+  return true;
+}
+
+// --- the session ------------------------------------------------------------
+
+function pySession(doc) {
+  const key = doc.uri.toString();
+  const hit = pySessions.get(key);
+  if (hit && hit.session.alive) return hit;
+  const cfg = pyConfig();
+  let cwd = aotFilesDir(doc);
+  if (!fs.existsSync(cwd)) cwd = aotRoot(doc);
+  const session = new python.Session(pySpawn, {
+    python: String(cfg.get("python.path", "") || "").trim() || "python",
+    runtime: path.join(__dirname, "aot_runtime.py"),
+    cwd,
+    timeoutMs: cfg.get("python.timeoutMs", 15000),
+    maxResultBytes: cfg.get("python.maxResultBytes", 8000000),
+  });
+  const entry = { session, hello: null, live: new Set(), idle: null, starting: null };
+  session.onExit = () => entry.live.clear();
+  pySessions.set(key, entry);
+  session.start();
+  entry.starting = session.request({ op: "hello" }, 30000).then((h) => {
+    if (h.protocol !== python.PROTOCOL) {
+      throw new Error(`the Python runtime speaks protocol ${h.protocol} and the editor ${python.PROTOCOL} — reinstall the extension`);
+    }
+    entry.hello = h;
+    return h;
+  });
+  entry.starting.catch(() => {});
+  return entry;
+}
+
+// an idle session goes after aot.python.idleTimeoutMs; the next run starts afresh
+function pyTouch(doc, entry) {
+  clearTimeout(entry.idle);
+  const ms = pyConfig().get("python.idleTimeoutMs", 300000);
+  entry.idle = setTimeout(() => pyStop(doc.uri.toString(), "idle"), ms);
+  if (entry.idle.unref) entry.idle.unref();
+}
+
+function pyStop(key, reason) {
+  const entry = pySessions.get(key);
+  if (!entry) return;
+  clearTimeout(entry.idle);
+  pySessions.delete(key);
+  entry.session.kill(reason || "stopped");
+}
+
+// Start the interpreter and import pandas and numpy before the first run
+// needs them. The sidecar is never loaded here, so no code the repository
+// carries runs before it is asked to.
+function pythonWarm(doc, hosts) {
+  if (!hosts.length || !pythonEnabled() || !workspaceTrusted()) return;
+  const key = doc.uri.toString();
+  if (pySessions.has(key)) return;
+  let entry;
+  try { entry = pySession(doc); } catch { pySessions.delete(key); return; }
+  entry.starting
+    .then(() => entry.session.request({ op: "warm" }, 60000))
+    .then(() => pyTouch(doc, entry))
+    .catch(() => pyStop(key, "warm-up failed"));
+}
+
+const pyTree = (node) => ({
+  line: node.line, kind: PY_KIND_NAMES[node.kind], name: node.name, value: node.value,
+  alias: node.alias || null, children: node.children.map(pyTree),
+});
+
+function statusOf(doc) {
+  const key = doc.uri.toString();
+  if (!pyStatus.has(key)) pyStatus.set(key, new Map());
+  return pyStatus.get(key);
+}
+
+const pyVersions = (hello) => {
+  if (!hello) return "";
+  const libs = Object.entries(hello.libraries || {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
+  return [`python ${hello.python}`, ...libs.filter((l) => /^(pandas|numpy|matplotlib)\b/.test(l))].join(" · ");
+};
+
+function pythonHostsIn(doc) {
+  try {
+    const { nodes } = parsedDoc(doc);
+    return python.hostsOf(nodes, doc.getText().split(/\r?\n/), docRootName(doc));
+  } catch { return []; }
+}
+
+// The values a constraint holds, each with its chain — parked bounds too.
+function constraintChecksIn(doc) {
+  try {
+    const { nodes } = parsedDoc(doc);
+    const parked = park.parkedConstraints(nodes, docRootName(doc), parkedFormulas(doc));
+    return python.constraintChecks(nodes, doc.getText().split(/\r?\n/), parked);
+  } catch { return []; }
+}
+
+// Whether a document holds anything for Python to do: a derivation to run,
+// or a constraint to check.
+const pythonWorkIn = (doc) => pythonHostsIn(doc).length > 0 || constraintChecksIn(doc).length > 0;
+
+// --- the run ----------------------------------------------------------------
+
+// mode "here": the derivation on `line` (or, off any derivation, every stale
+// one), with its stale upstream and everything downstream — Ctrl+Enter.
+// mode "all": every derivation, fresh — the park key. mode "fresh": the
+// session reset first, then every derivation. Answers { ran, failed,
+// blocked? } — blocked says why nothing ran (a gate).
+async function runPython(editor, opts) {
+  opts = opts || {};
+  const doc = editor.document;
+  if (doc.languageId !== "aot" || !doc.fileName) return { ran: 0, failed: 0 };
+  const rootName = docRootName(doc);
+  const { root, nodes } = parsedDoc(doc);
+  const lines = doc.getText().split(/\r?\n/);
+  const hosts = python.hostsOf(nodes, lines, rootName);
+  const constrained = constraintChecksIn(doc).length > 0;
+  if (!hosts.length && !constrained) {
+    if (!opts.quiet) vscode.window.setStatusBarMessage("AOT: no Python derivations or constraints in this file.", 3000);
+    return { ran: 0, failed: 0 };
+  }
+  const gate = await pythonGate(doc, opts.quiet);
+  if (gate !== true) return { ran: 0, failed: 0, blocked: gate };
+
+  const registry = formulaRegistry(doc);
+  const ctx = { lines, registry, rootName, index: python.hostIndex(hosts) };
+  const byAddress = new Map(hosts.map((h) => [h.address, h]));
+  const resolved = new Map(hosts.map((h) => {
+    try { return [h.address, python.resolveHost(h, ctx)]; }
+    catch (e) { return [h.address, { code: "", targets: [], deps: [], errors: [e.message], spans: [] }]; }
+  }));
+  const depsOf = (a) => (resolved.get(a) || { deps: [] }).deps;
+  const { order, cycles } = python.orderDerivations(hosts, depsOf);
+  const status = statusOf(doc);
+  // every outcome keeps the moment it happened, which the end of its line shows
+  const mark = (a, s) => status.set(a, Object.assign({ at: new Date() }, s));
+  const srcOf = (a) => python.sourceHash(byAddress.get(a).source);
+  for (const loop of cycles) {
+    for (const a of loop) {
+      mark(a, { state: "error", source: srcOf(a), message: `a cycle — ${[...loop, loop[0]].join(" → ")} — none of these can run first` });
+    }
+  }
+
+  let entry;
+  try {
+    entry = pySession(doc);
+    await entry.starting;
+  } catch (e) {
+    pyStop(doc.uri.toString(), "failed to start");
+    vscode.window.showErrorMessage(`AOT: ${e.message}`);
+    return { ran: 0, failed: hosts.length, error: e.message };
+  }
+  const session = entry.session;
+  pyTouch(doc, entry);
+  if (opts.mode === "fresh") {
+    await session.request({ op: "reset" });
+    entry.live.clear();
+  }
+
+  // which to run: a derivation is stale when its source, what it reads, or
+  // the code it names changed since it last ran
+  const index = pyIndex(doc);
+  const defs = sidecarDefs(doc);
+  const records = Object.assign({}, runRecords(doc));
+  const runHashes = new Map();
+  for (const a of order) {
+    const r = resolved.get(a);
+    const h = byAddress.get(a);
+    runHashes.set(a, python.runHash(h.source, r.targets, codeHash(doc, h, index, defs), r.deps.map((d) => runHashes.get(d) || "")));
+  }
+  const stale = (a) => !entry.live.has(a) || !records[a] || records[a].run !== runHashes.get(a);
+  let toRun;
+  if (opts.mode === "here") {
+    const here = hosts.find((h) => h.line - 1 === opts.line);
+    const seeds = here ? [here.address] : order.filter(stale);
+    toRun = new Set();
+    for (const s of seeds) for (const a of python.affected(hosts, depsOf, s, stale)) toRun.add(a);
+  } else {
+    toRun = new Set(order);
+  }
+  if (!toRun.size && !constrained) {
+    vscode.window.setStatusBarMessage("AOT: every Python derivation is up to date.", 3000);
+    return { ran: 0, failed: 0 };
+  }
+
+  // a file the run reaches that has not been allowed: asked about, and once
+  // allowed the runtime is told and the step tried again. A "no" holds for
+  // the rest of this run, so nobody is asked twice about one file.
+  const refused = new Set();
+  const relOf = (file) => path.relative(aotRoot(doc), file).split(path.sep).join("/");
+  const allow = async (consent) => {
+    if (refused.has(fileKey(consent.path))) return false;
+    if (!(await askToRun(doc, consent))) {
+      refused.add(fileKey(consent.path));
+      return false;
+    }
+    await session.request({ op: "approve", files: { [consent.path]: consent.sha1 } });
+    return true;
+  };
+
+  // the tree, the repository's Python files and which of them may run, and
+  // the sidecar — (re)loaded only when it moved
+  const side = sidecarPath(doc);
+  for (let attempt = 0; ; attempt++) {
+    let sideMtime = null;
+    try { sideMtime = fs.statSync(side).mtimeMs; } catch { /* no sidecar */ }
+    try {
+      await session.request({
+        op: "open", file: doc.fileName, root: rootName, aotFiles: aotFilesDir(doc), tree: pyTree(root),
+        sidecar: sideMtime === null ? null : side, sidecarMtime: sideMtime,
+        repo: aotRoot(doc), pyFiles: index, approved: approvals(),
+      });
+      pyDiagnostics.delete(vscode.Uri.file(side));
+      break;
+    } catch (e) {
+      if (e.consent && session.alive && attempt < 10) {
+        if (await allow(e.consent)) continue;
+        return { ran: 0, failed: 0, blocked: "refused" };
+      }
+      // the sidecar — or a module it imports — raised as it loaded: say
+      // where, and run nothing that might call it
+      const where = e.file || side;
+      const at = Math.max(0, (e.line || 1) - 1);
+      const d = new vscode.Diagnostic(new vscode.Range(at, 0, at, 400), `failed to load — ${e.message}`, vscode.DiagnosticSeverity.Error);
+      d.source = "aot-python";
+      pyDiagnostics.set(vscode.Uri.file(where), [d]);
+      vscode.window.showErrorMessage(`AOT: ${relOf(where)} failed to load — ${e.message}`);
+      if (!session.alive) pySessions.delete(doc.uri.toString());
+      return { ran: 0, failed: toRun.size, error: e.message };
+    }
+  }
+
+  for (const a of toRun) status.set(a, Object.assign({}, status.get(a), { state: "running", source: srcOf(a) }));
+  chainHintsChanged.fire();
+  const results = new Map();
+  const failed = new Set(cycles.flat());
+  const maxInline = pyConfig().get("python.maxInlineText", 120);
+  const versions = pyVersions(entry.hello);
+  const started = Date.now();
+  let stopped = null;
+  for (const a of order) {
+    if (!toRun.has(a)) continue;
+    const h = byAddress.get(a);
+    const r = resolved.get(a);
+    const src = srcOf(a);
+    if (stopped) {
+      failed.add(a);
+      mark(a, { state: "skipped", source: src, message: `not run — ${stopped}` });
+      continue;
+    }
+    if (r.errors.length) {
+      failed.add(a);
+      mark(a, { state: "error", source: src, message: r.errors[0] });
+      continue;
+    }
+    const blocker = r.deps.find((d) => failed.has(d)) || r.deps.find((d) => !entry.live.has(d));
+    if (blocker) {
+      failed.add(a);
+      mark(a, { state: "skipped", source: src, message: `not run — ${blocker} ${failed.has(blocker) ? "failed" : "has no value in this session"}` });
+      continue;
+    }
+    try {
+      let resp;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          resp = await session.request({ op: "eval", address: a, code: r.code, targets: r.targets, host: h.kind });
+          break;
+        } catch (e) {
+          if (!e.consent) throw e;
+          if (session.alive && attempt < 10 && (await allow(e.consent))) continue;
+          throw Object.assign(new Error(`${relOf(e.consent.path)} was not allowed to run — Ctrl+Enter asks again`), { file: e.consent.path });
+        }
+      }
+      entry.live.add(a);
+      let out;
+      try { out = python.resultOf(h, resp.result, maxInline); } catch (e) {
+        failed.add(a);
+        mark(a, { state: "error", source: src, message: e.message });
+        continue;
+      }
+      results.set(a, out);
+      // the record outlasts the session: when it ran, how long it took, what it wrote
+      const at = new Date();
+      records[a] = { source: src, run: runHashes.get(a), at: at.toISOString(), ms: resp.ms, rows: out.count };
+      status.set(a, {
+        state: "ok", source: src, ms: resp.ms, rows: out.count, stdout: resp.stdout, at, versions,
+        columns: resp.result && resp.result.columns,
+      });
+    } catch (e) {
+      failed.add(a);
+      entry.live.delete(a);
+      mark(a, { state: "error", source: src, message: e.message, line: e.line });
+      if (!session.alive) {
+        // the process is gone (a timeout, a crash): nothing else runs in it,
+        // and the next run starts a fresh one
+        stopped = "the Python session stopped";
+        pySessions.delete(doc.uri.toString());
+      }
+    }
+  }
+  // a record for a derivation that no longer exists is only clutter
+  for (const a of Object.keys(records)) if (!byAddress.has(a)) delete records[a];
+  await saveRunRecords(doc, records);
+
+  if (results.size) {
+    const written = pythonWrite(doc, hosts, results, status);
+    for (const w of written.writes) {
+      try {
+        fs.mkdirSync(path.dirname(w.abs), { recursive: true });
+        fs.writeFileSync(w.abs, w.data);
+      } catch (e) {
+        vscode.window.showErrorMessage(`AOT: could not write ${path.basename(w.abs)} — ${e.message}`);
+      }
+    }
+    // every table a result widened is square in the same edit
+    await replaceDocumentLines(editor, aligned(doc, written.lines));
+  }
+  // the constraints, held to the values as they now stand — Python's fresh
+  // ones among them
+  const held = await checkConstraints(editor, session, allow);
+  pythonFindings(doc);
+  chainHintsChanged.fire();
+  const ran = results.size;
+  const secs = ((Date.now() - started) / 1000).toFixed(1);
+  const parts = [];
+  if (hosts.length) parts.push(`${ran} Python derivation${ran === 1 ? "" : "s"} ran${failed.size ? `, ${failed.size} did not` : ""}`);
+  if (held.checked) parts.push(`${held.checked} constrained value${held.checked === 1 ? "" : "s"} checked${held.broken ? `, ${held.broken} broken` : ""}`);
+  if (held.defined) parts.push(`${held.defined} defined`);
+  if (held.errors) parts.push(`${held.errors} bound${held.errors === 1 ? "" : "s"} failed`);
+  const trouble = failed.size || held.broken || held.errors;
+  vscode.window.setStatusBarMessage(`AOT: ${parts.join("; ") || "nothing to run"}${trouble ? " — see the Problems panel." : ` in ${secs} s.`}`, 5000);
+  return { ran, failed: failed.size, broken: held.broken, defined: held.defined };
+}
+
+// --- the constraints --------------------------------------------------------
+// A constraint's bound is Python, run with the derivations and never
+// otherwise: each value it holds is checked in one batch, a value that breaks
+// it is a warning, and a `==` whose bound is one value writes that value into
+// every value of the attribute that has no derivation of its own. What a
+// check found is remembered, keyed to the text it was about, so an edit to
+// that text retires it until the next run.
+
+const pyChecks = new Map(); // uri -> [{ line, cell?, text?, needle?, message, severity }]
+
+async function checkConstraints(editor, session, allow) {
+  const doc = editor.document;
+  const tally = { checked: 0, broken: 0, defined: 0, errors: 0 };
+  const findings = [];
+  pyChecks.set(doc.uri.toString(), findings);
+  const checks = constraintChecksIn(doc);
+  if (!checks.length) return tally;
+  const rootName = docRootName(doc);
+  const lines = doc.getText().split(/\r?\n/);
+  let registry;
+  try { registry = formulaRegistry(doc); } catch { registry = undefined; }
+  const hosts = pythonHostsIn(doc);
+  const plan = python.checkItems(checks, { lines, registry, rootName, index: python.hostIndex(hosts) });
+  const sent = plan.filter((p) => p.item);
+  let answers = [];
+  if (sent.length) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        answers = (await session.request({ op: "checks", items: sent.map((p) => p.item) })).results || [];
+        break;
+      } catch (e) {
+        if (e.consent && session.alive && attempt < 10 && (await allow(e.consent))) continue;
+        answers = sent.map(() => ({ ok: false, error: e.message }));
+        break;
+      }
+    }
+  }
+  const answerOf = new Map(sent.map((p, k) => [p, answers[k] || { ok: false, error: "no answer" }]));
+
+  // where a finding stands: on the value, or — for a bound that failed — on
+  // the clause of the declaration that wrote it
+  const onValue = (check, message, severity) => findings.push({
+    line: check.host.line - 1, cell: check.host.cell ? check.host.cell.col : null, text: check.value, message, severity,
+  });
+  const failedBounds = new Set();
+  const onBound = (p, message) => {
+    const key = `${p.check.a.line}:${p.k}:${message}`;
+    if (failedBounds.has(key)) return;
+    failedBounds.add(key);
+    tally.errors++;
+    if (p.clause.parked) return onValue(p.check, message, vscode.DiagnosticSeverity.Error);
+    findings.push({ line: p.check.a.line - 1, needle: p.clause.op + p.clause.formula, message, severity: vscode.DiagnosticSeverity.Error });
+  };
+  const said = (p) => `'${p.check.a.name} ${p.clause.op}${p.clause.formula}'`;
+  const maxInline = pyConfig().get("python.maxInlineText", 120);
+  let next = lines;
+  const counted = new Set();
+  for (const p of plan) {
+    const { check } = p;
+    if (!counted.has(check)) { counted.add(check); if (!check.definesOnly) tally.checked++; }
+    if (p.errors.length) { onBound(p, `Python: the bound ${said(p)} — ${p.errors[0]}`); continue; }
+    const r = answerOf.get(p);
+    if (!r.ok) { onBound(p, `Python: the bound ${said(p)} failed — ${r.error}`); continue; }
+    if (r.define && !check.derived) {
+      // one value: the attribute is defined by it
+      let out;
+      try { out = python.resultOf({ kind: check.host.kind, value: check.value, address: "@constraint" }, r.define, maxInline); }
+      catch (e) { onBound(p, `Python: the bound ${said(p)} — ${e.message}`); continue; }
+      if (out.file || out.grid) { onBound(p, `Python: ${said(p)} defines a value too large for a line — a bound computes one value`); continue; }
+      if (out.text !== check.value) {
+        next = python.writeValue(next, check.host, out.text);
+        tally.defined++;
+      }
+      continue;
+    }
+    if (check.definesOnly || r.holds) continue;
+    tally.broken++;
+    onValue(check, `'${check.value}' breaks ${said(p)} — it is not ${p.clause.op === "==" ? "" : p.clause.op + " "}${r.bound}`,
+      vscode.DiagnosticSeverity.Warning);
+  }
+  if (next !== lines) await replaceDocumentLines(editor, aligned(doc, next));
+  return tally;
+}
+
+// The findings the last check left that still describe the text: a value
+// finding while its value reads as it did, a bound's while its clause is
+// still written there.
+function checkFindings(doc) {
+  const out = [];
+  for (const f of pyChecks.get(doc.uri.toString()) || []) {
+    if (f.line >= doc.lineCount) continue;
+    const raw = doc.lineAt(f.line).text;
+    let start = -1, length = 0;
+    if (f.needle !== undefined) {
+      start = raw.indexOf(f.needle);
+      length = f.needle.length;
+    } else if (f.cell !== null) {
+      const cell = table.cells(raw)[f.cell];
+      if (cell && table.splitCell(cell.text).value === f.text) { start = cell.col; length = Math.max(1, f.text.length); }
+    } else {
+      const d = python.valueDerivation(raw);
+      const colon = raw.indexOf(":");
+      const at = d ? d.valueStart : colon === -1 ? -1 : colon + 1 + (raw.slice(colon + 1).length - raw.slice(colon + 1).trimStart().length);
+      const value = d ? d.value : raw.slice(at).trim();
+      if (at !== -1 && value === f.text) { start = at; length = Math.max(1, f.text.length); }
+    }
+    if (start === -1) continue;
+    const d = new vscode.Diagnostic(new vscode.Range(f.line, start, f.line, start + length), f.message, f.severity);
+    d.source = "aot-python";
+    out.push(d);
+  }
+  return out;
+}
+
+// What the results write, as fresh lines plus the files to write into
+// aot.files. Values first — they never change the line count — then each
+// Concept's table, from the bottom up so the lines above stay where the
+// parse left them.
+function pythonWrite(doc, hosts, results, status) {
+  let lines = doc.getText().split(/\r?\n/);
+  const writes = [];
+  const dir = aotFilesDir(doc);
+  for (const h of hosts) {
+    if (h.kind === "concept" || !results.has(h.address)) continue;
+    const out = results.get(h.address);
+    let text = out.text;
+    if (out.file) {
+      const abs = path.resolve(dir, out.file);
+      // the name is the address, reduced to safe characters — and checked
+      // anyway: nothing a derivation returns writes outside aot.files
+      if (!isInside(dir, abs)) {
+        status.set(h.address, { state: "error", source: python.sourceHash(h.source), message: `refused to write '${out.file}' outside aot.files` });
+        continue;
+      }
+      writes.push({ abs, data: out.bytes || out.body });
+      text = "aot.files/" + out.file;
+    }
+    lines = python.writeValue(lines, h, text);
+  }
+  const concepts = hosts.filter((h) => h.kind === "concept" && results.has(h.address)).sort((a, b) => b.line - a.line);
+  for (const h of concepts) lines = python.writeGrid(lines, h.node, results.get(h.address).grid);
+  return { lines, writes };
+}
+
+// The lines with every table re-aligned, so a column Python widened is
+// square in the same edit.
+function aligned(doc, lines) {
+  const text = lines.join("\n");
+  try {
+    const edits = table.align(text, formulaRegistry(doc), docRootName(doc));
+    return edits.length ? applyLineEdits(lines, edits) : lines;
+  } catch { return lines; }
+}
+
+// Replace only the lines that changed, in one undoable edit, so a cursor
+// outside them stays exactly where it was.
+function replaceDocumentLines(editor, next) {
+  const doc = editor.document;
+  const old = doc.getText().split(/\r?\n/);
+  let a = 0;
+  while (a < old.length && a < next.length && old[a] === next[a]) a++;
+  if (a === old.length && a === next.length) return Promise.resolve(true);
+  let b = 0;
+  while (b < old.length - a && b < next.length - a && old[old.length - 1 - b] === next[next.length - 1 - b]) b++;
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const from = a, to = old.length - 1 - b; // old lines from..to (inclusive) go
+  const mid = next.slice(a, next.length - b);
+  return editor.edit((e) => {
+    if (to >= from && mid.length) {
+      e.replace(new vscode.Range(from, 0, to, old[to].length), mid.join(eol));
+    } else if (mid.length) {
+      // a pure insertion before line `from`
+      if (from < old.length) e.insert(new vscode.Position(from, 0), mid.join(eol) + eol);
+      else e.insert(new vscode.Position(old.length - 1, old[old.length - 1].length), eol + mid.join(eol));
+    } else if (to + 1 < old.length) {
+      e.replace(new vscode.Range(from, 0, to + 1, 0), "");
+    } else if (from > 0) {
+      e.replace(new vscode.Range(from - 1, old[from - 1].length, to, old[to].length), "");
+    } else {
+      e.replace(new vscode.Range(0, 0, to, old[to].length), "");
+    }
+  });
+}
+
+// --- what the editor shows --------------------------------------------------
+
+// The Python findings for a document, into their own collection: a failed
+// run, a reference naming nothing, a cycle, a value that broke its
+// constraint when last checked, a bound that failed, and — as information — a
+// derivation that has not run, or was edited since it did. Also works out
+// which values are older than their derivation, for the dimming.
+function pythonFindings(doc) {
+  if (!pyDiagnostics || doc.languageId !== "aot") return;
+  const hosts = pythonHostsIn(doc);
+  const out = [];
+  const dims = [];
+  if (hosts.length) {
+    const rootName = docRootName(doc);
+    const lines = doc.getText().split(/\r?\n/);
+    const status = statusOf(doc);
+    const records = runRecords(doc);
+    let registry;
+    try { registry = formulaRegistry(doc); } catch { registry = undefined; }
+    const ctx = { lines, registry, rootName, index: python.hostIndex(hosts) };
+    const resolved = new Map();
+    for (const h of hosts) {
+      try { resolved.set(h.address, python.resolveHost(h, ctx)); }
+      catch (e) { resolved.set(h.address, { errors: [e.message], deps: [], targets: [] }); }
+    }
+    const depsOf = (a) => (resolved.get(a) || { deps: [] }).deps || [];
+    const { order, cycles } = python.orderDerivations(hosts, depsOf);
+    const cyclic = new Map();
+    for (const loop of cycles) for (const a of loop) cyclic.set(a, loop);
+    const index = pyIndex(doc);
+    const defs = sidecarDefs(doc);
+    const byAddress = new Map(hosts.map((h) => [h.address, h]));
+    const runHashes = new Map();
+    for (const a of order) {
+      const r = resolved.get(a);
+      const h = byAddress.get(a);
+      runHashes.set(a, python.runHash(h.source, r.targets || [], codeHash(doc, h, index, defs), depsOf(a).map((d) => runHashes.get(d) || "")));
+    }
+    const off = pythonEnabled() ? "" : " (aot.python.enabled is off)";
+    for (const h of hosts) {
+      const range = new vscode.Range(h.line - 1, h.startCol, h.line - 1, h.endCol);
+      const src = python.sourceHash(h.source);
+      const s = status.get(h.address);
+      const r = resolved.get(h.address);
+      const mk = (message, severity) => {
+        const d = new vscode.Diagnostic(range, message, severity);
+        d.source = "aot-python";
+        return d;
+      };
+      if (!h.source) continue; // the linter already says a bare '=' is empty
+      if (cyclic.has(h.address)) {
+        const loop = cyclic.get(h.address);
+        out.push(mk(`Python cycle — ${[...loop, loop[0]].join(" → ")} — none of these can run first`, vscode.DiagnosticSeverity.Error));
+        continue;
+      }
+      if (r.errors && r.errors.length) {
+        out.push(mk(`Python: ${r.errors[0]}`, vscode.DiagnosticSeverity.Error));
+        continue;
+      }
+      if (s && s.source === src && s.state === "error") {
+        out.push(mk(`Python failed — ${s.message}`, vscode.DiagnosticSeverity.Error));
+        continue;
+      }
+      if (s && s.source === src && s.state === "skipped") {
+        out.push(mk(`Python did not run — ${s.message.replace(/^not run — /, "")}`, vscode.DiagnosticSeverity.Warning));
+        continue;
+      }
+      const rec = records[h.address];
+      if (!rec) {
+        out.push(mk(`not run yet — Ctrl+Enter runs it${off}`, vscode.DiagnosticSeverity.Information));
+        continue;
+      }
+      const why = rec.source !== src ? "edited since it last ran"
+        : rec.run !== runHashes.get(h.address) ? "something it reads changed since it last ran" : null;
+      if (!why) continue;
+      out.push(mk(`Python ${why} — Ctrl+Enter runs it${off}`, vscode.DiagnosticSeverity.Information));
+      const span = pyValueSpan(doc, h);
+      if (span) dims.push({ range: span, hoverMessage: `An older result: this derivation was ${why}. Ctrl+Enter brings it up to date.` });
+    }
+  }
+  out.push(...checkFindings(doc));
+  pyDiagnostics.set(doc.uri, out);
+  pyDims.set(doc.uri.toString(), dims);
+}
+
+// Where a host's written value stands: the text in front of its derivation.
+function pyValueSpan(doc, h) {
+  if (h.kind === "concept" || !h.value) return null;
+  const raw = doc.lineAt(h.line - 1).text;
+  const start = h.kind === "cell"
+    ? raw.lastIndexOf(h.value, h.startCol)
+    : (python.valueDerivation(raw) || {}).valueStart;
+  if (start === undefined || start < 0) return null;
+  return new vscode.Range(h.line - 1, start, h.line - 1, start + h.value.length);
+}
+
+// The rows of every table a Concept's inline derivation wrote, marked as
+// computed — they are Python's, and a row typed into them is replaced on the
+// next run. (A parked derivation's rows are marked by parkedMarks.)
+function pythonMarks(doc) {
+  if (doc.languageId !== "aot" || !pyConfig().get("parkedValueMarks", true)) return [];
+  let parsed;
+  try { parsed = parsedDoc(doc); } catch { return []; }
+  const lines = doc.getText().split(/\r?\n/);
+  const out = [];
+  for (const node of parsed.nodes) {
+    if (node.kind !== KIND.CONCEPT || node.formula === undefined) continue;
+    const md = new vscode.MarkdownString();
+    md.isTrusted = true;
+    md.appendMarkdown(`**Written by Python** — ${codeSpan("=" + node.formula)}\n\n`);
+    md.appendMarkdown(`Every row of '${node.name}' is this derivation's: a row typed or changed here is replaced the next time it runs `
+      + "([Ctrl+Enter](command:aot.runPython)). Change the Python instead.");
+    for (const r of park.ownedRows(lines, node)) {
+      out.push({ range: new vscode.Range(r.line - 1, r.startCol, r.line - 1, r.endCol), hoverMessage: md });
+    }
+  }
+  return out;
+}
+
+// End-of-line notes on each derivation: running, how long it took, how many
+// rows it wrote, what went wrong — or that it was edited since it ran.
+// When a derivation ran, written the way the file writes a date: `16:04`
+// today, `2026-09-23 16:04` on any other day — so a run that is not today's
+// reads as old at a glance. Local time: it is the writer's own clock.
+const pad2 = (n) => String(n).padStart(2, "0");
+function ranAt(at, now) {
+  const d = at instanceof Date ? at : new Date(at);
+  if (!at || isNaN(d.getTime())) return "";
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return d.toDateString() === (now || new Date()).toDateString() ? time : `${ranDay(d)} ${time}`;
+}
+const ranDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+// ...and whole, to the second, where there is room for it: a tooltip, a hover
+function ranStamp(at) {
+  const d = at instanceof Date ? at : new Date(at);
+  if (!at || isNaN(d.getTime())) return "";
+  return `${ranDay(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+// What a run found, as the end of a line says it: rows, then time taken.
+const ranWhat = (rows, ms) =>
+  [rows !== undefined && rows !== null ? `${rows} row${rows === 1 ? "" : "s"}` : "", ms !== undefined && ms !== null ? `${ms} ms` : ""]
+    .filter(Boolean).join(" · ");
+
+function pythonInlays(doc, range) {
+  const status = pyStatus.get(doc.uri.toString());
+  const records = runRecords(doc);
+  const out = [];
+  for (const h of pythonHostsIn(doc)) {
+    const line = h.line - 1;
+    if (line < range.start.line || line > range.end.line || line >= doc.lineCount) continue;
+    const src = python.sourceHash(h.source);
+    const s = status && status.get(h.address);
+    const rec = records[h.address];
+    const when = (at) => (ranAt(at) ? ` · ${ranAt(at)}` : "");
+    let label = null, tooltip = "";
+    if (s && s.source === src && s.state !== "ok") {
+      if (s.state === "running") label = "⟳ running";
+      else if (s.state === "error") {
+        label = `✗ ${s.message.length > 60 ? s.message.slice(0, 57) + "…" : s.message}${when(s.at)}`;
+        tooltip = [s.message, s.at ? `failed ${ranStamp(s.at)}` : "", rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n");
+      } else if (s.state === "skipped") {
+        label = `– not run${when(s.at)}`;
+        tooltip = [s.message, rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n");
+      }
+    } else if (rec && rec.source === src) {
+      // the last successful run — from this session, or from the run
+      // records, which outlast it: a restart does not forget when a value
+      // was computed
+      const fresh = s && s.source === src && s.state === "ok" ? s : null;
+      const what = ranWhat(fresh ? fresh.rows : rec.rows, fresh ? fresh.ms : rec.ms);
+      label = `✓ ${what ? what + " · " : ""}${ranAt(rec.at) || "ran"}`;
+      tooltip = [`ran ${ranStamp(rec.at)}`, fresh && fresh.versions, fresh && fresh.stdout ? `printed:\n${fresh.stdout}` : ""]
+        .filter(Boolean).join("\n");
+    } else if (rec) {
+      label = `✎ edited since ${ranAt(rec.at) || "it ran"} — Ctrl+Enter`;
+      tooltip = `last ran ${ranStamp(rec.at)}, before this edit`;
+    }
+    if (!label) continue;
+    const hint = new vscode.InlayHint(doc.lineAt(line).range.end, label);
+    hint.paddingLeft = true;
+    if (tooltip) hint.tooltip = tooltip;
+    out.push(hint);
+  }
+  return out;
+}
+
+// The Python host on a line and whether a position falls in its derivation.
+function pyHostAt(doc, position) {
+  return pythonHostsIn(doc).find((h) => h.line - 1 === position.line
+    && position.character >= h.startCol && position.character <= h.endCol) || null;
+}
+
+// The identifier under the cursor on a line.
+function wordAt(text, character) {
+  const re = /[A-Za-z_][A-Za-z0-9_]*/g;
+  let m;
+  while ((m = re.exec(text))) {
+    if (character >= m.index && character <= m.index + m[0].length) return { word: m[0], start: m.index };
+  }
+  return null;
+}
+
+// The repository file a dotted module name in a derivation reaches —
+// `finance`, `tools.finance` — resolved as the runtime resolves it; for a
+// package, its __init__. null when it names none of the repository's, or
+// more than one.
+function moduleFileOf(doc, dotted) {
+  const parts = dotted.split(".");
+  const root = aotRoot(doc), af = aotFilesDir(doc), index = pyIndex(doc);
+  const listed = (f) => index.find((x) => fileKey(x) === fileKey(f)) || null;
+  for (const base of [af, root]) {
+    const hit = listed(path.join(base, ...parts) + ".py") || listed(path.join(base, ...parts, "__init__.py"));
+    if (hit) return hit;
+  }
+  if (parts.length > 1) return null;
+  const hits = python.moduleFiles(parts[0], index, root, af);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+// The file aot.use("…") loads: in aot.files, else from the repository's root.
+function usedFileOf(doc, rel) {
+  for (const base of [aotFilesDir(doc), aotRoot(doc)]) {
+    const f = path.resolve(base, rel);
+    if (fs.existsSync(f)) return f;
+  }
+  return null;
+}
+
+// The function under the cursor in a derivation and the file defining it: a
+// module's (finance.revenue, tools.finance.revenue, aot.use("x.py").total),
+// or the sidecar's for a bare name. { file, def, start, word } or null.
+function pyFunctionAt(doc, position) {
+  const line = doc.lineAt(position.line).text;
+  const w = wordAt(line, position.character);
+  if (!w) return null;
+  const before = line.slice(0, w.start);
+  let file = null;
+  const used = /aot\.use\(\s*(["'])(.*?)\1\s*\)\.$/.exec(before);
+  const dotted = /(?<![\w.@])([A-Za-z_][\w.]*)\.$/.exec(before);
+  if (used) file = usedFileOf(doc, used[2]);
+  else if (dotted) file = moduleFileOf(doc, dotted[1]);
+  else if (!/\.\s*$/.test(before)) {
+    // the sidecar's own, or one it imports from elsewhere in the repository
+    const hit = resolveCall(doc, { module: "", name: w.word, used: null });
+    return hit ? { file: hit.file, def: hit.def, start: w.start, word: w.word } : null;
+  }
+  if (!file) return null;
+  const def = fileDefs(file).get(w.word);
+  return def ? { file, def, start: w.start, word: w.word } : null;
+}
+
+const relToRoot = (doc, file) => path.relative(aotRoot(doc), file).split(path.sep).join("/");
+
+// Ctrl+click on a function inside a derivation opens its `def` — in the
+// sidecar, or in whichever repository file the module it is called on is.
+function pythonDefinition(doc, position) {
+  if (!pyHostAt(doc, position)) return null;
+  const hit = pyFunctionAt(doc, position);
+  return hit ? new vscode.Location(vscode.Uri.file(hit.file), new vscode.Range(hit.def.line, 0, hit.def.line, 0)) : null;
+}
+
+// Hover in a derivation: a function's signature, docstring and file; on a
+// computed value, what computed it and when.
+function pythonHover(doc, position) {
+  const h = pythonHostsIn(doc).find((x) => x.line - 1 === position.line);
+  if (!h) return null;
+  if (position.character >= h.startCol && position.character <= h.endCol) {
+    const hit = pyFunctionAt(doc, position);
+    if (!hit) return null;
+    const md = new vscode.MarkdownString();
+    md.appendMarkdown(`${codeSpan(hit.def.signature)} — defined in \`${relToRoot(doc, hit.file)}\` line ${hit.def.line + 1}`);
+    if (hit.def.doc) md.appendMarkdown(`\n\n${hit.def.doc}`);
+    return new vscode.Hover(md, new vscode.Range(position.line, hit.start, position.line, hit.start + hit.word.length));
+  }
+  const span = pyValueSpan(doc, h);
+  if (!span || !span.contains(position)) return null;
+  const s = (pyStatus.get(doc.uri.toString()) || new Map()).get(h.address);
+  const rec = runRecords(doc)[h.address];
+  const md = new vscode.MarkdownString();
+  md.appendMarkdown(`**Computed by Python** — ${codeSpan("=" + h.source)}\n\n`);
+  if (s && s.state === "ok") {
+    md.appendMarkdown(`Ran ${ranStamp(s.at)} in ${s.ms} ms${s.versions ? ` · ${s.versions}` : ""}.`);
+    if (s.stdout) md.appendMarkdown(`\n\nPrinted:\n\n${codeSpan(s.stdout.trim().slice(0, 400))}`);
+  } else if (rec) {
+    md.appendMarkdown(`Last ran ${ranStamp(rec.at)}${rec.ms !== undefined ? ` in ${rec.ms} ms` : ""}. Ctrl+Enter runs it again.`);
+  } else {
+    md.appendMarkdown("Not run yet — Ctrl+Enter runs it.");
+  }
+  return new vscode.Hover(md, span);
+}
+
+// The module names the repository's Python files answer to at the head of a
+// derivation: each file's name, and each folder holding Python at the top of
+// aot.files or the root — name -> the file or folder, relative to the root.
+function repoModuleNames(doc) {
+  const root = aotRoot(doc), af = aotFilesDir(doc);
+  const out = new Map();
+  for (const f of pyIndex(doc)) {
+    const stem = path.basename(f, ".py");
+    if (stem !== "__init__" && /^[A-Za-z_]\w*$/.test(stem) && !out.has(stem)) out.set(stem, relToRoot(doc, f));
+    for (const base of [af, root]) {
+      const rel = path.relative(base, f);
+      const top = rel.split(path.sep)[0];
+      if (!rel.startsWith("..") && rel.includes(path.sep) && /^[A-Za-z_]\w*$/.test(top) && !out.has(top)) {
+        out.set(top, relToRoot(doc, path.join(base, top)) + "/");
+      }
+    }
+  }
+  return out;
+}
+
+// Completion inside Python: after '=' the sidecar's functions, the names
+// every derivation has and the repository's modules; after `module.` that
+// module's functions; after `@Name.` the columns of that table.
+const PY_PRELOADED = ["pd", "np", "plt", "sns", "stats", "math", "statistics", "re", "json", "random",
+  "itertools", "functools", "Path", "date", "datetime", "timedelta", "Decimal", "Counter", "defaultdict",
+  "Image", "requests", "relativedelta", "aot"];
+const pythonCompletion = {
+  provideCompletionItems(doc, position) {
+    const before = doc.lineAt(position.line).text.slice(0, position.character);
+    const dot = /@([\p{L}\p{N}_ ]+?)\.([A-Za-z_]\w*)?$/u.exec(before);
+    if (dot) {
+      const name = dot[1].trim().toLowerCase();
+      const cols = new Set();
+      const status = pyStatus.get(doc.uri.toString()) || new Map();
+      for (const h of pythonHostsIn(doc)) {
+        const own = h.kind === "concept" ? h.node.name : h.node ? h.node.name : "";
+        const s = status.get(h.address);
+        if (own.toLowerCase() === name && s && s.columns) s.columns.forEach((c) => cols.add(c));
+      }
+      try {
+        const scope = formulaRegistry(doc).scopes.get(name);
+        if (scope) scope.columns.forEach((c) => cols.add(c));
+      } catch { /* no registry: the run's columns are enough */ }
+      return [...cols].map((c) => {
+        const item = new vscode.CompletionItem(c.includes(" ") ? `["${c}"]` : c, vscode.CompletionItemKind.Field);
+        item.detail = `a column of @${dot[1].trim()}`;
+        return item;
+      });
+    }
+    const fnItem = (name, def, file) => {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Function);
+      item.detail = `${def.signature} — ${relToRoot(doc, file)}`;
+      if (def.doc) item.documentation = def.doc;
+      return item;
+    };
+    // a module's functions, after its name and a dot — in a derivation only
+    const member = /(?<![\w.@])((?:[A-Za-z_]\w*\.)+)\w*$/.exec(before);
+    const used = /aot\.use\(\s*(["'])(.*?)\1\s*\)\.\w*$/.exec(before);
+    if ((member || used) && /(^|\s)=/.test(before)) {
+      const file = used ? usedFileOf(doc, used[2]) : moduleFileOf(doc, member[1].slice(0, -1));
+      return file ? [...fileDefs(file)].map(([name, def]) => fnItem(name, def, file)) : [];
+    }
+    // the head of a derivation: '=' opening it, and at most the name being typed
+    if (!/(^|\s)=\s*[A-Za-z_]?\w*$/.test(before)) return [];
+    const items = [];
+    for (const [name, def] of sidecarDefs(doc)) items.push(fnItem(name, def, sidecarPath(doc)));
+    for (const name of PY_PRELOADED) {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Module);
+      item.detail = "available in every Python derivation";
+      items.push(item);
+    }
+    for (const [name, where] of repoModuleNames(doc)) {
+      if (PY_PRELOADED.includes(name)) continue;
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Module);
+      item.detail = `${where} — a module of this repository`;
+      items.push(item);
+    }
+    return items;
+  },
+};
+
+// --- the commands -----------------------------------------------------------
+
+async function runPythonHere(editor) {
+  // a file with no Python keeps Ctrl+Enter's ordinary meaning
+  if (!pythonWorkIn(editor.document)) {
+    return vscode.commands.executeCommand("editor.action.insertLineAfter");
+  }
+  return runPython(editor, { mode: "here", line: editor.selection.active.line });
+}
+
+async function showPythonEnvironment() {
+  const editor = vscode.window.activeTextEditor;
+  const doc = editor && editor.document;
+  if (!doc || doc.languageId !== "aot") {
+    return vscode.window.showInformationMessage("AOT: open an .aot file to see the Python it would run with.");
+  }
+  if (!pythonEnabled() || !workspaceTrusted()) return pythonGate(doc, false);
+  let entry;
+  try {
+    entry = pySession(doc);
+    await entry.starting;
+    pyTouch(doc, entry);
+  } catch (e) {
+    pyStop(doc.uri.toString(), "failed to start");
+    return vscode.window.showErrorMessage(`AOT: ${e.message}`);
+  }
+  const h = entry.hello;
+  const libs = Object.entries(h.libraries || {});
+  const missing = libs.filter(([, v]) => !v).map(([k]) => k);
+  const detail = [
+    h.executable, "",
+    ...libs.map(([k, v]) => `${v ? "✓" : "✗"} ${k}${v ? " " + v : ""}`), "",
+    missing.length ? `Install the rest with:\n"${h.executable}" -m pip install ${missing.join(" ")}` : "Everything listed is installed.",
+  ].join("\n");
+  return vscode.window.showInformationMessage(`AOT: Python ${h.python}`, { modal: true, detail });
+}
+
+// A name the derivation calls that no one defines: the builtins, the
+// preloaded names and Python's own words are everyone's.
+const PY_BUILTINS = new Set([
+  "abs", "all", "any", "ascii", "bin", "bool", "bytes", "callable", "chr", "complex", "dict", "dir",
+  "divmod", "enumerate", "filter", "float", "format", "frozenset", "getattr", "hasattr", "hash", "hex",
+  "id", "int", "isinstance", "issubclass", "iter", "len", "list", "map", "max", "min", "next", "object",
+  "oct", "open", "ord", "pow", "print", "range", "repr", "reversed", "round", "set", "slice", "sorted",
+  "str", "sum", "super", "tuple", "type", "vars", "zip", "exit", "quit", "_aot_ref",
+  "if", "else", "for", "in", "not", "and", "or", "lambda", "is", "print",
+]);
+function undefinedCalls(doc, source) {
+  const defs = sidecarDefs(doc);
+  const out = [];
+  for (const m of source.matchAll(/(?<![.\w@])([A-Za-z_]\w*)\s*\(/g)) {
+    const name = m[1];
+    if (defs.has(name) || PY_BUILTINS.has(name) || PY_PRELOADED.includes(name)) continue;
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+async function openSidecarAt(doc, line) {
+  if (!vscode.window.showTextDocument) return;
+  const shown = await vscode.window.showTextDocument(vscode.Uri.file(sidecarPath(doc)), { preview: false });
+  if (shown && typeof line === "number") {
+    const pos = new vscode.Position(line, 0);
+    shown.selection = new vscode.Selection(pos, pos);
+    shown.revealRange(new vscode.Range(line, 0, line, 0));
+  }
+}
+
+function sidecarText(doc) {
+  try { return fs.readFileSync(sidecarPath(doc), "utf8"); } catch { return ""; }
+}
+
+function writeSidecar(doc, text) {
+  fs.mkdirSync(path.dirname(sidecarPath(doc)), { recursive: true });
+  fs.writeFileSync(sidecarPath(doc), text);
+  fileHashCache.delete(sidecarPath(doc));
+  defsCache.delete(sidecarPath(doc));
+}
+
+// Lightbulb: a stub for a function a derivation calls and nobody defines.
+async function createPythonFunction(uri, name) {
+  const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri);
+  if (!doc || !/^[A-Za-z_]\w*$/.test(name || "")) return;
+  const before = fs.existsSync(sidecarPath(doc)) ? fileSha1(sidecarPath(doc)) : null;
+  let text = sidecarText(doc) || SIDECAR_HEADER(docRootName(doc));
+  if (!new RegExp(`^def\\s+${name}\\s*\\(`, "m").test(text)) {
+    text = text.replace(/\s*$/, "\n") + `\n\ndef ${name}():\n    """What ${name} computes."""\n    raise NotImplementedError("write ${name} in aot.files/${path.basename(sidecarPath(doc))}")\n`;
+    writeSidecar(doc, text);
+    await reconsentAfterWrite(sidecarPath(doc), before);
+  }
+  const def = sidecarDefs(doc).get(name);
+  await openSidecarAt(doc, def ? def.line : 0);
+}
+
+const snake = (s) => {
+  const out = String(s).trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return !out ? "value" : /^\d/.test(out) ? "_" + out : out;
+};
+
+// Lightbulb: the derivation's expression becomes a function in the sidecar,
+// each `@` reference a parameter, and the line calls it with them.
+async function movePythonToSidecar(uri, line) {
+  const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri);
+  if (!doc) return;
+  const h = pythonHostsIn(doc).find((x) => x.line - 1 === line);
+  if (!h) return;
+  const ctx = { lines: doc.getText().split(/\r?\n/), registry: formulaRegistry(doc), rootName: docRootName(doc), index: python.hostIndex(pythonHostsIn(doc)) };
+  const r = python.resolveHost(h, ctx);
+  if (r.errors.length) return vscode.window.showWarningMessage(`AOT: fix the reference first — ${r.errors[0]}`);
+  const defs = sidecarDefs(doc);
+  const base = snake(h.kind === "concept" ? h.node.name : h.node ? h.node.name : h.address.split("@").pop());
+  let name = base;
+  for (let k = 2; defs.has(name) || PY_BUILTINS.has(name) || PY_PRELOADED.includes(name); k++) name = `${base}_${k}`;
+  // one parameter per distinct reference, named after it
+  const params = new Map(); // reference text -> parameter
+  for (const s of r.spans) {
+    if (params.has(s.text)) continue;
+    let p = snake(s.text.replace(/^@/, "").replace(/@/g, " "));
+    while ([...params.values()].includes(p) || p === name) p += "_";
+    params.set(s.text, p);
+  }
+  let body = "";
+  let last = 0;
+  for (const s of r.spans) {
+    body += h.source.slice(last, s.start) + params.get(s.text);
+    last = s.start + s.length;
+  }
+  body += h.source.slice(last);
+  const before = fs.existsSync(sidecarPath(doc)) ? fileSha1(sidecarPath(doc)) : null;
+  const text = (sidecarText(doc) || SIDECAR_HEADER(docRootName(doc))).replace(/\s*$/, "\n")
+    + `\n\ndef ${name}(${[...params.values()].join(", ")}):\n    return ${body}\n`;
+  writeSidecar(doc, text);
+  await reconsentAfterWrite(sidecarPath(doc), before);
+  const call = `${name}(${[...params.keys()].join(", ")})`;
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(doc.uri, new vscode.Range(h.line - 1, h.startCol + 1, h.line - 1, h.endCol), call);
+  await vscode.workspace.applyEdit(edit);
+  const def = sidecarDefs(doc).get(name);
+  await openSidecarAt(doc, def ? def.line : 0);
+}
+
+// The Python lightbulbs on a derivation's line.
+function pythonActions(doc, range) {
+  const h = pythonHostsIn(doc).find((x) => x.line - 1 === range.start.line);
+  if (!h || !h.source) return [];
+  const actions = [];
+  const run = new vscode.CodeAction("Run this Python derivation (Ctrl+Enter)", vscode.CodeActionKind.QuickFix);
+  run.command = { command: "aot.runPython", title: "Run this Python derivation" };
+  actions.push(run);
+  const file = `aot.files/${path.basename(sidecarPath(doc))}`;
+  for (const name of undefinedCalls(doc, h.source)) {
+    const create = new vscode.CodeAction(`Create '${name}()' in ${file}`, vscode.CodeActionKind.QuickFix);
+    create.command = { command: "aot.createPythonFunction", title: `Create '${name}()'`, arguments: [doc.uri.toString(), name] };
+    actions.push(create);
+  }
+  const move = new vscode.CodeAction(`Move this Python into ${file}`, vscode.CodeActionKind.RefactorRewrite);
+  move.command = { command: "aot.movePythonToSidecar", title: "Move this Python into the sidecar", arguments: [doc.uri.toString(), h.line - 1] };
+  actions.push(move);
+  return actions;
 }
 
 // --- flipping a Concept between its two forms --------------------------------
@@ -2045,7 +3463,8 @@ async function toggleTableForm(editor) {
 
 // AOT: Copy Formula to Sibling Examples — the line-form copy-down: the
 // derivation under the cursor lands on the same attribute of every sibling
-// Example (adding the line where the attribute is absent), then recomputes.
+// Example (adding the line where the attribute is absent). The copies hold no
+// value until Ctrl+Enter runs them.
 async function copyFormulaToSiblings(editor) {
   const doc = editor.document;
   if (doc.languageId !== "aot") return;
@@ -2067,14 +3486,6 @@ async function copyFormulaToSiblings(editor) {
       }
     }
   });
-  // the fresh copies start unvalued; recompute them in place
-  const again = lint(doc.getText(), rootName);
-  const editsNow = derive.recomputeValues(again.root, again.nodes, doc.getText().split(/\r?\n/), formulaRegistry(doc));
-  if (editsNow.length) {
-    await editor.edit((b) => {
-      for (const { line, text } of editsNow) b.replace(doc.lineAt(line - 1).range, text);
-    });
-  }
 }
 
 // Append a word to aot.acceptedWords (user settings, case-insensitive). The
@@ -2622,12 +4033,11 @@ async function importAllCsvFolders(opts) {
 // differ from a '- ' Example. Custom types no theme defines fall through to
 // the grammar scope (semanticTokenScopes), so a cell colours identically to
 // its written-out line form.
-const TOKEN_TYPES = ["aotAttribute", "aotExample", "aotValue", "aotFormula"];
-const ATTR_TOKEN = 0, EXAMPLE_TOKEN = 1, VALUE_TOKEN = 2, FORMULA_TOKEN = 3;
+const TOKEN_TYPES = ["aotAttribute", "aotExample", "aotValue", "aotPython"];
+const ATTR_TOKEN = 0, EXAMPLE_TOKEN = 1, VALUE_TOKEN = 2, PYTHON_TOKEN = 3;
 const semanticLegend = new vscode.SemanticTokensLegend(TOKEN_TYPES, []);
 const semanticProvider = {
   provideDocumentSemanticTokens(doc) {
-    const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
     const { root, nodes } = parsedDoc(doc);
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
     for (const node of nodes) {
@@ -2642,16 +4052,14 @@ const semanticProvider = {
         builder.push(node.line - 1, node.valueCol, node.value.length, VALUE_TOKEN);
       }
     }
-    // everything from an operator to its end is derivation text — a cell
-    // or value formula, or an attribute's constraint — in its own colour,
-    // so derivations read apart from the data at a glance. A violated
-    // value's span is diagnostic-only (paint: false): the value itself is
-    // plain data, not derivation text.
+    // everything from an operator to its end is Python — a derivation on a
+    // value, a cell or a Concept, or a constraint's bound — in its own
+    // colour, so code reads apart from the data at a glance. A Concept's own
+    // derivation is painted here too: the grammar cannot tell it from the
+    // Concept's name.
     const docLines = doc.getText().split(/\r?\n/);
-    const registry = formulaRegistry(doc);
-    for (const f of [...table.formulas(docLines, registry, docRootName(doc)), ...derive.auditValues(root, nodes, docLines, registry)]) {
-      if (f.paint === false) continue;
-      builder.push(f.line - 1, f.startCol, f.endCol - f.startCol, FORMULA_TOKEN);
+    for (const f of codeSpans(docLines, root, nodes, docRootName(doc))) {
+      builder.push(f.line - 1, f.startCol, f.endCol - f.startCol, PYTHON_TOKEN);
     }
     return builder.build();
   },
@@ -2685,7 +4093,6 @@ function runTableOp(editor, op) {
   };
   const target = op(block, cursorRow, col, span);
   if (!target) return;
-  table.recompute(block, formulaRegistry(doc)); // every table keystroke recalculates, as org's TAB does
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
@@ -2733,13 +4140,12 @@ const tableOps = {
   "aot.table.copyColumnLeft": (b, r, c) => table.copyColumn(b, r, c, -1),
   "aot.table.copyColumnRight": (b, r, c) => table.copyColumn(b, r, c, 1),
   // the spreadsheet's own editing keys: fill down / right over the cell or
-  // the selection (Ctrl+D / Ctrl+R), the formula or the value from the cell
-  // above (Ctrl+' / Ctrl+Shift+'), and AutoSum (Alt+=)
+  // the selection (Ctrl+D / Ctrl+R), and the derivation or the value from
+  // the cell above (Ctrl+' / Ctrl+Shift+')
   "aot.table.fillDown": table.fillDown,
   "aot.table.fillRight": table.fillRight,
   "aot.table.copyFormulaFromAbove": table.copyFormulaFromAbove,
   "aot.table.copyValueFromAbove": table.copyValueFromAbove,
-  "aot.table.autoSum": table.autoSum,
 };
 
 // --- the spreadsheet's movement keys ----------------------------------------
@@ -2845,19 +4251,6 @@ function lineChangeEdit(doc, lines, change) {
   return [new vscode.Range(last, lines[last].length, last, lines[last].length), eol + text];
 }
 
-// The line-form values a derivation owns, computed now rather than when the
-// cursor leaves the line — as a table cell's are on every table key.
-async function recomputeLineValues(editor) {
-  const doc = editor.document;
-  let tree;
-  try { tree = lint(doc.getText(), docRootName(doc)); } catch { return; }
-  const edits = derive.recomputeValues(tree.root, tree.nodes, doc.getText().split(/\r?\n/), formulaRegistry(doc));
-  if (!edits.length) return;
-  await editor.edit((b) => {
-    for (const e of edits) b.replace(lineEditRange(doc, e), lineEditText(doc, e));
-  }, { undoStopBefore: false, undoStopAfter: true });
-}
-
 // A table key pressed in free text: the operation lineform answers, applied
 // in place as one edit, the cursor (and a filled selection) put back.
 async function runLineOp(editor, id) {
@@ -2878,7 +4271,6 @@ async function runLineOp(editor, id) {
   if (change) {
     const [range, text] = lineChangeEdit(editor.document, here.lines, change);
     await editor.edit((b) => b.replace(range, text));
-    await recomputeLineValues(editor);
   }
   if (!done.cursor) return;
   const from = done.anchor || done.cursor;
@@ -3341,15 +4733,23 @@ function activate(context) {
       rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
     }),
   };
+  // a Python value older than its derivation (edited, or an input moved
+  // since it ran): faded, so a number that is not current does not read as
+  // one that is
+  decorationTypes.stale = vscode.window.createTextEditorDecorationType({ opacity: "0.55" });
+  decorationTypes.pyLink = vscode.window.createTextEditorDecorationType({ textDecoration: "underline" });
   // the F2 nudge's ghost text, in the editor's native ghost-text colour
   renameHintType = vscode.window.createTextEditorDecorationType({
     after: { color: new vscode.ThemeColor("editorGhostText.foreground"), margin: "0 0 0 2em" },
   });
+  // Python's findings in a collection of their own: a failed run, or one
+  // not yet made, is never a verdict on the model, so never in V
+  pyDiagnostics = vscode.languages.createDiagnosticCollection("aot-python");
+  pyState = context.workspaceState || null;
   context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual,
-    decorationTypes.parked, renameHintType);
+    decorationTypes.parked, decorationTypes.stale, decorationTypes.pyLink, renameHintType, pyDiagnostics);
 
   const timers = new Map();
-  const lastCursorLine = new Map(); // uri -> the cursor's last line, per doc
   const refreshSoon = (doc) => {
     clearTimeout(timers.get(doc.uri.toString()));
     timers.set(doc.uri.toString(),
@@ -3377,7 +4777,6 @@ function activate(context) {
   };
   const trackEdits = (event) => {
     const doc = event.document;
-    if (autoComputing.has(doc.uri.toString())) return; // our own fill-in is not a user edit burst
     if (doc.languageId !== "aot" || !event.contentChanges.length) return;
     const key = doc.uri.toString();
     let state = holdState.get(key);
@@ -3415,6 +4814,11 @@ function activate(context) {
       analysisByDoc.delete(doc.uri.toString());
       parsedByDoc.delete(doc.uri.toString());
       registryByDoc.delete(doc.uri.toString());
+      // its Python session goes with it
+      pyStop(doc.uri.toString(), "closed");
+      pyStatus.delete(doc.uri.toString());
+      pyDims.delete(doc.uri.toString());
+      pyDiagnostics.delete(doc.uri);
     }),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) decorate(editor, decorationTypes);
@@ -3447,6 +4851,13 @@ function activate(context) {
           links.push(new vscode.DocumentLink(
             new vscode.Range(f.line - 1, f.startCol, f.line - 1, f.endCol),
             vscode.Uri.file(repoCopyOf(doc, f.fsPath) || f.fsPath)));
+        }
+        // a function a derivation calls opens the Python file it is written
+        // in, at its `def`
+        for (const c of pythonCallLinks(doc)) {
+          const link = new vscode.DocumentLink(c.range, vscode.Uri.file(c.file).with({ fragment: `L${c.def.line + 1}` }));
+          link.tooltip = `${relToRoot(doc, c.file)} line ${c.def.line + 1} — def ${c.def.signature}`;
+          links.push(link);
         }
         // every `file.aot:12` in a maintained `...` line opens that file at
         // that Concept, so a split extension is one click from the rest of it
@@ -3493,12 +4904,10 @@ function activate(context) {
     }),
     // Format Document re-aligns every table's columns, as org-mode's TAB
     // does — each column padded to its widest cell, leftover rules dropped —
-    // recomputes every line-form '=' value, and renumbers `N. ` Examples.
+    // and renumbers `N. ` Examples. It computes nothing: that is Ctrl+Enter's.
     vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {
       provideDocumentFormattingEdits(doc) {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-        const { root, nodes } = parsedDoc(doc);
-        const lines = doc.getText().split(/\r?\n/);
         const reg = formulaRegistry(doc);
         const renumber = renumberEdits(doc);
         const renumbered = new Set(renumber.map((e) => e.line));
@@ -3507,8 +4916,7 @@ function activate(context) {
           return false;
         };
         return [
-          ...[...table.align(doc.getText(), reg, rootName), ...derive.recomputeValues(root, nodes, lines, reg)]
-            .filter((e) => !overlaps(e)),
+          ...table.align(doc.getText(), reg, rootName).filter((e) => !overlaps(e)),
           ...renumber,
         ].map((e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e)));
       },
@@ -3561,6 +4969,15 @@ function activate(context) {
     vscode.commands.registerTextEditorCommand("aot.copyFormulaToSiblings", copyFormulaToSiblings),
     // Ctrl+Shift+`: the derivations out of the data, and back
     vscode.commands.registerTextEditorCommand("aot.toggleFormulaPark", toggleFormulaPark),
+    // Ctrl+Enter: the Python derivation at the cursor, in place — with what
+    // it reads and what reads it
+    vscode.commands.registerTextEditorCommand("aot.runPython", runPythonHere),
+    vscode.commands.registerTextEditorCommand("aot.runPythonFresh", (editor) => runPython(editor, { mode: "fresh" })),
+    vscode.commands.registerCommand("aot.showPythonEnvironment", showPythonEnvironment),
+    vscode.commands.registerCommand("aot.createPythonFunction", createPythonFunction),
+    vscode.commands.registerCommand("aot.movePythonToSidecar", movePythonToSidecar),
+    // inside Python: the sidecar's functions after '=', a table's columns after '@Name.'
+    vscode.languages.registerCompletionItemProvider({ language: "aot" }, pythonCompletion, "=", "."),
     // Ctrl+Alt+T: the Concept at the cursor as a table, and back as lines
     vscode.commands.registerTextEditorCommand("aot.toggleTableForm", toggleTableForm),
     vscode.window.onDidChangeTextEditorSelection((event) => {
@@ -3568,48 +4985,26 @@ function activate(context) {
       updateCellStatus();
       const doc = event && event.textEditor && event.textEditor.document;
       if (!doc || doc.languageId !== "aot") return;
-      const key = doc.uri.toString();
-      const active = event.selections && event.selections[0] && event.selections[0].active;
-      if (!active) return;
-      // crossing onto another line — including pressing Enter — fills the
-      // formula left behind at once: no debounce, a fresh parse, and
-      // through any edit-burst (force), the new cursor line still spared.
-      // (The lone-sub warnings deliberately do NOT release on a line change:
-      // pressing Enter to add the sibling would otherwise flash the warning.)
-      if (lastCursorLine.get(key) !== active.line) {
-        lastCursorLine.set(key, active.line);
-        autoComputeValues(doc, null, true);
-      }
       // standing in a used name shows the F2 nudge; leaving it clears it
       renameHint(event.textEditor);
     }),
     vscode.window.onDidChangeActiveTextEditor(updateTableContext),
-    // saving persists computed values, true numbering and agreement with the
-    // rest of the repo: the recompute, renumber and reconcile edits all ride
-    // the save itself, so the file on disk carries fresh values, sequential
-    // `N. ` Examples, and whatever a shared Concept says elsewhere
+    // saving persists true numbering and agreement with the rest of the
+    // repo: the renumber and reconcile edits ride the save itself, so the
+    // file on disk carries sequential `N. ` Examples and whatever a shared
+    // Concept says elsewhere. A save computes nothing — it runs no Python.
     vscode.workspace.onWillSaveTextDocument((event) => {
       const doc = event.document;
+      // a Python file about to be saved: what it held, so its new content can
+      // be allowed if that was
+      if (/\.py$/i.test(doc.fileName || "")) pyWillSave(doc);
       if (doc.languageId !== "aot") return;
       event.waitUntil(Promise.resolve().then(() => {
-        const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-        const { root, nodes } = parsedDoc(doc);
-        const reg = formulaRegistry(doc);
         const renumber = renumberEdits(doc);
-        const renumbered = new Set(renumber.map((e) => e.line));
-        const overlaps = (e) => {
-          for (let l = e.line; l <= (e.to || e.line); l++) if (renumbered.has(l)) return true;
-          return false;
-        };
-        // reconcile last and only where nothing else is already rewriting:
-        // three passes over one document must not land two edits on one line,
-        // and the other two own the lines they touch
-        const claimed = new Set(renumbered);
-        const value = [
-          ...derive.recomputeValues(root, nodes, doc.getText().split(/\r?\n/), reg),
-          ...table.recomputeAll(doc.getText(), reg, rootName),
-        ].filter((e) => !overlaps(e));
-        for (const e of value) for (let l = e.line; l <= (e.to || e.line); l++) claimed.add(l);
+        // reconcile last and only where the renumber is not already
+        // rewriting: two passes over one document must not land two edits
+        // on one line
+        const claimed = new Set(renumber.map((e) => e.line));
         const free = (op) => {
           if (op.type === "insert") return !claimed.has(op.afterLine) && !claimed.has(op.afterLine + 1);
           if (op.type === "block") {
@@ -3619,8 +5014,7 @@ function activate(context) {
           return !claimed.has(op.line);
         };
         return [
-          ...[...value, ...renumber].map(
-            (e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e))),
+          ...renumber.map((e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e))),
           ...opsToTextEdits(doc, reconcileOpsFor(doc).filter(free)),
         ];
       }));
@@ -3628,6 +5022,12 @@ function activate(context) {
     // the CSV mirror: .aot saves write the CSVs, CSV edits fold back in;
     // a save also releases any live hold — saving says "I am done here"
     vscode.workspace.onDidSaveTextDocument((doc) => {
+      // a Python file saved here is the writer's own edit; and every Python
+      // value that names it may be stale now
+      if (/\.py$/i.test(doc.fileName || "")) {
+        pyDidSave(doc).then(() => relintAll(), () => relintAll());
+        return;
+      }
       releaseHold(doc);
       if (doc.languageId === "aot" && doc.fileName) {
         reindexAot(doc.fileName, doc.getText());
@@ -3656,6 +5056,20 @@ function activate(context) {
   parkWatcher.onDidCreate(onParkFsEvent);
   parkWatcher.onDidDelete(onParkFsEvent);
   context.subscriptions.push(parkWatcher);
+
+  // the repository's Python files: one changed on disk (a pull, another
+  // tool) makes stale every derivation that names it, and a new or deleted
+  // one changes what a module name reaches
+  const pyWatcher = vscode.workspace.createFileSystemWatcher("**/*.py");
+  const onPyFsEvent = (listChanged) => (uri) => {
+    fileHashCache.delete(uri.fsPath);
+    if (listChanged) forgetPyIndex();
+    relintAll();
+  };
+  pyWatcher.onDidChange(onPyFsEvent(false));
+  pyWatcher.onDidCreate(onPyFsEvent(true));
+  pyWatcher.onDidDelete(onPyFsEvent(true));
+  context.subscriptions.push(pyWatcher);
 
   // Those two globs reach inside the workspace folders and nowhere else, so
   // a repository opened by one of its subfolders — its 'aot.files' at the
@@ -3730,6 +5144,18 @@ function buildWorkspaceIndex() {
   }
 }
 
-function deactivate() {}
+// Every Python session ends with the extension.
+function deactivate() {
+  for (const key of [...pySessions.keys()]) pyStop(key, "the extension stopped");
+}
 
-module.exports = { activate, deactivate };
+// The tests run the editor's Python half against a fake runtime: a spawn
+// function of their own, and the live sessions to look at.
+const _test = {
+  setSpawn: (fn) => { pySpawn = fn || childProcess.spawn; },
+  sessions: pySessions,
+  runPython,
+  ranAt,
+};
+
+module.exports = { activate, deactivate, _test };

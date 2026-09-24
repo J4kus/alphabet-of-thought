@@ -49,9 +49,9 @@
     Dave        | |             |Yes
     
     tax rate: 0.2
-    vat:       1215.6 =sum(@Sales@month)*@tax rate
-    total:   53760 =sum(@Sales@amount)
-    rows:      #ERR =sales_frame()
+    vat:       1,215.6 =sum(@Sales@month)*@tax rate
+    total:   53,760 =sum(@Sales@amount)
+    rows:      #ERR =@Sales.
     revenue: #ERR =@rows.units.sum()*15
     chart: #ERR =plot(@rows)
     Sales|month  |units|amount

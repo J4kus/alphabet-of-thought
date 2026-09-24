@@ -42,6 +42,7 @@
 const { KIND } = require("./linter");
 const {
   cells, blockAt, isRowText, splitCell, splitConstraint, columnTerm, cleanName, numberless,
+  lineDerivation,
 } = require("./table");
 
 const fold = (name) => numberless(String(name || "").trim()).toLowerCase();
@@ -145,6 +146,36 @@ function nodeAt(nodes, rootName, address) {
     if (owner.examples.every((n, i) => fold(n) === fold(examples[i]))) return node;
   }
   return null;
+}
+
+// A Concept's own derivation is addressed by the Concept alone: `@Sales`.
+// One segment can never collide with a value's address, which always names
+// an attribute after its Concept.
+const conceptAddress = (node) => "@" + node.name;
+
+// Where a Concept's own derivation stands on its line, { col, end } from its
+// '=' to its end, or null. On a Concept line it runs to the line's end; once
+// its Python has written the table, the Concept is the table's first header
+// cell and the derivation rides there — `Quarter =quarters()|units|…` —
+// ending where that cell ends.
+function derivationSpan(text) {
+  if (isRow(text)) {
+    const first = cells(text)[0];
+    const d = first && lineDerivation(first.text);
+    return d ? { col: first.col + d.eq, end: first.col + first.text.length } : null;
+  }
+  const lead = text.length - text.trimStart().length;
+  const d = lineDerivation(text.trim());
+  return d ? { col: lead + d.eq, end: text.trimEnd().length } : null;
+}
+
+// The Concept a one-segment address names, or null — written on a line of
+// its own, or as the first header cell of its table.
+function conceptAt(nodes, address) {
+  const parts = String(address).split("@").slice(1).map((s) => s.trim());
+  if (parts.length !== 1 || !parts[0]) return null;
+  const want = fold(parts[0]);
+  return nodes.find((n) => n.kind === KIND.CONCEPT && fold(n.name) === want) || null;
 }
 
 // The attribute declaration an address names, or null — nodeAt's twin for a
@@ -281,6 +312,22 @@ function park(lines, nodes, rootName) {
     out[at] = text.slice(0, opCol).trimEnd();
   }
 
+  // a Concept's own derivation — the Python that writes its table — comes off
+  // the Concept, and the table it wrote stays: off its line, or off its
+  // table's first header cell. Last, because a header's constraints are found
+  // by where its cells stand, and taking the derivation out moves them. Its
+  // address is the Concept alone, one segment: `@Sales`.
+  for (const node of nodes) {
+    if (node.kind !== KIND.CONCEPT || node.formula === undefined) continue;
+    const at = node.line - 1;
+    const text = out[at];
+    if (text === undefined) continue;
+    const span = derivationSpan(text);
+    if (!span) continue;
+    found.push({ line: node.line, address: conceptAddress(node), formula: text.slice(span.col, span.end).trim() });
+    out[at] = text.slice(0, span.col).trimEnd() + text.slice(span.end);
+  }
+
   // the store reads like the file it came from
   found.sort((a, b) => a.line - b.line);
   return { lines: out, parked: found.map(({ address, formula }) => ({ address, formula })) };
@@ -300,6 +347,7 @@ function unpark(lines, nodes, rootName, parked) {
   // a header line may take several, a bare attribute line its one chain.
   const byLine = new Map();
   const declsByLine = new Map();
+  const conceptLines = new Map(); // a Concept's line -> its derivation
   for (const entry of parked || []) {
     if (isConstraintEntry(entry.formula)) {
       const decl = declAt(nodes, rootName, entry.address);
@@ -307,6 +355,13 @@ function unpark(lines, nodes, rootName, parked) {
       const list = declsByLine.get(decl.line) || [];
       list.push({ node: decl, formula: entry.formula, address: entry.address });
       declsByLine.set(decl.line, list);
+      continue;
+    }
+    // one segment: a Concept's own derivation, back on its line
+    if (String(entry.address).split("@").length === 2) {
+      const concept = conceptAt(nodes, entry.address);
+      if (!concept) { missing.push(entry.address); continue; }
+      conceptLines.set(concept.line, entry.formula);
       continue;
     }
     const cell = index.get(entry.address);
@@ -360,6 +415,21 @@ function unpark(lines, nodes, rootName, parked) {
     }
     out[at] = [text.trimEnd(), ...group.map((g) => g.formula)].join(" ");
   }
+  for (const [line, formula] of conceptLines) {
+    const at = line - 1;
+    const text = out[at];
+    if (text === undefined) continue;
+    // a Concept that already carries a derivation keeps it: nothing is doubled
+    if (derivationSpan(text)) continue;
+    if (isRow(text)) {
+      // back into the first header cell, after the Concept's name
+      const first = cells(text)[0];
+      const end = first.col + first.text.length;
+      out[at] = `${text.slice(0, end)} ${formula}${text.slice(end)}`;
+    } else {
+      out[at] = `${text.trimEnd()} ${formula}`;
+    }
+  }
   return { lines: out, missing };
 }
 
@@ -401,6 +471,28 @@ function lineSpan(text) {
   return start === -1 ? null : { start, end: start + span.value.length };
 }
 
+// The rows a Concept's derivation owns: every grid row filed under the
+// Concept, nested rows included, as { line, startCol, endCol } spans over
+// the row's written text. Shared by the parked marks and the editor's mark
+// on a table Python wrote while its derivation is still inline.
+function ownedRows(lines, concept) {
+  const out = [];
+  const walk = (node) => {
+    for (const c of node.children) {
+      if (c.kind !== KIND.INDIVIDUAL) continue;
+      const text = lines[c.line - 1];
+      if (text !== undefined && c.line !== concept.line && isRow(text)) {
+        const start = text.length - text.trimStart().length;
+        const end = text.trimEnd().length;
+        if (end > start) out.push({ line: c.line, startCol: start, endCol: end });
+      }
+      walk(c);
+    }
+  };
+  walk(concept);
+  return out;
+}
+
 // Where each parked derivation's value sits now: [{ line, startCol, endCol,
 // address, formula, constraint }], in document order. Columns are 0-based, as
 // the editor counts them; the line is 1-based, as the parse counts them. A
@@ -419,6 +511,16 @@ function parkedSpans(lines, nodes, rootName, parked) {
         line: decl.line, startCol: span.start, endCol: span.end,
         address: entry.address, formula: entry.formula, constraint: true,
       });
+      continue;
+    }
+    // a Concept's derivation wrote its whole table, so every row of it is
+    // marked: none of them is yours to type over
+    if (String(entry.address).split("@").length === 2) {
+      const concept = conceptAt(nodes, entry.address);
+      if (!concept) continue;
+      for (const r of ownedRows(lines, concept)) {
+        out.push({ ...r, address: entry.address, formula: entry.formula, concept: true });
+      }
       continue;
     }
     const cell = index.get(entry.address);
@@ -446,16 +548,25 @@ function parkedSpans(lines, nodes, rootName, parked) {
 // plain values — which is precisely what it is, and what makes parking safe.
 // Whoever finds this file needs to be told where it belongs.
 
+// The notice says one more thing since a derivation may be Python: this is
+// not only arithmetic. A line here can be code the editor runs, so a change
+// to this file deserves the review a change to code gets.
 const NOTICE = [
   "// Derivations and constraints parked out of the data by AOT (Ctrl+Shift+`).",
+  "// A derivation may be PYTHON — code the editor runs when asked (Ctrl+Enter,",
+  "// or the key that parks) — so review changes to this file as you would code.",
   "// The values the derivations computed are already written in the .aot;",
   "// the constraints are still checked from here by the editor and verify.js.",
   "// Toggle again in the editor to put them back. Commit this beside the .aot.",
   "",
 ];
 
-const serialise = (parked) =>
-  NOTICE.concat((parked || []).map((p) => `${p.address}: ${p.formula}`)).join("\n") + "\n";
+// `notes` are further `//` lines written under the notice — what a Python
+// derivation's values were computed with, so their provenance travels with
+// them. parse() skips every `//` line, so a note never becomes an entry.
+const serialise = (parked, notes) =>
+  NOTICE.concat((notes || []).map((n) => `// ${n}`), (notes || []).length ? [""] : [],
+    (parked || []).map((p) => `${p.address}: ${p.formula}`)).join("\n") + "\n";
 
 function parse(text) {
   const out = [];
@@ -474,7 +585,7 @@ function parse(text) {
 // The constraints the store holds, handed back to the declarations they
 // were taken from: a Map of attribute node -> [{ op, formula }], the shape
 // the linter gives a written chain — what still bounds a value while its
-// constraint is parked (derive.auditValues). An entry that names nothing
+// constraint is parked (python.constraintChecks). An entry that names nothing
 // any more bounds nothing: unpark reports it, and this stays silent, as the
 // marks do.
 function parkedConstraints(nodes, rootName, parked) {
@@ -492,5 +603,5 @@ function parkedConstraints(nodes, rootName, parked) {
 
 module.exports = {
   park, unpark, parkedSpans, parkedConstraints, addressOf, nodeAt, declAt, isConstraintEntry,
-  serialise, parse, NOTICE,
+  serialise, parse, NOTICE, conceptAddress, conceptAt, ownedRows, cellIndex,
 };

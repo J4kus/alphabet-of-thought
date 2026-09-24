@@ -557,7 +557,12 @@ function toNeighbour(g, dRow, dCol, cut) {
 // fill down copies the first one's values into the rest — the values the
 // selection covers, or all of the first one's when it covers only names;
 // fill right copies, in each selected Example, the first selected value
-// into the others. A name is never a source.
+// into the others. A name is never a source, and a derivation arrives
+// alone: the value in front of it was computed where it stood.
+const carried = (text) => {
+  const { eq } = splitCell(text || "");
+  return eq === -1 ? text || "" : text.slice(eq).trim();
+};
 function fill(g, span, axis) {
   const edits = [];
   if (!span || span.anchor.line === span.active.line) {
@@ -565,10 +570,10 @@ function fill(g, span, axis) {
       if (g.col < 1) return null;
       const ri = g.rows.indexOf(g.row);
       if (ri < 1) return null;
-      return { edits, cursor: setCell(g, g.row, g.col, cellText(g, g.rows[ri - 1], g.col), edits, "cursor") };
+      return { edits, cursor: setCell(g, g.row, g.col, carried(cellText(g, g.rows[ri - 1], g.col)), edits, "cursor") };
     }
     if (g.col < 2) return null;
-    return { edits, cursor: setCell(g, g.row, g.col, cellText(g, g.row, g.col - 1), edits, "cursor") };
+    return { edits, cursor: setCell(g, g.row, g.col, carried(cellText(g, g.row, g.col - 1)), edits, "cursor") };
   }
   const from = Math.min(span.anchor.line, span.active.line);
   const to = Math.max(span.anchor.line, span.active.line);
@@ -581,12 +586,12 @@ function fill(g, span, axis) {
     if (!cols.length) cols = valuesOf(source, g.lines).map((v) => colOf(g, v));
     if (!cols.length) return null;
     cols.sort((a, b) => a - b);
-    for (const t of targets) for (const c of cols) setCell(g, t, c, cellText(g, source, c), edits);
+    for (const t of targets) for (const c of cols) setCell(g, t, c, carried(cellText(g, source, c)), edits);
   } else {
     for (const r of picked) {
       const cols = valuesOf(r, g.lines).filter(within).map((v) => colOf(g, v)).sort((a, b) => a - b);
       if (cols.length < 2) continue;
-      for (const c of cols.slice(1)) setCell(g, r, c, cellText(g, r, cols[0]), edits);
+      for (const c of cols.slice(1)) setCell(g, r, c, carried(cellText(g, r, cols[0])), edits);
     }
   }
   if (!edits.length) return null;
@@ -611,29 +616,15 @@ function fromAbove(g, part) {
   return { edits, cursor: setCell(g, g.row, g.col, written, edits, "cursor") };
 }
 
-// Alt+=: AutoSum — the value becomes the sum of its attribute over the
-// Example's siblings, which is the range a line-form aggregate reads.
-function autoSum(g) {
-  if (g.col < 1) return null;
-  const label = g.columns[g.col - 1].label;
-  const name = label.endsWith(")") && label.includes("(") ? label.slice(0, label.lastIndexOf("(")).trim() : label;
-  const edits = [];
-  return { edits, cursor: setCell(g, g.row, g.col, `=sum(@${name})`, edits, "cursor") };
-}
-
 // The cell's derivation onto every other attribute of the same Example,
-// each keeping its own value.
+// each without a value until the next run.
 function copyFormulaAcross(g) {
   if (g.col < 1) return null;
   const text = cellText(g, g.row, g.col);
-  const split = splitCell(text);
-  if (split.eq === -1) return null;
-  const formula = text.slice(split.eq).trim();
+  if (splitCell(text).eq === -1) return null;
   const edits = [];
   for (let k = 1; k <= g.columns.length; k++) {
-    if (k === g.col) continue;
-    const value = splitCell(cellText(g, g.row, k)).value;
-    setCell(g, g.row, k, (value ? value + " " : "") + formula, edits);
+    if (k !== g.col) setCell(g, g.row, k, carried(text), edits);
   }
   return edits.length ? { edits, cursor: { line: g.at } } : null;
 }
@@ -746,7 +737,6 @@ const ops = {
   fillRight: (g, span) => fill(g, span, "right"),
   copyFormulaFromAbove: (g) => fromAbove(g, "formula"),
   copyValueFromAbove: (g) => fromAbove(g, "value"),
-  autoSum: (g) => autoSum(g),
 };
 
 module.exports = {

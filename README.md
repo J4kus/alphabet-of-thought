@@ -8,7 +8,7 @@ If your thoughts need to be bigger than one brain can hold at a time — or you 
 
 ![A Sales.aot file in VS Code: syntax colouring, a red squiggle on an "and" Concept, a yellow squiggle on a target-less measurement, a dotted crosslink under an Example reference, and the violation total V in the status bar](docs/edit-loop.png)
 
-**Contents:** [Why Alpha](#why-alpha) · [Alpha in sixty seconds](#alpha-in-sixty-seconds) · [Quick start](#quick-start) · [Case study](#case-study-a-quarterly-business-review) · [Language reference](#language-reference) · [Incompleteness is a feature](#incompleteness-is-a-feature) · [Numbering](#numbering) · [The four primitives](#the-four-primitives) · [Starting a model](#starting-a-model) · [Tables](#tables) · [Formulas](#formulas) · [Parking the derivations](#parking-the-derivations) · [Verification: the tooling](#verification-the-tooling) · [Style rules](#style-rules) · [Design principles](#design-principles) · [Using Alpha with an LLM](#using-alpha-with-an-llm) · [Alpha in a team](#alpha-in-a-team) · [Repository layout](#repository-layout)
+**Contents:** [Why Alpha](#why-alpha) · [Alpha in sixty seconds](#alpha-in-sixty-seconds) · [Quick start](#quick-start) · [Case study](#case-study-a-quarterly-business-review) · [Language reference](#language-reference) · [Incompleteness is a feature](#incompleteness-is-a-feature) · [Numbering](#numbering) · [The four primitives](#the-four-primitives) · [Starting a model](#starting-a-model) · [Tables](#tables) · [Python](#python) · [Parking the derivations](#parking-the-derivations) · [Verification: the tooling](#verification-the-tooling) · [Style rules](#style-rules) · [Design principles](#design-principles) · [Using Alpha with an LLM](#using-alpha-with-an-llm) · [Alpha in a team](#alpha-in-a-team) · [Repository layout](#repository-layout)
 
 ## Why Alpha
 
@@ -308,7 +308,7 @@ The practical consequence is the working style Alpha is built for: **write the p
 
 Lists and taxonomies often want visible order, so Alpha maintains it for you — on **save** and on **Format Document**, never mid-keystroke:
 
-- **Examples.** Give any Example an `N. ` prefix (`- 1. Mix`) and all of that Concept's Examples number sequentially in listed order — unnumbered names gain a number, stale numbers correct — and every same-file reference to a renamed Example (crosslink values, table name cells, formula references) follows, exactly as F2 would rename it. A list with no numbered Example is never touched.
+- **Examples.** Give any Example an `N. ` prefix (`- 1. Mix`) and all of that Concept's Examples number sequentially in listed order — unnumbered names gain a number, stale numbers correct — and every same-file reference to a renamed Example (crosslink values, table name cells, the `@` references in derivations) follows, exactly as F2 would rename it. A list with no numbered Example is never touched.
 - **Concepts.** Type `1. ` on any Concept and every Concept in its scope numbers in document order — top Concepts `1. `, `2. `, sub-Concepts dotted down the is-a chain (`1.1`, `1.1.1`). The scope is the whole file normally; a Concept filed under an Example or attribute numbers only that parent's Concepts. A fully numbered scope keeps its numbers true to position, so moving a Concept and saving corrects them.
 - **The way out is one deletion.** Delete any one Concept's number and the whole scope's numbering comes off on the next save, parents included. (A new unnumbered Concept in a numbered scope reads the same as a deletion and switches numbering off; retype `1. ` on the top Concept to bring it back.)
 - **Numbers are presentation, never identity.** Name resolution strips the prefix everywhere, so an attribute `trip` still types by the Concept `1. Trip`, `@Trip@column` still resolves, and `2. Animal` beside `Animal` is still a univocity error. Numbering — or un-numbering — a tree breaks no reference and rewrites none. A number without its dot is never a prefix: `- 35` and `3 Body Problem` keep their names whole.
@@ -464,7 +464,7 @@ Kite March Order|Japan  |JPY     |$780
 ```
 
 - The header row's **first cell names the Concept** — capitalised, like any Concept — and the cells after it declare the columns as **attributes** of that Concept, exactly as bare lowercase lines would. So a capitalised column, or a lowercase first cell, is an error. *(Before 1.9 the table was indented beneath a separate `Concept` line and its first cell was a `name` label; that label is gone — write the Concept's name in its place.)*
-- **A Concept can still carry line-form facts beside its grid.** Give the Concept its own line and repeat its name in the first header cell: the table then *fills that Concept in* rather than declaring a twin, so its default values, its `- ` Examples, and the grid's rows all belong to the one Concept — and a cell formula reads the line-form defaults by name (`=@price*@tax rate`):
+- **A Concept can still carry line-form facts beside its grid.** Give the Concept its own line and repeat its name in the first header cell: the table then *fills that Concept in* rather than declaring a twin, so its default values, its `- ` Examples, and the grid's rows all belong to the one Concept — and a cell's derivation reads the line-form defaults by name (`=@price*@tax rate`):
 
   ```aot
   Order
@@ -523,13 +523,12 @@ The keys a spreadsheet hand reaches for without looking work here too, inside a 
 | `Ctrl+A` | Select the table; pressed again, the whole file |
 | `Ctrl+D` | **Fill down**: the cell above into the cursor's cell — or, with rows selected, the first selected row into the rest, across every selected column |
 | `Ctrl+R` | **Fill right**: the cell to the left into the cursor's cell — or, with cells selected, the first selected column into the rest of each row |
-| `Ctrl+'` | Copy the **formula** from the cell above; the recompute writes its value |
-| `Ctrl+Shift+'` | Copy the **value** from the cell above, its formula left behind |
-| `Alt+=` | **AutoSum**: the cell becomes `=sum(@column)`, the total of its column's other rows |
+| `Ctrl+'` | Copy the **derivation** from the cell above, without a value until `Ctrl+Enter` runs it |
+| `Ctrl+Shift+'` | Copy the **value** from the cell above, its derivation left behind |
 | `Ctrl+;` / `Ctrl+Shift+;` | Today's date (`YYYY-MM-DD`, the form a date constraint reads) / the time now — anywhere in a `.aot`, not only in tables |
-| `F9` | Recompute every formula in the file — anywhere in a `.aot` |
+| `F9` | Run every stale [Python](#python) derivation and check every constraint — anywhere in a `.aot` |
 
-Fills and copies move a cell's text exactly as written, formula and all, and never take the header or the name column as their source — an attribute's name or an Example's is no value a cell means to hold. Inside a table row — and on an Example's line or value in free text, [below](#the-table-editor) — `Ctrl+←`/`Ctrl+→` no longer steps a word at a time (it jumps cells instead), `Ctrl+D` no longer adds the next match to the selection, `Ctrl+R` no longer opens a recent folder, and `Alt+↑`/`↓` and `Ctrl+Alt+↑`/`↓` move and copy rows instead of lines and cursors; anywhere else every one of them is VS Code's own again. Deliberately left out: `Ctrl+Space` / `Shift+Space` (they would cost the suggestion list and a Shift-held space), `Ctrl+PgUp` / `Ctrl+PgDn` (editor tabs), and `Ctrl+-` / `Ctrl++` (zoom — `Alt+Shift+`arrows already insert and delete).
+Fills move a cell's text as written — a derivation arrives alone, its value left for the next run to compute in the new place — and never take the header or the name column as their source — an attribute's name or an Example's is no value a cell means to hold. Inside a table row — and on an Example's line or value in free text, [below](#the-table-editor) — `Ctrl+←`/`Ctrl+→` no longer steps a word at a time (it jumps cells instead), `Ctrl+D` no longer adds the next match to the selection, `Ctrl+R` no longer opens a recent folder, and `Alt+↑`/`↓` and `Ctrl+Alt+↑`/`↓` move and copy rows instead of lines and cursors; anywhere else every one of them is VS Code's own again. Deliberately left out: `Ctrl+Space` / `Shift+Space` (they would cost the suggestion list and a Shift-held space), `Ctrl+PgUp` / `Ctrl+PgDn` (editor tabs), and `Ctrl+-` / `Ctrl++` (zoom — `Alt+Shift+`arrows already insert and delete).
 
 **The same keys work in free text.** A table is [pure shorthand](#tables-are-pure-shorthand) for the `- Example` lines it parses to, so a Concept written as lines is a grid too: each **Example is a row** (its `- Name` line and the lines under it, sub-Examples after their parent), each **attribute a column** (in the order the Examples write them), and a **cell is an Example's `attribute: value` line** — a cell nobody wrote is a line nobody wrote. With the cursor on an Example's line or one of its values, every table key above but `Enter` works on that grid:
 
@@ -546,7 +545,7 @@ Person
 - **`Tab` / `Shift+Tab`** walk the Examples' names and values in order, and past the last one grow a new `- ` Example. On a bare attribute line (`age`), the Concept's own line, or an empty line, `Tab` indents exactly as it always has.
 - **Rows:** `Alt+↑`/`↓` moves an Example over its neighbour (sub-Examples travel with it, a blank line between them stays between them), `Ctrl+Alt+↑`/`↓` copies one, `Alt+Shift+↓` inserts an empty `- ` above, `Alt+Shift+↑` deletes one with its sub-Examples.
 - **Columns:** `Alt+←`/`→` swaps the attribute's lines with its neighbour's in every Example that states both, `Alt+Shift+←` deletes the attribute everywhere (declaration included), `Alt+Shift+→` opens an empty declaration line for a new one, `Ctrl+Alt+←`/`→` duplicates it.
-- **Cells and the spreadsheet keys** behave as in a table: a value filled or copied into an Example that lacks the attribute gets a new line, placed in column order under the name; a value emptied loses its line, since an empty cell asserts nothing. `Alt+=` writes `=sum(@attribute)`, which sums the Example's siblings — the range a line-form aggregate reads — and every formula a key writes is computed at once.
+- **Cells and the spreadsheet keys** behave as in a table: a value filled or copied into an Example that lacks the attribute gets a new line, placed in column order under the name; a value emptied loses its line, since an empty cell asserts nothing. A derivation a key copies arrives alone and computes on the next `Ctrl+Enter`.
 
 Every operation edits the lines it is about and nothing else — no line is reordered, re-indented, declared or re-spelled that the key did not ask for (flipping the Concept to a table and back would do all four). Where the text looks like an Example's line but the parse says otherwise (an attribute's allowed values, `- draft` under `status`), the key does what VS Code does with it.
 
@@ -554,15 +553,15 @@ Every operation edits the lines it is about and nothing else — no line is reor
 
 **`Tab` never moves the data.** Inside a table it travels the cells and nothing else — pressed in the leading spaces, at the head of a name cell, or anywhere past it. It briefly re-indented in those first two places instead (nesting the cursor's row, or shifting the whole table a level), which put an edit on the one key a table is driven with: you pressed `Tab` for the next cell and an Example changed its place in the tree — and where the move was impossible, a first row having no sibling to nest under, the key did nothing at all. Indenting is what a *selection* does, and the cursor's row can be nested or lifted by name from the Command Palette (**AOT Table: Nest Row Under the Row Above** / **Lift Row Out of Its Parent Row**), sub-Examples travelling with it.
 
-**Every column is drawn left.** Column alignment went with the rule that carried it (before 1.12 a column could declare `:---`, `---:` or `:--:` in the separator): a value is padded on its right to its column's width and nothing else, so the one thing a reader has to know about a cell is its text. Alignment was always presentation — every reader of a table trims its cells — so no crosslink, formula, CSV row or Gödel number ever saw it, and nothing that was written down is lost with it.
+**Every column is drawn left.** Column alignment went with the rule that carried it (before 1.12 a column could declare `:---`, `---:` or `:--:` in the separator): a value is padded on its right to its column's width and nothing else, so the one thing a reader has to know about a cell is its text. Alignment was always presentation — every reader of a table trims its cells — so no crosslink, derivation, CSV row or Gödel number ever saw it, and nothing that was written down is lost with it.
 
 **Every key that moves a row moves the branch under it.** A parent that left its children behind would re-file them under whatever row it landed beside, which is nobody's intent — so `Alt+↑` / `Alt+↓` hop the whole *next branch* rather than the next line, `Alt+Shift+↑` deletes a row with its sub-Examples (one `Ctrl+Z` brings the branch back), `Alt+Shift+↓` inserts a row into the generation it is typed into, and **Sort Rows** orders each generation against its own siblings, every branch travelling whole. A flat table has one generation, and every one of these behaves exactly as it always did.
 
-**Copy, cut, and move are three different keys.** `Alt+`arrow **moves** a row or column, `Ctrl+Alt+`arrow **copies** it, and `Ctrl+Alt+Shift+`arrow copies the **cell** — text and formula exactly as written, unlike the formula copies below, which move only the derivation and leave each cell's own value. Cutting a *cell* into its neighbour (the value typed into the wrong column) is four more Command Palette entries, **AOT Table: Cut Cell Up / Down / Left / Right**, unbound by default. Nothing here is clever about what it copies: a duplicated row or column will report as a repeated Example name or a repeated attribute until you rename it, and that rename is usually the point of the copy.
+**Copy, cut, and move are three different keys.** `Alt+`arrow **moves** a row or column, `Ctrl+Alt+`arrow **copies** it, and `Ctrl+Alt+Shift+`arrow copies the **cell** — text and derivation exactly as written, unlike the derivation copies and fills, which carry the derivation alone. Cutting a *cell* into its neighbour (the value typed into the wrong column) is four more Command Palette entries, **AOT Table: Cut Cell Up / Down / Left / Right**, unbound by default. Nothing here is clever about what it copies: a duplicated row or column will report as a repeated Example name or a repeated attribute until you rename it, and that rename is usually the point of the copy.
 
 Copying a cell **down past the last row appends one**, so a column fills into a table that is still growing. Sideways never grows the table — a new column needs an attribute name of its own.
 
-Three more commands live in the Command Palette under **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — sorts the data rows around the cursor, the header safe where it stands; numeric when every key reads as a number, with `$`, `%`, and thousands commas ignored, alphabetic otherwise), *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV, or multi-space-aligned lines and they become an aligned table, the first line the header: its **first cell is kept as written** — that names the Concept — and the rest are lowercased into attribute columns), and *Copy Formula Down the Column* (see [Formulas](#formulas); also offered by the lightbulb on any formula cell).
+Three more commands live in the Command Palette under **AOT Table**: *Sort Rows by Column at Cursor* (org's `C-c ^` — sorts the data rows around the cursor, the header safe where it stands; numeric when every key reads as a number, with `$`, `%`, and thousands commas ignored, alphabetic otherwise), *Create Table from Selected Lines* (org's `C-c |` — select CSV, TSV, or multi-space-aligned lines and they become an aligned table, the first line the header: its **first cell is kept as written** — that names the Concept — and the rest are lowercased into attribute columns), and *Copy Formula Down the Column* (see [Running](#running); also offered by the lightbulb on any derivation in a cell).
 
 **Creating a table takes one keystroke**: type `|` on an empty line and a skeleton grows in place — a header and an empty data row — and one `Ctrl+Z` undoes the whole thing. Typed under an existing Concept line, the first header cell is **filled with that Concept's name** and the cursor waits in the data row; typed at the top level, the first cell is left empty for you to name the Concept, and the cursor waits there:
 
@@ -581,76 +580,78 @@ A text editor cannot freeze a column the way a spreadsheet does: there is one sc
 
 **Across the table, the status bar says where you are.** Nothing can pin the name column, so the right-hand end of the status bar names the cell instead — `Person ▸ Socrates ▸ occupation`: the Concept, the Example the row names, and the attribute the column declares. It reads the same however far right you have scrolled, and it tells you the *column* too, which a frozen name column never would.
 
-### Formulas
+### Python
 
-A cell may derive its value — org's spreadsheet folded into the cell itself, value first, formula visible after it. (When you have finished writing them and want the data back, `Ctrl+Shift+`` [parks every derivation](#parking-the-derivations) out of the grid and the same key puts them back.)
-
-```aot
-Order           |country|currency|basket size
-Acme March Order|France |EUR     |$1,200
-Bolt March Order|Germany|EUR     |$3,100
-Kite March Order|Japan  |JPY     |$780
-Total           |       |        |$5,080 =sum(@basket size)
-```
-
-**References** work like a spreadsheet's, by **name** — in tables and free text alike:
-
-| Reference | Meaning |
-|-----------|---------|
-| `@price`, `@basket size` | The same row's column by **name** — longest case-insensitive match, spaces allowed, a header's `(alias)` matches too |
-| `@price@Acme` / `@Acme@price` | The named Example's cell in a column — a column paired with an Example, **in either order**. A name that is both a column and an Example resolves as the longer match (a tie goes to the column). |
-| `@Order@price@Acme` / `@Order@Acme@price` | A **cross-Concept** cell: another Concept's cell, the Concept named **first** (its table's own first header cell, or — for a merge-form or line-form Concept — the line it sits under), then a column and Example in either order. It may live in any `.aot` in the workspace — the current file's own win a shared name. `sum(@Order@price)` (and `avg`/`min`/`max`/`count`, and the lookups below) range over a foreign column. The **local** reading is always tried first, so no formula that resolved before changes meaning; the foreign Concept gets its turn when the local reading names nothing, **or when it cannot be completed** — so an owner with its own `person` attribute no longer swallows the lead of `@Person@alias@Socrates`. |
-| `@Measurement@alias` | A Concept's **own** value — the default it states on its own line, the same one its Examples inherit — whether its Examples are written as `- ` lines or as a table's rows: since 1.6 the two forms share one scope, so a table-formed Concept answers the free-text default it states above (or beside) its grid. When the Concept states no value for that attribute, the error says so and points at its Examples. |
-| `@Integer@35@is prime` | The same, on a Concept written in **line form** rather than as a table: its `- Example` children are the rows and the attribute names beneath it are the columns, so a Concept is referenced the same way whichever form it is written in. An Example silent on an attribute answers the Concept's own default (inheritance, as ever). A number after `@` names an **Example** (`- 35`), never a column position. |
-
-References changed from `$` to `@` in 1.3; a `$` in a formula is now an error. Positional `@N` column numbers were **removed in 1.6** — reference every column by its attribute name; a digits lead still names an Example, in tables and free text alike.
-
-**Functions and operators** — the full grammar:
-
-| Kind | What is allowed |
-|------|-----------------|
-| Arithmetic | `+ - * / ^ ( )`, unary `-`, plain numbers — `^` is power, binding tighter than `*` and associating right (`2^3^2` is `512`; `-2^2` is `4`, the unary minus binding tightest) |
-| Aggregates | `sum(@c)` `avg(@c)` `min(@c)` `max(@c)` over the column's *other* data rows; `count(@c)` tallies its non-empty cells |
-| Lookups | `xlookup(v, @key, @answer)` finds a row by one column and answers from another; `sumifs(@add, @c, crit, …)` and `countifs(@c, crit, …)` add up or tally the rows meeting every test. These range over **all** the rows, this one included — see [Lookups and conditional totals](#lookups-and-conditional-totals) |
-| Numeric | `round(x)` `round(x,n)` `abs(x)` `ln(x)` (natural log, of a positive number) `value(x)` (read text as its number) |
-| Strings | `` `literals in backticks` ``, `&` concatenates — see [Working with text](#working-with-text) for the full set |
-| Comparisons | `== <= >= < >` yield `1` or `0`; `if(cond, then, else)` is lazy — only the taken branch is evaluated, so `if(count(@price)>0, avg(@price), 0)` works over an empty column |
-| Logic | `and(a,b,…)` `or(a,b,…)` `not(a)` `xor(a,b,…)`. A value is **true** when it is a non-zero number, or `yes`/`true`, or any other non-empty text; **false** when it is `0`, or `no`/`false`, or empty. `or()` also lists the allowed values of a constraint — see below |
-
-**Coercion is crisp**: a referenced cell is text at rest. Arithmetic and the numeric functions coerce their operands to numbers — `$` signs, thousands commas, and `%` are ignored, so a money column reads as its number, and a genuinely non-numeric operand is an error. `&` coerces to text. A comparison is numeric when **both** sides read as numbers, chronological when both read as **dates** (ISO `YYYY-MM-DD`), else an exact, case-sensitive text comparison. Equality *inside* a formula is `==`; a single `=` is the cell operator alone. Typing `@` inside a formula pops a completion of the columns (first), then the Examples, then the repo's **tables** last (by the name each sits under); pick a table and the suggestions reopen on its own columns.
-
-#### Lookups and conditional totals
-
-Three functions answer the questions a spreadsheet is usually opened for — *what does this key map to*, and *how much of this meets that test* — spelled as Excel spells them:
-
-| Function | Answers |
-|----------|---------|
-| `xlookup(v, @key, @answer)` | The `@answer` cell of the **first** row whose `@key` cell is `v`. A fourth argument says what to answer when nothing matches; without one, a miss is an error (the cell shows `#ERR`), because a lookup that found nothing has no value to stand in for |
-| `sumifs(@add, @c, crit, …)` | The total of `@add` over the rows where **every** column-and-criterion pair holds |
-| `countifs(@c, crit, …)` | How many rows meet every pair. Nothing matching is `0`, never an error |
+A value may be **derived** rather than typed, and what derives it is **Python**, written behind `=` after the value it computes. What Python produces lands in the file as ordinary text: a value in front of its derivation, a table where a Concept stood, or a picture or long text in `aot.files` with its path as the value. An attribute's **constraint** is Python too, so a bound can say anything Python can. When you have finished writing derivations and want the data back, `Ctrl+Shift+`` [parks every derivation](#parking-the-derivations) out of the file, and the same key puts them back.
 
 ```aot
-Rate
-    Rate|code|pct
-    eu  |FR  |20
-    de  |DE  |19
-
-Order
-    Order|country|price|status|vat rate                                  |country total
-    Acme |FR     |100  |paid  |20 =xlookup(@country,@Rate@code,@Rate@pct)|150 =sumifs(@price,@country,@country)
-    Bolt |DE     |200  |draft |19 =xlookup(@country,@Rate@code,@Rate@pct)|200 =sumifs(@price,@country,@country)
-    Kite |FR     |50   |paid  |20 =xlookup(@country,@Rate@code,@Rate@pct)|150 =sumifs(@price,@country,@country)
+Sales Report
+    tax rate: 0.2
+    raw: <DataFrame 1,204 rows × 4 cols> =load()
+    revenue: 53,760 =@Sales.amount.sum()
+    vat: 10,752 =@revenue*@tax rate
+    best: Q2 =@Sales.amount.idxmax()
+    chart: aot.files/Sales Report.chart.png =plot(@Sales)
+    Sales =by_month(@raw)|month  |amount
+    P1                   |2026-01|15,000
+    Q1                   |2026-01|18,060
+    Q2                   |2026-04|20,700
 ```
 
-Because a column can be named on another Concept (`@Rate@code`), `xlookup` is how one Concept reads a value **keyed** by another — a foreign key, written as a formula. The columns of one call must line up row for row, and they always do when they belong to the one Concept; columns of different lengths are an error rather than a silent mismatch.
+Before its first run, the last Concept was the line `Sales =by_month(@raw)`. The run made that line the header of the table its Python returned.
 
-**A criterion is a value or a comparison.** A plain value matches by equality — `` sumifs(@price, @status, `paid`) `` — and a string opening with a comparison operator compares: `` `>=10` ``, `` `<2026-01-01` ``, `` `<>paid` `` (`!=` says the same). The comparison is the language's own, so dates compare chronologically and numbers numerically. An `or()` list matches **any** of its alternatives — `` countifs(@status, or(`sent`, `paid`)) `` — which is the same `or()` a constraint lists allowed values with, read here as the same set. A criterion may be computed rather than written: `sumifs(@price, @country, @country)` totals *this row's* country, whatever it is, so the one formula copies down the column.
+**Every derivation runs only when asked** (`Ctrl+Enter`), and Python is **off by default** (see [Trust](#trust) below).
 
-**These three range over the whole column, the row they stand in included** — where `sum` and its kin deliberately range over the **other** rows, so a total may sit in a row of its own. The readings differ because the questions do: a grand total in a `Total` row must not count itself, while a conditional total is a fact about the data and would be wrong to leave its own row out. In free text the same holds Example for Example: a `group:` under `- A` counts `A` itself.
+*The spreadsheet formula language is gone.* It covered `sum()`, `xlookup()`, backtick text and `or()`, and recomputed on every keystroke. Python says everything it said, and one language behind one `=` is the simpler rule. A formula left in a file stays as text until it runs, and then Python says on its line what it makes of it. Backtick text does not parse, and `sum(@price)` is Python's `sum` over one value, which fails. Rewrite such a formula as Python: `"text"` for `` `text` ``, `@Order@price.sum()` for a column's total, `("draft", "sent")` for `or(`draft`, `sent`)`.
 
-**Constraints live on the attribute; formulas live on the value.** After a value, `=formula` derives it (auto-fills and rewrites). A **constraint** is schema, so it is declared once, on the attribute — a bare line (`age >=18`) or a table header cell (`name|qty >=1`) — and **every value the attribute takes is validated against it**: the Concept's Examples, its table's cells, and everything deeper in the subtree (a nearer declaration shadows an outer one). **Several bounds chain on the one declaration** — `age >=18 <=65` holds the attribute both ways, in bare lines and header cells alike, each bound checked and reported on its own. A breach is a **warning** on the offending value — never counted in `V` — naming the bound and its declaring line. The bound's references resolve *per value* against its own Example or row — `price|margin >=@price*0.1` holds each row's margin to that row's price. An empty value asserts nothing, so it is never checked; values themselves never carry `>= <= < > ==` (`age: 25 >=18` is just the value `25 >=18`). Prose terms are safe: `speed > none noted` stays a plain name, because a constraint is only believed when its right side actually reads as a formula.
+#### Where it goes
 
-**`==` defines rather than bounds.** A `>=` says a value must be *at least* something; a `==` against a determinate expression says what the value **is** — so it is the derivation for every value of that attribute, written once where the attribute is declared. There is no reason to repeat a formula in each cell:
+- **On a value**, as in `total: =load()`, or **in a grid cell**, as in `|=math.prod([@width, @height])`, it computes the value in front of it.
+- **On a Concept line**, as in `Sales =by_month(@raw)`, it writes the Concept's **table**. The derivation can return a DataFrame, a list of dicts, or `aot.grid(header, rows)`. **The table is the Concept.** The run turns the Concept's line into the table's header, with the Concept and its derivation in the first cell (`Sales =by_month(@raw)|month|amount`). The rows stand at the Concept's own indent. The table names its Concept in its first cell; it never sits beneath the Concept repeating its name.
+  - **Python owns the rows outright.** Each run replaces them, including a row typed into the table, and removes the Concept's `- ` Examples too.
+  - **The rows are the Concept's Examples, numbered `1`, `2`, `3` …** Every column of the frame is a column of the table, and an index that means something (a groupby's months) becomes the first column.
+  - **A column named after the Concept names the Examples instead.** For example, a `quarter` column under `Quarter` supplies the Example names, and it is not written as a column. This does not happen when two rows would share a name or one would have none; then the rows are numbered and the column stays. `aot.grid(header, rows)` names the rows directly.
+  - **Columns are written the language's way:** lowercased, with `_` as a space, since a capitalised column is an error.
+  - **The name column is as wide as the derivation** until it is [parked](#parking-the-derivations).
+  - **Pipes in the derivation:** a `|` inside the derivation's brackets or strings belongs to the Python. One outside every bracket divides the header, so wrap it, as in `Flags =(a() | b())`.
+  - **A Concept that states attributes of its own keeps its line**, with the table beneath it, because a table has no line for them. A table written beneath its Concept by an earlier version becomes the header on its next run.
+- **One line, one expression.** Statements, loops and `def`s live in a Python file. That can be **`aot.files/<file>.py`**, the file's *sidecar*, whose public names are in every derivation's scope, or [any other Python file of the repository](#the-repositorys-python). It is ordinary Python, with ordinary tooling.
+- **Not** on a bare attribute: `rows =f()` is an error, so add the colon. Not in a `...` Map either.
+- **A value may hold a literal `=`** by escaping it: `note: a \= b` is the value `a = b`, not a derivation of `a`. The value is `a = b` everywhere it is read, while the line keeps its `\=` through every rewrite. Only an `=` that opens a derivation needs escaping. One inside a value's text (`a=b`, no space before it) was never a derivation.
+
+#### `@` references
+
+`@` names things **by name**, as a spreadsheet's references do. It is resolved **before Python sees the source**, and each reference arrives as a typed Python value:
+
+| Reference | Names | Arrives as |
+|-----------|-------|-----------|
+| `@price`, `@basket size` | The same Example's (or row's) attribute. This is the longest case-insensitive match, spaces allowed, an `(alias)` too. On an Example, a value its Concept states is read when the Example states none | The value, typed **strictly**: `$1,204` is `1204`, `2026-09-22` a `date`, `Yes`/`No` a `bool`, empty `None`. `2026-01` is not a whole number, so it stays text |
+| `@price@Acme` / `@Acme@price` | The named sibling Example's value, in either order | The value |
+| `@Order@price@Acme` | Another Concept's cell: the Concept first, then a column and an Example in either order. It may live in any `.aot` in the workspace; the current file's own names win a shared name | The value |
+| `@Measurement@alias` | A Concept's **own** value, the default its Examples inherit | The value |
+| `@Order` | A Concept, with its Examples written as rows or as `- ` lines | A **DataFrame** (a list of dicts without pandas); a column of dates is a datetime column |
+| `@Order@price` | A Concept's column | A **Series** |
+| `@Acme` | A sibling Example | A `dict` of its values |
+| `@raw`, `@Sales` | Another derivation | Its **live result**: the DataFrame itself, not its summary. It runs first when it is stale |
+
+- **The local reading is tried first.** A Concept's name gets its turn when the local reading names nothing, or when the Concept reading goes further. In `@Integer@is prime`, `integer` may also be a local alias, but only the Concept Integer has an `is prime`.
+- **A number after `@` names an Example** (`- 35`), never a column position.
+- **An `@` inside a string or a comment is text.** An `@` straight after an operand is Python's matrix operator.
+- **Typing `@` pops a completion** of the columns, then the Examples, then the repository's Concepts. F2 renames through every reference.
+
+#### Constraints
+
+**Constraints live on the attribute; derivations live on the value.** A constraint is schema, so it is declared once, on the attribute: a bare line (`age >=18`) or a table header cell (`Order|qty >=1`). **Every value the attribute takes is held to it**: the Concept's Examples, its table's cells, and everything deeper in the subtree. A nearer declaration shadows an outer one.
+
+- **Bounds chain.** `age >=18 <=65` holds the attribute both ways.
+- **The bound is Python**, for example `cap <=@price*1.5`, `start <=date(2026, 12, 31)` or `status ==("draft", "sent")`. Its references resolve *per value*, against that value's own Example or row, so `Order|price|margin >=@price*0.1` holds each row's margin to that row's price.
+- **It is checked when Python runs** (`Ctrl+Enter`, `F9`, the park key), all of a file's bounds in one round trip. It is never checked on a keystroke.
+- **A breach is a warning** on the offending value, in the `aot-python` collection, and never counts in `V`. It stands until the value is edited or the next run. A bound that cannot compute is one error, on the clause that wrote it.
+- **An empty value asserts nothing**, so it is held to nothing.
+- **Values never carry `>= <= < > ==`.** `age: 25 >=18` is just the value `25 >=18`.
+- **Prose is safe.** `speed > none noted` and `age >= 18 years` stay plain names, because a bound is believed only when the text after the operator reads as a Python expression, without running it: brackets and strings closed, no two words side by side ([`src/pyshape.js`](src/pyshape.js)).
+
+**`==` naming one value defines.** A `>=` says a value must be *at least* something. A `==` whose bound computes **one value** says what the value **is**, so it derives every value of that attribute, written once where the attribute is declared:
 
 ```aot
 Order
@@ -660,35 +661,109 @@ Order
     B    |40   |8
 ```
 
-Every cell in a defined column fills itself — an **empty** one included, since the definition says what the value is — and a cell that drifts is corrected on the next recompute (Tab, Format Document, save), exactly as a stale `=` formula is. The cells carry the **value alone**: the formula lives in the header. The same holds in line form, where `vat ==@price*0.2` on the attribute fills the `vat:` of every Example beneath it. Two rules keep it predictable: a cell's or value's **own `=` formula wins** (the nearer word), and a `==` that cannot compute leaves its values untouched — an uncomputable bound is the declaration's error, reported once against the declaration. A value that differs from its definition is reported as **stale** ("it recomputes…"), not as a violation.
+Each run writes the definition into every value of the attribute that has no derivation of its own. That includes an empty cell, and it corrects one that drifted. The cells carry the **value alone**, because the definition lives in the header. The same holds in line form: `vat ==@price*0.2` on the attribute fills the `vat:` of every Example beneath it that has a `vat:` line. A value's **own `=` derivation wins**, as the nearer word, and a value it computes that differs from the definition is a warning.
 
-**A constraint can list the allowed values** with `or()` — and *this* `==` is a bound, not a definition, because a list names no single value:
+**`==` naming a collection lists the allowed values.** A tuple, list or set of values names no single value, so it is membership, not a definition, and fills nothing in:
 
 ```
 Order
-    status ==or(`draft`, `sent`, `paid`)
-    grade ==or(1, 2, 3)
+    status ==("draft", "sent", "paid")
     - A
         status: sent          <- one of the three; nothing to report
     - B
-        status: void          <- warning: value 'void' violates
-                                 'status == `draft` or `sent` or `paid`'
+        status: void          <- after Ctrl+Enter: 'void' breaks 'status ==("draft", "sent", "paid")'
+                                 — it is not one of 'draft', 'sent', 'paid'
 ```
 
-This is the same `or()` the logic table names, not a second one. `or()` answers with its **alternatives held together**, and that one value reads as whichever the place asks for: as a **truth** in a formula — true when any alternative is true, which is exactly logical OR, so `=if(or(@qty>5, @price>5), \`yes\`, \`no\`)` means what it looks like — and as a **set** wherever `==` compares against it, where "equals one of these" is what listing allowed values means. An ordering works the same way, distributed: `>=or(1, 9)` holds when the value is at least one of them.
+An ordering against a collection holds when the value meets any of its members: `>=(1, 9)`.
 
-That is also exactly why an `==or(…)` stays a **bound** while `==@price*@tax rate` becomes a **definition**: alternatives held together name no single value to derive, so there is nothing to fill in — only membership to check. One rule, read off the value the bound computes to.
+#### The repository's Python
 
-**A value may hold a literal `=`** by escaping it — `note: a \= b` is the value `a = b`, not a derivation of `a`. The backslash belongs to the file, not to the model: the value is `a = b` everywhere it is read (crosslinks, Gödel numbers, a formula referencing it, a CSV export), while the line keeps its `\=` through every rewrite. Only an `=` that opens a derivation needs escaping — one *inside* a value's text (`a=b`, no space before it) was never a derivation and needs nothing.
+**Any Python file in the repository serves a derivation**, in `aot.files` or anywhere else. It is named as a module, with no `import` to write:
+
+| Written | Reaches |
+|---------|---------|
+| `=finance.revenue(@Sales)` | `finance.py` in `aot.files`, else at the repository's root, else the one file of that name anywhere else in it |
+| `=tools.finance.revenue(@Sales)` | `tools/finance.py`, by its dotted path from the root. A folder holding Python is a package, with or without `__init__` |
+| `=aot.use("tools/my helpers.py").total(@Sales)` | A file by its path, for one whose name is not an identifier |
+| `=csv.QUOTE_ALL`, `=scipy.stats.norm.cdf(1)` | Any module of the standard library or an installed package, with submodules imported as they are reached |
+
+- **The standard library and installed packages come first**, so no file in the repository can stand in for one. An `os.py` anywhere shadows nothing.
+- **Two files of one name are an error** that names both and the dotted path to write instead.
+- **Some folders are never searched:** a virtual environment, `node_modules`, `__pycache__` and hidden folders. They are not the repository's own code.
+- **A module changed on disk is imported again on the next run**, and every derivation naming it fades as stale until then. A module it imports in turn is not followed, so run the line to take in a change there.
+
+#### What comes back
+
+| Result | Written |
+|--------|---------|
+| A number | `3,628,800`: separated, two decimals at most, keeping a `$` from the value it replaces |
+| A date, a datetime | `2026-09-22`, `2026-09-22 14:30` |
+| `True` / `False` | `Yes` / `No` |
+| `None`, NaN | An empty value |
+| Short text | The value, with any pipe bent to `¦` |
+| Text over `aot.python.maxInlineText` (120), or holding a line break | `aot.files/<address>.md`, and the value is its path |
+| A matplotlib Figure or Axes, a PIL image, image bytes | `aot.files/<address>.png`, and the value is its path. Hover shows the picture |
+| A DataFrame **on an attribute** | `<DataFrame 1,204 rows × 4 cols>`. The frame stays live for `@` |
+| Anything else | `<list 3 items>`, `<dict 2 keys>`, `<ndarray 3 × 4>` … |
+
+The file name is the value's `@` address, reduced to safe characters. It is never a path of Python's choosing.
+
+**A computed number is always written with thousands separators**, with two decimals at most, while a value you *typed* is never reformatted: a typed `1815` stays `1815`. One surprise follows: a computed year reads `2,026`. When you mean a year, return text (`str(y)`) or a `date`.
+
+#### Running
+
+- **`Ctrl+Enter` on a derivation** runs it, any stale derivations it reads, and **everything that reads it**, in place, so nothing is left half up to date. It then checks every constraint.
+  - **Anywhere else in the file**, `Ctrl+Enter` (or `F9`) runs every stale derivation and checks every constraint.
+  - **A derivation is stale** when its source, what it reads, or the Python files it names (the sidecar among them) changed since it last ran. A fresh one is not run again.
+  - **In a file with no derivation and no constraint**, `Ctrl+Enter` inserts a line as it always did.
+- **`Ctrl+Shift+``** runs every derivation **fresh** and checks every constraint, then [parks](#parking-the-derivations) them all, so what parks is current. Putting them back runs nothing.
+- **AOT: Run All Python (Fresh)** starts from a new session.
+- **Nothing runs on a keystroke**: not typing, Tab, Format Document, a save or a CSV arriving. A value holds its last result until it is asked for.
+- **A copied derivation arrives without a value** and waits for the next run. This covers `Ctrl+'`, a fill, *Copy Formula Down the Column*, *Across the Row* and *to Sibling Examples*. The value in front of the original was computed where it stood, not where the copy lands.
+- **Each run is a single pass**, dependencies first. A cycle runs nothing and names its members.
+- **A failure** leaves the value as it was and says why on its line, and whatever reads it is not run. Nothing is written over a good value.
+- **There is one Python session per document**, kept between runs along with its live results. It ends after `aot.python.idleTimeoutMs` idle, when the file closes, and when a derivation exceeds `aot.python.timeoutMs`. A hung expression holds the interpreter, so stopping the process is the only way to end it.
+
+#### Libraries
+
+- **Always there:** `math`, `statistics`, `re`, `json`, `random`, `itertools`, `functools`, `Path`, `date`, `datetime`, `timedelta`, `Decimal`, `Counter` and `defaultdict`.
+- **Imported in the background once Python is on:** **`pd`** (pandas) and **`np`** (numpy).
+- **Imported the first time a derivation uses them:** **`plt`** (matplotlib, on the non-interactive `Agg` backend, so no window ever opens), **`sns`** (seaborn), **`stats`** (scipy.stats), **`Image`** (PIL), **`requests`** and **`relativedelta`**.
+- **A missing library fails only on the line that uses it**, naming the command that installs it. **AOT: Show Python Environment** lists the interpreter and what it has.
+- **Worth installing:** `openpyxl` for `pd.read_excel` and `pyarrow` for parquet.
+- **Anything else is there by its name.** See [the repository's Python](#the-repositorys-python).
+- **The interpreter** is `aot.python.path`, else `python` on PATH. Point the setting at a virtual environment's `python` to use one.
+
+#### In the editor
+
+- **Every Python finding is in a collection of its own** (`aot-python`), and **none counts in `V`**: a failed run or a broken bound is a verdict on a run, not on the model. A derivation that has not run yet says so, as information.
+- **An inlay at the end of each line says how it last ran, and when:** `✓ 3 rows · 12 ms · 16:04`, `✗ KeyError: 'units' · 16:04`, `– not run · 16:04`, `✎ edited since 16:04`.
+  - A run from an earlier day shows its date, `2026-09-23 16:04`, and the hover gives the time to the second.
+  - The time is kept with the run records, so it outlasts the session and a restart of the editor.
+  - A value older than its derivation (edited, or something it reads changed) is **faded**.
+  - A table Python wrote is tinted, and its hover says every row of it is the derivation's.
+- **The function a derivation calls is underlined when a Python file here defines it**, and **Ctrl+click** opens that file at its `def`. That can be the sidecar's own function, one the sidecar imports (`from helpers import load`), or a module's (`finance.revenue`, `tools.finance.revenue`, `aot.use("…").total`). A function of the standard library or an installed package has no file here, so it is not underlined.
+- **Hover** a function for its signature, docstring and file.
+- **Completion:** after `=` it offers the sidecar's functions and the repository's modules, after `finance.` that module's functions, and after `@Sales.` the table's columns.
+- **The derivation wears its own colour.** Everything from the operator to its end, a constraint's bound included, is painted as Python, so code reads apart from data at a glance.
+- **The model never sees a derivation.** The Attribute Value is the value part alone, so crosslinks, FCA, Gödel numbers and dependency inference all work on clean data.
+- **The lightbulb** runs the derivation, creates a stub for a function the sidecar lacks, or **moves the expression into the sidecar**. Each `@` reference becomes a parameter, and the line calls the new function.
+- **The `.aot` holds what you know; the `.py` holds how you got it.** Every attribute is part of the model, so a pipeline's intermediate steps belong in the sidecar, and only facts should surface in the file.
 
 #### Parking the derivations
 
-A grid that computes holds two things in one place: the **values**, which are what you read, and the **derivations**, which you wrote once and mostly never want to look at again. `20 =@price*@tax rate` in every cell of a column makes it three times as wide as its data and buries the number under the arithmetic that produced it.
+A file that computes holds two things in one place:
 
-**`Ctrl+Shift+`` takes every `=` derivation — and every constraint on an attribute declaration — out of the data**, and the same key puts them back. The order is the whole design:
+- the **values**, which are what you read;
+- the **derivations**, which you wrote once and mostly never want to look at again.
 
-1. The **recompute runs first**, so every derived value is materialised where it stood.
-2. Only then do the formulas leave, for `aot.files/<file>.formulas`.
+`20 =@price*@tax rate` in every cell of a column makes it three times as wide as its data and buries the number under the code that produced it.
+
+**`Ctrl+Shift+`` takes every `=` derivation, and every constraint on an attribute declaration, out of the data**, and the same key puts them back. The order is the whole design:
+
+1. **Python runs first**, every derivation fresh and every constraint checked, so every derived value is materialised where it stood. With Python off, or in an untrusted workspace, the values park as they stand, and the status bar says so.
+2. Only then do the derivations leave, for `aot.files/<file>.formulas`, which records the interpreter and library versions that computed them.
 3. The tables re-align, so the columns narrow to their data. One `Ctrl+Z` undoes the lot.
 
 ```aot
@@ -705,65 +780,43 @@ aot.files/Ledger.formulas
     @Invoice@vat@INV-2: =@price*0.2
 ```
 
-**The parked file still stands on its own.** Every value is present, so it still says exactly what it said. The derivations are done with — their arithmetic is already written in the data — but the **constraints are not**: a bound computes nothing that could stand in its place, so taking it out of the file would silently switch it off. So a parked constraint is **still enforced**. The editor and `node verify.js` both read the constraints back out of the store and hold every value to them exactly as when they stood on the declaration: `price: -5` still warns, now as a breach of the *parked* bound, and a bound that cannot compute is still an error, pinned to the attribute's name. A parked `==` definition leaves its values frozen, as a parked `=` does; a value it no longer matches says so, and recomputes once the definition is home. Nothing in the CSV mirror or the cross-file reconcile knows the store exists.
+**The parked file still stands on its own.** Every value is present, so it still says exactly what it said. The derivations are done with, since their results are already written in the data. The **constraints are not**: a bound computes nothing that could stand in its place, so taking it out of the file would silently switch it off. So **a parked constraint is still checked**. The editor reads the constraints back out of the store, and each run holds every value to them exactly as when they stood on the declaration: `price: -5` still warns, now as a breach of the *parked* bound. A parked `==` definition still defines. `verify.js` runs no Python, so it checks neither. Nothing in the CSV mirror or the cross-file reconcile knows the store exists.
 
-Each derivation is addressed with the **`@` path the language already uses for references**. `@Invoice@vat@INV-1` is the `vat` of the Example `INV-1` of the Concept `Invoice` — and because [a table and a `- ` list are one idea in two spellings](#tables-are-pure-shorthand), that one address finds the Example whichever way it is written. A value on the Concept itself is two segments (`@Invoice@tax rate`); an Example nested inside another adds a segment, outermost first.
+**Each derivation is addressed with the `@` path the language already uses.** `@Invoice@vat@INV-1` is the `vat` of the Example `INV-1` of the Concept `Invoice`. [A table and a `- ` list are one idea in two spellings](#tables-are-pure-shorthand), so that one address finds the Example whichever way it is written.
 
-**A parked value says so.** The same plainness that lets a parked file stand on its own is the one trap it sets: `20` in a cell looks exactly like a `20` somebody typed, so it invites being typed over — and that edit stands only until the derivations come home and recompute it. So every value the store owns is **tinted where it stands**, in the editor's inlay-hint colours, because that is what it is: a number the editor is showing you rather than one you wrote. Hover names the formula, the address it is filed under and the store it is in, and offers to [put the derivations back](#parking-the-derivations) in one click — which is where you change what a value computes. The mark is a background and never added text, so a marked cell keeps the width its column aligned it to, and it is drawn from the store rather than the data, so it appears the moment the store lands and goes the moment it is deleted — by the key, by hand, or by a pull. Off with `aot.parkedValueMarks`.
+- A value on the Concept itself is two segments (`@Invoice@tax rate`).
+- An Example nested inside another adds a segment, outermost first.
+- A Concept's own derivation is filed under the Concept alone (`@Sales`).
 
-- **Constraints park with the derivations.** `age >=18`, `status ==or(…)` and `vat ==@price*0.2` leave their declarations — a header cell narrows to its column's bare name, a bare attribute line to its term — and are filed under the declaration's own address, `@Person@age: >=18`. A stored entry says which it is by how it opens: a derivation with one `=`, a constraint with its operator. The attribute's name is tinted like a parked value, and its hover names the constraint and says it is still checked.
-- **A cell holding only a formula parks too**, and leaves its computed value behind: that is what step 1 is for.
-- **Nothing is ever invented back.** Rename or delete a row while its derivation is parked and that address no longer names anything; it is reported and **kept in the store** rather than guessed at, and the store stays until it resolves.
-- **The store's existence is the state.** A file is parked when it has one; putting the formulas back deletes it. Commit it beside the `.aot` — it is the only copy of the derivations while they are out.
-- **An address that no longer names anything is not marked**, for the same reason it is never invented back: the mark is drawn by the resolution that puts the formulas home, so what the editor tints is exactly what unparking would rewrite.
+**A parked value says so.** The same plainness that lets a parked file stand on its own sets one trap: `20` in a cell looks exactly like a `20` somebody typed, so it invites being typed over, and that edit stands only until the derivations come home and run again. So every value the store owns is **tinted where it stands**, in the editor's inlay-hint colours: it is a number the editor is showing you rather than one you wrote.
 
-### Working with text
+- Hover names the derivation, the address it is filed under and the store it is in. It offers to put the derivations back in one click, which is where you change what a value computes.
+- The mark is a background and never added text, so a marked cell keeps the width its column aligned it to.
+- It is drawn from the store rather than the data. It appears the moment the store lands and goes the moment the store is deleted, whether by the key, by hand, or by a pull.
+- Turn it off with `aot.parkedValueMarks`.
 
-Most of what a model holds is words, so the formula language treats text as a first-class thing rather than a numeric afterthought. A literal is written `` `in backticks` ``; `&` joins two values; every function below takes a reference, a literal, or another formula.
+More about parking:
 
-| Function | What it answers | Example |
-|----------|-----------------|---------|
-| `concat(a, b, …)` | The pieces joined — `&` with a name, for when there are more than two | ``concat(@first, ` `, @last)`` → `Jane Doe` |
-| `upper(x)` / `lower(x)` | Case, forced | ``upper(`widget`)`` → `WIDGET` |
-| `proper(x)` | Each word capitalised, the rest lowered | ``proper(`jane DOE`)`` → `Jane Doe` |
-| `trim(x)` | The value without its outer spaces | ``trim(` xy `)`` → `xy` |
-| `len(x)` | How many characters | ``len(`abc`)`` → `3` |
-| `left(x, n)` / `right(x, n)` | The first / last `n` characters | ``right(`abcdef`, 2)`` → `ef` |
-| `mid(x, i, n)` | `n` characters from position `i` (**1-based**) — the substring | ``mid(`abcdef`, 2, 3)`` → `bcd` |
-| `find(x, part)` / `find(x, part, from)` | Where `part` starts (1-based), or `0` when it is absent — so it reads as a truth too | ``find(`hello world`, `world`)`` → `7` |
-| `contains(x, part)` | `1` when `part` is in `x`, else `0` | ``contains(`hello`, `ell`)`` → `1` |
-| `starts(x, part)` / `ends(x, part)` | `1` when `x` begins / ends with `part` | ``ends(`report.csv`, `.csv`)`` → `1` |
-| `replace(x, a, b)` | Every `a` becomes `b` | ``replace(`a-b-c`, `-`, `+`)`` → `a+b+c` |
-| `substitute(x, a, b, n)` | Only the **nth** `a` becomes `b` (drop `n` and it replaces all) | ``substitute(`a-a-a`, `a`, `X`, 2)`` → `a-X-a` |
-| `split(x, sep, n)` | The **nth** field (1-based; negative counts back from the end; default the first) | ``split(`Doe, Jane`, `, `, 2)`` → `Jane` |
-| `repeat(x, n)` | `x` written `n` times | ``repeat(`ab`, 3)`` → `ababab` |
-| `pad(x, width)` / `pad(x, width, `left`)` | `x` spaced out to `width` (never truncated) | ``pad(`x`, 4, `left`)`` → `   x` |
-| `text(x)` / `value(x)` | The coercion said out loud: a number as text, text as its number | ``value(`$1,200`)+1`` → `1201` |
+- **Constraints park with the derivations.** `age >=18`, `status ==("draft", "sent")` and `vat ==@price*0.2` leave their declarations: a header cell narrows to its column's bare name, and a bare attribute line to its term. Each is filed under the declaration's own address, `@Person@age: >=18`. A stored entry shows which it is by how it opens: a derivation with one `=`, a constraint with its operator. The attribute's name is tinted like a parked value, and its hover names the constraint and says it is still checked.
+- **A cell holding only a derivation parks too**, and leaves its computed value behind. That is what step 1 is for.
+- **Nothing is ever invented back.** Rename or delete a row while its derivation is parked and that address no longer names anything. It is reported and **kept in the store** rather than guessed at, and the store stays until it resolves.
+- **The store's existence is the state.** A file is parked when it has one, and putting the derivations back deletes it. Commit it beside the `.aot`, since it is the only copy of the derivations while they are out. **It may hold Python**, so review a change to it as you would code.
+- **An address that no longer names anything is not marked**, for the same reason it is never invented back. The mark is drawn by the resolution that puts the derivations home, so what the editor tints is exactly what unparking would rewrite.
 
-They compose with everything else — a label built from two columns, a code checked against a rule, a packed value taken apart:
+#### Trust
 
-```
-Contact
-    - Ada
-        first: Ada
-        last: Lovelace
-        email:  ADA@Maths.org
-        display: Lovelace, Ada     =concat(@last, `, `, @first)
-        initials: AL               =left(@first,1)&left(@last,1)
-        tidy email: ada@maths.org  =lower(trim(@email))
-        domain: maths.org          =split(lower(trim(@email)), `@`, 2)
-        flag: ok                   =if(and(len(@last)>0, find(@email,`@`)), `ok`, `check`)
-```
+A `.aot` with Python in it is **a program**, and it runs with your permissions. It can read your files, reach the network, and write what it finds into the document, where a commit and the CSV mirror carry it on. Python cannot be sandboxed inside its own process, so this is a **marked trust boundary**, not a sandbox:
 
-Two things worth knowing. **Positions are 1-based** (`mid`, `find`, `split`, and `find`'s `from`) — the first character is 1, matching how the rest of Alpha counts, though `find` still answers `0` for "not there" so it can be read as a truth. And **text comparison is exact and case-sensitive** (`` `a` == `A` `` is `0`), so fold the case yourself when you mean either: `` lower(@name) == `ada` ``.
+- **`aot.python.enabled` is off by default**, and nothing runs in a workspace VS Code does not trust.
+- **Every Python file is asked about by its path the first time a run reaches it.** That includes the sidecar, a module a derivation names, and a module those import, because a file's top-level code runs the moment it loads.
+  - The answer is kept per file, by a hash of its content.
+  - A change saved **in this editor** is your own and runs without asking. A change that arrives from **outside** (a pull, another tool) is asked about again.
+  - The answers are kept in VS Code's workspace state, never in the repository, so no repository can ship its own.
+  - No folder is put on Python's import path. The runtime finds the repository's files itself, after the standard library and installed packages, so nothing in the repository can stand in for them.
+- **`verify.js` never runs Python**, so a CI job checking a pull request cannot be made to. The `.formulas` store says it may hold Python.
+- **What it costs:** "the file stands on its own" holds in letter, since every value is written and `V` judges them. But a Python value's provenance is no longer checkable from the text alone. The run records the interpreter and library versions, and the hover shows them.
 
-**Any attribute value can carry a derivation, not just cells** (`src/derive.js`). On a line-form value, `@attribute name` reads the same Example's sibling attribute, aggregates range over the *other* sibling Examples under the same parent, and `@attr@Example` reads the named sibling — `total: =sum(@price)` on a Concept totals its Examples' prices. The two notations answer each other (1.6): a **cell formula reads the enclosing Concept's line-form attributes by name** (`=@price*@tax rate` with `tax rate: 0.2` stated on the Concept), an **empty cell inherits the Concept's default**, an in-table aggregate also ranges over the Concept's `- ` Examples, and a line-form sibling Example can be named in a cell reference.
-
-- **Every table keystroke recalculates** — Tab, Enter, any table command, Format Document, and a CSV arriving through the mirror. Type just `=@price*@qty` in a cell, press Tab, and the value materialises in front of the formula. **Line-form values fill themselves in too**: type `total: =sum(@price)` and the moment the cursor leaves the line — or the file is saved — the computed value appears in front of the formula (never while a cursor still holds the line, so the fill never fights your typing). Format Document and **AOT: Recompute Formulas** still recompute everything on demand. A computed value keeps the old value's `$` and thousands commas.
-- **Copy a derivation down or across**: the lightbulb on a formula cell offers *Copy Formula Down the Column* and *Copy Formula Across the Row* (the other cells keep their own value, gain the formula); on a line-form formula it offers *Copy Formula to Sibling Examples* — all recompute as they go.
-- **The derivation wears its own colour** — everything from the operator to the cell's end is a distinct semantic token, so formulas and constraints read apart from data at a glance.
-- **The linter audits it**: a derivation that cannot compute is an **error** on exactly its span (rule 12); a breached constraint, or a value that no longer matches its `=` formula, is a **warning** on the offending value. A cell showing `#ERR` kept its formula and is waiting to be fixed.
-- The model never sees the derivation: the Attribute Value is the value part alone, so crosslinks, FCA, Gödel numbers, and dependency inference all work on clean data. (The Armstrong findings will still tell you when a whole *column* is derivable — a formula column is exactly that, made explicit.)
+[`examples/python edge cases.aot`](examples/python%20edge%20cases.aot) is a catalogue of the cases worth knowing, each with what should happen. Run it with its sidecar, [`aot.files/python edge cases.py`](aot.files/python%20edge%20cases.py), to see.
 
 ### The CSV mirror
 
@@ -811,7 +864,7 @@ Every editor feature reaches inside the cells too:
 - **Aliases**: a header cell may carry a parenthetical alias, `size (length)`, which strips, colours, and crosslinks exactly as it would on a bare attribute line — the first header cell's `(alias)` naming the Concept.
 - **Linting in place**: a table finding pins the offending cell rather than the whole line — a lowercase or empty first cell, a capitalised column, a row's extra cells, and an empty name cell each squiggle where they sit.
 
-That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreadsheet re-computes derived columns; Alpha's audits them. Two rows with the same name are an identical-siblings error; two rows with identical content are a Gödel clash; a row that carries every attribute another Concept's Examples share is drift; and a column whose values are pinned down by another column — the very thing org would compute with a formula — is what the Armstrong dependency warnings flag. In Alpha a computed column is not a formula to store but a dependency to model once, against its determinant. See [`examples/spreadsheet.aot`](examples/spreadsheet.aot).
+That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreadsheet re-computes derived columns; Alpha's linter audits them (a [Python](#python) derivation computes a value when asked, and the linter judges what it wrote like any other value). Two rows with the same name are an identical-siblings error; two rows with identical content are a Gödel clash; a row that carries every attribute another Concept's Examples share is drift; and a column whose values are pinned down by another column — the very thing org would compute with a formula — is what the Armstrong dependency warnings flag. In Alpha a computed column is not a formula to store but a dependency to model once, against its determinant. See [`examples/spreadsheet.aot`](examples/spreadsheet.aot).
 
 ### Flipping between a table and free text
 
@@ -832,7 +885,7 @@ Person                                  |Person   |first name|age      |
 - **No Example and no value is ever lost**, and a derivation moves exactly as typed — `20 =@price*@tax rate` travels whole. An attribute's `(alias)` and its constraints ride on the header cell going out and on the declaration line coming back; a bound never lands on a value line, because it governs the attribute rather than each value of it. A `|` arriving from a CSV bends to a broken bar, since the divider cannot live inside a cell.
 - **One thing does move: an attribute a single Example only *declares*.** A bare `nickname` under `- Socrates` states an attribute without giving it a value, and a table has exactly one place for an attribute name — the header — so it becomes a column of the Concept with Socrates's cell empty. The declaration widens from the one Example to all of them; the empty cell still asserts nothing. It is the one reading a grid cannot express, and it is why the flip tells you what it did rather than doing it silently.
 - **What is presentation of a grid comes off with it** — a column is padded to its widest cell, and in free text there is no column to pad.
-- **The flip never recomputes.** A value that was right stays exactly as it was written; the re-align that follows computes the formulas where they have landed. That order matters: a cell reading the Concept's line-form default (`=@price*@tax rate`) can only resolve it once the grid is in the file, so computing any earlier would write `#ERR` over a good number.
+- **The flip computes nothing.** Every value stays exactly as it was written, and each derivation travels whole beside it; the next `Ctrl+Enter` runs them where they have landed.
 - **A sub-Example is a row too.** An Example carrying Examples of its own flips to a row nested under its parent's row, and back again, so a tree written as lines and the same tree written as a grid are one idea in two spellings:
 
   ```aot
@@ -854,8 +907,8 @@ The VS Code extension adds syntax colouring for `.aot` files and an arithmetic l
 
 - **Syntax and arithmetic** (`src/linter.js`) — tabs, broken indentation, depth jumps, a Concept defined twice, and identical siblings all appear as squiggles in the Problems panel. A finding that names two places — a duplicate, a clash, a case-twin — squiggles **at both**, each diagnostic carrying the other location as clickable related information.
 - **Crosslinks** (`src/crosslinks.js`) — an attribute whose trailing words match a Concept, or an Attribute Value that names an Example (case-insensitive, like every link), is underlined as a link; Ctrl+click jumps to the defining line, Shift+F12 lists every place a Concept or Example is referenced, hovering a linked Example shows its full details (owner, defining line, every value it carries), and hovering an Example's own `- ` line adds where it is used. A `https://` URL in a value is Ctrl+clickable too, and hovering it fetches its status, content type, and last-modified date (off with `aot.urlMetadata`). A value that resolves to a **real file** — an absolute path, one relative to the `.aot`, one relative to the workspace root, or a `~/` path from your home directory — is Ctrl+clickable as well, and so is a **`- ` Example whose name is such a path** (an Example may *be* a file, exactly as a table row may). A cited file living outside `aot.files` whose name is also held there clicks and hovers through to the **copy in `aot.files`** — the one that travels with the repo. Hovering an **image** (a `.png` or the like, whether URL, file value, cell, or `- ` Example) previews the picture inline.
-- **Rename that keeps the model whole** — F2 on a Concept, an Example, or an attribute (line-form or a table's header or first-column cell) renames it everywhere it is meant: the declaration, every crosslink that resolves to it, and every formula reference — the rename walks the evaluator itself, so `@price`, `@total@Acme` and `@Order@price@Acme` all follow their declaration and no formula is left pointing at yesterday's name. An attribute renames with its whole scope (the same-named copies its host's Examples carry, and the ancestor constraint that governs it); an attribute wearing a renamed Concept's name follows it, and the formulas reading that attribute follow in turn. Case follows the span: a span that is lowercase today (an attribute name, its alias) takes the new name lowercased, every other span takes it as typed — so Concepts stay capitalised and attributes stay lowercase through any rename. A span that resolves by another text — an alias, a plural — keeps its own spelling. Standing in a name that is used elsewhere shows faint ghost text at the end of the line — *2 uses elsewhere — F2 renames them all* — so a hand edit never strands references unwarned; standing in a usage (an attribute wearing a Concept's name, a value naming an Example), where typing is the right move when this one reference should point somewhere else, the ghost text presents the choice instead: *names 'Person' — F2 renames its 2 uses, typing changes just this one*. Current file only: a reference from another file keeps its name and shows its own finding there.
-- **Parking the derivations** (`src/park.js`) — `Ctrl+Shift+`` recomputes every formula, writes the values it computed where they stood, and *then* lifts the formulas out to `aot.files/<file>.formulas`, each addressed with the `@` path the language already uses. The grid narrows to its data; the same key puts them back. The parked file still stands on its own, so nothing else in this list — nor `verify.js` — knows the store exists. The one thing that does is the editor's own marking: a parked value is tinted where it stands and hovers with the formula that owns it (`aot.parkedValueMarks`), so plain data never reads as data you may retype. See [Parking the derivations](#parking-the-derivations).
+- **Rename that keeps the model whole** — F2 on a Concept, an Example, or an attribute (line-form or a table's header or first-column cell) renames it everywhere it is meant: the declaration, every crosslink that resolves to it, and every `@` reference inside a derivation or a constraint's bound — the rename follows the same resolver that hands Python its references, so `@price`, `@total@Acme` and `@Order@price@Acme` all follow their declaration and no derivation is left pointing at yesterday's name. An attribute renames with its whole scope (the same-named copies its host's Examples carry, and the ancestor constraint that governs it); an attribute wearing a renamed Concept's name follows it, and the derivations reading that attribute follow in turn. Case follows the span: a span that is lowercase today (an attribute name, its alias) takes the new name lowercased, every other span takes it as typed — so Concepts stay capitalised and attributes stay lowercase through any rename. A span that resolves by another text — an alias, a plural — keeps its own spelling. Standing in a name that is used elsewhere shows faint ghost text at the end of the line — *2 uses elsewhere — F2 renames them all* — so a hand edit never strands references unwarned; standing in a usage (an attribute wearing a Concept's name, a value naming an Example), where typing is the right move when this one reference should point somewhere else, the ghost text presents the choice instead: *names 'Person' — F2 renames its 2 uses, typing changes just this one*. Current file only: a reference from another file keeps its name and shows its own finding there.
+- **Parking the derivations** (`src/park.js`) — `Ctrl+Shift+`` runs every Python derivation fresh, writes the values it computed where they stood, and *then* lifts the derivations out to `aot.files/<file>.formulas`, each addressed with the `@` path the language already uses. The grid narrows to its data; the same key puts them back. The parked file still stands on its own, so nothing else in this list — nor `verify.js` — knows the store exists. The one thing that does is the editor's own marking: a parked value is tinted where it stands and hovers with the derivation that owns it (`aot.parkedValueMarks`), so plain data never reads as data you may retype. See [Parking the derivations](#parking-the-derivations).
 - **Two names for one idea** (`src/synonyms.js`) — the one half of univocity a linter cannot prove: two *different* names may still be one idea, and nothing in the tree records that `Client` and `Customer` are the same word in two dialects. So it asks, repo-wide and on both sides, with a lightbulb to rename one into the other or to record that they are genuinely different. Advisory, never in `V` (see [Two names for one idea](#two-names-for-one-idea)).
 - **Subsumption** (`src/subsumption.js`) — a reasoner re-derives the Concept hierarchy from the facts each Concept declares and holds the written tree to it.
 - **Formal Concept Analysis** (`src/fca.js`) — the linter treats the Examples and their attributes as a formal context, computes the concept lattice, and flags groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
@@ -879,7 +932,13 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | `aot.dependencyFindings` | `false` | Surface the inferred functional-dependency warnings (rules 12–13) as squiggles. Off by default: correlated attributes are allowed; `verify.js --fd` always prints the full set. |
 | `aot.chainHints` | `true` | Write the first dependency chain in small print (an inlay hint) at the end of each crosslinked line; the full chains stay on hover. |
 | `aot.urlMetadata` | `true` | Hovering a URL fetches its status, content type, and last-modified date (one cached HEAD request); Ctrl+click opens it regardless. |
-| `aot.parkedValueMarks` | `true` | Tint every value whose derivation is [parked](#parking-the-derivations), so a computed number is never mistaken for a typed one; hover names the formula and offers the key back. |
+| `aot.parkedValueMarks` | `true` | Tint every value whose derivation is [parked](#parking-the-derivations), so a computed number is never mistaken for a typed one; hover names the derivation and offers the key back. |
+| `aot.python.enabled` | `false` | Run the [Python](#python) derivations a file carries, when asked (`Ctrl+Enter`, or the park key). Restricted: an untrusted workspace can neither turn it on nor run anything. |
+| `aot.python.path` | `""` | The interpreter — a virtual environment's `python`, say. Empty uses `python` on PATH. Restricted, like the switch above. |
+| `aot.python.timeoutMs` | `15000` | How long one derivation may run before its session is stopped. |
+| `aot.python.idleTimeoutMs` | `300000` | How long an idle session — and the live results it holds — is kept. |
+| `aot.python.maxResultBytes` | `8000000` | The largest result a derivation may send back; a bigger one stops the session with a message. |
+| `aot.python.maxInlineText` | `120` | Longer text (or any with a line break) is written to `aot.files/<address>.md`, the value its path. |
 
 ### Errors — red squiggle, counted in `V` (the file does not verify)
 
@@ -896,9 +955,9 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | 9 | **Univocity** | The same Concept name defined more than once — case-insensitively, and numbering prefixes ignored (`Foo`, `FOO`, and `2. Foo` are one name). Every definition squiggles, each pointing at the others. One name, one prime; a recurrence needs a distinguishing qualifier prefix. |
 | 10 | **No identical siblings** | Two children of one parent with the same kind, name, **and** value — compared case-insensitively, as references resolve. Siblings may share a slot only if their values differ. |
 | 11 | **One alias, one target** | A Concept's alias must be a genuinely new name: two Concepts sharing an alias, an alias repeating its own Concept's name, or an alias that is the name of **another** Concept (`Home Address (Location)` where `Location` is also a Concept) — the last makes the two a single duplicated identity. If one is a *kind* of the other, file it under it in the tree; otherwise merge or rename. (Attribute aliases like `duration (time)` are unaffected — they are the attribute's crosslink.) |
-| 12 | **Sound derivations** | A formula that cannot compute (bad syntax, a non-numeric operand, an unknown reference), or a constraint whose bound cannot compute. A stale `=` value and a **value that breaches its attribute's constraint** (`age: 15` under `age >=18`) are warnings, not errors. |
+| 12 | **Well-placed derivations** | A derivation on a bare attribute (`rows =f()` — it computes a value, and a bare attribute declares none; add the colon), or a Concept's `=` with nothing after it. What a derivation or a bound *computes* is never the linter's to judge: it is [Python](#python), which runs only when asked, and its findings — a failure, a breached constraint — are in a collection of their own that never counts in `V`. |
 
-Rules 1–12 are the syntactic and arithmetic checks (`src/linter.js`, with the derivations audited by `src/table.js` and `src/derive.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, values, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. Placements the derived order contradicts are errors, also counted in `V`:
+Rules 1–12 are the syntactic and arithmetic checks (`src/linter.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, values, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. Placements the derived order contradicts are errors, also counted in `V`:
 
 | # | Rule | What triggers it |
 |---|------|------------------|
@@ -945,8 +1004,8 @@ Two more come from the **repo** (`src/repo.js` — see [Concepts across files](#
 | 6 | **No lone sub-Example** | An Example with exactly one sub-Example, by the same reasoning. |
 | 7 | **Differentia** | Two or more sibling sub-Concepts with an identical attribute/value *slot signature* — they are told apart by position only. Give each a distinguishing attribute or value. A sub-Concept that asserts no slot at all is excused: with no attributes its `...` is implied, so its differentia is still to come. |
 | 8 | **Case-twin Examples** | Two Examples whose names differ only in case (`- Socrates` / `- socrates`). Example references resolve case-insensitively, so they are one name to every link and audit — align the spelling. |
-| 9 | **Stale derivation** | A `=` value that no longer matches its formula (someone edited a referenced value). Recomputes by itself when the cursor leaves the line, and on save; Tab in a table, Format Document, and the *AOT: Recompute Formulas* command still force it. |
-| 10 | **Breached constraint** | A value that fails its attribute's constraint (`age: 15` under `age >=18`, `status: void` under `status ==or(\`draft\`,\`sent\`,\`paid\`)`). Pinned to the offending value, naming the bound and its declaring line — worth knowing, but data out of bounds is not a broken file, so it never counts in `V`. A determinate `==` is a **definition**, not a bound, so a value that differs from it reports as *stale* (rule 9) and recomputes instead. |
+| 9 | **Stale derivation** | *No longer the linter's.* A derivation edited since it last ran, or reading something that changed, is an information note in the `aot-python` collection, and its value is faded until `Ctrl+Enter` runs it — see [In the editor](#in-the-editor). Nothing recomputes on its own. |
+| 10 | **Breached constraint** | *Found when Python runs.* A value that fails its attribute's constraint (`age: 15` under `age >=18`, `status: void` under `status ==("draft", "sent", "paid")`) is a warning in the `aot-python` collection, pinned to the offending value, naming the bound — worth knowing, but data out of bounds is not a broken file, so it never counts in `V`. It stands until the value is edited or the next run. See [Constraints](#constraints). |
 | 11 | **Redundant dependency** | A direct dependency edge that a chain through another Concept already implies (Armstrong Transitivity): `share` on `Shares Outstanding` when `Shares Outstanding ─tensor→ Tensor ─share→ Share` already holds. The declaration adds nothing — drop the direct slot, or drop an intermediate link if the direct dependency is the one meant. Two attributes of the same type (`from node` / `to node`, both a `Node`) never imply each other: the witnessing chain must pass through an intermediate Concept. |
 
 A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten. A Map says *what is still missing, a todo, or uncertain* — it is never a description of the line above it (use a parenthetical alias to name or explain a term).
@@ -1053,7 +1112,7 @@ The prose above describes the rules; a handful of files in [`examples/`](example
 
 - [`examples/lint.aot`](examples/lint.aot) plants one violation per syntactic and style rule: a tab, a six-space indent, a depth jump, an empty value, a `-nospace` Example, the file name repeated as a line, an "and" Concept, a duplicated Concept name, identical siblings, a Map that leaks content, plural Concept names, a target-less and an actual-less measurement, a ninth sub-Concept, lone subtypes, and sibling sub-Concepts told apart by position only. It ends with a `Clean` subtree that must stay squiggle-free.
 - [`examples/warning.aot`](examples/warning.aot) exercises the analytical passes: a Gödel content clash (two Examples with identical attributes and values), FCA drift (a Goldfish filed under `Fowl` while carrying `Fish`'s attributes), an exhaustion gap (a Sponge matching no sub-Concept), differentia twins, and dependency pairs with enough witnessed repeats to trip the Armstrong warnings.
-- [`examples/thought.aot`](examples/thought.aot) and [`examples/spreadsheet.aot`](examples/spreadsheet.aot) are the clean pair: real models (all four primitives; tables with formulas and the CSV mirror) that must verify at `V = 0`.
+- [`examples/thought.aot`](examples/thought.aot) and [`examples/spreadsheet.aot`](examples/spreadsheet.aot) are the clean pair: real models (all four primitives; tables and the CSV mirror) that must verify at `V = 0`. Their derivations were written in the formula language before it was removed; they still verify, since the linter judges values, not derivations, but they are not Python and fail when run.
 - [`examples/monthly close.aot`](examples/monthly%20close.aot) and [`examples/bank recon.aot`](examples/bank%20recon.aot) are the clean *repo* pair: one Concept, `Jakus`, written in two files — the same definition in both, the Examples split between them, and a maintained `...` line in each. Both must verify at `V = 0`, and `node verify.js --workspace examples --reconcile` must leave them exactly as they stand.
 
 A change to the linter is correct when it flags every planted violation in the first two files and nothing in the clean pair. The check is one command per file: `node verify.js examples/thought.aot` must exit `0`, `node verify.js examples/lint.aot` must not — and `node out/test-<module>.js` runs each module's smoke tests.
@@ -1177,17 +1236,21 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`src/synonyms.js`](src/synonyms.js) | Two names for one idea (warning rule 14): the synonym vocabulary, the stem rule, and the dismissal key |
 | [`src/park.js`](src/park.js) | Taking the `=` derivations out of the data and putting them back: the `@` addresses, the round trip, and the `.formulas` store |
 | [`src/crosslinks.js`](src/crosslinks.js) | Underlines, hover, references, and go-to-definition for crosslinks |
-| [`src/table.js`](src/table.js) | The table editor, the formula/constraint engine, and the CSV mirror |
-| [`src/derive.js`](src/derive.js) | Formulas on line-form values; validates every value against its attribute's constraint |
+| [`src/table.js`](src/table.js) | The table editor, reading a cell's value and its derivation or bound apart, and the CSV mirror |
+| [`src/derive.js`](src/derive.js) | Derivations on line-form values, the constraint that holds each value, the Example edits and the table/line flip |
+| [`src/pyshape.js`](src/pyshape.js) | Whether text reads as a Python expression, without running it — what tells a constraint's bound from prose (`speed > none noted`) |
+| [`src/python.js`](src/python.js) | The Python derivations and constraint checks of a file, their `@` references resolved, the functions they call, the order they run in, the JSON-lines session, and what a result writes back |
+| [`src/aot_runtime.py`](src/aot_runtime.py) | The Python side: one process per document, the typed values in and out, the lazy libraries, the sidecar loaded by its path |
 | [`src/urls.js`](src/urls.js) | URL and file-path spans, their hover metadata, and image detection |
 | [`src/hold.js`](src/hold.js) | Hold-near-cursor: squiggles wait for the line to be finished |
 | [`src/repo.js`](src/repo.js) | [Concepts across files](#concepts-across-files): the save-time reconcile and the two contradictions (error rules 22–23) |
-| [`examples/thought.aot`](examples/thought.aot), [`examples/spreadsheet.aot`](examples/spreadsheet.aot) | Worked models that verify at `V = 0` (all four primitives; tables and formulas) |
-| [`examples/features.aot`](examples/features.aot) | A `V = 0` showcase of the 1.3 additions — `@` references, cross-cell formulas, constraints, string functions — as runnable Alpha |
+| [`examples/thought.aot`](examples/thought.aot), [`examples/spreadsheet.aot`](examples/spreadsheet.aot) | Worked models that verify at `V = 0` (all four primitives; tables, and derivations written in the removed formula language) |
+| [`examples/features.aot`](examples/features.aot) | A `V = 0` showcase of the 1.3 additions — `@` references, cross-cell formulas, constraints, string functions — in the formula language since removed; it verifies, but its derivations are not Python |
 | [`examples/lint.aot`](examples/lint.aot), [`examples/warning.aot`](examples/warning.aot) | The [conformance examples](#the-conformance-examples) — one planted violation per rule |
 | [`examples/numbering.aot`](examples/numbering.aot) | A file to try [Numbering](#numbering) on: save it and watch the Examples and Concepts number themselves |
 | [`examples/monthly close.aot`](examples/monthly%20close.aot), [`examples/bank recon.aot`](examples/bank%20recon.aot) | One Concept written in two files: the same definition in both, the Examples split, a maintained `...` line in each |
-| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all ten) |
+| [`examples/python edge cases.aot`](examples/python%20edge%20cases.aot) | The [Python](#python) edge cases, each with what should happen — live where running it is harmless, escaped where it would break the file — with its sidecar in `aot.files` |
+| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all fourteen; `test-python.js` runs the real Python runtime when there is a `python` on PATH, and skips it when there is not) |
 | [`docs/features-1.1-1.2.md`](docs/features-1.1-1.2.md) | Per-feature reference for the 1.1 → 1.2 line: what changed, a snippet to exercise it, and its edge cases |
 | [`docs/features-1.3-1.5.md`](docs/features-1.3-1.5.md) | The same for 1.3 → 1.5: how each feature worked *before*, a snippet for the case that works and the neighbouring one that does not, and the test that holds it |
 | [`docs/features-1.6.md`](docs/features-1.6.md) | The same for 1.6: tables and free text as one notation — the unified registry, the outer scope, the union CSV mirror, chained constraints |
