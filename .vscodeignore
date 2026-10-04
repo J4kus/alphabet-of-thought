@@ -11,6 +11,7 @@ vsc-extension-quickstart.md
 # a Python environment, and this repository's own aot.files (its CSV mirror,
 # sidecars and uv project), are the working copy's, never the extension's
 **/.venv/**
+**/.venv-*/**
 aot.files/**
 out/**
 lp.py

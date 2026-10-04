@@ -115,7 +115,11 @@ const vscode = {
     push(line, char, length, type) { this.tokens.push([line, char, length, type]); }
     build() { return { tokens: this.tokens }; }
   },
-  TextEdit: { replace: (range, text) => ({ range, text }) },
+  TextEdit: {
+    replace: (range, text) => ({ range, text }),
+    delete: (range) => ({ range, text: "" }),
+    insert: (pos, text) => ({ range: new vscode.Range(pos.line, pos.character, pos.line, pos.character), text }),
+  },
   Selection: class {
     constructor(...a) {
       this.a = a;
@@ -153,7 +157,12 @@ const vscode = {
       vscode.window._warningItems = items.filter((i) => typeof i === "string");
       return Promise.resolve(vscode.window._warningAnswer);
     },
-    showInformationMessage: (m) => { vscode.window._info.push(m); return Promise.resolve(); },
+    showInformationMessage: (m, ...rest) => {
+      vscode.window._info.push(m);
+      const opts = rest.find((r) => r && typeof r === "object");
+      if (opts && opts.detail) vscode.window._infoDetail = opts.detail;
+      return Promise.resolve();
+    },
     showErrorMessage: (m) => { vscode.window._errors.push(m); return Promise.resolve(); },
     setStatusBarMessage: (m) => { vscode.window._status = m; return { dispose() {} }; },
     createStatusBarItem: () => {
@@ -166,6 +175,8 @@ const vscode = {
     constructor() { this.ops = []; }
     replace(uri, range, text) { this.ops.push({ type: "replace", uri, range, text }); }
     insert(uri, pos, text) { this.ops.push({ type: "insert", uri, pos, text }); }
+    // TextEdits for one document, applied by character offset as VS Code does
+    set(uri, edits) { for (const e of edits) this.ops.push({ type: "text", uri, range: e.range, text: e.text }); }
   },
   workspace: {
     textDocuments: [],
@@ -218,9 +229,20 @@ const vscode = {
       return doc;
     },
     applyEdit: async (edit) => {
+      // TextEdits set on a document: by offset, last first, so earlier ones hold
+      const texts = edit.ops.filter((op) => op.type === "text" && op.uri.__doc);
+      for (const doc of new Set(texts.map((op) => op.uri.__doc))) {
+        let text = doc.lines.join("\n");
+        const at = (line, ch) => doc.lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0) + ch;
+        const mine = texts.filter((op) => op.uri.__doc === doc)
+          .map((op) => ({ from: at(op.range.a[0], op.range.a[1]), to: at(op.range.a[2], op.range.a[3]), text: op.text }))
+          .sort((x, y) => y.from - x.from);
+        for (const e of mine) text = text.slice(0, e.from) + e.text + text.slice(e.to);
+        doc.lines = text.split("\n");
+      }
       for (const op of edit.ops) {
         const doc = op.uri.__doc;
-        if (!doc) continue; // a makeDoc fixture is a read-only snapshot
+        if (!doc || op.type === "text") continue; // a makeDoc fixture is a read-only snapshot
         if (op.type === "replace") {
           const [sl, , el] = op.range.a;
           doc.lines.splice(sl, el - sl + 1, ...op.text.split("\n"));
@@ -696,10 +718,11 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[1] === "    Ollie|5"
       && editor.selection.active.line === 2 && editor.selection.active.character === 10;
-    // 52 table and derivation commands (AutoSum went with the formula
-    // language), plus Ctrl+Enter's run and its fresh twin
-    console.log(ok && registeredCommands.size === 54
-      ? "PASS (table editor: 54 commands; Tab aligns and moves to the next cell)"
+    // 53 table and derivation commands (AutoSum went with the formula
+    // language; Define Column joined them), plus Ctrl+Enter's run and its
+    // fresh twin
+    console.log(ok && registeredCommands.size === 55
+      ? "PASS (table editor: 55 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -1335,6 +1358,278 @@ if (process.platform === "win32" || process.platform === "darwin") {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
+// 7c2) Gödel numbering in the editor: one content under two names in two
+// files warns, with the synonym lightbulb; hover shows a node's content; a
+// value every child sets warns, with its "move up" lightbulb; and a save
+// writes the stable numbers into aot.files/godel.tsv. In a folder of its own
+// outside this repository, with a .git of its own, so the save writes there.
+{
+  const os = require("os");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aot-godel-"));
+  fs.mkdirSync(path.join(tmp, ".git"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  const aPath = path.join(tmp, "Kennel.aot"), bPath = path.join(tmp, "Pound.aot");
+  const aText = ["Hound", "    legs: 4", "    sound: bark", "    - Rex", "        age: 3", "        sound: yap"].join("\n");
+  fs.writeFileSync(aPath, aText);
+  fs.writeFileSync(bPath, ["Mutt", "    legs: 4", "    sound: bark"].join("\n"));
+  vscode.workspace._aotCreated({ fsPath: aPath });
+  vscode.workspace._aotCreated({ fsPath: bPath });
+  const docA = makeDoc(aPath, aText);
+  vscode.workspace._open(docA);
+  const twin = (published.get(docA.uri.toString()) || []).find((d) => /^'Hound' and 'Mutt' \(Pound\.aot:1\) carry exactly the same attributes and values/.test(d.message));
+  const twinFixes = twin ? codeActionsProvider.provideCodeActions(docA, twin.range, { diagnostics: [twin] }) : [];
+  console.log(twin && twin.severity === vscode.DiagnosticSeverity.Warning
+    && (twin.relatedInformation || []).some((r) => /Pound\.aot/.test(r.location.uri.toString()))
+    && twinFixes.some((f) => f.command && f.command.command === "aot.renameConcept")
+    && twinFixes.some((f) => f.command && f.command.command === "aot.acceptDistinct")
+    ? "PASS (twins: one content under two names in two files warns, the peer linked, rename or keep apart on the lightbulb)"
+    : "UNEXPECTED twin " + JSON.stringify({ diags: (published.get(docA.uri.toString()) || []).map((d) => d.message), fixes: twinFixes.map((f) => f.title) }));
+
+  const rex = hoverProvider.provideHover(docA, new vscode.Position(3, 7));
+  const rexText = rex && rex.contents.value;
+  console.log(rexText && /\*\*Content\*\* — G = /.test(rexText) && /- `legs`: `4` — from 'Hound' \(line 2\)/.test(rexText)
+    && /- `age`: `3`\n/.test(rexText)
+    ? "PASS (hover: an Example's content — each slot, an inherited one saying where it came from)"
+    : "UNEXPECTED Example content hover " + JSON.stringify(rexText));
+  console.log(rexText && /- overrides `sound`: `bark` from 'Hound' with `yap`/.test(rexText)
+    ? "PASS (hover: an override names what it replaces and where that came from)"
+    : "UNEXPECTED override hover " + JSON.stringify(rexText));
+
+  const vPath = path.join(tmp, "Garage.aot");
+  const vText = ["Vehicle", "    Car", "        wheels: 4", "        doors: 3", "    Van", "        wheels: 4", "        doors: 5"].join("\n");
+  fs.writeFileSync(vPath, vText);
+  const docV = makeDoc(vPath, vText);
+  vscode.workspace._open(docV);
+  const hoistD = (published.get(docV.uri.toString()) || []).find((d) => /^every child of 'Vehicle' sets 'wheels: 4'/.test(d.message));
+  const moveUp = hoistD && codeActionsProvider.provideCodeActions(docV, hoistD.range, { diagnostics: [hoistD] })
+    .find((f) => f.command && f.command.command === "aot.hoistValue");
+  console.log(hoistD && hoistD.severity === vscode.DiagnosticSeverity.Warning
+    && moveUp && moveUp.title === "Move 'wheels: 4' up to 'Vehicle'" && JSON.stringify(moveUp.command.arguments) === JSON.stringify([1, "wheels", "4", "hoist"])
+    ? "PASS (hoists: a value every child sets warns, never in V, with the move up on the lightbulb)"
+    : "UNEXPECTED hoist " + JSON.stringify({ diags: (published.get(docV.uri.toString()) || []).map((d) => [d.severity, d.message]), moveUp: moveUp && moveUp.title }));
+  const dPath = path.join(tmp, "Kitchen.aot");
+  const dText = ["Drink", "    temperature: cold", "    Tea", "        temperature: hot", "    Soup", "        temperature: warm"].join("\n");
+  fs.writeFileSync(dPath, dText);
+  const docD = makeDoc(dPath, dText);
+  vscode.workspace._open(docD);
+  const deadD = (published.get(docD.uri.toString()) || []).find((d) => /^'Drink' sets 'temperature: cold' but every child overrides it/.test(d.message));
+  const keepJust = deadD && codeActionsProvider.provideCodeActions(docD, deadD.range, { diagnostics: [deadD] })
+    .find((f) => f.command && f.command.command === "aot.hoistValue");
+  console.log(deadD && keepJust && keepJust.title === "Keep just 'temperature'" && !keepJust.isPreferred
+    && JSON.stringify(keepJust.command.arguments) === JSON.stringify([1, "temperature", "", "bare"])
+    ? "PASS (hoists: a default no child keeps warns, with 'keep just the attribute' on the lightbulb)"
+    : "UNEXPECTED dead default " + JSON.stringify({ diags: (published.get(docD.uri.toString()) || []).map((d) => d.message), fix: keepJust && keepJust.title }));
+  // a squiggle the document no longer bears out, or another tool's, offers nothing
+  const ghost = { source: "aot", message: "every child of 'Ghost' sets 'x: 1' (lines 2, 4) — …", range: new vscode.Range(0, 0, 0, 5) };
+  const foreign = Object.assign({}, hoistD, { source: "other" });
+  console.log(!codeActionsProvider.provideCodeActions(docV, ghost.range, { diagnostics: [ghost, foreign] })
+    .some((f) => f.command && f.command.command === "aot.hoistValue")
+    ? "PASS (hoists: a stale squiggle, or another tool's, offers no move)"
+    : "UNEXPECTED stale hoist action");
+  const car = hoverProvider.provideHover(docV, new vscode.Position(1, 5));
+  const carText = car && car.contents.value;
+  console.log(carText && /\*\*Content\*\*/.test(carText) && /Nearest sibling: 'Van' \(line 5\), 1 slot apart — `~ doors: 3 \| 5`/.test(carText)
+    ? "PASS (hover: a Concept with no chains and no usages still shows its content, and its nearest sibling)"
+    : "UNEXPECTED Concept content hover " + JSON.stringify(carText));
+  // Examples are named as the file writes them, '- ' and all; and a Concept
+  // with nothing to say — no chains, no usages, no content — has no hover
+  const lText = ["Litter", "    size: small", "    - Pup One", "        colour: brown", "    - Pup Two", "        colour: black", "        weight: 3",
+    "        - Runt", "            colour: grey"].join("\n");
+  const docL = makeDoc(path.join(tmp, "Litter.aot"), lText);
+  const runt = hoverProvider.provideHover(docL, new vscode.Position(7, 12));
+  const pup = hoverProvider.provideHover(docL, new vscode.Position(2, 8));
+  console.log(runt && /- `weight`: `3` — from '- Pup Two' \(line 7\)/.test(runt.contents.value)
+    && /- overrides `colour`: `black` from '- Pup Two' with `grey`/.test(runt.contents.value)
+    && pup && /Nearest sibling: '- Pup Two' \(line 5\), 2 slots apart/.test(pup.contents.value)
+    && hoverProvider.provideHover(makeDoc(path.join(tmp, "Alone.aot"), "Lonely"), new vscode.Position(0, 2)) === null
+    ? "PASS (hover: an Example is named '- X' wherever its content is shown; a Concept with nothing to say has no hover)"
+    : "UNEXPECTED Example naming hover " + JSON.stringify({ runt: runt && runt.contents.value, pup: pup && pup.contents.value }));
+
+  vscode.workspace._save(docV);
+  const tsv = path.join(tmp, "aot.files", "godel.tsv");
+  const reg = fs.existsSync(tsv) ? fs.readFileSync(tsv, "utf8") : "";
+  console.log(/^# Gödel numbering kept by the AOT extension/.test(reg) && /\na\tdoors\t\d+\n/.test(reg) && /\nv\twheels\t2\t4\n/.test(reg)
+    ? "PASS (registry: a save writes the stable numbers into aot.files/godel.tsv)"
+    : "UNEXPECTED registry " + JSON.stringify(reg));
+  // switched off, a save writes nothing; a registry that can be neither read
+  // nor written (a folder where the file should be) numbers afresh, quietly
+  const grownText = vText + "\n        seats: 2";
+  configStore["godelRegistry"] = false;
+  vscode.workspace._save(makeDoc(vPath, grownText));
+  const offKept = fs.readFileSync(tsv, "utf8") === reg;
+  delete configStore["godelRegistry"];
+  fs.rmSync(tsv);
+  fs.mkdirSync(tsv);
+  let regThrew = null, regHover = null;
+  try {
+    vscode.workspace._save(makeDoc(vPath, grownText));
+    regHover = hoverProvider.provideHover(makeDoc(vPath, grownText), new vscode.Position(1, 5));
+  } catch (e) { regThrew = e; }
+  console.log(offKept && !regThrew && fs.statSync(tsv).isDirectory() && regHover && /\*\*Content\*\*/.test(regHover.contents.value)
+    ? "PASS (registry: aot.godelRegistry off writes nothing; one that cannot be read or written is numbered afresh, and nothing breaks)"
+    : "UNEXPECTED registry edges " + JSON.stringify({ offKept, threw: regThrew && regThrew.message }));
+
+  vscode.workspace.workspaceFolders = undefined;
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// 7c3) AOT: Set Up Git Merge for .aot Files: .gitattributes gains the two
+// lines it lacks, the driver goes into the repository's local git config,
+// and on activation a driver left pointing at a gone verify.js is repaired —
+// while a repository that never ran the setup is never touched
+(async () => {
+  const os = require("os");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aot-gitmerge-"));
+  fs.mkdirSync(path.join(tmp, ".git"));
+  fs.writeFileSync(path.join(tmp, ".gitattributes"), "*.png binary\n*.aot merge=aot\n");
+  const calls = [];
+  ext._test.setGit((root, args) => { calls.push([root, ...args]); return ""; });
+  const before = vscode.workspace.workspaceFolders;
+  const activeBefore = vscode.window.activeTextEditor;
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  vscode.window.activeTextEditor = undefined;
+  const setUp = plainCommands.get("aot.setUpGitMerge");
+  const result = setUp && await setUp();
+  const attrs = fs.readFileSync(path.join(tmp, ".gitattributes"), "utf8");
+  const driver = calls.find((c) => c[1] === "config" && c[3] === "merge.aot.driver");
+  console.log(result && result.ok && attrs === "*.png binary\n*.aot merge=aot\naot.files/godel.tsv merge=union\n"
+    && driver && driver[0] === tmp && /^node ".*\/verify\.js" --merge %O %A %B %P$/.test(driver[4])
+    && calls.some((c) => c[3] === "merge.aot.name")
+    ? "PASS (git merge: the setup adds only the missing .gitattributes lines, and the driver to the local git config)"
+    : "UNEXPECTED git merge setup " + JSON.stringify({ result, attrs, calls }));
+
+  calls.length = 0;
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }]; // other async blocks move it while this one awaits
+  fs.writeFileSync(path.join(tmp, ".git", "config"), '[merge "aot"]\n\tname = x\n\tdriver = node "C:/gone/extension/verify.js" --merge %O %A %B %P\n');
+  ext._test.repairGitMerge();
+  const repaired = calls.find((c) => c[3] === "merge.aot.driver");
+  fs.writeFileSync(path.join(tmp, ".git", "config"), "[core]\n\tbare = false\n");
+  const n = calls.length;
+  ext._test.repairGitMerge();
+  console.log(repaired && !/gone/.test(repaired[4]) && calls.length === n
+    ? "PASS (git merge: a driver pointing at a gone verify.js is repaired; a repository never set up is left alone)"
+    : "UNEXPECTED git merge repair " + JSON.stringify(calls));
+
+  // no repository to set up, and git refusing: both said, nothing pretended
+  vscode.workspace.workspaceFolders = undefined;
+  vscode.window.activeTextEditor = undefined;
+  const infos = vscode.window._info.length;
+  const none = await setUp();
+  const noneSaid = vscode.window._info.slice(infos).some((m) => /open a file in a git repository/.test(m));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  vscode.window.activeTextEditor = undefined;
+  ext._test.setGit(() => { throw Object.assign(new Error("exit 128"), { stderr: "fatal: not in a git directory\n" }); });
+  const errs = vscode.window._errors.length;
+  const refused = await setUp();
+  console.log(none && !none.ok && noneSaid && refused && !refused.ok
+    && vscode.window._errors.slice(errs).some((m) => /git could not be configured — fatal: not in a git directory/.test(m))
+    ? "PASS (git merge: no repository, or git refusing, is said and sets nothing up)"
+    : "UNEXPECTED git merge failures " + JSON.stringify({ none, refused, errors: vscode.window._errors.slice(errs) }));
+  ext._test.setGit(null);
+  vscode.workspace.workspaceFolders = before;
+  vscode.window.activeTextEditor = activeBefore;
+  fs.rmSync(tmp, { recursive: true, force: true });
+})();
+
+// 7c3b) the git merge setup's edges, from the sequential Python block (12),
+// since they move the active editor across awaits: git not there at all;
+// set up from the file open in the editor; a second time, nothing left to
+// commit; a repository with no .gitattributes, and one whose last line has
+// no newline; and the repair on activation passing over what it cannot read
+// or set.
+async function gitMergeEdges() {
+  const os = require("os");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aot-gitedges-"));
+  fs.mkdirSync(path.join(tmp, ".git"));
+  const setUp = plainCommands.get("aot.setUpGitMerge");
+  const activeBefore = vscode.window.activeTextEditor;
+  const foldersBefore = vscode.workspace.workspaceFolders;
+  ext._test.setGit(() => { throw new Error("spawn git ENOENT"); });
+  vscode.window.activeTextEditor = { document: { fileName: path.join(tmp, "zoo.aot") } };
+  const errs = vscode.window._errors.length;
+  await setUp();
+  const noGit = vscode.window._errors.slice(errs).some((m) => /git could not be configured — spawn git ENOENT/.test(m));
+
+  ext._test.setGit(() => "");
+  vscode.window.activeTextEditor = { document: { fileName: path.join(tmp, "zoo.aot") } };
+  const first = await setUp();
+  const infos = vscode.window._info.length;
+  vscode.window.activeTextEditor = { document: { fileName: path.join(tmp, "zoo.aot") } };
+  const again = await setUp();
+  const againSaid = vscode.window._info.slice(infos).find((m) => /now merge by meaning/.test(m)) || "";
+  const created = fs.readFileSync(path.join(tmp, ".gitattributes"), "utf8");
+  fs.writeFileSync(path.join(tmp, ".gitattributes"), "*.png binary");
+  vscode.window.activeTextEditor = { document: { fileName: path.join(tmp, "zoo.aot") } };
+  await setUp();
+  const appended = fs.readFileSync(path.join(tmp, ".gitattributes"), "utf8");
+  console.log(noGit && first.ok && first.root === tmp && again.ok && againSaid && !/commit \.gitattributes/.test(againSaid)
+    && created === "*.aot merge=aot\naot.files/godel.tsv merge=union\n" && appended === "*.png binary\n*.aot merge=aot\naot.files/godel.tsv merge=union\n"
+    ? "PASS (git merge: set up from the open file's repository; nothing to commit the second time; a .gitattributes made, or one without a final newline kept whole; git not there said)"
+    : "UNEXPECTED git merge setup edges " + JSON.stringify({ noGit, first, again, againSaid, created, appended }));
+
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), "aot-norepo-"));
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "aot-worktree-"));
+  fs.writeFileSync(path.join(worktree, ".git"), "gitdir: elsewhere\n");
+  fs.writeFileSync(path.join(tmp, ".git", "config"), '[merge "aot"]\n\tdriver = node "C:/gone/extension/verify.js" --merge %O %A %B %P\n');
+  ext._test.setGit(() => { throw new Error("git is busy"); });
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: plain } }, { uri: { fsPath: worktree } }, { uri: { fsPath: tmp } }];
+  let repairThrew = null;
+  try { ext._test.repairGitMerge(); } catch (e) { repairThrew = e; }
+  console.log(!repairThrew
+    ? "PASS (git merge: the repair passes over a folder in no repository, a worktree's .git file, and git failing, quietly)"
+    : "UNEXPECTED git merge repair threw " + repairThrew.message);
+  ext._test.setGit(null);
+  vscode.window.activeTextEditor = activeBefore;
+  vscode.workspace.workspaceFolders = foldersBefore;
+  for (const d of [tmp, plain, worktree]) fs.rmSync(d, { recursive: true, force: true });
+}
+
+// 7c4) the lightbulb's "move up" really edits the document; when the file
+// moved on since the warning, it says so and edits nothing; and the
+// repo-wide reconcile removes a stale '...' note from a file on disk. Run
+// from the sequential Python block (12), since it moves the workspace.
+async function hoistAndReconcile() {
+  const os = require("os");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aot-hoist-"));
+  fs.mkdirSync(path.join(tmp, ".git"));
+  const vPath = path.join(tmp, "Garage.aot");
+  fs.writeFileSync(vPath, ["Vehicle", "    Car", "        wheels: 4", "        doors: 5", "    Van", "        wheels: 4", "        doors: 3"].join("\n"));
+  const doc = await vscode.workspace.openTextDocument(vPath);
+  const activeBefore = vscode.window.activeTextEditor;
+  vscode.window.activeTextEditor = { document: doc };
+  await plainCommands.get("aot.hoistValue")(1, "wheels", "4", "hoist");
+  const moved = doc.getText() === ["Vehicle", "    wheels: 4", "    Car", "        doors: 5", "    Van", "        doors: 3"].join("\n");
+  vscode.window.activeTextEditor = { document: doc };
+  vscode.window._status = "";
+  await plainCommands.get("aot.hoistValue")(99, "wheels", "4", "hoist");
+  const stale = /nothing to move/.test(vscode.window._status || "");
+  console.log(moved && stale
+    ? "PASS (hoists: 'move up' writes the fact once on the parent and takes it off each child; a stale lightbulb edits nothing)"
+    : "UNEXPECTED hoist command " + JSON.stringify({ text: doc.getText(), status: vscode.window._status }));
+  const dPath = path.join(tmp, "Kitchen.aot");
+  fs.writeFileSync(dPath, ["Drink", "    temperature: cold", "    Tea", "        temperature: hot", "    Soup", "        temperature: warm"].join("\n"));
+  const docD = await vscode.workspace.openTextDocument(dPath);
+  vscode.window.activeTextEditor = { document: docD };
+  await plainCommands.get("aot.hoistValue")(1, "temperature", "", "bare");
+  console.log(docD.getText() === ["Drink", "    temperature", "    Tea", "        temperature: hot", "    Soup", "        temperature: warm"].join("\n")
+    ? "PASS (hoists: 'keep just the attribute' takes the dead value off the line)"
+    : "UNEXPECTED keep just " + JSON.stringify(docD.getText()));
+
+  const aPath = path.join(tmp, "Lamps.aot"), bPath = path.join(tmp, "Store.aot");
+  fs.writeFileSync(aPath, ["Lantern", "    fuel", "    - Hurricane", "        fuel: oil", "    ... 2 more in Store.aot:1"].join("\n"));
+  fs.writeFileSync(bPath, ["Torch", "    - Pocket", "    - Head"].join("\n"));
+  const foldersBefore = vscode.workspace.workspaceFolders;
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  await plainCommands.get("aot.reconcileAcrossFiles")();
+  const lamps = fs.readFileSync(aPath, "utf8");
+  console.log(!/more in Store\.aot/.test(lamps) && /- Hurricane/.test(lamps)
+    ? "PASS (reconcile across files: a '...' note no other file backs any more is removed from the file on disk)"
+    : "UNEXPECTED reconcile across files " + JSON.stringify(lamps));
+  vscode.workspace.workspaceFolders = foldersBefore;
+  vscode.window.activeTextEditor = activeBefore;
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
 // 7d) two names for one idea: an advisory warning with a lightbulb on each
 // of the two ways out, and a dismissal that is remembered.
 {
@@ -1377,7 +1672,8 @@ if (process.platform === "win32" || process.platform === "darwin") {
 
 // 7d2) an Example's name is part of what it is: two ledger rows carrying
 // the same values are two payments, not a clash. And the flip between a
-// table and free text is on the lightbulb, no chord needed.
+// table and free text is NOT on the lightbulb: offered on every line of a
+// Concept, it lit the bulb everywhere (it stays on its keys and the menu).
 {
   const text = ["Payment|amount|payee", "P1     |100   |Shop", "P2     |100   |Shop"].join("\n");
   const doc = makeDoc("c:\\repo\\Books.aot", text);
@@ -1388,9 +1684,9 @@ if (process.platform === "win32" || process.platform === "darwin") {
     : "UNEXPECTED ledger clash " + JSON.stringify(diags.map((d) => d.message)));
   const flip = codeActionsProvider.provideCodeActions(doc, new vscode.Range(1, 2, 1, 2), { diagnostics: [] })
     .find((f) => f.command && f.command.command === "aot.toggleTableForm");
-  console.log(flip && /Flip 'Payment' between table and free text/.test(flip.title) && flip.kind === "refactor.rewrite"
-    ? "PASS (flip: the lightbulb offers the flip, no chord needed)"
-    : "UNEXPECTED flip action " + JSON.stringify(flip && flip.title));
+  console.log(!flip
+    ? "PASS (flip: the lightbulb no longer offers the flip)"
+    : "UNEXPECTED flip action " + JSON.stringify(flip.title));
 }
 
 // 7d3) the spreadsheet's movement keys move the cursor and edit nothing;
@@ -1520,8 +1816,86 @@ if (process.platform === "win32" || process.platform === "darwin") {
   console.log(moved && editor.selection.active.line === 6
     ? "PASS (free text: Alt+↓ moves the whole Example, the cursor with it)"
     : "UNEXPECTED free-text move " + JSON.stringify({ lines, sel: editor.selection.a }));
+
+  // the declaration line is the column's header: the column keys take it
+  // (aot.inColumn), Tab does not (aot.inGrid stays false there)
+  const columnContext = () => {
+    vscode.window.activeTextEditor = editor; // other async blocks swap it between awaits
+    vscode.commands._calls.length = 0;
+    vscode.window._selectionChanged({ textEditor: editor, selections: [editor.selection] });
+    const set = vscode.commands._calls.find((c) => c[0] === "setContext" && c[1] === "aot.inColumn");
+    return set && set[2];
+  };
+  editor.selection = new vscode.Selection(1, 4, 1, 4); // the bare 'age' declaration
+  const declColumn = columnContext() === true && gridContext() === false;
+  vscode.window.activeTextEditor = editor;
+  editor.selection = new vscode.Selection(0, 2, 0, 2); // the Concept's own line
+  const conceptColumn = columnContext() === false;
+  editor.selection = new vscode.Selection(1, 4, 1, 4);
+  await registeredCommands.get("aot.table.deleteColumn")(editor);
+  const gone = !lines.some((l) => /\bage\b/.test(l)) && lines.length === 5;
+  console.log(declColumn && conceptColumn && gone
+    ? "PASS (free text: Alt+Shift+← on a declaration line deletes the column, declaration and values)"
+    : "UNEXPECTED declaration delete " + JSON.stringify({ declColumn, conceptColumn, lines }));
+  // a declaration with no Example below it, to the document's last line, is no column
+  lines.push("Other", "    note");
+  editor.selection = new vscode.Selection(lines.length - 1, 5, lines.length - 1, 5);
+  const lastColumn = columnContext();
+  lines.splice(-2);
+  console.log(lastColumn === false
+    ? "PASS (free text: a declaration with no Example below it, to the end of the file, takes no column keys)"
+    : "UNEXPECTED trailing declaration context " + JSON.stringify(lastColumn));
   vscode.window.activeTextEditor = active;
 })();
+
+// 7d5) Alt+Shift+← in a table deletes the cursor's column, and never the
+// first one, which names the Concept and its Examples
+(async () => {
+  let lines = ["Otter|size|colour", "Ollie|5   |brown"];
+  const doc = makeDoc("c:\\repo\\Cols.aot", lines.join("\n"));
+  doc.eol = vscode.EndOfLine.LF;
+  doc.getText = () => lines.join("\n");
+  doc.lineAt = (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] });
+  Object.defineProperty(doc, "lineCount", { get: () => lines.length });
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(1, 6, 1, 6), // in Ollie's size
+    edit: (cb) => {
+      cb({ replace: (range, t) => { lines = t.split("\n"); } });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {},
+  };
+  await registeredCommands.get("aot.table.deleteColumn")(editor);
+  await new Promise((r) => setImmediate(r));
+  const deleted = lines.join("|") === "Otter|colour|Ollie|brown";
+  editor.selection = new vscode.Selection(1, 1, 1, 1); // in Ollie's name
+  const before = lines.join("\n");
+  await registeredCommands.get("aot.table.deleteColumn")(editor);
+  const spared = lines.join("\n") === before;
+  console.log(deleted && spared
+    ? "PASS (table: Alt+Shift+← deletes the cursor's column, never the name column)"
+    : "UNEXPECTED table column delete " + JSON.stringify({ lines }));
+})();
+
+// 7d6) no two contributed keybindings claim one key where both could fire:
+// a shadowed Alt+Shift+← is a key that silently stops working
+{
+  const kb = require("../package.json").contributes.keybindings;
+  const clashes = [];
+  kb.forEach((a, i) => kb.slice(i + 1).forEach((b) => {
+    if (a.key !== b.key || (a.mac || "") !== (b.mac || "")) return;
+    // two clauses can both hold unless one negates what the other requires
+    const terms = (w) => String(w || "").split("&&").map((t) => t.trim()).filter(Boolean);
+    const neg = (t) => (t.startsWith("!") ? t.slice(1) : "!" + t);
+    const exclusive = terms(a.when).some((t) => terms(b.when).includes(neg(t)));
+    if (!exclusive) clashes.push(`${a.key}: ${a.command} / ${b.command}`);
+  }));
+  const deleteKey = kb.find((k) => k.command === "aot.table.deleteColumn");
+  console.log(!clashes.length && deleteKey && deleteKey.key === "alt+shift+left" && /aot\.inColumn/.test(deleteKey.when)
+    ? "PASS (keybindings: none shadows another; Alt+Shift+← deletes a column wherever a column is)"
+    : "UNEXPECTED keybinding clashes " + JSON.stringify({ clashes, deleteKey }));
+}
 
 // 7e) keeping your place in a long or wide table: the outline makes the
 // header line the parent of its rows (which is what sticky scroll pins),
@@ -2409,6 +2783,8 @@ setTimeout(async () => {
     if (/^\d+$/.test(it.code)) bound = Number(it.code);
     else if (it.code === '("draft", "sent")') bound = ["draft", "sent"];
     else if (it.code === "_aot_ref(0)*2") bound = num(it.targets[0].text) * 2;
+    else if (it.code === "_aot_ref(0)*0.2") bound = num(it.targets[0].text) * 0.2;
+    else if (it.code === "_aot_ref(0)-1") bound = num(it.targets[0].text) - 1;
     else return { ok: false, error: `NameError: name '${it.code}' is not defined` };
     const v = it.value === "" ? null : Number.isNaN(num(it.value)) ? it.value : num(it.value);
     const rel = { "==": (a, b) => a === b, ">=": (a, b) => a >= b, "<=": (a, b) => a <= b, "<": (a, b) => a < b, ">": (a, b) => a > b }[it.rel];
@@ -2417,6 +2793,7 @@ setTimeout(async () => {
     if (it.rel === "==" && !many) out.define = { kind: "number", value: bound };
     return out;
   };
+  let shrinks = 0; // shrink() returns two Concepts the first time, one after
   const answer = (req) => {
     if (req.op === "hello") return { ok: true, protocol: 1, python: "3.13.0", executable: "fakepython", libraries: { pandas: "2.2.2", seaborn: null } };
     if (req.op === "open") {
@@ -2443,6 +2820,34 @@ setTimeout(async () => {
       case "chart()": return { ok: true, result: { kind: "image", ext: "png", base64: PNG.toString("base64") }, ms: 9 };
       case "notes()": return { ok: true, result: { kind: "text", text: "line one\nline two" }, ms: 1 };
       case "boom()": return { ok: false, error: "NameError: name 'boom' is not defined" };
+      case "load_all()": return {
+        ok: true, ms: 4, result: {
+          kind: "grids", summary: "<2 Concepts>", grids: [
+            { name: "sales", columns: ["month", "amount"], rows: [["1", "2026-01", 15000]] },
+            { name: "Region", columns: ["code"], rows: [["1", "EU"]] },
+          ],
+        },
+      };
+      case "1+1": return { ok: true, result: { kind: "number", value: 2 }, ms: 1 };
+      case "two()": return {
+        ok: true, ms: 2, result: {
+          kind: "grids", summary: "<2 Concepts>", grids: [
+            { name: "Gen Own", columns: ["x"], rows: [["1", "from the bare line"]] },
+            { name: "Gen Extra", columns: ["y"], rows: [["1", "b"]] },
+          ],
+        },
+      };
+      case "own()": return { ok: true, ms: 1, result: { kind: "frame", columns: ["x"], rows: [["1", "its own"]], summary: "<1 row>" } };
+      case "({})": return { ok: true, ms: 1, result: { kind: "grids", grids: [], summary: "<0 Concepts>" } };
+      case "shrink()": return shrinks++ === 0
+        ? { ok: true, ms: 1, result: { kind: "grids", summary: "<2 Concepts>", grids: [
+          { name: "Stock", columns: ["n"], rows: [["1", 5]] }, { name: "Old Stock", columns: ["n"], rows: [["1", 2]] }] } }
+        : { ok: true, ms: 1, stdout: "shrinking\n", result: { kind: "grids", summary: "<1 Concept>", grids: [{ name: "Stock", columns: ["n"], rows: [["1", 6]] }] } };
+      case "len(_aot_ref(0))":
+        return req.targets[0].kind === "object" && req.targets[0].address === "@=1" && req.targets[0].key === "Sales"
+          ? { ok: true, result: { kind: "number", value: 1 }, ms: 1 } : { ok: false, error: "not the live table the bare line wrote " + JSON.stringify(req.targets) };
+      case "_aot_ref(0)*0.2": return { ok: true, result: { kind: "number", value: Number(req.targets[0].text) * 0.2 }, ms: 1 };
+      case "_aot_ref(0)-1": return { ok: true, result: { kind: "number", value: Number(req.targets[0].text) - 1 }, ms: 1 };
       default: return { ok: false, error: `the fake runtime was not taught ${req.code}` };
     }
   };
@@ -2632,6 +3037,39 @@ setTimeout(async () => {
       && ranAt(undefined, now) === "" && ranAt("not a date", now) === ""
       ? "PASS (python: a run today shows its time, an older one its date as the file writes one)"
       : "UNEXPECTED ranAt " + JSON.stringify([ranAt(new Date(2026, 8, 24, 9, 5), now), ranAt(new Date(2026, 8, 23, 16, 4), now)]));
+
+    // what an inlay says, state by state — one derivation, then a row of them
+    {
+      const { pyRunNote, combinedRunNote } = ext._test;
+      const hash = require("../src/python").sourceHash;
+      const h = { source: "f()" };
+      const rec = { source: hash("f()"), at: new Date().toISOString(), ms: 3 };
+      const running = pyRunNote(h, { state: "running", source: hash("f()") }, rec);
+      const failed = pyRunNote(h, { state: "error", source: hash("f()"), message: "NameError: f" }, rec);
+      const skipped = pyRunNote(h, { state: "skipped", source: hash("f()"), message: "not run — @x failed" }, rec);
+      // (no time of its own: the session's mark carries none here, so the
+      // label has no '· hh:mm', and the tooltip has the record's run alone)
+      console.log(running.label === "⟳ running" && failed.label === "✗ NameError: f" && /^NameError: f\nlast ran [^\n]+$/.test(failed.tooltip)
+        && skipped.label === "– not run" && /^not run — @x failed\nlast ran [^\n]+$/.test(skipped.tooltip)
+        ? "PASS (python inlay: running, failed and not run, each saying when it last ran)"
+        : "UNEXPECTED run notes " + JSON.stringify([running, failed, skipped]));
+      const at = new Date();
+      const cell = (c, n) => Object.assign({ cell: c, label: "✓", tooltip: "" }, n);
+      const long = "ValueError: " + "x".repeat(80);
+      const row = (...notes) => combinedRunNote(notes);
+      const busy = row(cell("a", { state: "ok", ms: 1, at }), cell("b", { state: "running", label: "⟳ running" }));
+      const broke = row(cell("a", { state: "error", message: long, at }));
+      const notRun = row(cell("a", { state: "ok", ms: 1, at }), cell("b", { state: "skipped", at, label: "– not run", tooltip: "not run — @x failed" }));
+      const edited = row(cell("a", { state: "ok", ms: 1, at }), cell("b", { state: "edited", at }));
+      const plain = row(cell("a", { state: "ok" }), cell("b", { state: "ok", ms: 2 }));
+      console.log(busy.label === "⟳ running" && busy.tooltip === "a: ✓\nb: ⟳ running"
+        && broke.label.startsWith("✗ a: ValueError: xxx") && broke.label.includes("…") && broke.label.length < 75
+        && notRun.label === `– b not run · ${ranAt(at)}` && /^b: – not run\n {4}not run — @x failed$/m.test(notRun.tooltip)
+        && edited.label === `✎ b edited since ${ranAt(at)} — Ctrl+Enter`
+        && plain.label === "✓ a, b · 2 ms"
+        ? "PASS (python inlay: a row's one inlay leads with its worst news — running, a failure cut short, one not run, one edited — else names every cell)"
+        : "UNEXPECTED row notes " + JSON.stringify([busy, broke, notRun, edited, plain].map((x) => x.label)));
+    }
 
     // nothing left to do: a second Ctrl+Enter off every derivation runs only the failures again
     const evalsBefore = requests.filter((r) => r.op === "eval").length;
@@ -2962,6 +3400,13 @@ setTimeout(async () => {
         && opened && /^add it to aot\.files\/pyproject\.toml, then run AOT: Set Up Python Environment$/.test(opened.install)
         ? "PASS (uv: the derivations run in the environment's own interpreter, isolated, and a missing library says how to add it)"
         : "UNEXPECTED uv run " + JSON.stringify({ lastSpawn, install: opened && opened.install }));
+      vscode.window._infoDetail = "";
+      vscode.window.activeTextEditor = c.editor;
+      await plainCommands.get("aot.showPythonEnvironment")();
+      const envFolder = path.basename(require("../src/uvenv").venvDir(afDir, process.platform));
+      console.log((vscode.window._infoDetail || "").includes(`uv environment: aot.files/${envFolder}`)
+        ? "PASS (uv: Show Python Environment names this system's own environment folder)"
+        : "UNEXPECTED environment report " + JSON.stringify(vscode.window._infoDetail));
 
       // the interpreter changed since it was set up: not run
       for (const e of ext._test.sessions.values()) e.session.kill("test");
@@ -2993,6 +3438,289 @@ setTimeout(async () => {
       for (const e of ext._test.sessions.values()) e.session.kill("test");
       for (const f of ["pyproject.toml", "uv.lock", ".venv"]) fs.rmSync(path.join(afDir, f), { recursive: true, force: true });
     }
+
+    // two derivations side by side in one table row: each cell is its own
+    // derivation — Ctrl+Enter runs the one under the cursor (on the row's
+    // name, all of the row's), the row carries one inlay naming each cell,
+    // and hover answers for the cell it is over
+    {
+      const t = live(path.join(root, "Pair.aot"), [
+        "Invoice|price|vat        |net",
+        "A      |100  |=@price*0.2|=@price-1",
+        "B      |50   |=@price*0.2|=@price-1",
+      ]);
+      vscode.workspace.textDocuments = [f.doc, t.doc];
+      vscode.workspace._open(t.doc);
+      const evalsBefore = requests.filter((r) => r.op === "eval").length;
+      const netCol = t.lines()[1].indexOf("=@price-1") + 3;
+      t.editor.selection = new vscode.Selection(1, netCol, 1, netCol);
+      await registeredCommands.get("aot.runPython")(t.editor);
+      const codes = requests.filter((r) => r.op === "eval").slice(evalsBefore).map((r) => r.code);
+      const rowA = t.lines()[1];
+      console.log(codes.join() === "_aot_ref(0)-1" && /\|99 =@price-1$/.test(rowA) && /\|=@price\*0\.2 *\|/.test(rowA)
+        ? "PASS (python in a table: Ctrl+Enter on the right-hand derivation runs that one, not the left-hand one)"
+        : "UNEXPECTED right-hand run " + JSON.stringify({ codes, rowA }));
+
+      const evalsMid = requests.filter((r) => r.op === "eval").length;
+      t.editor.selection = new vscode.Selection(2, 0, 2, 0); // on B's name
+      await registeredCommands.get("aot.runPython")(t.editor);
+      const rowCodes = requests.filter((r) => r.op === "eval").slice(evalsMid).map((r) => r.code).sort();
+      const rowB = t.lines()[2];
+      console.log(rowCodes.join() === "_aot_ref(0)*0.2,_aot_ref(0)-1" && /\|10 =@price\*0\.2 *\|49 =@price-1$/.test(rowB)
+        ? "PASS (python in a table: Ctrl+Enter on a row's name runs every derivation on that row)"
+        : "UNEXPECTED row run " + JSON.stringify({ rowCodes, rowB }));
+
+      const rowHints = inlayProvider.provideInlayHints(t.doc, new vscode.Range(0, 0, 5, 0))
+        .filter((h) => h.position.line === 2);
+      console.log(rowHints.length === 1 && /^✓ vat, net · \d+ ms · \d\d:\d\d$/.test(rowHints[0].label)
+        && /vat/.test(rowHints[0].tooltip) && /net/.test(rowHints[0].tooltip)
+        ? "PASS (python in a table: one inlay per row, naming each cell that ran)"
+        : "UNEXPECTED row inlays " + JSON.stringify(rowHints.map((h) => [h.label, h.tooltip])));
+
+      const hoverAt = (col) => {
+        const hv = hoverProvider.provideHover(t.doc, new vscode.Position(2, col));
+        return hv && hv.contents ? [].concat(hv.contents).map((c) => c.value || String(c)).join(" ") : "";
+      };
+      const netValue = t.lines()[2].indexOf("49");
+      const vatValue = t.lines()[2].indexOf("10 =");
+      console.log(/=@price-1/.test(hoverAt(netValue)) && /=@price\*0\.2/.test(hoverAt(vatValue))
+        ? "PASS (python in a table: hover on a value names the derivation of that cell)"
+        : "UNEXPECTED cell hover " + JSON.stringify({ net: hoverAt(netValue), vat: hoverAt(vatValue) }));
+
+      // the ergonomic answer: a column every row derives alike is defined
+      // once, on its header, and the cells read as plain values
+      const vatAt = t.lines()[2].indexOf("=@price*0.2") + 2;
+      const offered = codeActionsProvider.provideCodeActions(t.doc, new vscode.Range(2, vatAt, 2, vatAt), { diagnostics: [] })
+        .find((a) => a.command && a.command.command === "aot.table.defineColumn");
+      t.editor.selection = new vscode.Selection(2, vatAt, 2, vatAt);
+      await registeredCommands.get("aot.table.defineColumn")(t.editor);
+      const netAt = t.lines()[2].indexOf("=@price-1") + 2;
+      t.editor.selection = new vscode.Selection(2, netAt, 2, netAt);
+      await registeredCommands.get("aot.table.defineColumn")(t.editor);
+      const defined = t.lines().slice(0, 3);
+      t.editor.selection = new vscode.Selection(0, 0, 0, 0);
+      await registeredCommands.get("aot.runPython")(t.editor);
+      const computed = t.lines().slice(0, 3);
+      console.log(offered && /Define 'vat' for the whole column \(vat ==@price\*0\.2\)/.test(offered.title)
+        && defined.join("\n") === ["Invoice|price|vat ==@price*0.2|net ==@price-1", "A      |100  |                |99", "B      |50   |10              |49"].join("\n")
+        && computed.join("\n") === ["Invoice|price|vat ==@price*0.2|net ==@price-1", "A      |100  |20              |99", "B      |50   |10              |49"].join("\n")
+        ? "PASS (python in a table: a column every row derives alike moves to its header as ==, and the next run fills its cells)"
+        : "UNEXPECTED define column " + JSON.stringify({ offered: offered && offered.title, defined, computed }));
+      vscode.workspace._close(t.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    // a bare `=` line writes Concepts: its tables by name, under it at its
+    // own indent; what reads one of them gets the live table; the park key
+    // takes the line out and puts it back above the first Concept it wrote
+    {
+      const g = live(path.join(root, "Gen.aot"), [
+        "=load_all()",
+        "",
+        "Summary",
+        "    count: =len(@Sales)",
+        "=two()",
+        "Gen Own =own()",
+        "=({})",
+      ]);
+      vscode.workspace.textDocuments = [f.doc, g.doc];
+      vscode.workspace._open(g.doc);
+      g.editor.selection = new vscode.Selection(0, 3, 0, 3);
+      await registeredCommands.get("aot.runPython")(g.editor);
+      const wrote = g.lines();
+      console.log(wrote.slice(0, 7).join("\n") === ["=load_all()", "Sales|month  |amount", "1    |2026-01|15,000", "", "Region|code", "1     |EU", ""].join("\n")
+        && lint(g.text(), "Gen").errors.length === 0
+        ? "PASS (python: a bare = line writes each table it returns as a Concept, under it, and the file verifies)"
+        : "UNEXPECTED bare = line " + JSON.stringify(wrote));
+      g.editor.selection = new vscode.Selection(0, 0, 0, 0);
+      const countLine = () => g.lines().find((l) => /count:/.test(l));
+      g.editor.selection = new vscode.Selection(g.lines().indexOf(countLine()), 6, g.lines().indexOf(countLine()), 6);
+      await registeredCommands.get("aot.runPython")(g.editor);
+      console.log(countLine() === "    count: 1 =len(@Sales)"
+        ? "PASS (python: what reads a Concept a bare = line wrote gets that table, live, by its name)"
+        : "UNEXPECTED read of a written Concept " + JSON.stringify({ line: countLine(), findings: pyFindings(g.doc).map((d) => d.message) }));
+      const genHint = inlayProvider.provideInlayHints(g.doc, new vscode.Range(0, 0, 20, 0)).find((h) => h.position.line === 0);
+      console.log(genHint && /^✓ 2 Concepts · 2 rows · 4 ms · \d\d:\d\d$/.test(genHint.label) && /wrote Sales, Region/.test(genHint.tooltip)
+        ? "PASS (python: a bare = line's inlay says how many Concepts it wrote, and names them)"
+        : "UNEXPECTED bare = inlay " + JSON.stringify(genHint && [genHint.label, genHint.tooltip]));
+
+      // off any derivation: the second bare line returns a Concept that has a
+      // derivation of its own — left to it, which is no failure: the line ran
+      // and wrote the rest, and a warning says one Concept is returned from
+      // two places — and the third returns nothing at all
+      await run(g, g.lines().indexOf("Summary"));
+      const G = g.lines();
+      const twoAt = G.indexOf("=two()");
+      const twoHint = inlayProvider.provideInlayHints(g.doc, new vscode.Range(0, 0, 40, 0)).find((h) => h.position.line === twoAt);
+      const twoFindings = pyFindings(g.doc).filter((d) => d.range.start.line === twoAt);
+      console.log(G[twoAt + 1] === "Gen Extra|y" && G.includes("Gen Own =own()|x") && G.some((l) => /^1 +\|its own$/.test(l))
+        && !G.some((l) => /from the bare line/.test(l))
+        && twoHint && /^✓ 1 Concept · 1 row · 2 ms · \d\d:\d\d · 'Gen Own' left to its own derivation$/.test(twoHint.label)
+        && /left alone: Gen Own — its own derivation writes its rows/.test(twoHint.tooltip)
+        && twoFindings.length === 1 && twoFindings[0].severity === vscode.DiagnosticSeverity.Warning
+        && twoFindings[0].message === "this line returns 'Gen Own', which has a derivation of its own — that one writes its rows, and this line leaves it alone; return it from one place only"
+        && !pyFindings(g.doc).some((d) => /Python failed/.test(d.message))
+        ? "PASS (python: a Concept with its own derivation is left to it — the bare line writes the rest, succeeds, and warns that two places return it)"
+        : "UNEXPECTED bare = conflict " + JSON.stringify({ G, hint: twoHint && [twoHint.label, twoHint.tooltip], findings: pyFindings(g.doc).map((d) => [d.severity, d.message]) }));
+      console.log(ext._test.leftAloneMessage(["Fleet", "Depot", "Yard"])
+        === "this line returns 'Fleet', 'Depot' and 'Yard', which have derivations of their own — those write their rows, and this line leaves them alone; return each from one place only"
+        ? "PASS (python: several Concepts left to their own derivations are named in one warning)"
+        : "UNEXPECTED left-alone wording " + JSON.stringify(ext._test.leftAloneMessage(["Fleet", "Depot", "Yard"])));
+
+      // the tables a bare line wrote are tinted as Python's, with a hover naming the line
+      const captured = new Map();
+      const visible = vscode.window.visibleTextEditors;
+      g.editor.setDecorations = (type, ranges) => captured.set(type, ranges);
+      vscode.window.visibleTextEditors = [g.editor];
+      vscode.workspace._open(g.doc);
+      vscode.window.visibleTextEditors = visible;
+      g.editor.setDecorations = () => {};
+      const tinted = [...captured.values()].flat().filter((d) => d.hoverMessage && /=load_all\(\)`, the line on 1/.test(d.hoverMessage.value || ""));
+      console.log(tinted.length === 2 && tinted.every((d) => g.lines()[d.range.a[0]] && !/^Sales\|/.test(g.lines()[d.range.a[0]]))
+        ? "PASS (python: every row a bare line wrote is tinted, and its hover names the line)"
+        : "UNEXPECTED bare = marks " + JSON.stringify(tinted.map((d) => d.range.a)));
+
+      const beforePark = g.text();
+      const warned = vscode.window._warnings.length;
+      await registeredCommands.get("aot.toggleFormulaPark")(g.editor);
+      const parkedText = g.text();
+      const store = fs.readFileSync(path.join(root, "aot.files", "Gen.formulas"), "utf8");
+      const stayedSaid = vscode.window._warnings.slice(warned).find((w) => /bare '=' line on line \d+ has no Concept beneath to come home above, so it stays/.test(w));
+      await registeredCommands.get("aot.toggleFormulaPark")(g.editor);
+      console.log(!/=load_all\(\)/.test(parkedText) && /^Sales\|month/.test(parkedText) && /@=Sales@Region: =load_all\(\)/.test(store)
+        && /@=Gen Extra: =two\(\)/.test(store) && /^=\(\{\}\)$/m.test(parkedText) && stayedSaid
+        && g.text() === beforePark
+        ? "PASS (python: the park key takes each bare = line out whole and puts it back where it stood; one with nothing beneath it stays, and is said to)"
+        : "UNEXPECTED bare = park " + JSON.stringify({ parkedText, store, back: g.text(), stayedSaid }));
+      vscode.workspace._close(g.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    // a row whose second cell fails: its one inlay names the failing cell,
+    // and the tooltip gives each cell its line
+    {
+      const e = live(path.join(root, "Err.aot"), ["Box|a   |b", "X  |=1+1|=boom()"]);
+      vscode.workspace.textDocuments = [f.doc, e.doc];
+      vscode.workspace._open(e.doc);
+      e.editor.selection = new vscode.Selection(1, 0, 1, 0);
+      await registeredCommands.get("aot.runPython")(e.editor);
+      const hint = inlayProvider.provideInlayHints(e.doc, new vscode.Range(0, 0, 5, 0)).find((h) => h.position.line === 1);
+      console.log(hint && /^✗ b: NameError: name 'boom' is not defined · \d\d:\d\d$/.test(hint.label)
+        && /^a: ✓/m.test(hint.tooltip) && /^b: ✗ NameError/m.test(hint.tooltip)
+        ? "PASS (python in a table: a row's one inlay names the cell that failed, and lists every cell)"
+        : "UNEXPECTED row failure inlay " + JSON.stringify(hint && [hint.label, hint.tooltip]));
+      vscode.workspace._close(e.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    // a bare line run again without a Concept it wrote before: the Concept
+    // stays in the file, and the inlay says it is no longer written
+    {
+      const s = live(path.join(root, "Shrink.aot"), ["=shrink()"]);
+      vscode.workspace.textDocuments = [f.doc, s.doc];
+      vscode.workspace._open(s.doc);
+      await run(s, 0);
+      await run(s, 0);
+      const hint = inlayProvider.provideInlayHints(s.doc, new vscode.Range(0, 0, 20, 0)).find((h) => h.position.line === 0);
+      console.log(hint && /^✓ 1 Concept · 1 row · 1 ms · \d\d:\d\d · 'Old Stock' no longer written$/.test(hint.label)
+        && /no longer written: Old Stock — still in the file; delete it if gone/.test(hint.tooltip) && /printed:\nshrinking/.test(hint.tooltip)
+        && s.lines().includes("Old Stock|n") && s.lines().some((l) => /^1 +\|6$/.test(l))
+        ? "PASS (python: a Concept a bare line no longer returns stays in the file, and the inlay says so)"
+        : "UNEXPECTED dropped Concept " + JSON.stringify({ hint: hint && [hint.label, hint.tooltip], lines: s.lines() }));
+      vscode.workspace._close(s.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    // two bare lines with nothing beneath either: both stay, said once
+    {
+      const n = live(path.join(root, "Nowhere.aot"), ["=({})", "", "=({})"]);
+      vscode.workspace.textDocuments = [f.doc, n.doc];
+      vscode.workspace._open(n.doc);
+      const warned = vscode.window._warnings.length;
+      await registeredCommands.get("aot.toggleFormulaPark")(n.editor);
+      // (the first run of a file it did not write asks first: that is a warning too)
+      const said = vscode.window._warnings.slice(warned).filter((w) => /bare '=' line/.test(w));
+      console.log(said.length === 1 && /bare '=' lines on lines 1, 3 have no Concept beneath to come home above, so they stay in the file — run them \(Ctrl\+Enter\) to write their tables, and then they park/.test(said[0])
+        && n.text() === "=({})\n\n=({})"
+        ? "PASS (python: bare lines with nowhere to come home to stay, and one warning names them all)"
+        : "UNEXPECTED stayed lines " + JSON.stringify({ said, text: n.text() }));
+      vscode.workspace._close(n.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    // hover on a function a derivation calls: its signature, file and
+    // docstring; on the line's attribute name, nothing of Python's
+    {
+      fs.writeFileSync(path.join(root, "aot.files", "Fn.py"), 'def double(x):\n    """Twice x."""\n    return 2 * x\n');
+      const fn = live(path.join(root, "Fn.aot"), ["Fn", "    d: =double(2)"]);
+      vscode.workspace.textDocuments = [f.doc, fn.doc];
+      vscode.workspace._open(fn.doc);
+      const onCall = hoverProvider.provideHover(fn.doc, new vscode.Position(1, 10));
+      const onName = hoverProvider.provideHover(fn.doc, new vscode.Position(1, 4));
+      console.log(onCall && /^`double\(x\)` — defined in `aot\.files\/Fn\.py` line 1\n\nTwice x\.$/.test(onCall.contents.value)
+        && !(onName && /defined in `aot\.files|Computed by Python/.test(onName.contents.value || ""))
+        ? "PASS (python: hover on a function a derivation calls gives its signature, file and docstring)"
+        : "UNEXPECTED function hover " + JSON.stringify({ onCall: onCall && onCall.contents.value, onName: onName && onName.contents.value }));
+      vscode.workspace._close(fn.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    // no uv environment: the report names what is searched for instead; and
+    // an interpreter that is not there is said by name, nothing started
+    {
+      const l = live(path.join(root, "Lost.aot"), ["Lost", "    x: =1+1"]);
+      vscode.workspace.textDocuments = [f.doc, l.doc];
+      vscode.workspace._open(l.doc);
+      vscode.window._infoDetail = "";
+      vscode.window.activeTextEditor = l.editor;
+      await plainCommands.get("aot.showPythonEnvironment")();
+      const searched = require("../src/python").defaultPythons(process.platform).join(" or ");
+      console.log((vscode.window._infoDetail || "").startsWith(`No uv environment — the interpreter aot.python.path names, else ${searched} on PATH`)
+        ? "PASS (python: with no uv environment, the report says which interpreter is looked for)"
+        : "UNEXPECTED no-uv report " + JSON.stringify(vscode.window._infoDetail));
+      // aot.python.manager "python" with no path: PATH's interpreter, by name
+      for (const e of ext._test.sessions.values()) e.session.kill("test");
+      configStore["python.manager"] = "python";
+      try { await run(l, 1); } finally { delete configStore["python.manager"]; }
+      console.log(lastSpawn && lastSpawn.cmd === require("../src/python").defaultPythons(process.platform)[0]
+        ? "PASS (python: the 'python' manager with no path set runs PATH's interpreter)"
+        : "UNEXPECTED python manager " + JSON.stringify(lastSpawn && lastSpawn.cmd));
+      for (const e of ext._test.sessions.values()) e.session.kill("test");
+      ext._test.setSpawn(null);
+      configStore["python.path"] = "no-such-python-anywhere";
+      const errorsBefore = vscode.window._errors.length;
+      try {
+        await run(l, 1);
+      } finally {
+        delete configStore["python.path"];
+        ext._test.setSpawn(fakeRuntime);
+      }
+      console.log(/^AOT: 'no-such-python-anywhere' was not found — install Python 3\.10 or later, or set aot\.python\.path to its executable$/.test(vscode.window._errors[errorsBefore] || "")
+        ? "PASS (python: an interpreter that is not there is named, and nothing is started)"
+        : "UNEXPECTED missing interpreter " + JSON.stringify(vscode.window._errors.slice(errorsBefore)));
+      vscode.workspace._close(l.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    // the lightbulb's "move into the sidecar": the expression becomes a
+    // function there, each reference a parameter
+    {
+      const mv = live(path.join(root, "Move.aot"), ["Move", "    n: 4", "    twice: =@n * 2"]);
+      vscode.workspace.textDocuments = [f.doc, mv.doc];
+      vscode.workspace._open(mv.doc);
+      await plainCommands.get("aot.movePythonToSidecar")(mv.doc.uri.toString(), 2);
+      const sidePath = path.join(root, "aot.files", "Move.py");
+      const side = fs.existsSync(sidePath) ? fs.readFileSync(sidePath, "utf8") : "";
+      console.log(/def twice\(n\):\n {4}return n \* 2\n/.test(side)
+        ? "PASS (python: moving a derivation into the sidecar writes it as a function of its references)"
+        : "UNEXPECTED moved derivation " + JSON.stringify(side));
+      vscode.workspace._close(mv.doc);
+      vscode.workspace.textDocuments = [f.doc];
+    }
+
+    await hoistAndReconcile();
+    await gitMergeEdges();
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
 
     // a file with no Python keeps Ctrl+Enter's own meaning
     const plain = live(path.join(root, "Plain.aot"), ["Plain", "    a: 1"]);

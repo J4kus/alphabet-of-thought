@@ -31,7 +31,7 @@
 // so every line of the protocol is tested without a Python on the machine.
 
 const crypto = require("crypto");
-const { KIND } = require("./linter");
+const { KIND, lint } = require("./linter");
 const table = require("./table");
 const derive = require("./derive");
 const park = require("./park");
@@ -96,8 +96,20 @@ function hostsOf(nodes, lines, rootName) {
       line: node.line, startCol: node.formulaCol, endCol: node.formulaEnd, value: "", node,
     });
   }
+  // a bare `=` line, which writes Concepts: addressed by its place among
+  // the file's bare lines, `@=1`, `@=2`, since it has no name of its own
+  (nodes.generators || []).forEach((gen, k) => {
+    if (!gen.formula) return; // an empty one is the linter's error, not a run's
+    out.push({
+      kind: "generator", address: generatorAddress(k), source: gen.formula, ordinal: k,
+      line: gen.line, startCol: gen.col, endCol: gen.end, value: "", node: null, gen,
+    });
+  });
   return out.sort((a, b) => (a.line - b.line) || (a.startCol - b.startCol));
 }
+
+// A bare `=` line's address: its place among the file's bare lines.
+const generatorAddress = (k) => `@=${k + 1}`;
 
 // --- the constraints ---------------------------------------------------------
 // A constraint's bound is Python too — `age >=18`, `cap <=@price*1.5`,
@@ -128,7 +140,9 @@ function constraintChecks(nodes, lines, parked) {
     const host = d.cell ? cellHostOf(lines, d) : { kind: "value", node: d, line: d.line };
     if (!host) continue;
     seen.add(`${d.line}:${host.cell ? host.cell.col : "v"}`);
-    out.push({ host, value: d.value || "", derived: d.formula !== undefined, a: held.a, chain: held.constraints });
+    // a cell's own derivation is marked `derived` (a line's carries `formula`):
+    // either way it is the nearer word, and a `==` definition never writes over it
+    out.push({ host, value: d.value || "", derived: d.formula !== undefined || !!d.derived, a: held.a, chain: held.constraints });
   }
   // a column a header defines with `==` fills its empty cells too: they are
   // no node, so they are found from the grid
@@ -321,14 +335,30 @@ const fold = (s) => table.numberless(String(s || "").trim()).toLowerCase();
 
 // The Python derivations of a file by what they are hosted on, so a
 // reference to one resolves to its live object rather than its written value.
-function hostIndex(hosts) {
+//
+// `generated` (optional) is what each bare `=` line last wrote — a Map of its
+// address to the Concept names — so `@Sales` reads the live table the line's
+// Python made, as it reads a Concept's own derivation's: the byConcept entry
+// is then { kind: "generated", address, key, node }, `key` the name the
+// result holds it under. A Concept's own derivation wins a shared name.
+// `nodes` finds each written Concept's node, for a rename to follow.
+function hostIndex(hosts, generated, nodes) {
   const byNode = new Map();
   const byConcept = new Map();
   const byCell = new Map();
   for (const h of hosts) {
     if (h.kind === "value") byNode.set(h.node, h);
     else if (h.kind === "concept") byConcept.set(fold(h.node.name), h);
-    else byCell.set(`${h.cell.line}:${h.cell.col}`, h);
+    else if (h.kind === "cell") byCell.set(`${h.cell.line}:${h.cell.col}`, h);
+  }
+  for (const h of hosts) {
+    if (h.kind !== "generator" || !generated) continue;
+    for (const name of generated.get(h.address) || []) {
+      const key = fold(name);
+      if (byConcept.has(key)) continue;
+      const node = (nodes || []).find((n) => n.kind === KIND.CONCEPT && fold(n.name) === key) || null;
+      byConcept.set(key, { kind: "generated", address: h.address, key: name, node });
+    }
   }
   return { byNode, byConcept, byCell };
 }
@@ -339,6 +369,12 @@ function derivedConcept(rest, index) {
   const m = table.longestMatch(rest, [...index.byConcept.keys()].map((key) => ({ key, id: key })));
   return m ? { length: m.length, host: index.byConcept.get(m.id) } : null;
 }
+
+// The live result a derivation host stands for — for a Concept a bare `=`
+// line wrote, the one table of it that the Concept is.
+const liveTarget = (host) => (host.key !== undefined
+  ? { kind: "object", address: host.address, key: host.key }
+  : { kind: "object", address: host.address });
 
 // After a Concept is named, the rest of a cross-Concept reference: a column,
 // an Example, or both in either order — `@Sales@units@Q1` and `@Sales@Q1@units`.
@@ -369,7 +405,7 @@ function conceptTail(src, at, scope, index) {
   let target;
   if (derived) {
     // the live frame the Concept's own Python made: the reference reads it
-    target = { kind: "object", address: derived.address };
+    target = liveTarget(derived);
     if (column !== null) target.column = display(column);
     if (row !== null) target.row = scope.rows[row];
   } else if (column !== null && row !== null) {
@@ -407,9 +443,10 @@ function recordOf(ex, scope) {
 // siblings and its Concept's defaults first (the local reading a formula
 // gets), then any Concept in the registry.
 function lineResolver(host, registry, index) {
-  // a Concept line reads what a value on its parent would read
-  const anchor = host.kind === "concept"
-    ? { kind: KIND.DEFAULT, name: "", parent: host.node.parent, children: [] }
+  // a Concept line reads what a value on its parent would read, and so does
+  // a bare `=` line, on the node it is filed under
+  const anchor = host.kind === "concept" || host.kind === "generator"
+    ? { kind: KIND.DEFAULT, name: "", parent: host.kind === "concept" ? host.node.parent : host.gen.parent, children: [] }
     : host.node;
   const ctx = derive.makeCtx(anchor, (n) => n.value || "", registry);
   const owner = anchor.parent && anchor.parent.kind === KIND.INDIVIDUAL ? anchor.parent.parent : null;
@@ -462,8 +499,8 @@ function lineResolver(host, registry, index) {
     // registry — it has nothing to answer with — but it is still the frame
     // its derivation will make
     if (der && der.length === best && !(col && col.length === best) && !(row && row.length === best) && !(tab && tab.length === best)) {
-      const names = [{ offset: at + 1, length: der.length, kind: "table", nodes: [der.host.node] }];
-      return { length: 1 + der.length, target: { kind: "object", address: der.host.address }, names };
+      const names = [{ offset: at + 1, length: der.length, kind: "table", nodes: [der.host.node].filter(Boolean) }];
+      return { length: 1 + der.length, target: liveTarget(der.host), names };
     }
     if (col && col.length === best) {
       let end = at + 1 + col.length;
@@ -520,8 +557,8 @@ function cellResolver(host, lines, registry, rootName, index) {
     const tab = ctx.matchTable ? ctx.matchTable(rest) : null;
     const der = derivedConcept(rest, index);
     if (der && (!col || der.length > col.length) && (!tab || der.length > tab.length)) {
-      const names = [{ offset: at + 1, length: der.length, kind: "table", nodes: [der.host.node] }];
-      return { length: 1 + der.length, target: { kind: "object", address: der.host.address }, names };
+      const names = [{ offset: at + 1, length: der.length, kind: "table", nodes: [der.host.node].filter(Boolean) }];
+      return { length: 1 + der.length, target: liveTarget(der.host), names };
     }
     // a Concept reading further than the column's name is the Concept (as
     // lineResolver says)
@@ -693,7 +730,10 @@ function affected(hosts, depsOf, address, needs) {
 // run's, so a change upstream reaches everything reading it.
 function runHash(source, targets, sidecarHash, upstream) {
   const h = crypto.createHash("sha1");
-  h.update(JSON.stringify([source, targets.map((t) => (t.kind === "object" ? [t.address, t.column, t.row] : t)), sidecarHash || "", upstream || []]));
+  // (a key only where there is one, so the hashes recorded before keys
+  // existed still match)
+  const live = (t) => (t.key === undefined ? [t.address, t.column, t.row] : [t.address, t.column, t.row, t.key]);
+  h.update(JSON.stringify([source, targets.map((t) => (t.kind === "object" ? live(t) : t)), sidecarHash || "", upstream || []]));
   return h.digest("hex").slice(0, 16);
 }
 
@@ -725,9 +765,10 @@ class Session {
     // -E: no PYTHON* variable steers it. -I (an environment of the project's
     // own) is that, and no user site-packages or current directory either.
     const args = [o.isolated ? "-I" : "-E", "-B", "-u", "-X", "utf8", o.runtime];
-    const env = Object.assign({}, o.env || process.env, {
+    const base = o.env || process.env;
+    const env = Object.assign({}, base, {
       PYTHONDONTWRITEBYTECODE: "1", PYTHONIOENCODING: "utf-8", MPLBACKEND: "Agg",
-    });
+    }, blasThreads(base));
     let proc;
     try {
       proc = this.spawnFn(o.python || "python", args, { cwd: o.cwd, env, windowsHide: true });
@@ -831,6 +872,23 @@ class Session {
 }
 
 const lastLine = (s) => String(s).trim().split(/\r?\n/).pop();
+
+// numpy's BLAS starts a thread per core the moment it is imported, each with
+// a buffer of its own, so on a many-core machine (WSL often is one) the
+// session holds gigabytes before a derivation runs — and under the memory
+// cap an import can fail outright. A derivation is a small computation, so
+// the threads are capped at four; a variable the user set is left as set.
+const BLAS_THREADS = ["OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"];
+function blasThreads(env) {
+  const out = {};
+  for (const k of BLAS_THREADS) if (!(env && env[k])) out[k] = "4";
+  return out;
+}
+
+// The interpreter names PATH is searched for when no path is set, in order.
+// Windows has `python`; Debian, Ubuntu and WSL ship only `python3` unless
+// python-is-python3 is installed, so elsewhere that comes first.
+const defaultPythons = (platform) => (platform === "win32" ? ["python"] : ["python3", "python"]);
 
 // The environment the runtime starts with, the credentials held back. The
 // editor's own environment carries whatever the shell that launched it did —
@@ -1079,6 +1137,83 @@ function writeMergeGrid(lines, concept, grid) {
   return out;
 }
 
+// The name a Concept a bare `=` line returned is written under: a Python key
+// read as the language writes a Concept — `_` as a space, and capitalised,
+// since a lowercase first header cell is an error — made inert like every
+// name a result writes.
+function conceptNameOf(v) {
+  const t = nameText(String(v === null || v === undefined ? "" : v).replace(/_/g, " ").replace(/\s+/g, " "));
+  return t ? t[0].toUpperCase() + t.slice(1) : "";
+}
+
+// Write what a bare `=` line returned, Concept by Concept, re-reading the
+// file between each, since every table written moves the lines below it:
+//
+//   a Concept already in the file   its rows are replaced where it stands,
+//                                    exactly as its own derivation would
+//                                    write them (writeGrid) — the "hook"
+//   one with a derivation of its own left alone: that Python owns its rows,
+//                                    and the editor warns that two places
+//                                    return it
+//   a new name                       a standalone table at the line's own
+//                                    indent, after the tables already
+//                                    standing directly beneath it — so at
+//                                    the top of a file the Concepts stand at
+//                                    the top level, under the line
+//
+// Nothing is deleted: a Concept the line no longer returns stays. Answers
+// { lines, written: [names], left: [names], errors: [messages] } — `left`
+// the names their own derivation writes, which is no failure of the line's.
+function writeGenerated(lines, host, grids, rootName) {
+  let out = lines.slice();
+  const written = [];
+  const left = [];
+  const errors = [];
+  for (const g of grids) {
+    const { nodes } = lint(out.join("\n"), rootName);
+    const gen = (nodes.generators || [])[host.ordinal];
+    if (!gen) {
+      errors.push("the line could not be found again while its tables were written");
+      break;
+    }
+    const key = fold(g.name);
+    const concept = nodes.find((n) => n.kind === KIND.CONCEPT && fold(n.name) === key);
+    if (concept && concept.formula !== undefined) {
+      left.push(g.name);
+      continue;
+    }
+    if (concept) {
+      out = writeGrid(out, concept, g.grid);
+      written.push(g.name);
+      continue;
+    }
+    // the run of the line's own tables standing directly beneath it, at its
+    // indent, one blank line between each — tables it returns, never one
+    // somebody else wrote there — and a new one joins the end of it
+    const indent = " ".repeat(gen.col);
+    const ownNames = new Set(grids.map((x) => fold(x.name)).filter((k) =>
+      !nodes.some((n) => n.kind === KIND.CONCEPT && fold(n.name) === k && n.formula !== undefined)));
+    const at = (i) => i < out.length && table.isRowText(out[i]) && (out[i].match(/^ */)[0] === indent)
+      && ownNames.has(fold(table.cleanName((table.cells(out[i])[0] || {}).text || "")));
+    let end = gen.line - 1; // 0-based: the last line of the run so far
+    for (;;) {
+      let j = end + 1;
+      if (end > gen.line - 1 && j < out.length && !out[j].trim()) j++;
+      if (!at(j)) break;
+      end = table.blockAt(out, j).end;
+    }
+    const drawn = table.render({
+      indent,
+      rows: [{ sep: false, cells: g.grid.header }, ...g.grid.rows.map((cells) => ({ sep: false, cells }))],
+    });
+    const before = end > gen.line - 1 ? [""] : [];
+    const after = end + 1 < out.length && table.isRowText(out[end + 1]) ? [""] : [];
+    out.splice(end + 1, 0, ...before, ...drawn, ...after);
+    written.push(g.name);
+  }
+  return { lines: out, written, left, errors };
+}
+
 // A value host's line with a new value in front of its derivation.
 function writeValue(lines, host, text) {
   const out = lines.slice();
@@ -1114,6 +1249,22 @@ function writeValue(lines, host, text) {
 // `old` is the value as it stands, whose `$` a number keeps.
 function resultOf(host, result, maxInlineText) {
   const r = result || {};
+  if (host.kind === "generator") {
+    if (r.kind !== "grids") {
+      throw new Error(`a bare = derivation writes Concepts — return them by name, {"Sales": df, …}, or as a list of aot.grid(header, rows) — this one produced ${r.summary || r.kind || "nothing"}`);
+    }
+    const grids = (r.grids || []).map((g) => {
+      const name = conceptNameOf(g.name);
+      if (!name) throw new Error('a table the bare = derivation returned has no name — name each one, as in {"Sales": df}');
+      return { name, grid: gridOf(g, name) };
+    });
+    const seen = new Set();
+    for (const g of grids) {
+      if (seen.has(fold(g.name))) throw new Error(`'${g.name}' is returned twice — one name, one Concept`);
+      seen.add(fold(g.name));
+    }
+    return { grids, count: grids.reduce((n, g) => n + g.grid.rows.length, 0) };
+  }
   if (host.kind === "concept") {
     if (r.kind !== "frame") {
       throw new Error(`a Concept's derivation must produce a table (a DataFrame, a list of dicts, or aot.grid(header, rows)) — this one produced ${r.summary || r.kind || "nothing"}`);
@@ -1146,5 +1297,6 @@ module.exports = {
   hostsOf, hostIndex, constraintChecks, checkItems, referenceStarts, callSites, resolveHost, valueDerivation, moduleFiles, referencedModules,
   orderDerivations, affected, runHash, sourceHash,
   inertValue, inertName, looksSecret,
-  Session, spawnMessage, resolveExecutable, scrubbedEnv, outputStem, resultOf, gridOf, writeGrid, writeValue, cellText,
+  Session, spawnMessage, resolveExecutable, scrubbedEnv, defaultPythons, blasThreads, outputStem, resultOf, gridOf, writeGrid, writeValue, cellText,
+  writeGenerated, conceptNameOf, generatorAddress,
 };

@@ -481,6 +481,41 @@ check("verify: the same Concept name defined twice is an error",
 check("verify: identical sibling defaults are an error",
   hasError(lintTree(aot("Box", "    colour: red", "    colour: red")).report, /repeated under 'Box' with the same value/));
 
+// a sub-Example cannot carry the name of an Example it sits under — whole
+// and part would be one name — in '- ' lines and nested table rows alike
+{
+  const SAME = /has the same name as the Example it sits under/;
+  const errs = (...lines) => lint(aot(...lines), "Book").errors;
+  const child = errs("Thing", "    - Parent", "        - Parent", "        - Other");
+  check("verify: a sub-Example named like its parent is an error, on the child",
+    child.some((e) => SAME.test(e.message) && e.line === 3 && e.related && e.related[0].line === 2));
+  check("verify: ... under a grandparent too, whatever the case or numbering",
+    errs("Thing", "    - Root", "        - Mid", "            - 1. root", "            - Leaf", "        - Side").some((e) => SAME.test(e.message) && e.line === 4));
+  const rows = lint(aot("Thing|age", "Parent|", "    Parent|10", "    Child|12"), "Book").errors;
+  check("verify: ... in a nested table row, pinned on its name cell",
+    rows.some((e) => SAME.test(e.message) && e.line === 3 && e.startCol === 4));
+  check("verify: same-named Examples under different parents are not this error",
+    !errs("Thing", "    - A", "        - X", "        - Y", "    - B", "        - X", "        - Z").some((e) => SAME.test(e.message)));
+}
+
+// a bare `=` line — Python that writes Concepts — is no node of the model:
+// it rides beside the tree, filed under the line it stands beneath
+{
+  const r = lint(aot("=load_all()", "Person", "    =per_person()", "    - Ann"), "Book");
+  check("bare =: no node of the model, and no error",
+    r.errors.length === 0 && !r.nodes.some((n) => /load_all|per_person/.test(n.name)));
+  check("bare =: recorded with its Python and the node it is filed under",
+    r.generators.length === 2 && r.generators[0].formula === "load_all()" && r.generators[0].parent === r.root
+    && r.generators[1].parent.name === "Person" && r.nodes.generators === r.generators);
+  check("bare =: a lone '=' is an error",
+    lint(aot("Person", "    ="), "Book").errors.some((e) => /'=' stands alone/.test(e.message)));
+  check("bare =: a bound with no attribute is an error, not a Concept",
+    lint(aot('==("a", "b")'), "Book").errors.some((e) => /a bound with no attribute/.test(e.message))
+    && !lint(aot('==("a", "b")'), "Book").nodes.length);
+  check("bare =: a pipe on it is its Python's, never a table's",
+    lint(aot("=a() | b()", "Other"), "Book").errors.length === 0);
+}
+
 // names fold case everywhere references do: 'Animal' and 'ANIMAL' are one
 // Concept name, 'red' and 'RED' one value, the file name one name in any case
 check("verify: Concept names differing only in case are one name (univocity)",

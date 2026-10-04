@@ -9,10 +9,13 @@
 //     node verify.js file.aot --godel "X"                (Gödel number: the line's content)
 //     node verify.js file.aot --clashes                  (nodes carrying the same attributes/values)
 //     node verify.js file.aot --overrides                (nodes overriding an inherited default)
-//     node verify.js file.aot --diff old.aot new.aot     (version diff as factorisation comparison)
+//     node verify.js file.aot --diff old.aot new.aot     (version diff as factorisation comparison, renames and moves recognised)
+//     node verify.js --diff-rev REV file.aot             (the same, against the file as it stood at a git revision)
+//     node verify.js --merge %O %A %B %P                  (git merge driver: merge by meaning, markers per attribute)
 //     node verify.js file.aot --suggest                  (FCA: audit the tree against the concept lattice)
 //     node verify.js --workspace [dir]                   (repo: shared Concepts, contradictions; exit 1 if any)
 //     node verify.js --workspace [dir] --reconcile       (repo: write the agreement in first, then check)
+//     node verify.js --workspace [dir] --primes          (repo: extend and write the stable Gödel numbers, aot.files/godel.tsv)
 
 const fs = require("fs");
 const path = require("path");
@@ -59,6 +62,31 @@ function walkAot(dir) {
   return files;
 }
 
+// The repository a path sits in: the nearest folder above it holding a .git
+// (the extension's own rule), or null outside any repository.
+function repoRootOf(startDir) {
+  let dir = path.resolve(startDir);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, ".git"))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
+}
+
+// The stable Gödel numbers the repository keeps (aot.files/godel.tsv at its
+// root), so `--godel` and `--diff` print the numbers the editor shows. An
+// empty registry where there is none: the numbers then come out as a fresh
+// registry would give them.
+function godelRegistryFile(near) {
+  const root = repoRootOf(fs.existsSync(near) && fs.statSync(near).isDirectory() ? near : path.dirname(path.resolve(near))) || process.cwd();
+  return path.join(root, "aot.files", "godel.tsv");
+}
+function godelRegistryFor(near) {
+  try { return godel.parseRegistry(fs.readFileSync(godelRegistryFile(near), "utf8")); }
+  catch { return godel.parseRegistry(""); }
+}
+
 // Read a file or exit with a message instead of a stack trace.
 function readFile(f) {
   try {
@@ -75,7 +103,7 @@ function readFile(f) {
 function main() {
   const args = process.argv.slice(2);
   if (!args.length) {
-    console.error("usage: node verify.js <file.aot> [--ask X Y | --genus X Y | --number X | --godel X | --clashes | --overrides | --find \"a: v\" | --common X Y | --near X | --fd | --depends X | --diff old.aot new.aot | --suggest]");
+    console.error("usage: node verify.js <file.aot> [--ask X Y | --genus X Y | --number X | --godel X | --clashes | --overrides | --find \"a: v\" | --common X Y | --near X | --fd | --depends X | --diff old.aot new.aot | --suggest] | --diff-rev REV file.aot | --workspace [dir] [--reconcile] [--primes]");
     process.exit(2);
   }
 
@@ -103,7 +131,7 @@ function main() {
         ...entries.map((e) => derive.conceptRegistry(e.root, e.nodes)));
       let written = 0;
       for (const e of entries) {
-        const ops = repo.reconcileFile(e.file, all, e.text.split(/\r?\n/), e.rootName, registry);
+        const ops = repo.reconcileFile(e.file, all, e.text.split(/\r?\n/), e.rootName, registry, e.root);
         if (!ops.length) continue;
         const eol = /\r\n/.test(e.text) ? "\r\n" : "\n";
         fs.writeFileSync(e.file, repo.applyOps(e.text.split(/\r?\n/), ops).join(eol));
@@ -115,6 +143,20 @@ function main() {
       entries = read(); // judge what is now on disk, not what was
     }
 
+    // --primes: the stable Gödel numbers extended by every file here, and
+    // written back, as a save in the editor does
+    if (args.includes("--primes")) {
+      const file = godelRegistryFile(root);
+      const pooled = godel.pool(entries, godelRegistryFor(root));
+      if (pooled.grown) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, godel.formatRegistry(pooled.registry));
+        console.log(`wrote ${file} (${pooled.registry.attrs.size} attribute${pooled.registry.attrs.size === 1 ? "" : "s"})\n`);
+      } else {
+        console.log(`${file} already numbers every attribute and value here\n`);
+      }
+    }
+
     const all = repo.occurrences(entries);
     let shared = 0;
     for (const [, list] of all) {
@@ -122,6 +164,14 @@ function main() {
       shared++;
       console.log(`Concept '${list[0].node.name}' is written in ${list.length} places:`);
       for (const o of list) console.log(`  ${o.file}:${o.node.line}`);
+    }
+    // one content under two names in two files: warnings, not contradictions
+    const registry = godelRegistryFor(root);
+    for (const e of entries) {
+      if (e.errors.length) continue;
+      for (const t of godel.twins(entries.filter((x) => !x.errors.length), e.file, { registry })) {
+        console.log(`\n${e.file}:${t.line}  warning: ${t.message}`);
+      }
     }
     // without --reconcile nothing is going to close a stale `...` line, so it
     // is worth reporting; with it, the pass above has already made it true
@@ -141,17 +191,86 @@ function main() {
     return;
   }
 
+  // --merge %O %A %B %P: git's merge driver (merge.aot.driver). %O the
+  // ancestor, %A ours — where the result is written — %B theirs, %P the
+  // path. git's own line merge first: when it is clean it is kept, and any
+  // error the merge brought that neither side had is said. Otherwise the
+  // semantic merge (src/merge.js): clean, it is written and git goes on;
+  // with conflicts, marked attribute by attribute; when it cannot vouch for
+  // itself, git's conflicted text is written instead. Never worse than git.
   let d;
+  if ((d = args.indexOf("--merge")) !== -1) {
+    const [basePath, oursPath, theirsPath, pathName] = args.slice(d + 1);
+    if (!basePath || !oursPath || !theirsPath) {
+      console.error("usage: node verify.js --merge %O %A %B %P   (git's merge driver)");
+      process.exit(2);
+    }
+    const shown = pathName || oursPath;
+    const rootName = path.basename(shown).replace(/\.[^.]*$/, "");
+    const oursText = readFile(oursPath), baseText = readFile(basePath), theirsText = readFile(theirsPath);
+    const eol = /\r\n/.test(oursText) ? "\r\n" : "\n";
+    const semantic = require("./src/merge");
+    const line = require("./src/git").mergeFile(oursPath, basePath, theirsPath);
+    if (!line.error && line.clean) {
+      fs.writeFileSync(oursPath, line.text);
+      // compared without their line numbers: an error a side had that the
+      // merge only moved is still that side's
+      const had = new Set([...lint(oursText, rootName).errors, ...lint(theirsText, rootName).errors].map(semantic.errorKind));
+      for (const e of lint(line.text, rootName).errors) {
+        if (!had.has(semantic.errorKind(e))) console.error(`${shown}:${e.line}: the merge brought an error neither side had — ${e.message}`);
+      }
+      process.exit(0);
+    }
+    const result = semantic.merge(baseText, oursText, theirsText, rootName);
+    if (!result.fallback) {
+      fs.writeFileSync(oursPath, result.text.replace(/\n/g, eol));
+      if (result.clean) {
+        console.error(`${shown}: merged by meaning — git's line merge conflicted, the semantic merge did not`);
+        process.exit(0);
+      }
+      for (const c of result.conflicts) console.error(`${shown}:${c.line}: conflict — ${c.message}`);
+      process.exit(1);
+    }
+    console.error(`${shown}: the semantic merge fell back to git's line merge — ${result.fallback}`);
+    if (!line.error && typeof line.text === "string") fs.writeFileSync(oursPath, line.text);
+    process.exit(1);
+  }
+  const printDiff = (label, a, b, near) => {
+    const report = godel.diff(a.root, a.nodes, b.root, b.nodes, godelRegistryFor(near));
+    console.log(`diff ${label}`);
+    for (const { message } of report.findings) console.log(`  ${message}`);
+    console.log(`\n${report.findings.length} node${report.findings.length === 1 ? "" : "s"} changed`);
+  };
+  // --diff-rev REV file.aot: the file as it stood at a git revision, against
+  // the file as it stands — renames and moves recognised
+  if ((d = args.indexOf("--diff-rev")) !== -1) {
+    const rev = args[d + 1];
+    const file = args.slice(d + 2).filter((x) => !x.startsWith("--")).join(" ");
+    if (!rev || !file) {
+      console.error("usage: node verify.js --diff-rev REV file.aot");
+      process.exit(2);
+    }
+    const root = repoRootOf(path.dirname(path.resolve(file)));
+    if (!root) {
+      console.error(`'${file}' is in no git repository`);
+      process.exit(2);
+    }
+    const rel = path.relative(root, path.resolve(file)).split(path.sep).join("/");
+    const old = require("./src/git").show(root, rev, rel);
+    if (old.error) {
+      console.error(`git could not show ${rev}:${rel} — ${old.error}`);
+      process.exit(2);
+    }
+    const name = path.basename(file).replace(/\.[^.]*$/, "");
+    printDiff(`${rev}:${rel} -> ${file}`, lint(old.text, name), lint(readFile(file), name), file);
+    return;
+  }
   if ((d = args.indexOf("--diff")) !== -1) {
     const lintFile = (f) => {
       const name = path.basename(f).replace(/\.[^.]*$/, "");
       return lint(readFile(f), name);
     };
-    const a = lintFile(args[d + 1]), b = lintFile(args[d + 2]);
-    const report = godel.diff(a.root, a.nodes, b.root, b.nodes);
-    console.log(`diff ${args[d + 1]} -> ${args[d + 2]}`);
-    for (const { message } of report.findings) console.log(`  ${message}`);
-    console.log(`\n${report.findings.length} node${report.findings.length === 1 ? "" : "s"} changed`);
+    printDiff(`${args[d + 1]} -> ${args[d + 2]}`, lintFile(args[d + 1]), lintFile(args[d + 2]), args[d + 2]);
     return;
   }
 
@@ -199,7 +318,7 @@ function main() {
   }
   if ((i = args.indexOf("--godel")) !== -1) {
     const x = find(root, nodes, args[i + 1]);
-    const { attrPrime, valueCode, naming } = godel.buildGodel(root, nodes);
+    const { attrPrime, valueCode, naming } = godel.buildGodel(root, nodes, godelRegistryFor(file));
     const slots = godel.decode(x, attrPrime, valueCode, naming);
     if (!slots.length) {
       console.log(`G(${x.name}) = 1 — '${x.name}' carries no attributes`);
@@ -325,6 +444,9 @@ function main() {
       depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied);
     }
     deepErrors = deepErrors.concat(godel.clashes(root, nodes).findings.filter((f) => f.kind === "content"));
+    // a value every child states belongs on the parent; a default every
+    // child overrides is in force for nothing — warnings, as in the editor
+    depWarnings = depWarnings.concat(godel.hoists(root, nodes));
   }
   // Derivations and constraint bounds are Python, and this never runs
   // Python: a CI job that verified a pull request by running its code would

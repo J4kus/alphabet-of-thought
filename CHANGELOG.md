@@ -4,7 +4,37 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [1.12.0] - 2026-09-30
+
+- **Python sees sub-Examples.** `@Thing` holds every Example in the Concept's scope, sub-Examples included. Where they nest, a `parent` column carries the tree, as the CSV mirror writes it. A value on an Example reaches the Examples beneath it (`@Child 1@age`).
+- **Several derivations in one table row.**
+  - `Ctrl+Enter` runs the one in the cursor's cell, or on the row's name, all of them. Before, it always ran the left-hand one.
+  - The row has one inlay naming its cells (`✓ vat, net · 3 ms · 16:04`), and hover answers for the cell it is over.
+  - A `|` inside a later cell's Python is the Python's, as it already was in the first cell.
+  - **Calculated columns:** when every row derives a column alike, the lightbulb moves the derivation onto the header as `==`, leaving each cell its value.
+  - A header's `==` definition no longer writes over a cell that carries a derivation of its own — the nearer word wins, as it always did in line form.
+- **A bare `=` line writes Concepts.** `=load_all()` on a line of its own returns tables by name. A new name is written at the line's indent beneath it; a Concept already in the file is filled where it stands; one with a derivation of its own is left to it, with a warning that two places return it (the line itself ran fine); nothing is ever deleted. `@Sales` elsewhere reads the live table. The park key takes the line out and puts it back above the Concept that stood beneath it. Before, the line parsed as a Concept named `=load_all`.
+- **No flip lightbulb.** It lit the bulb on every line of every Concept with Examples. The flip stays on `Ctrl+Alt+T`, `Ctrl+K T`, the right-click menu and the Command Palette.
+- **The column keys work from a declaration line.** `Alt+Shift+←` on `age` under a Concept written as lines deletes that column (a new `aot.inColumn` context; `Tab` there still indents). In a table, no column key moves, copies or deletes the name column any more — before, `Alt+Shift+←` there wiped the Concept's name and every Example's.
+- **A sub-Example may not carry the name of an Example it sits under** (error rule 24).
+- **Stale `...` notes are deleted on save.** Once no other file lists a Concept, its `... N more in …` line is removed; with `aot.autoReconcile` off it is a warning.
+- **Python in WSL.**
+  - `python3` is tried before `python` off Windows.
+  - Each operating system has its own uv environment (`.venv`, `.venv-linux`, `.venv-darwin`), so a checkout used from Windows and WSL keeps both.
+  - Linux caps memory by data size rather than address space, so numpy and pyarrow import under it on many-core machines.
+  - numpy's BLAS is held to four threads unless you set otherwise.
+- **Stable Gödel numbers** in `aot.files/godel.tsv` (`aot.godelRegistry`). Adding an attribute renumbers nothing, and one attribute has one prime in every file and branch. `verify.js --workspace --primes` writes it.
+- **Hover shows a node's content**: `G` as a factorisation, each attribute with where an inherited one came from, what it overrides, and the nearest sibling with how it differs.
+- **Three warnings from the Gödel numbers**, none in `V`:
+  - a value every child states belongs on the parent (15), with a "move up" lightbulb that also drops a table column;
+  - a default every child overrides is in force for nothing (16);
+  - the same content under two names in two files (17), with the synonym lightbulbs.
+- **`--diff` recognises renames and moves**, and `--diff-rev REV file` diffs against a git revision.
+- **git merges an `.aot` by meaning.** **AOT: Set Up Git Merge for .aot Files** sets `verify.js --merge` as the merge driver ([`src/merge.js`](src/merge.js)):
+  - A rename against a value change, neighbouring attributes, two cells of one row and two added siblings all merge cleanly.
+  - One attribute changed two ways conflicts on that line alone.
+  - A replay guard, a per-prime arithmetic check and a no-new-errors check fall back to git's own merge whenever the result cannot be vouched for — the last catches a rename onto a name the other side gave a new Concept, which each node's number alone does not.
+- See [docs/features-1.12.md](docs/features-1.12.md).
 
 - **A repository can carry its own Python environment, set up with uv** ([`src/uvenv.js`](src/uvenv.js)). **AOT: Set Up Python Environment (uv)** runs start to finish:
   - It writes `aot.files/pyproject.toml` with the libraries you pick. A repository that is already a uv project is used as it is.

@@ -625,5 +625,53 @@ const parsed = (text) => {
     (gridOfConcept(gLines, known, "Sheet") || {}).start === 0);
 }
 
+// ---------------------------------------------------------------------------
+// hoistOps: a fact every child states, written once on the parent
+// ---------------------------------------------------------------------------
+{
+  const { hoistOps } = require("../src/derive");
+  const { applyOps } = require("../src/repo");
+  const { hoists } = require("../src/godel");
+  const run = (lines, parentLine, attr, value, mode) => {
+    const { root, nodes } = lint(lines.join("\n"), "Zoo");
+    const ops = hoistOps(lines, root, nodes, parentLine, attr, value, "Zoo", undefined, mode);
+    return ops && applyOps(lines, ops);
+  };
+  const quiet = (lines) => { const r = lint(lines.join("\n"), "Zoo"); return !r.errors.length && !hoists(r.root, r.nodes).length; };
+  const vehicles = ["Vehicle", "    Car", "        wheels: 4", "        doors: 3", "    Van", "        wheels: 4", "        doors: 5"];
+  const moved = run(vehicles, 1, "wheels", "4");
+  check("hoistOps: the fact goes onto the parent once, off every child, and the warning goes",
+    moved && moved.join("\n") === ["Vehicle", "    wheels: 4", "    Car", "        doors: 3", "    Van", "        doors: 5"].join("\n") && quiet(moved));
+  const table = ["Payment|currency|amount", "P1     |EUR     |10", "P2     |EUR     |20", "P3     |EUR     |30"];
+  const lifted = run(table, 1, "currency", "EUR");
+  check("hoistOps: a table column holding it in every row is dropped, the table taking the merge form",
+    lifted && lifted.join("\n") === ["Payment", "    currency: EUR", "    Payment|amount", "    P1     |10", "    P2     |20", "    P3     |30"].join("\n") && quiet(lifted));
+  // the merge form: the Concept has a line of its own, the table beneath it
+  const merged = ["Payment", "    note: monthly", "    Payment|currency|amount", "    P1     |EUR     |10", "    P2     |EUR     |20", "    P3     |EUR     |30"];
+  const liftedMerged = run(merged, 1, "currency", "EUR");
+  check("hoistOps: under a Concept with a line of its own, the column goes and the fact joins its attributes",
+    liftedMerged && liftedMerged.join("\n") === ["Payment", "    note: monthly", "    currency: EUR", "    Payment|amount", "    P1     |10", "    P2     |20", "    P3     |30"].join("\n")
+    && quiet(liftedMerged));
+  const agreed = ["Drink", "    temperature: cold", "    Tea", "        temperature: hot", "    Soup", "        temperature: hot"];
+  const rewritten = run(agreed, 1, "temperature", "hot");
+  check("hoistOps: a dead default the children agree against is rewritten, not doubled",
+    rewritten && rewritten.join("\n") === ["Drink", "    temperature: hot", "    Tea", "    Soup"].join("\n"));
+  const dead = ["Drink", "    temperature: cold", "    Tea", "        temperature: hot", "    Soup", "        temperature: warm"];
+  const bare = run(dead, 1, "temperature", "", "bare");
+  check("hoistOps: 'keep just the attribute' takes the dead value off",
+    bare && bare[1] === "    temperature" && quiet(bare));
+  const top = run(["Car", "    wheels: 4", "Van", "    wheels: 4"], 0, "wheels", "4");
+  check("hoistOps: at the file's own level the fact opens the file, unindented",
+    top && top.join("\n") === ["wheels: 4", "Car", "Van"].join("\n") && quiet(top));
+  const family = ["Family", "    - Parent", "        - Child One", "            age: 10", "        - Child Two", "            age: 10"];
+  check("hoistOps: under an Example, onto the Example",
+    run(family, 2, "age", "10").join("\n") === ["Family", "    - Parent", "        age: 10", "        - Child One", "        - Child Two"].join("\n"));
+  const nested = ["Payment|currency|amount", "P1     |EUR     |10", "    P1a|EUR     |5", "P2     |EUR     |20", "P3     |EUR     |30"];
+  check("hoistOps: a table with rows under rows keeps them under, the column gone",
+    run(nested, 1, "currency", "EUR").join("\n") === ["Payment", "    currency: EUR", "    Payment|amount", "    P1     |10", "        P1a|5", "    P2     |20", "    P3     |30"].join("\n"));
+  check("hoistOps: nothing to do where the parent is gone, or there is no default to keep just",
+    run(vehicles, 99, "wheels", "4") === null && run(["Car", "    wheels", "    - Mini", "        wheels: 4"], 1, "wheels", "", "bare") === null);
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

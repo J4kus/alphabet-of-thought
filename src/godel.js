@@ -97,29 +97,56 @@ function conceptOf(node, concepts) {
 // crosslink to) and, for each, the value of its nearest value-assigning
 // declaration. A bare attribute contributes its name but no value, so an
 // ancestor's default still wins — the same rule fca.buildContext applies.
+//
+// Also where each came from, for a reader (the hover): `fromByAttr` is the
+// declaration that won each attribute — the value's own, else the nearest
+// that names it — and `via` the attribute a crosslinked Concept name came
+// in through. Neither changes what G is.
 function effFeatures(node, concepts) {
   const names = new Set(); // attrKey present (name or crosslinked Concept)
   const valueByAttr = new Map(); // attrKey -> nearest declared value string
+  const fromByAttr = new Map(); // attrKey -> the declaration it came from
+  const via = new Map(); // crosslinked Concept key -> the attribute it came through
   const valued = new Set();
   for (let n = node; n; n = n.parent) {
     for (const child of n.children) {
       if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
       const aKey = keyOf(child.name);
       names.add(aKey);
+      if (!fromByAttr.has(aKey)) fromByAttr.set(aKey, child);
       const type = conceptOf(child, concepts);
-      if (type && type !== child) names.add(keyOf(type.name));
+      if (type && type !== child) {
+        const tKey = keyOf(type.name);
+        names.add(tKey);
+        if (!via.has(tKey)) via.set(tKey, child);
+      }
       if (child.kind !== DEFAULT) continue;
       if (valued.has(aKey)) continue; // a nearer declaration already won
       valued.add(aKey);
       valueByAttr.set(aKey, child.value);
+      fromByAttr.set(aKey, child); // the value's own declaration is its source
     }
   }
-  return { names, valueByAttr };
+  return { names, valueByAttr, fromByAttr, via };
 }
 
 // Gather per-node features and the raw material for the global tables, without
 // assigning primes yet — so a version diff can pool two documents first.
+//
+// Cached per parse: a tree is never changed after parsing (only its chi and
+// godel fields are written), so the same nodes array gathers the same way,
+// and numbering the whole workspace on every keystroke costs only the files
+// that changed.
+const gatherCache = new WeakMap();
 function gather(root, nodes) {
+  const hit = gatherCache.get(nodes);
+  if (hit && hit.root === root) return hit.data;
+  const data = gatherFresh(root, nodes);
+  gatherCache.set(nodes, { root, data });
+  return data;
+}
+
+function gatherFresh(root, nodes) {
   const { concepts } = index(root, nodes);
   const substances = [root, ...nodes].filter(isSubstance);
   const featByNode = new Map();
@@ -150,7 +177,17 @@ function gather(root, nodes) {
 
 // Assign a prime to every attribute key and a code (>= 2) to every value, both
 // in sorted order so the numbers are reproducible across runs and files.
-function assignTables(allAttrKeys, valuesByAttr) {
+//
+// With a `registry` ({ attrs: Map(key -> prime), values: Map(key ->
+// Map(value -> code)) }, see parseRegistry) the numbers are stable instead:
+// every attribute and value already in it keeps its number, new attributes
+// take the next primes it does not hold, and new values the next codes
+// their attribute has free — so adding an unrelated attribute renumbers
+// nothing, and two files, or two branches, number one attribute alike.
+// Answers the tables limited to these keys, and with a registry the
+// extended registry and whether it grew.
+function assignTables(allAttrKeys, valuesByAttr, registry) {
+  if (registry) return assignFromRegistry(allAttrKeys, valuesByAttr, registry);
   const attrPrime = new Map();
   const gen = primes();
   for (const a of [...allAttrKeys].sort()) attrPrime.set(a, gen.next().value);
@@ -162,6 +199,134 @@ function assignTables(allAttrKeys, valuesByAttr) {
     valueCode.set(a, m);
   }
   return { attrPrime, valueCode };
+}
+
+function assignFromRegistry(allAttrKeys, valuesByAttr, registry) {
+  const attrs = new Map(registry.attrs || []);
+  const values = new Map([...(registry.values || [])].map(([a, m]) => [a, new Map(m)]));
+  let grown = false;
+  const taken = new Set([...attrs.values()].map(String));
+  const gen = primes();
+  const nextPrime = () => {
+    for (;;) {
+      const p = gen.next().value;
+      if (!taken.has(String(p))) { taken.add(String(p)); return p; }
+    }
+  };
+  for (const a of [...allAttrKeys].sort()) {
+    if (!attrs.has(a)) { attrs.set(a, nextPrime()); grown = true; }
+  }
+  for (const [a, vs] of valuesByAttr) {
+    if (!values.has(a)) values.set(a, new Map());
+    const m = values.get(a);
+    const used = new Set([...m.values()].map(String));
+    let code = 2n;
+    for (const v of [...vs].sort()) {
+      if (m.has(v)) continue;
+      while (used.has(String(code))) code++;
+      m.set(v, code);
+      used.add(String(code));
+      grown = true;
+    }
+  }
+  const attrPrime = new Map([...allAttrKeys].sort().map((a) => [a, attrs.get(a)]));
+  const valueCode = new Map();
+  for (const [a, vs] of valuesByAttr) valueCode.set(a, new Map([...vs].map((v) => [v, values.get(a).get(v)])));
+  return { attrPrime, valueCode, registry: { attrs, values }, grown };
+}
+
+// One numbering over several documents: each gathered, the universes
+// unioned, the tables assigned once, and every document numbered from them —
+// so a Concept's G means the same in every file. `docs` is [{ root, nodes }].
+// Answers the tables (and, with a registry, the extended one and `grown`),
+// the shared `naming`, and each document's gathering in order.
+function pool(docs, registry) {
+  const gathered = docs.map((d) => gather(d.root, d.nodes));
+  const allAttrKeys = new Set();
+  const valuesByAttr = new Map();
+  const naming = new Map();
+  for (const g of gathered) {
+    for (const a of g.allAttrKeys) allAttrKeys.add(a);
+    for (const [a, vs] of g.valuesByAttr) {
+      if (!valuesByAttr.has(a)) valuesByAttr.set(a, new Set());
+      for (const v of vs) valuesByAttr.get(a).add(v);
+    }
+    for (const [k, label] of g.naming) if (!naming.has(k)) naming.set(k, label);
+  }
+  const tables = assignTables(allAttrKeys, valuesByAttr, registry);
+  for (const g of gathered) applyGodel(g.featByNode, tables.attrPrime, tables.valueCode);
+  return Object.assign({ naming, gathered }, tables);
+}
+
+// --- the registry: aot.files/godel.tsv --------------------------------------
+// One record per line, tab-separated, sorted by prime and then code so a
+// diff of it stays small and git's union merge keeps both sides' additions:
+//
+//     a<TAB>legs<TAB>2               an attribute's prime
+//     v<TAB>legs<TAB>3<TAB>4         a value's code (the value is the rest)
+//
+// No file stores G, so the registry may be deleted at any time: the numbers
+// are rebuilt, only differently. The parser repairs what a merge can leave:
+// conflict markers are skipped, an attribute listed with two primes keeps
+// the smaller, and a prime (or a code) claimed twice goes to the name that
+// sorts first — the other takes a fresh number on the next assignment.
+
+const REGISTRY_HEADER = "# Gödel numbering kept by the AOT extension: a prime per attribute, a code per value, "
+  + "stable across edits, files and branches. Safe to delete — it is rebuilt on the next save, with new numbers.";
+
+function isSmallPrime(p) {
+  if (p < 2n) return false;
+  for (let d = 2n; d * d <= p; d++) if (p % d === 0n) return false;
+  return true;
+}
+
+function parseRegistry(text) {
+  const attrs = new Map();
+  const values = new Map();
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    if (!raw || raw.startsWith("#") || /^(<{7}|={7}|>{7}|\|{7})/.test(raw)) continue;
+    const parts = raw.split("\t");
+    if (parts[0] === "a" && parts.length >= 3 && parts[1] && /^\d+$/.test(parts[2])) {
+      const p = BigInt(parts[2]);
+      if (!isSmallPrime(p)) continue;
+      const had = attrs.get(parts[1]);
+      if (had === undefined || p < had) attrs.set(parts[1], p);
+    } else if (parts[0] === "v" && parts.length >= 4 && parts[1] && /^\d+$/.test(parts[2])) {
+      const code = BigInt(parts[2]);
+      if (code < 2n) continue;
+      const value = parts.slice(3).join("\t");
+      if (!values.has(parts[1])) values.set(parts[1], new Map());
+      const m = values.get(parts[1]);
+      if (!m.has(value) || code < m.get(value)) m.set(value, code);
+    }
+  }
+  const byPrime = new Set();
+  for (const key of [...attrs.keys()].sort()) {
+    const p = String(attrs.get(key));
+    if (byPrime.has(p)) attrs.delete(key); else byPrime.add(p);
+  }
+  for (const m of values.values()) {
+    const byCode = new Set();
+    for (const v of [...m.keys()].sort()) {
+      const c = String(m.get(v));
+      if (byCode.has(c)) m.delete(v); else byCode.add(c);
+    }
+  }
+  return { attrs, values };
+}
+
+function formatRegistry(registry) {
+  const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+  const attrs = [...registry.attrs].sort((x, y) => cmp(x[1], y[1]) || x[0].localeCompare(y[0]));
+  const out = [REGISTRY_HEADER];
+  for (const [key, p] of attrs) out.push(`a\t${key}\t${p}`);
+  const order = [...attrs.map(([key]) => key), ...[...registry.values.keys()].filter((k) => !registry.attrs.has(k)).sort()];
+  for (const key of order) {
+    const m = registry.values.get(key);
+    if (!m) continue;
+    for (const [value, code] of [...m].sort((x, y) => cmp(x[1], y[1]))) out.push(`v\t${key}\t${code}\t${value}`);
+  }
+  return out.join("\n") + "\n";
 }
 
 // Set node.godel for every gathered substance node from the shared tables.
@@ -181,11 +346,12 @@ function applyGodel(featByNode, attrPrime, valueCode) {
 
 // Build the Gödel numbers for one document. Sets node.godel on every Concept
 // and Example (and the root) and returns the tables for decoding/queries.
-function buildGodel(root, nodes) {
+// `registry` (optional) makes the numbers stable (assignTables).
+function buildGodel(root, nodes, registry) {
   const { substances, featByNode, allAttrKeys, valuesByAttr, naming } = gather(root, nodes);
-  const { attrPrime, valueCode } = assignTables(allAttrKeys, valuesByAttr);
-  applyGodel(featByNode, attrPrime, valueCode);
-  return { attrPrime, valueCode, naming, substances, featByNode };
+  const tables = assignTables(allAttrKeys, valuesByAttr, registry);
+  applyGodel(featByNode, tables.attrPrime, tables.valueCode);
+  return Object.assign({ naming, substances, featByNode }, tables);
 }
 
 // Reverse a value code back to its string for one attribute (1 -> unvalued).
@@ -359,50 +525,117 @@ function pathOf(node) {
   return parts.reverse().join(" < ");
 }
 
-function diff(rootA, nodesA, rootB, nodesB) {
-  const A = gather(rootA, nodesA), B = gather(rootB, nodesB);
-  const allAttrKeys = new Set([...A.allAttrKeys, ...B.allAttrKeys]);
-  const valuesByAttr = new Map();
-  for (const src of [A, B]) {
-    for (const [a, vs] of src.valuesByAttr) {
-      if (!valuesByAttr.has(a)) valuesByAttr.set(a, new Set());
-      for (const v of vs) valuesByAttr.get(a).add(v);
+//
+// Nodes the paths do not match are then paired, when the pairing is
+// unambiguous — exactly one candidate each way — parents before children:
+//
+//     moved              same kind and name, a different parent
+//     renamed            same kind and (translated) parent, the same content
+//                        (G > 1 equal; with no attributes at all, the same
+//                        non-empty set of child names)
+//     renamed + changed  same kind and parent, one slot apart
+//
+// and once a node is paired its descendants are matched through it, so a
+// renamed Concept is one finding rather than everything under it removed
+// and added again. Each finding is { kind: added | removed | changed |
+// renamed | moved, a, b, path, changes: [{ attr, key, op: "+" | "-" | "~",
+// from, to }], message } — the message as the CLI prints it, the rest for
+// callers that act on it (the merge driver). `registry` (optional) numbers
+// both sides stably.
+function diff(rootA, nodesA, rootB, nodesB, registry) {
+  const { P, mapAB, how, removed, added } = pairNodes(rootA, nodesA, rootB, nodesB, registry);
+  const { attrPrime, valueCode, naming } = P;
+
+  const changesOf = (a, b) => {
+    const out = [];
+    if (a.godel === b.godel) return out;
+    for (const [aKey, p] of attrPrime) {
+      const va = valuation(a.godel, p), vb = valuation(b.godel, p);
+      if (va === vb) continue;
+      const attr = naming.get(aKey) || aKey;
+      const from = va === 0n ? null : valueOfCode(aKey, va, valueCode);
+      const to = vb === 0n ? null : valueOfCode(aKey, vb, valueCode);
+      out.push({ attr, key: aKey, op: va === 0n ? "+" : vb === 0n ? "-" : "~", from, to });
+    }
+    return out;
+  };
+  const said = (c) => (c.op === "+" ? `+ '${c.attr}' = '${c.to}'`
+    : c.op === "-" ? `- '${c.attr}'` : `~ '${c.attr}': '${c.from}' -> '${c.to}'`);
+  const lines = (changes) => (changes.length ? `\n    ${changes.map(said).join("\n    ")}` : "");
+
+  const findings = [];
+  for (const [a, b] of mapAB) {
+    const kind = how.get(a);
+    const changes = changesOf(a, b);
+    const path = pathOf(a);
+    if (kind === "moved") {
+      findings.push({ kind: "moved", a, b, path, changes, message: `moved: ${path} -> ${pathOf(b)}${lines(changes)}` });
+    } else if (kind === "renamed") {
+      findings.push({ kind: "renamed", a, b, path, changes, message: `renamed: ${path} -> '${b.name}'${lines(changes)}` });
+    } else if (changes.length) {
+      findings.push({ kind: "changed", a, b, path: kind === "path" ? path : pathOf(b), changes, message: `changed: ${kind === "path" ? path : pathOf(b)}${lines(changes)}` });
     }
   }
-  const naming = new Map([...A.naming, ...B.naming]);
-  const { attrPrime, valueCode } = assignTables(allAttrKeys, valuesByAttr);
-  applyGodel(A.featByNode, attrPrime, valueCode);
-  applyGodel(B.featByNode, attrPrime, valueCode);
+  for (const a of removed) findings.push({ kind: "removed", a, b: null, path: pathOf(a), changes: [], message: `removed: ${pathOf(a)}` });
+  for (const b of added) findings.push({ kind: "added", a: null, b, path: pathOf(b), changes: [], message: `added: ${pathOf(b)}` });
+  findings.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+  return { findings, attrPrime, valueCode, naming };
+}
+
+// Which substance node of B each of A's is, as diff pairs them: by path,
+// then — unambiguously, parents first — through a paired parent, moved,
+// renamed, renamed with one change. Answers { P (the pooled numbering),
+// mapAB (A node -> B node), how (A node -> "path" | "through" | "moved" |
+// "renamed"), removed: [A nodes paired with nothing], added: [B nodes] }.
+function pairNodes(rootA, nodesA, rootB, nodesB, registry) {
+  const P = pool([{ root: rootA, nodes: nodesA }, { root: rootB, nodes: nodesB }], registry);
+  const [A, B] = P.gathered;
+  const { attrPrime } = P;
+  const primeList = [...attrPrime.values()];
 
   const byPathA = new Map(), byPathB = new Map();
   for (const n of A.substances) byPathA.set(pathOf(n), n);
   for (const n of B.substances) byPathB.set(pathOf(n), n);
 
-  const findings = [];
-  const paths = new Set([...byPathA.keys(), ...byPathB.keys()]);
-  for (const path of [...paths].sort()) {
-    const a = byPathA.get(path), b = byPathB.get(path);
-    if (a && !b) {
-      findings.push({ message: `removed: ${path}` });
-      continue;
-    }
-    if (b && !a) {
-      findings.push({ message: `added: ${path}` });
-      continue;
-    }
-    if (a.godel === b.godel) continue;
-    const changes = [];
-    for (const [aKey, p] of attrPrime) {
-      const va = valuation(a.godel, p), vb = valuation(b.godel, p);
-      if (va === vb) continue;
-      const label = naming.get(aKey) || aKey;
-      if (va === 0n) changes.push(`+ '${label}' = '${valueOfCode(aKey, vb, valueCode)}'`);
-      else if (vb === 0n) changes.push(`- '${label}'`);
-      else changes.push(`~ '${label}': '${valueOfCode(aKey, va, valueCode)}' -> '${valueOfCode(aKey, vb, valueCode)}'`);
-    }
-    if (changes.length) findings.push({ message: `changed: ${path}\n    ${changes.join("\n    ")}` });
+  // what matched, A -> B, and how
+  const mapAB = new Map();
+  const how = new Map(); // a -> "path" | "through" | "moved" | "renamed"
+  for (const [path, a] of byPathA) {
+    const b = byPathB.get(path);
+    if (b) { mapAB.set(a, b); how.set(a, "path"); }
   }
-  return { findings };
+  if (!mapAB.has(rootA)) { mapAB.set(rootA, rootB); how.set(rootA, "path"); }
+  const matchedB = new Set(mapAB.values());
+  const depthOf = (n) => { let d = 0; for (let p = n.parent; p; p = p.parent) d++; return d; };
+  const fold = (s) => numberless(String(s || "")).trim().toLowerCase();
+  const childNames = (n) => n.children.filter(isSubstance).map((c) => fold(c.name)).sort().join("\0");
+  const sameContent = (a, b) => (a.godel > 1n ? a.godel === b.godel : a.godel === b.godel && childNames(a) !== "" && childNames(a) === childNames(b));
+  const removed = () => A.substances.filter((n) => !mapAB.has(n));
+  const added = () => B.substances.filter((n) => !matchedB.has(n));
+  const pair = (a, b, kind) => { mapAB.set(a, b); matchedB.add(b); how.set(a, kind); };
+  // exactly one candidate on each side, or no pairing at all
+  const unique = (a, test) => {
+    const cands = added().filter((b) => b.kind === a.kind && test(a, b));
+    if (cands.length !== 1) return null;
+    const back = removed().filter((x) => x.kind === a.kind && test(x, cands[0]));
+    return back.length === 1 && back[0] === a ? cands[0] : null;
+  };
+  const rules = [
+    ["through", (a, b) => b.parent === mapAB.get(a.parent) && fold(a.name) === fold(b.name)],
+    ["moved", (a, b) => b.parent !== mapAB.get(a.parent) && fold(a.name) === fold(b.name)],
+    ["renamed", (a, b) => b.parent === mapAB.get(a.parent) && mapAB.has(a.parent) && sameContent(a, b)],
+    ["renamed", (a, b) => b.parent === mapAB.get(a.parent) && mapAB.has(a.parent) && distance(a.godel, b.godel, primeList) <= 1],
+  ];
+  const levels = [...new Set(A.substances.map(depthOf))].sort((x, y) => x - y);
+  for (const d of levels) {
+    for (const [kind, test] of rules) {
+      for (const a of removed().filter((n) => depthOf(n) === d)) {
+        const b = unique(a, test);
+        if (b) pair(a, b, kind);
+      }
+    }
+  }
+  return { P, A, B, mapAB, how, removed: removed(), added: added() };
 }
 
 // Query by example: every substance node whose content satisfies a partial
@@ -484,8 +717,187 @@ function near(root, nodes, x, k = 5) {
   return ranked;
 }
 
+// --- what a node carries, for a reader ---------------------------------------
+
+const SUPERSCRIPT = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+// G written as its factorisation, `2³ · 5 · 11²` — prime order, an exponent
+// of one left off — which is what G says; the integer itself only while it is
+// short enough to read.
+function factorisation(g, slots) {
+  if (!slots.length) return "1";
+  return [...slots].sort((x, y) => (x.prime < y.prime ? -1 : 1))
+    .map((s) => `${s.prime}${s.exponent === 1n ? "" : String(s.exponent).split("").map((d) => SUPERSCRIPT[d]).join("")}`)
+    .join(" · ");
+}
+
+// A node's content, laid out for the hover: { number, slots: [{ attr, value,
+// prime, exponent, from, fromLine, own, via }], overrides: [{ attr, value,
+// replaces, from }], nearest: { node, dist, diff } | null }. `from` is the
+// node whose declaration the slot came from (the node itself when `own`),
+// `via` the attribute a crosslinked Concept came in through. `nearest` is
+// the closest sibling of the same kind by content distance, the earlier line
+// winning a tie, with its differing slots written as near() writes them.
+// `tables` is what buildGodel or pool answered for the document.
+function profile(root, nodes, node, tables) {
+  const { attrPrime, valueCode, naming } = tables;
+  const gathered = gather(root, nodes);
+  const f = gathered.featByNode.get(node);
+  if (!f || node.godel === undefined) return null;
+  const label = (aKey) => (naming && naming.get(aKey)) || aKey;
+  const slots = [];
+  for (const [aKey, p] of attrPrime) {
+    const e = valuation(node.godel, p);
+    if (e === 0n) continue;
+    const decl = f.fromByAttr.get(aKey);
+    const through = f.via.get(aKey);
+    const owner = decl ? decl.parent : through ? through.parent : null;
+    slots.push({
+      attr: label(aKey), key: aKey, value: valueOfCode(aKey, e, valueCode), prime: p, exponent: e,
+      from: owner, fromLine: decl ? decl.line : through ? through.line : null, own: owner === node,
+      via: through && !decl ? through.name : null,
+    });
+  }
+  slots.sort((a, b) => a.attr.localeCompare(b.attr));
+  const overridesOut = [];
+  let anc = node.parent;
+  while (anc && anc.godel === undefined) anc = anc.parent;
+  if (anc) {
+    for (const [aKey, p] of attrPrime) {
+      const vn = valuation(node.godel, p), va = valuation(anc.godel, p);
+      if (vn >= 2n && va >= 2n && vn !== va) {
+        overridesOut.push({ attr: label(aKey), value: valueOfCode(aKey, vn, valueCode), replaces: valueOfCode(aKey, va, valueCode), from: anc });
+      }
+    }
+  }
+  const primeList = [...attrPrime.values()];
+  let nearest = null;
+  for (const s of (node.parent ? node.parent.children : [])) {
+    if (s === node || s.kind !== node.kind || s.godel === undefined) continue;
+    const dist = distance(node.godel, s.godel, primeList);
+    if (!nearest || dist < nearest.dist || (dist === nearest.dist && s.line < nearest.node.line)) nearest = { node: s, dist };
+  }
+  if (nearest) {
+    nearest.diff = [];
+    for (const [aKey, p] of attrPrime) {
+      const vx = valuation(node.godel, p), vn = valuation(nearest.node.godel, p);
+      if (vx === vn) continue;
+      if (vx === 0n) nearest.diff.push(`+ ${label(aKey)}: ${valueOfCode(aKey, vn, valueCode)}`);
+      else if (vn === 0n) nearest.diff.push(`- ${label(aKey)}`);
+      else nearest.diff.push(`~ ${label(aKey)}: ${valueOfCode(aKey, vx, valueCode)} | ${valueOfCode(aKey, vn, valueCode)}`);
+    }
+  }
+  return { number: node.godel, factors: factorisation(node.godel, slots), slots, overrides: overridesOut, nearest };
+}
+
+// --- values every child shares, and defaults nothing keeps -------------------
+// State a fact once, at the most general place it holds: a value every child
+// of X sets for itself is a fact about X, written once per child. And a
+// default X sets that every child overrides is in force for nothing under X.
+// Both are warnings — the file still verifies — found one attribute prime at
+// a time, for every node X with two or more children — three when they are
+// all Examples — and no `...` Map (an open division may yet gain a child
+// that differs). A value a derivation
+// computes is its own row's, never lifted. Answers [{ line, kind: "hoist" |
+// "dead", parent, attr, key, value, replaces?, message, related }].
+function hoists(root, nodes) {
+  const { attrPrime, valueCode, naming, featByNode } = buildGodel(root, nodes);
+  const label = (aKey) => (naming && naming.get(aKey)) || aKey;
+  const derived = (d) => d && (d.formula !== undefined || d.derived);
+  const out = [];
+  for (const x of [root, ...nodes]) {
+    if (!isSubstance(x) || x.godel === undefined) continue;
+    if (x.children.some((c) => c.kind === MAP)) continue;
+    const kids = x.children.filter((c) => isSubstance(c) && c.godel !== undefined && c.line !== x.line);
+    // two kinds agreeing is a rule; two rows of data agreeing is as often
+    // chance, so Examples alone need three before their agreement says
+    // anything about the Concept
+    if (kids.length < (kids.every((k) => k.kind === INDIVIDUAL) ? 3 : 2)) continue;
+    const ownDecl = (aKey) => x.children.find((c) => c.kind === DEFAULT && keyOf(c.name) === aKey) || null;
+    for (const [aKey, p] of attrPrime) {
+      const vs = kids.map((k) => valuation(k.godel, p));
+      const xv = valuation(x.godel, p);
+      const decls = kids.map((k) => featByNode.get(k).fromByAttr.get(aKey));
+      if (decls.some(derived)) continue;
+      const related = kids.map((k, i) => ({ line: decls[i] ? decls[i].line : k.line, message: `'${display(k)}' sets it here` }));
+      const own = ownDecl(aKey);
+      const shared = vs[0] >= 2n && vs.every((v) => v === vs[0]) && xv !== vs[0];
+      if (shared) {
+        const value = valueOfCode(aKey, vs[0], valueCode);
+        const lines = related.map((r) => r.line).join(", ");
+        const replacing = own && !derived(own) ? ` — '${display(x)}' says '${label(aKey)}: ${own.value}', which no child keeps: write '${label(aKey)}: ${value}' there instead` : "";
+        const every = kids.every((k) => k.kind === CONCEPT) ? "every kind of" : kids.every((k) => k.kind === INDIVIDUAL) ? "every Example of" : "everything under";
+        out.push({
+          line: own ? own.line : x.line || related[0].line, kind: "hoist", parent: x, attr: label(aKey), key: aKey, value,
+          replaces: own ? own.value : null,
+          message: `every child of '${display(x)}' sets '${label(aKey)}: ${value}' (lines ${lines}) — a fact that holds for ${every} '${display(x)}' belongs to '${display(x)}': write it once under '${display(x)}' and drop it from each child${replacing} (advisory: the file still verifies)`,
+          related,
+        });
+        continue;
+      }
+      if (own && !derived(own) && xv >= 2n && vs.every((v) => v >= 2n && v !== xv)) {
+        out.push({
+          line: own.line, kind: "dead", parent: x, attr: label(aKey), key: aKey, value: own.value,
+          message: `'${display(x)}' sets '${label(aKey)}: ${own.value}' but every child overrides it — a default no child keeps is never in force for anything under '${display(x)}'; keep just '${label(aKey)}', or drop the line (advisory: the file still verifies)`,
+          related,
+        });
+      }
+    }
+  }
+  return out.sort((a, b) => a.line - b.line);
+}
+
+// --- one idea, two names, two files ------------------------------------------
+// The content clash catches two Concepts of one content within a file.
+// Across files it is a warning: one file may still be adding the differentia.
+// `docs` is [{ file, root, nodes }], this file among them; the finding lands
+// on this file's side, with the peer as related information. A pair is left
+// alone when the names fold alike, when one is the other's alias, or when
+// the writer has said they are distinct (`dismissed`, synonyms.pairKey keys).
+// Answers [{ line, other: { file, line, name }, name, message, related }].
+function twins(docs, file, opts) {
+  const o = opts || {};
+  pool(docs, o.registry); // one numbering, so equal G means equal content across files
+  const fold = (s) => numberless(String(s || "")).trim().toLowerCase();
+  const pairKey = (a, b) => [String(a).toLowerCase(), String(b).toLowerCase()].sort().join("|");
+  const dismissed = o.dismissed || new Set();
+  const candidates = [];
+  for (const d of docs) {
+    for (const n of d.nodes) {
+      if (n.kind !== CONCEPT || !(n.godel > 1n) || !assertsOwnSlot(n) || n.children.some((c) => c.kind === MAP)) continue;
+      candidates.push({ file: d.file, node: n });
+    }
+  }
+  const byG = new Map();
+  for (const c of candidates) {
+    const k = String(c.node.godel);
+    if (!byG.has(k)) byG.set(k, []);
+    byG.get(k).push(c);
+  }
+  const base = (f) => String(f).split(/[\\/]/).pop();
+  const out = [];
+  for (const group of byG.values()) {
+    if (group.length < 2) continue;
+    for (const mine of group.filter((c) => c.file === file)) {
+      for (const peer of group) {
+        if (peer.file === file) continue;
+        const a = mine.node, b = peer.node;
+        if (fold(a.name) === fold(b.name)) continue;
+        if ((a.alias && fold(a.alias) === fold(b.name)) || (b.alias && fold(b.alias) === fold(a.name))) continue;
+        if (dismissed.has(pairKey(a.name, b.name))) continue;
+        out.push({
+          line: a.line, name: a.name, other: { file: peer.file, line: b.line, name: b.name },
+          message: `'${a.name}' and '${b.name}' (${base(peer.file)}:${b.line}) carry exactly the same attributes and values — one idea takes one name; rename one to the other, or give one a differentia (a distinguishing attribute or value) if they are two ideas`,
+          related: [{ file: peer.file, line: b.line, message: `'${b.name}' carries the same content here` }],
+        });
+      }
+    }
+  }
+  return out.sort((x, y) => x.line - y.line);
+}
+
 module.exports = {
   buildGodel, clashes, overrides, diff, find, common, near,
   decode, decodeNumber, gather, assignTables, applyGodel,
   valuation, radical, distance, lcm, valueOfCode, pathOf, isSubstance,
+  pool, pairNodes, parseRegistry, formatRegistry, profile, factorisation, hoists, twins, assertsOwnSlot,
 };

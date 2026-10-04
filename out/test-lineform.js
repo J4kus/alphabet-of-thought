@@ -197,6 +197,48 @@ const at = (r) => r && r.cursor && `${r.cursor.line}:${r.cursor.ch}`;
 }
 
 // ---------------------------------------------------------------------------
+// the column keys from a declaration line: `age` under the Concept is that
+// column's header, so Alt+Shift+← there deletes the column too
+// ---------------------------------------------------------------------------
+{
+  const nodes = lint(PEOPLE.join("\n"), "Sheet").nodes;
+  const headerGrid = lf.gridAt(PEOPLE, nodes, 1, { header: true });
+  check("declaration: only the column keys read it as a grid, as the column's header",
+    lf.gridAt(PEOPLE, nodes, 1) === null && headerGrid && headerGrid.row === null
+    && headerGrid.header && headerGrid.col === 1);
+  const runHeader = (lines, line, name) => {
+    const g = lf.gridAt(lines, lint(lines.join("\n"), "Sheet").nodes, line, { header: true });
+    const answer = g && lf.ops[name](g);
+    return answer ? lf.resolve(lines, answer) : null;
+  };
+  const deleted = runHeader(PEOPLE, 1, "deleteColumn");
+  check("declaration: Alt+Shift+← deletes the column, declaration and every value",
+    deleted && !deleted.lines.some((l) => /\bage\b/.test(l)) && deleted.lines[1] === "    - Ann" && at(deleted) === "1:6");
+  const both = ["Person", "    age", "    city", "    - Ann", "        age: 30", "        city: Paris"];
+  const moved = runHeader(both, 1, "moveColumnRight");
+  check("declaration: Alt+→ swaps the declarations and the values, the cursor following",
+    moved && moved.lines[1] === "    city" && moved.lines[2] === "    age"
+    && moved.lines[4] === "        city: Paris" && moved.cursor.line === 2);
+  const copied = runHeader(both, 1, "copyColumnRight");
+  check("declaration: Ctrl+Alt+→ copies the declaration too, the cursor on the copy",
+    copied && copied.lines.filter((l) => l === "    age").length === 2 && copied.cursor.line === 2);
+  check("declaration: a Concept with no line-form Example has no column to act on",
+    lf.gridAt(["Person", "    age"], lint("Person\n    age", "Sheet").nodes, 1, { header: true }) === null);
+  check("declaration: a Concept's own line is no column's header", lf.gridAt(PEOPLE, nodes, 0, { header: true }) === null);
+  const decl = (lines, i) => lf.looksLikeDeclaration((k) => lines[k], i);
+  check("looksLikeDeclaration: a bare attribute under a Concept written as lines",
+    decl(PEOPLE, 1) && !decl(PEOPLE, 0) && !decl(PEOPLE, 2) && !decl(PEOPLE, 3));
+  check("looksLikeDeclaration: not without a '- ' Example beside it, nor under an Example",
+    !decl(["Person", "    age"], 1) && !decl(["Person", "    - Ann", "        nick", "        - Sub"], 2));
+  check("looksLikeDeclaration: past the document's end, a table row, or a term at no indent is none",
+    !decl(PEOPLE, 99) && !decl(["T|a", "x|1"], 1) && !decl(["age", "- Ann"], 0));
+  check("looksLikeDeclaration: blank lines between are passed over",
+    decl(["Person", "", "    age", "", "    - Ann", "        age: 3"], 2));
+  check("looksLikeDeclaration: not an indented term with nothing above it, nor one whose Concept ends before an Example",
+    !decl(["    age", "    - Ann"], 0) && !decl(["Person", "    age", "Other", "    - Ann"], 1));
+}
+
+// ---------------------------------------------------------------------------
 // cells: copy and cut into a neighbour
 // ---------------------------------------------------------------------------
 {

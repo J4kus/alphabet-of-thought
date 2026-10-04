@@ -1,0 +1,1086 @@
+# Gödel numbering kept by the AOT extension: a prime per attribute, a code per value, stable across edits, files and branches. Safe to delete — it is rebuilt on the next save, with new numbers.
+a	active	2
+a	actual	3
+a	after	5
+a	age	7
+a	allow folding	11
+a	allow special value override	13
+a	amount	17
+a	another type	19
+a	area	23
+a	attribute	29
+a	attribute eight	31
+a	attribute eleven	37
+a	attribute five	41
+a	attribute four	43
+a	attribute nine	47
+a	attribute one	53
+a	attribute seven	59
+a	attribute six	61
+a	attribute ten	67
+a	attribute three	71
+a	attribute twelve	73
+a	attribute two	79
+a	author	83
+a	average age	89
+a	awaiting event	97
+a	base	101
+a	bay	103
+a	bays	107
+a	because	109
+a	begin	113
+a	beneficiary	127
+a	best units	131
+a	birth date	137
+a	birth place	139
+a	blue	149
+a	broadcast item	151
+a	capacity	157
+a	case	163
+a	change log entry	167
+a	characteristic	173
+a	characters	179
+a	chart	181
+a	city	191
+a	class	193
+a	clean code category	197
+a	click button	199
+a	closed	211
+a	coat	223
+a	code	227
+a	colour	229
+a	concurrent	233
+a	course	239
+a	currency	241
+a	cycle	251
+a	data type	257
+a	date precision	263
+a	days	269
+a	department	271
+a	description	277
+a	direct lookup	281
+a	displacement from greenwich meridian hours	283
+a	doors	293
+a	due	307
+a	duration	311
+a	encode	313
+a	encoding	317
+a	end	331
+a	end of stream	337
+a	escapes	347
+a	example	349
+a	exception	353
+a	expected	359
+a	exponent	367
+a	extension	373
+a	extension description	379
+a	extension identifier	383
+a	extension name	389
+a	family count	397
+a	father	401
+a	file	409
+a	file extension	419
+a	first name	421
+a	first node	431
+a	first peripheral	433
+a	fixes	439
+a	fixture	443
+a	flag	449
+a	format	457
+a	from node	461
+a	from the ledger	463
+a	fuel	467
+a	gears	479
+a	global workspace	487
+a	grade interval maximum	491
+a	grade interval minimum	499
+a	grammar capacity	503
+a	green	509
+a	has lock	521
+a	has wings	523
+a	heat	541
+a	height	547
+a	hull	557
+a	incorporated country	563
+a	indent	569
+a	indentation	571
+a	independent node	577
+a	influence	587
+a	information rate	593
+a	initialise git repository	599
+a	input	601
+a	instrument	607
+a	interest	613
+a	interval	617
+a	interval count	619
+a	is	631
+a	is alive	641
+a	is bottleneck	643
+a	is business unit	647
+a	is constant value	653
+a	is correct	659
+a	is done	661
+a	is integer	673
+a	is living	677
+a	is maximum ranking open	683
+a	is memory shared in pool of workers	691
+a	is minimum ranking open	701
+a	is on-off switch	709
+a	is present in	719
+a	is race	727
+a	is said of	733
+a	is signed	739
+a	is special value override	743
+a	is tangible	751
+a	is user classified	757
+a	is worker pool count known	761
+a	keyword	769
+a	label	773
+a	language id	787
+a	language name	797
+a	last update time	809
+a	leaf	811
+a	left	821
+a	legs	823
+a	length	827
+a	lint	829
+a	lives in water	839
+a	location	853
+a	long term memory	857
+a	make deliberation	859
+a	margin	863
+a	maximum bit count	877
+a	maximum number of elements	881
+a	maximum worker pool	883
+a	measurement	887
+a	measurement interval	907
+a	measurement operation used	911
+a	mechanism	919
+a	memo	929
+a	minimum bit count	937
+a	minimum number of elements	941
+a	month	947
+a	mood	953
+a	mother	967
+a	multiplier	971
+a	multiplier measurement	977
+a	n	983
+a	name	991
+a	net	997
+a	newline	1009
+a	nickname	1013
+a	no terminology name	1019
+a	node	1021
+a	note	1031
+a	number of grades	1033
+a	numeric base	1039
+a	observation	1049
+a	offset scaling magnitude	1051
+a	on	1061
+a	orchard rows	1063
+a	ordering	1069
+a	output	1087
+a	paddles	1091
+a	parent measurement	1093
+a	parent measurement influence	1097
+a	path	1103
+a	peripheral	1109
+a	permit count	1117
+a	person	1123
+a	ping	1129
+a	polling duration	1151
+a	pong	1153
+a	portion	1163
+a	power	1171
+a	precision	1181
+a	predicate	1187
+a	present in	1193
+a	price	1201
+a	processing rule	1213
+a	qty	1217
+a	racks	1223
+a	reach	1229
+a	readme file	1231
+a	reads as	1237
+a	recognise	1249
+a	red	1259
+a	ref	1277
+a	relative zero point	1279
+a	reports to	1283
+a	repository page	1289
+a	resident	1291
+a	residents known as	1297
+a	result	1301
+a	revenue	1303
+a	right	1307
+a	risk	1319
+a	role	1321
+a	root	1327
+a	rows	1361
+a	rules	1367
+a	sample category	1373
+a	scaffold	1381
+a	schema	1399
+a	scope name	1409
+a	score	1423
+a	second node	1427
+a	second peripheral	1429
+a	seconds precision	1433
+a	section	1439
+a	seed	1447
+a	seq	1451
+a	shade	1453
+a	silver	1459
+a	size	1471
+a	sku	1481
+a	sound	1483
+a	span	1487
+a	speed	1489
+a	spotted	1493
+a	start	1499
+a	start condition	1511
+a	start time	1523
+a	state	1531
+a	status	1543
+a	stereotype	1549
+a	stops	1553
+a	storage capacity	1559
+a	sum if test	1567
+a	surname	1571
+a	suspension event	1579
+a	syntax	1583
+a	tag	1597
+a	tail	1601
+a	target	1607
+a	tax number	1609
+a	tax rate	1613
+a	team	1619
+a	temperature	1621
+a	then	1627
+a	thinker	1637
+a	thread	1657
+a	time	1663
+a	timeout	1667
+a	timeout duration	1669
+a	timing	1693
+a	title	1697
+a	to node	1699
+a	total	1709
+a	total units	1721
+a	trading name	1723
+a	tree	1733
+a	true when	1741
+a	try	1747
+a	turns	1753
+a	twin pair	1759
+a	type	1777
+a	units	1783
+a	update file	1787
+a	updated time	1789
+a	updating author	1801
+a	url or file to import, or none for new	1811
+a	use intuition	1823
+a	useful life	1831
+a	validation rule	1847
+a	vat	1861
+a	volume	1867
+a	waiting for	1871
+a	weight	1873
+a	what type of extension do you want to create	1877
+a	wheels	1879
+a	when no	1889
+a	when yes	1901
+a	width	1907
+a	wrapped co routine	1913
+a	wrapped concurrent	1931
+a	write off method	1933
+a	written	1949
+a	youngest	1951
+a	parcels	1973
+a	part	1979
+a	stop	1987
+a	van	1993
+v	active	2	No
+v	actual	2	9
+v	actual	3	average
+v	actual	4	better decision next time
+v	actual	5	claims lazily produced
+v	actual	6	demanding when evaluated
+v	actual	7	overconfident
+v	actual	8	partial
+v	actual	9	result of an affordable heuristic
+v	actual	10	seconds of scarce working memory
+v	after	2	#ERR
+v	after	3	confusing time
+v	after	4	grappling with a subject
+v	age	2	10
+v	age	3	12
+v	age	4	15
+v	age	5	20
+v	age	6	3
+v	age	7	30
+v	age	8	36
+v	age	9	4
+v	age	10	40
+v	age	11	41
+v	age	12	7
+v	allow folding	2	Yes
+v	allow special value override	2	Ellipsis
+v	allow special value override	3	No
+v	amount	2	120
+v	amount	3	15,000
+v	amount	4	18,060
+v	amount	5	20,700
+v	amount	6	300
+v	amount	7	45
+v	area	2	constraints
+v	area	3	editor
+v	area	4	every derivation is Python
+v	area	5	formatting
+v	area	6	git
+v	area	7	godel
+v	area	8	linter
+v	area	9	parking
+v	area	10	python
+v	area	11	references
+v	area	12	repository
+v	area	13	running
+v	area	14	security
+v	area	15	sidecar
+v	area	16	tables
+v	area	17	what comes back
+v	area	18	where it stands
+v	area	19	wsl
+v	attribute	2	"version"
+v	attribute	3	value
+v	attribute one	2	0
+v	attribute one	3	1
+v	attribute three	2	2
+v	attribute two	2	1
+v	attribute two	3	2
+v	attribute two	4	3
+v	author	2	Douglas Engelbart
+v	author	3	Douglas T. Ross
+v	author	4	Frederic Bartlett and Jean Piaget
+v	author	5	John F. Sowa
+v	author	6	John Zachman
+v	author	7	S.S. Stevens
+v	author	8	William W. Armstrong
+v	average age	2	20
+v	base	2	gadget
+v	base	3	widget
+v	bay	2	east
+v	bay	3	north
+v	bay	4	south
+v	bay	5	west
+v	bays	2	1
+v	bays	3	4
+v	because	2	2026-01 is not a whole number or a whole date, so it arrives as text
+v	because	3	Python cannot be sandboxed inside its own process, so the trust decision is yours
+v	because	4	Python's truths are written Yes and No
+v	because	5	Quarter has a derivation of its own, so it runs first and arrives whole, as the list it returned, not as text
+v	because	6	a == whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
+v	because	7	a Figure, an Axes, a PIL image or image bytes are pictures; no window ever opens
+v	because	8	a bound is believed only when what follows the operator reads as a Python expression, and none noted is two words side by side
+v	because	9	a change saved in this editor is the writer's own
+v	because	10	a collection lists the allowed values, and names no one value to write
+v	because	11	a column carrying the Concept's own name names its Examples; without one the rows are numbered 1, 2, 3, as Test above shows
+v	because	12	a constraint's bound is Python, checked with the derivations and never on a keystroke
+v	because	13	a derivation computes a value, and a bare attribute declares none; escaped here so this file still verifies
+v	because	14	a dollar sign on the value a number replaces is kept
+v	because	15	a failed derivation writes nothing, rather than a marker over a good value
+v	because	16	a folder holding Python is a package, even without an __init__
+v	because	17	a frame on a Concept line is the Concept's rows, and Python owns them outright; the table stands where the Concept stood, never beneath it repeating its name
+v	because	18	a function a Python file here defines has a place to open, and the standard library's has none; the files are read to find it, never run
+v	because	19	a hung expression holds the interpreter, so stopping the process is the only way to end it
+v	because	20	a name nothing else defines is imported, and a repository file is found by its name wherever it is
+v	because	21	a name one derivation makes never leaks into another; its result, read with an at sign, does
+v	because	22	a pipe cannot live inside a table, so text keeps the broken bar the CSV mirror already uses
+v	because	23	a pipe inside Python still open, in a bracket or a string, is the Python's, never a divider
+v	because	24	a pipe outside every bracket and string divides cells, derivation or not
+v	because	25	a reference keeps the spaces in its name, and if and else between references are Python's words
+v	because	26	a sidecar's top-level code runs the moment it is loaded
+v	because	27	a table has no line for an attribute the Concept states itself
+v	because	28	a value arrives typed, and only a whole number is a number; the dollar sign and the comma are read away
+v	because	29	a value's own derivation is the nearer word, and the definition still checks it
+v	because	30	an at sign after an operand is the matrix operator, never a reference
+v	because	31	an at sign inside a string is text, never a reference
+v	because	32	an open bracket is no Python yet
+v	because	33	aot.use loads any file of the repository by its path, for a name that is not an identifier, a space and all
+v	because	34	each run is a single pass, dependencies first, and a reference to another derivation is its live result
+v	because	35	every computed number is separated, a year included
+v	because	36	every computed number is written to two decimals; keep the precision in the live result, or return text
+v	because	37	in Python the caret is exclusive or
+v	because	38	nothing names roundd, and no underline marks it as a function a file here defines
+v	because	39	on an attribute a frame is a value, summarised; only a Concept line writes a table
+v	because	40	quarters is defined in aot.files/python edge cases.py
+v	because	41	text holding a line break has no place on one line
+v	because	42	text is written as it is
+v	because	43	text longer than aot.python.maxInlineText, 120, is written to a file
+v	because	44	the comment is Python's, and nothing in it is read as a reference
+v	because	45	the derivation comes off the line before the colon is read, so the slice never becomes an inline Example, and a colon inside a derivation never makes a header a value line
+v	because	46	the formula language is gone, and its text is not Python
+v	because	47	the time is kept with the run records, so it outlasts the session and a restart of the editor
+v	because	48	there is one language behind the equals sign, and it runs only when asked
+v	because	49	two rows would share the name a, so the numbers stay and so does the column
+v	because	50	unescaped, a space then an equals sign starts a derivation
+v	because	51	what a string holds is characters, never code
+v	begin	2	(
+v	begin	3	...
+v	beneficiary	2	Aristotle
+v	beneficiary	3	Socrates
+v	best units	2	1,380
+v	birth date	2	1815-12-10
+v	birth date	3	1912-06-23
+v	birth place	2	Athens
+v	birth place	3	Pella
+v	blue	2	4
+v	case	2	
+v	case	3	#ERR
+v	case	4	... =load()
+v	case	5	01
+v	case	6	1
+v	case	7	1,000
+v	case	8	1,205
+v	case	9	1,500
+v	case	10	10
+v	case	11	1815
+v	case	12	2
+v	case	13	2,026
+v	case	14	2026
+v	case	15	2026-09-22
+v	case	16	2026-09-22 14:30
+v	case	17	2026-10-02
+v	case	18	240
+v	case	19	3,574
+v	case	20	3,628,800
+v	case	21	3.14
+v	case	22	4
+v	case	23	42
+v	case	24	5
+v	case	25	7
+v	case	26	8
+v	case	27	<DataFrame 1,204 rows × 1 col>
+v	case	28	<dict 2 keys>
+v	case	29	<list 2 items>
+v	case	30	<list 3 items>
+v	case	31	@price costs 2
+v	case	32	BY PATH!
+v	case	33	Ctrl+Enter after the session ended, idle or stopped
+v	case	34	Ctrl+Enter anywhere else
+v	case	35	Ctrl+Enter off a derivation, twice
+v	case	36	Ctrl+Enter on a derivation
+v	case	37	Ctrl+Shift+backtick
+v	case	38	Ctrl+Shift+backtick with age >=18 above
+v	case	39	DF.HEAD()
+v	case	40	DOTTED!
+v	case	41	Flags
+v	case	42	HELLO!
+v	case	43	Run Command: code =x
+v	case	44	Sales =
+v	case	45	Yes
+v	case	46	a = b
+v	case	47	a Concept line with its table indented beneath it, repeating its name, from an earlier version or a run before this layout
+v	case	48	a Concept named to climb out of aot.files
+v	case	49	a Python file changed by a pull or another tool, after it was allowed
+v	case	50	a Python file edited and saved here, after it was allowed
+v	case	51	a bare call to a name the sidecar takes with from helpers import load
+v	case	52	a derivation changed after it last ran
+v	case	53	a module name no derivation or sidecar defines
+v	case	54	a virtual environment, node_modules, __pycache__, a folder whose name starts with a dot
+v	case	55	a workspace VS Code does not trust
+v	case	56	alpha
+v	case	57	an exception at the sidecar's top level
+v	case	58	an os.py anywhere in the repository
+v	case	59	aot.files/Python Edge Case.case.A Chart Becomes A File.png
+v	case	60	aot.files/Python Edge Case.case.A Long Text Becomes A File.md
+v	case	61	aot.files/Python Edge Case.case.A Paragraph Becomes A File.md
+v	case	62	aot.files/Python Edge Case.case.A Picture Becomes A File.png
+v	case	63	aot.files/python edge cases.formulas
+v	case	64	aot.python.enabled left off
+v	case	65	a¦b
+v	case	66	cap <=@price*(2, on a bare attribute line
+v	case	67	finance importing helpers, and helpers changing
+v	case	68	finance.py in two folders, named as finance
+v	case	69	node verify.js
+v	case	70	open(os.path.expanduser("~/.ssh/id_rsa")).read() after an equals sign
+v	case	71	quarters in
+v	case	72	rows =f()
+v	case	73	speed > none noted, on a bare attribute line
+v	case	74	teh recieve
+v	case	75	the Concept beneath
+v	case	76	the Concept beneath, and Quarter above
+v	case	77	the end of any Python derivation's line
+v	case	78	the first run, and the first after the sidecar changes anywhere but in this editor
+v	case	79	time.sleep(60) after an equals sign
+v	case	80	typing, Tab, Format Document, a save, a CSV arriving
+v	change log entry	2	1.3.0
+v	characters	2	lowercase
+v	chart	2	aot.files/primitive graph.chart.Example.png
+v	city	2	Athens
+v	city	3	Old
+v	city	4	Durban
+v	click button	2	Install
+v	closed	2	No
+v	closed	3	Yes
+v	coat	2	feathers
+v	coat	3	fur
+v	code	2	A
+v	code	3	B
+v	code	4	GADGET
+v	code	5	WIDGET
+v	colour	2	blue
+v	colour	3	red
+v	course	2	first
+v	course	3	last
+v	course	4	main
+v	currency	2	EUR
+v	currency	3	ZAR
+v	date precision	2	no date
+v	days	2	92
+v	days	3	93
+v	department	2	Engineering
+v	department	3	Exco
+v	department	4	Marketing
+v	description	2	Admitting his own lack of knowledge to spark true wisdom, famously saying "I know that I know nothing".
+v	description	3	Shifting focus away from the physical universe and toward human virtue and how to live a good life.
+v	description	4	Teaching through a back-and-forth series of questions rather than lecturing.
+v	direct lookup	2	10
+v	displacement from greenwich meridian hours	2	+0
+v	doors	2	3
+v	doors	3	5
+v	due	2	2026-09-22
+v	encode	2	Token
+v	encoding	2	utf-8
+v	end	2	)
+v	end	3	End Of Line
+v	end	4	End of line
+v	end	5	end of line
+v	escapes	2	the equals sign
+v	example	2	0
+v	example	3	Human
+v	example	4	age >=0
+v	example	5	colour: red
+v	example	6	full name
+v	expected	2	$1,500 once run
+v	expected	3	01 once run
+v	expected	4	1 once run
+v	expected	5	1 once run, with no import written
+v	expected	6	1,000 once run
+v	expected	7	1,205 once run
+v	expected	8	10, then a NameError on the next line once run
+v	expected	9	2 once run
+v	expected	10	2,026 once run
+v	expected	11	2026 once run
+v	expected	12	2026-09-22 14:30 once run
+v	expected	13	2026-09-22 once run
+v	expected	14	2026-10-02 once run
+v	expected	15	240 once run, in the same run that writes seed
+v	expected	16	3,574 once run
+v	expected	17	3,628,800 written in front of the derivation once run
+v	expected	18	3.14 once run
+v	expected	19	4 once run
+v	expected	20	42 once run; typing it computes nothing
+v	expected	21	5 stays; once run, a SyntaxError on its line, since a backtick is no Python; write len("hello")
+v	expected	22	7 once run; hello is shown in the hover and the inlay's tooltip, never written into the file
+v	expected	23	7 stays, the line says ZeroDivisionError, and after says it did not run because case failed
+v	expected	24	8 once run; write 2**10 for a power, 1,024
+v	expected	25	@price costs 2 once run
+v	expected	26	BY PATH! once run
+v	expected	27	Blue and Green fill with 4 from the header; Red keeps 5 from its own derivation, with a warning that 5 is not 4
+v	expected	28	DF.HEAD() once run
+v	expected	29	DOTTED! once run
+v	expected	30	Depot stays in the file; the inlay ends with Depot no longer written
+v	expected	31	HELLO! once run; the first run asks about examples/edge_tools.py by its path
+v	expected	32	Yes once run
+v	expected	33	a Content section with G as a factorisation; Cello shows section strings from Instrument with its line; Flute shows section woodwind as its own and an override of strings; each names its nearest sibling and how it differs
+v	expected	34	a Courier Run table appears directly under it at the top level with rows 1 and 2; the Depot table further down is filled where it stands with Durban; the inlay says 2 Concepts
+v	expected	35	a DataFrame of 1,204 rows by 1 col, summarised in angle brackets once run, or without pandas an error naming its install command
+v	expected	36	a Spare Part table appears under it; Fleet is left to its own derivation, and the line says so in red
+v	expected	37	a dict of two keys, summarised in angle brackets once run
+v	expected	38	a header alone once run, Empty Frame and its derivation in the first cell, declaring the column and holding no rows
+v	expected	39	a line under Lantern appears saying 2 more in release 1.12 peer.aot, Ctrl+clickable
+v	expected	40	a list of three items, summarised in angle brackets once run; the list itself stays live for any reference to it
+v	expected	41	a list of two items once run, or without numpy an error naming its install command
+v	expected	42	a prompt naming the sidecar by its path; no answer means nothing runs
+v	expected	43	after a run, the rows it wrote and the time it took, then when it ran, 16:04 today or 2026-09-23 16:04 on an older day; its hover gives the time to the second
+v	expected	44	after aot.python.timeoutMs, 15 seconds, the session stops, the line says it timed out, and each later derivation in that run says it did not run; the next run starts a fresh session
+v	expected	45	alpha once run
+v	expected	46	an attribute named speed > none noted; nothing is checked
+v	expected	47	an attribute named that whole text, not a bound; close the bracket
+v	expected	48	an empty value once run
+v	expected	49	an error naming both files and the dotted path to write instead, tools.finance
+v	expected	50	an error on its line before anything runs, saying nobody names nothing here; not in V
+v	expected	51	an error on its line once run, saying a Concept's derivation must produce a table; nothing is written
+v	expected	52	an error on its line once run, saying the result is infinite; the value is left as it was
+v	expected	53	an error on its line once run; the session keeps running
+v	expected	54	an error on that line of the sidecar, and no derivation runs
+v	expected	55	an error that counts in V, saying there is nothing after the equals sign
+v	expected	56	an error that counts in V, saying to add a colon so the derivation sits on a value
+v	expected	57	an error that the equals sign stands alone, and an error that the bound has no attribute
+v	expected	58	aot.files gets godel.tsv; the primes for Flute are the same before and after the new attribute
+v	expected	59	asked about again, by its path, the first time a run reaches it; the derivations that name it fade meanwhile
+v	expected	60	asked about in its turn when it first runs; but a derivation naming only finance does not fade when helpers changes, so run the line to take the change in
+v	expected	61	a¦b once run
+v	expected	62	both bare lines leave the file whole and the tables they wrote stay; aot.files gets release 1.12.formulas; the second press puts each bare line back above the first table it wrote
+v	expected	63	both vat and net of INV-2 are computed, 10 and 49
+v	expected	64	colour goes from the declaration and from both Examples in one edit; Tab on a declaration line still indents
+v	expected	65	each hover names the derivation of its own cell, price times 0.2 for vat and price minus 1 for net
+v	expected	66	each is underlined, and Ctrl+click opens the file that defines it at its def; len and csv are not underlined
+v	expected	67	each warns that the two carry exactly the same attributes and values, linking the other; Ctrl+dot offers to rename or to keep them apart
+v	expected	68	every derivation runs fresh and every constraint is checked, then everything parks; putting them back runs nothing
+v	expected	69	every derivation the line reads runs again first, since its live result went with the session
+v	expected	70	every stale derivation in the file, and every constraint checked; F9 does the same; in a file with no derivation and no constraint it inserts a line, as it always did
+v	expected	71	family count reads 4, since Parent, Child One, Child Two and Other are all rows of the Family frame; in Python the frame has a parent column naming Parent for both children
+v	expected	72	hull wood is written once under Boat and taken off Canoe and Kayak; the warning goes
+v	expected	73	it would run, with your permissions, and write the key into this file; the gates are the only protection
+v	expected	74	its notice says it may hold Python; review a change to it as you would code
+v	expected	75	its value fades and the end of its line says edited since, with the time it last ran; nothing runs until Ctrl+Enter
+v	expected	76	length reads 3; the pipe inside the string never split the cell, so the row has three cells, no error
+v	expected	77	neither runs, and both lines name the cycle, ping to pong to ping
+v	expected	78	never a derivation; a Map holds only Maps
+v	expected	79	no Python runs; each value holds until it is asked for
+v	expected	80	no spelling hint inside the derivation; once run, the text it writes is prose and is hinted like any value
+v	expected	81	none of their files is ever found or run; they are not the repository's own code
+v	expected	82	noted as not run yet; once run, a NameError on its line, never in V
+v	expected	83	nothing changes, and the status bar says the first column names the Concept and its Examples
+v	expected	84	nothing runs and nothing starts, whatever the settings say
+v	expected	85	nothing runs and nothing starts; each derivation is noted as not run yet, and no constraint is checked
+v	expected	86	on its next run the line becomes the table's header and the repeated name goes; Flag Row above shows it
+v	expected	87	once run the Concept keeps its line, with its currency, and its table stands beneath it repeating its name
+v	expected	88	once run the size cell reads 6, and the width and height cells stay as typed
+v	expected	89	once run, I1's empty vat reads 10 and I2's 99 is corrected to 20; the cells carry the value alone
+v	expected	90	once run, a NameError; the lightbulb offers to create forecast in the sidecar as a stub
+v	expected	91	once run, a table headed by Top Quarter and its derivation, with one row; the slice stays part of the Python
+v	expected	92	once run, a warning on 15 saying it breaks age >=18, it is not >= 18; never in V, and gone once 15 is edited
+v	expected	93	once run, a warning on A's margin of 5, which is under a tenth of its price; B's 20 holds
+v	expected	94	once run, a warning on void saying it is not one of 'draft', 'sent'; nothing is filled in
+v	expected	95	once run, one error on the bound, a NameError; the value is not judged
+v	expected	96	once run, one row per season named Spring and Summer from the season column, which is not written as a column of its own; Quarter above is named the same way, by its quarter key
+v	expected	97	once run, rows numbered 1 and 2, and a twin pair column holding a twice
+v	expected	98	once run, the Concept's line becomes the header of its table, Quarter and its derivation in the first cell, one row per quarter at the same indent; total_units is written total units, None leaves a cell empty, True and False read Yes and No, numbers are separated; a row typed into it is gone on the next run
+v	expected	99	once run, the path of a .md file in aot.files holding two lines
+v	expected	100	once run, the path of a .md file in aot.files named after this value's address
+v	expected	101	once run, the path of a .png in aot.files, or without matplotlib an error naming its install command
+v	expected	102	once run, the path of a one-pixel .png in aot.files; hover shows it
+v	expected	103	once run, total keeps its own derivation's 90, with a warning that it is not 100
+v	expected	104	one finding, renamed, with no removed or added lines for anything under it
+v	expected	105	one note naming both cells, a tick then vat, net then the time taken; the tooltip has one line per cell
+v	expected	106	only net of INV-1 is computed, 99; vat of INV-1 stays empty
+v	expected	107	orchard rows reads 6, every row including the indented saplings
+v	expected	108	python3 runs with no python on PATH; the environment goes to aot.files .venv-linux and the Windows .venv is left alone; Show Python Environment says memory is a data-size limit
+v	expected	109	read as a table header, its first cell the Concept with a() and a column named b(); wrap the Python in brackets, Flags
+v	expected	110	red squiggles on the inner Parent, on the lowercase root row under Mid, and on the nested Top row of Nested Probe, each pointing at its parent
+v	expected	111	runs without being asked about again; the derivations that name it fade until they run
+v	expected	112	shadows nothing; os is always the standard library's, and the repository's os.py never runs
+v	expected	113	stays 1815; only computed numbers gain separators
+v	expected	114	stops reads 2, read live from the table the bare line returned
+v	expected	115	that derivation, the stale ones it reads, and everything that reads it, all in place; then every constraint is checked
+v	expected	116	the 2 more line under Lantern here is deleted; with aot.autoReconcile off it stays and warns that it is stale instead
+v	expected	117	the bound leaves the declaration for the store, and each run still warns on 15
+v	expected	118	the colon stands first, so the text after it is the name of the Concept's one Example, equals sign and all
+v	expected	119	the currency column is dropped, and Receipt gets a line of its own holding currency ZAR with the table filed beneath it
+v	expected	120	the file name is reduced to safe characters and checked to be inside aot.files; a result never names its own file
+v	expected	121	the header becomes vat followed by a double equals and price times 0.2; each vat cell keeps only its value, and the run fills the empty ones
+v	expected	122	the lightbulb offers no flip; Ctrl+K T writes Bicycle as a table and the second press writes it back as lines
+v	expected	123	the line becomes course alone; the warning goes
+v	expected	124	the line stays a line, not a table row; once run, the line becomes the header of its table like any other, the whole derivation in its first cell, with one row, either, whose on cell reads Yes
+v	expected	125	the rename and the value change merge cleanly, and the value changed two ways conflicts on that one line
+v	expected	126	the second press runs only what is stale in its source, its inputs or the sidecar
+v	expected	127	the standard library and installed packages first, then aot.files, then the repository's root, then the one file of that name anywhere else in it
+v	expected	128	the value as it stands is judged; no Python runs, no derivation or bound is checked, and no Python finding counts in V
+v	expected	129	the value reads with its equals sign
+v	expected	130	total reads 22, the ages of Child One and Child Two, reached by name from the Example above them
+v	expected	131	underlined, and Ctrl+click opens helpers.py at def load, not the sidecar
+v	expected	132	youngest reads 10, the age of Child One read through the Family Concept
+v	expected	133	a Courier Run table appears directly under it at the top level with rows 1 and 2; the Depot table above the line is filled where it stands with Durban; the inlay says 2 Concepts
+v	expected	134	both bare lines leave the file whole and the tables they wrote stay; aot.files gets release 1.12.formulas; the second press puts each bare line back above the table that stood beneath it
+v	expected	135	a Spare Part table appears under it; Fleet keeps its own derivation's row; the line's inlay is a tick ending 'Fleet' left to its own derivation, and a yellow warning on the line says Fleet is returned from two places — nothing red, and the line is not run again with the failures
+v	exponent	2	1
+v	extension description	2	alphabet of thought
+v	extension identifier	2	aot
+v	extension name	2	alphabet of thought
+v	family count	2	
+v	family count	3	4
+v	father	2	...
+v	father	3	Sophroniscus
+v	file	2	package.json
+v	file extension	2	.aot
+v	file extension	3	aot
+v	first name	2	Joe
+v	fixture	2	Bicycle
+v	fixture	3	Boat
+v	fixture	4	Courier Probe, after A12
+v	fixture	5	Family and Python Probe below
+v	fixture	6	Instrument
+v	fixture	7	Lantern here and Lantern in release 1.12 peer.aot
+v	fixture	8	Meal
+v	fixture	9	Orchard and the orchard rows line of Python Probe
+v	fixture	10	Toaster here and Grill in release 1.12 peer.aot
+v	fixture	11	after A22
+v	fixture	12	aot.files godel.tsv
+v	fixture	13	the Kite table
+v	fixture	14	the Pipe Probe table
+v	fixture	15	the Receipt table
+v	fixture	16	the Squad table
+v	fixture	17	the colour line directly under Bicycle
+v	fixture	18	the end of row INV-2, after A06
+v	fixture	19	the first bare derivation line near the end of this file
+v	fixture	20	the first bare derivation line, after A12
+v	fixture	21	the first nine lines of release 1.12 errors.aot
+v	fixture	22	the last two lines of release 1.12 errors.aot
+v	fixture	23	the name cell of row INV-2 in Invoice
+v	fixture	24	the net cell of row INV-1 in Invoice
+v	fixture	25	the second bare derivation line, and Fleet
+v	fixture	26	the total line under Parent in Family
+v	fixture	27	the values of row INV-2, after A06
+v	fixture	28	the vat column of Invoice
+v	fixture	29	the walkthrough in docs features-1.12
+v	fixture	30	the whole file, after A12
+v	fixture	31	the youngest line of Python Probe
+v	fixture	32	this file in git
+v	fixture	33	this file, opened from WSL with Remote WSL
+v	flag	2	Yes
+v	format	2	plain text
+v	from the ledger	2	12
+v	from the ledger	3	20
+v	fuel	2	gas
+v	fuel	3	oil
+v	fuel	4	paraffin
+v	gears	2	21
+v	gears	3	3
+v	grammar capacity	2	unbound
+v	green	2	2
+v	has lock	2	no
+v	has lock	3	yes
+v	heat	2	high
+v	height	2	20
+v	height	3	25
+v	height	4	280
+v	height	5	3
+v	height	6	300
+v	height	7	35
+v	height	8	40
+v	height	9	short
+v	height	10	tall
+v	hull	2	wood
+v	indent	2	4 spaces, never tabs
+v	indentation	2	exactly 4 spaces per level
+v	influence	2	Amber
+v	influence	3	Green
+v	influence	4	Red
+v	information rate	2	39 bits a minute
+v	initialise git repository	2	Yes
+v	interval	2	5 seconds
+v	interval	3	every new thought on a unfamiliar subject
+v	interval count	2	0
+v	interval count	3	1
+v	interval count	4	2 or more
+v	interval count	5	until subject is scientifically instantiated
+v	is	2	content
+v	is alive	2	No
+v	is alive	3	Yes
+v	is bottleneck	2	no
+v	is bottleneck	3	yes
+v	is constant value	2	No
+v	is correct	2	yes
+v	is integer	2	No
+v	is living	2	yes
+v	is maximum ranking open	2	false
+v	is minimum ranking open	2	false
+v	is on-off switch	2	no
+v	is present in	2	no
+v	is race	2	yes
+v	is said of	2	no
+v	is said of	3	yes
+v	is signed	2	true
+v	is special value override	2	Yes
+v	is tangible	2	no
+v	is worker pool count known	2	no
+v	keyword	2	>= > < <= ==
+v	keyword	3	or
+v	label	2	ab
+v	language id	2	aot
+v	language name	2	alphabet of thought
+v	last update time	2	2026-06-10
+v	leaf	2	black
+v	leaf	3	none
+v	left	2	a
+v	left	3	b
+v	legs	2	2
+v	legs	3	4
+v	length	2	3
+v	location	2	building 3
+v	location	3	entrance hall
+v	location	4	tank 1
+v	long term memory	2	schema
+v	margin	2	1
+v	margin	3	20
+v	maximum bit count	2	infinite
+v	maximum number of elements	2	1
+v	maximum worker pool	2	1
+v	maximum worker pool	3	many
+v	measurement interval	2	per decision
+v	measurement operation used	2	Formula
+v	measurement operation used	3	Grading
+v	measurement operation used	4	Observation
+v	measurement operation used	5	Ranking
+v	measurement operation used	6	Ratio
+v	mechanism	2	Condition
+v	mechanism	3	Synchronisation
+v	memo	2	solo
+v	minimum bit count	2	0
+v	minimum number of elements	2	1
+v	month	2	2026-01
+v	month	3	2026-04
+v	mood	2	calm
+v	mood	3	glad
+v	multiplier	2	1
+v	n	2	1
+v	n	3	2
+v	name	2	Q2
+v	name	3	Widget
+v	name	4	either
+v	net	2	49
+v	net	3	79
+v	net	4	99
+v	newline	2	unix
+v	note	2	a Concept written line form is referenced like a table; its Examples are the rows, its attributes the columns
+v	note	3	either order works, @price@Alpha or @Alpha@price
+v	note	4	name the other table first, the Concept, Example or Attribute it sits under; it may live in any file in the repo
+v	note	5	no Example named reads the value the Concept states on its own line, the default its Examples inherit; only a Concept has one, a table is rows and nothing else
+v	note	6	references are name-only, positional numbers were removed in 1.6; a digits lead names an Example, never a column
+v	note	7	the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
+v	numeric base	2	10
+v	offset scaling magnitude	2	0
+v	on	2	Yes
+v	orchard rows	2	
+v	orchard rows	3	6
+v	ordering	2	Most Essential To Most Accidental
+v	paddles	2	1
+v	paddles	3	2
+v	parent measurement	2	None
+v	path	2	config/
+v	path	3	src/
+v	path	4	tests/
+v	person	2	Aristotle
+v	person	3	Bob
+v	person	4	Charlie
+v	person	5	Dave
+v	person	6	Socrates
+v	ping	2	#ERR
+v	pong	2	#ERR
+v	portion	2	large
+v	portion	3	small
+v	power	2	1800
+v	power	3	2000
+v	precision	2	all thoughts
+v	precision	3	microseconds
+v	precision	4	no seconds
+v	precision	5	no time
+v	precision	6	up to minutes
+v	predicate	2	Detailed By
+v	predicate	3	Explained By
+v	predicate	4	Is An Example Of
+v	present in	2	True
+v	price	2	$1,204
+v	price	3	10
+v	price	4	100
+v	price	5	15
+v	price	6	2
+v	price	7	50
+v	price	8	80
+v	processing rule	2	Dedicated
+v	qty	2	2
+v	qty	3	4
+v	racks	2	2
+v	reach	2	tables and line values
+v	readme file	2	README.md
+v	reads as	2	a = b
+v	recognise	2	all lowercase
+v	recognise	3	colon separated value
+v	recognise	4	first letter is capitalised
+v	recognise	5	must start with dash and space
+v	recognise	6	starts with ellipsis
+v	red	2	3
+v	ref	2	100
+v	ref	3	101
+v	ref	4	102
+v	relative zero point	2	0
+v	reports to	2	CEO
+v	repository page	2	https://github.com/Jakus23/alphabet-of-thought
+v	resident	2	Socrates
+v	residents known as	2	Athenians
+v	revenue	2	14,850
+v	revenue	3	18,060.5
+v	revenue	4	20,700
+v	revenue	5	53,760
+v	right	2	p
+v	right	3	q
+v	risk	2	Race Condition
+v	role	2	financial controller
+v	rows	2	6
+v	sample category	2	Item A
+v	sample category	3	Item B
+v	scaffold	2	Primitive
+v	scope name	2	source.aot
+v	score	2	3
+v	seconds precision	2	no seconds
+v	section	2	strings
+v	section	3	woodwind
+v	seed	2	120
+v	seq	2	four
+v	seq	3	one
+v	seq	4	three
+v	seq	5	two
+v	shade	2	red
+v	size	2	10
+v	size	3	3
+v	size	4	5
+v	size	5	6
+v	size	6	9
+v	size	7	large
+v	size	8	slim
+v	size	9	small
+v	size	10	4
+v	sku	2	P
+v	sku	3	Q
+v	sound	2	bark
+v	sound	3	meow
+v	sound	4	squawk
+v	span	2	2
+v	span	3	3
+v	speed	2	fast
+v	start	2	:
+v	state	2	open
+v	state	3	paid
+v	status	2	void
+v	stops	2	
+v	stops	3	2
+v	storage capacity	2	1 shared broadcast item between specialist processes
+v	storage capacity	3	4 active chunks
+v	storage capacity	4	no vocabulary limit
+v	sum if test	2	60
+v	surname	2	Slim
+v	syntax	2	@Integer@35@is prime
+v	syntax	3	@Measurement@alias
+v	syntax	4	@Person@alias@Socrates
+v	syntax	5	@Sales Ledger@total@Alpha
+v	syntax	6	@price
+v	syntax	7	@price@Alpha
+v	tag	2	green
+v	tag	3	red
+v	tail	2	long
+v	tail	3	short
+v	target	2	10
+v	target	3	5
+v	target	4	best action any feasible mind could pick
+v	target	5	claims that help calibrate own thinking
+v	target	6	claims that survive another mind's scrutiny
+v	target	7	confidence separates correct answers from wrong ones
+v	target	8	evaluate externalised cognition
+v	target	9	exceptional
+v	target	10	no more than the stakes justify
+v	target	11	stated confidence equals achieved accuracy
+v	tax rate	2	0.2
+v	team	2	Back-end
+v	team	3	Content
+v	team	4	Exco
+v	team	5	Front-end
+v	temperature	2	cold
+v	temperature	3	hot
+v	temperature	4	warm
+v	then	2	#ERR
+v	thread	2	Parallel
+v	thread	3	Synchronous
+v	time	2	Bronze age Greece
+v	timeout duration	2	unproductive to continue
+v	timing	2	Asynchronous
+v	title	2	Gadget
+v	title	3	Widget
+v	total	2	
+v	total	3	20
+v	total	4	25
+v	total	5	5
+v	total	6	53,760
+v	total	7	90
+v	total	8	22
+v	total units	2	1,204
+v	total units	3	1,380
+v	total units	4	990
+v	true when	2	an odd number of arguments are true
+v	true when	3	any argument is true
+v	true when	4	every argument is true
+v	true when	5	its argument is false
+v	try	2	Ctrl+Enter on it
+v	try	3	Ctrl+Enter on orchard rows
+v	try	4	Ctrl+Enter on row P1
+v	try	5	Ctrl+Enter on that line
+v	try	6	Ctrl+Enter on the Squad header
+v	try	7	Ctrl+Enter on the second bare line
+v	try	8	Ctrl+Enter on the stops line
+v	try	9	Ctrl+Enter on the total line
+v	try	10	Ctrl+Shift+backtick, look, then Ctrl+Shift+backtick again
+v	try	11	Ctrl+dot on the Receipt warning, Move currency ZAR up to Receipt
+v	try	12	Ctrl+dot on the warning on course main, Keep just course
+v	try	13	commit this file, rename Kayak to Sea Kayak, then run node verify.js with the diff-rev flag, HEAD and this file
+v	try	14	delete the Depot entry from its dictionary and press Ctrl+Enter on it again
+v	try	15	hover the names Flute and Cello
+v	try	16	hover the value 10 and then the value 49 on row INV-2
+v	try	17	install the extension in WSL, enable Python, Ctrl+Enter on Python Probe; then AOT Set Up Python Environment
+v	try	18	look at its last two lines
+v	try	19	look at the end of row INV-2, and hover the inlay
+v	try	20	look at the yellow squiggle on Boat, press Ctrl+dot, choose Move hull wood up to Boat
+v	try	21	open both files
+v	try	22	open it
+v	try	23	put the cursor anywhere in Bicycle and press Ctrl+dot; then press Ctrl+K T twice
+v	try	24	put the cursor inside the net derivation of row INV-1, the right-hand one, and press Ctrl+Enter
+v	try	25	put the cursor on K1 and press Alt+Shift+Left, then Alt+Right, then Ctrl+Alt+Right
+v	try	26	put the cursor on any vat cell, press Ctrl+dot and choose Define vat for the whole column, then Ctrl+Enter on the Invoice header
+v	try	27	put the cursor on that colour line and press Alt+Shift+Left; then Ctrl+Z
+v	try	28	put the cursor on the name INV-2 and press Ctrl+Enter
+v	try	29	rename Lantern to Torch in release 1.12 peer.aot and save it, then save this file
+v	try	30	run AOT Set Up Git Merge for aot Files, then follow the walkthrough in a scratch repository
+v	try	31	save this file
+v	try	32	save this file, then run node verify.js on this file with the godel flag for Flute twice, adding an attribute to Boat between the runs
+v	try	33	turn on aot.python.enabled, answer Run when asked, then Ctrl+Enter on the family count line of Python Probe
+v	turns	2	WIDGET into widget
+v	turns	3	a packed value into its fields
+v	turns	4	a part into its position, or zero when it is absent
+v	turns	5	padded text into a tight one
+v	turns	6	three pieces into one
+v	turns	7	widget into WIDGET
+v	twin pair	2	a
+v	type	2	Reference
+v	units	2	1,000
+v	units	3	1,204
+v	units	4	1,380
+v	update file	2	aot.tmLanguage.json
+v	url or file to import, or none for new	2	ENTER
+v	useful life	2	infinite
+v	useful life	3	milliseconds
+v	useful life	4	seconds per acquisition
+v	vat	2	10
+v	vat	3	20
+v	vat	4	716.8
+v	vat	5	16
+v	volume	2	1.7
+v	waiting for	2	external instrument
+v	weight	2	
+v	what type of extension do you want to create	2	New Language Support
+v	wheels	2	4
+v	when no	2	0
+v	when yes	2	1
+v	width	2	2
+v	width	3	3
+v	write off method	2	not applicable
+v	written	2	a = b
+v	youngest	2	
+v	youngest	3	10
+v	parcels	2	12
+v	parcels	3	7
+v	part	2	tyre
+v	stop	2	North
+v	stop	3	South
+v	van	2	V0
+v	van	3	V1

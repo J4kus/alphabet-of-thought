@@ -18,7 +18,8 @@ const {
 } = require("./crosslinks");
 const table = require("./table");
 const { suggest } = require("./fca");
-const { clashes } = require("./godel");
+const godel = require("./godel");
+const { clashes } = godel;
 const armstrong = require("./armstrong");
 const spelling = require("./spelling");
 const synonyms = require("./synonyms");
@@ -94,6 +95,59 @@ function synonymWarnings(doc, root, nodes) {
   return synonyms.findings(concepts, distinctConcepts())
     .filter((f) => fileKey(f.file) === fileKey(here))
     .map((f) => ({ line: f.line, message: f.message, related: f.related }));
+}
+
+// --- stable Gödel numbers: aot.files/godel.tsv ---------------------------------
+// One prime per attribute and one code per value, kept in the repository so
+// the numbers a reader sees (the hover, `verify.js --godel`) stay put when an
+// unrelated attribute is added, and mean the same in every file and branch.
+// Read here, cached by mtime; extended and written on save (aot.godelRegistry).
+
+const godelRegistryCache = new Map(); // path -> { mtimeMs, registry }
+const godelRegistryPath = (doc) => path.join(aotFilesDir(doc), "godel.tsv");
+function godelRegistry(doc) {
+  const file = godelRegistryPath(doc);
+  let stat;
+  try { stat = fs.statSync(file); } catch { return godel.parseRegistry(""); }
+  const hit = godelRegistryCache.get(file);
+  if (hit && hit.mtimeMs === stat.mtimeMs) return hit.registry;
+  let registry;
+  try { registry = godel.parseRegistry(fs.readFileSync(file, "utf8")); } catch { registry = godel.parseRegistry(""); }
+  godelRegistryCache.set(file, { mtimeMs: stat.mtimeMs, registry });
+  return registry;
+}
+
+// This document and every other in the repo, numbered as one — what the
+// hover reads a node's content from.
+function godelPooled(doc, root, nodes) {
+  const docs = [{ root, nodes }, ...(underWorkspace(doc) ? repoOthers(doc) : [])];
+  return godel.pool(docs, godelRegistry(doc));
+}
+
+// On save: a registry the repo's attributes have outgrown is written again,
+// so the numbers it gave out are the ones every later reader gets.
+function saveGodelRegistry(doc) {
+  if (!vscode.workspace.getConfiguration("aot").get("godelRegistry", true)) return;
+  if (!underWorkspace(doc) || doc.languageId !== "aot") return;
+  try {
+    const { root, nodes } = parsedDoc(doc);
+    const pooled = godelPooled(doc, root, nodes);
+    if (!pooled.grown) return;
+    const file = godelRegistryPath(doc);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, godel.formatRegistry(pooled.registry));
+    godelRegistryCache.delete(file);
+  } catch { /* an unwritable aot.files keeps the numbers it had */ }
+}
+
+// One idea under two names in two files: the other half of univocity, which
+// the content clash covers within a file. Advisory, this file's side only,
+// and under the same switch as the synonyms, since it asks the same question.
+function twinWarnings(doc, root, nodes) {
+  if (!underWorkspace(doc) || !vscode.workspace.getConfiguration("aot").get("synonymWarnings", true)) return [];
+  const docs = [{ file: doc.fileName, root, nodes }, ...repoOthers(doc)];
+  return godel.twins(docs, doc.fileName, { dismissed: distinctConcepts(), registry: godelRegistry(doc) })
+    .map((t) => ({ line: t.line, message: t.message, related: t.related }));
 }
 
 // --- the workspace index ----------------------------------------------------
@@ -359,6 +413,9 @@ function analyse(doc) {
     // only the strong, content-identical clashes are flagged in the editor;
     // the weaker same-name clashes are not surfaced
     deepErrors = deepErrors.concat(clashes(root, nodes).findings.filter((f) => f.kind === "content"));
+    // a value every child states belongs on the parent, and a default every
+    // child overrides is in force for nothing: warnings, never in V
+    depWarnings = depWarnings.concat(godel.hoists(root, nodes).map((h) => ({ line: h.line, message: h.message, related: h.related })));
   }
   // the derivations and the constraints are Python: code, not prose, so
   // spelling leaves them alone. What they find when they run is Python's
@@ -379,9 +436,12 @@ function analyse(doc) {
   if (config.get("exampleHints", true)) {
     hints.push(...unlistedValues(doc.getText(), root, nodes, inWs ? externalFor() : undefined));
   }
+  // one idea under two names across files — asked only of a file that is
+  // itself clean, since a broken tree's content means nothing yet
+  const twins = !errors.length ? twinWarnings(doc, root, nodes) : [];
   return {
     errors: errors.concat(deepErrors),
-    warnings: warnings.concat(depWarnings, synonymWarnings(doc, root, nodes)),
+    warnings: warnings.concat(depWarnings, synonymWarnings(doc, root, nodes), twins),
     hints,
     links,
     root,
@@ -1019,6 +1079,41 @@ function crossFileHover(doc, analysis, position) {
   return new vscode.Hover(md, doc.lineAt(position.line).range);
 }
 
+// A node's content, as its Gödel number says it: G as a factorisation, a
+// line per attribute with where an inherited one came from, what it
+// overrides, and the nearest sibling of its kind and how it differs. The
+// numbers come from the whole repository numbered as one, with the registry,
+// so they are the ones `verify.js --godel` prints. False when there is
+// nothing to say.
+function appendContent(md, doc, analysis, node) {
+  let profile;
+  try {
+    const tables = godelPooled(doc, analysis.root, analysis.nodes);
+    profile = godel.profile(analysis.root, analysis.nodes, node, tables);
+  } catch { return false; }
+  if (!profile || (!profile.slots.length && !profile.nearest)) return false;
+  const name = (n) => (n.kind === KIND.INDIVIDUAL ? `- ${n.name}` : n.name);
+  const digits = String(profile.number);
+  if (md.value.trim()) md.appendMarkdown("\n\n---\n\n");
+  md.appendMarkdown(`**Content** — G = ${profile.factors}${profile.slots.length && digits.length <= 30 ? ` = ${digits}` : ""}\n\n`);
+  for (const s of profile.slots) {
+    const value = s.value === "(unvalued)" ? "*(declared, no value)*" : codeSpan(s.value);
+    const where = s.own ? "" : s.from ? ` — from '${name(s.from)}'${s.fromLine ? ` (line ${s.fromLine})` : ""}` : "";
+    const through = s.via ? ` — through '${s.via}'` : "";
+    md.appendMarkdown(`- \`${s.attr}\`: ${value}${where}${through}\n`);
+  }
+  for (const o of profile.overrides) {
+    md.appendMarkdown(`- overrides \`${o.attr}\`: ${codeSpan(o.replaces)} from '${name(o.from)}' with ${codeSpan(o.value)}\n`);
+  }
+  const near = profile.nearest;
+  if (near) {
+    md.appendMarkdown(near.dist === 0
+      ? `\nIdentical in content to '${name(near.node)}' (line ${near.node.line}).`
+      : `\nNearest sibling: '${name(near.node)}' (line ${near.node.line}), ${near.dist} slot${near.dist === 1 ? "" : "s"} apart — ${near.diff.map(codeSpan).join(", ")}.`);
+  }
+  return true;
+}
+
 const hoverProvider = {
   provideHover(doc, position) {
     // a URL or file path answers (metadata / picture) before anything else
@@ -1050,8 +1145,9 @@ const hoverProvider = {
     if (!concept) {
       const node = definingNodeAt(analysis, doc, position);
       if (node && node.kind === KIND.INDIVIDUAL) {
-        // an Example's defining name: details plus its usages
+        // an Example's defining name: details plus its usages, and its content
         const md = exampleMarkdown(doc, analysis, node, true);
+        appendContent(md, doc, analysis, node);
         return md.value.trim() ? new vscode.Hover(md) : null;
       }
       if (node && node.kind === KIND.CONCEPT) {
@@ -1075,7 +1171,9 @@ const hoverProvider = {
       }
     }
     const hadUsages = appendUsages(md, doc, analysis, concept);
-    if (!found.length && !hadUsages) return null;
+    // its content, when the Concept is this file's own
+    const hadContent = analysis.nodes.includes(concept) && appendContent(md, doc, analysis, concept);
+    if (!found.length && !hadUsages && !hadContent) return null;
     return new vscode.Hover(md, range);
   },
 };
@@ -1131,7 +1229,7 @@ function renameRecords(doc, analysis, registry) {
   const out = [];
   let hosts;
   try { hosts = python.hostsOf(analysis.nodes, lines, rootName); } catch { return out; }
-  const ctx = { lines, registry, rootName, index: python.hostIndex(hosts) };
+  const ctx = { lines, registry, rootName, index: pyHostIndex(doc, hosts) };
   // where the source begins on its line: past the '=' (or the operator) and
   // the spaces after it — the resolver counts from there
   const from = (raw, col) => { while (raw[col] === " ") col++; return col; };
@@ -1473,6 +1571,13 @@ const UNLISTED_VALUE = /^'(.+)' is not an Example of Concept '(.+)' —/;
 // the lightbulb on a synonym warning records that the two names are two
 // ideas, not one, and the pair is never raised again (src/synonyms.js)
 const SYNONYM_PAIR = /^'(.+?)' and '(.+?)' \((?:line \d+|[^)]+)\) are (?:two words for one idea|one word with two endings)/;
+// the same two ways out for one content under two names in two files
+// (godel.twins): rename one to the other, or keep them apart
+const TWIN_PAIR = /^'(.+?)' and '(.+?)' \([^)]+\) carry exactly the same attributes and values/;
+// a value every child states belongs on the parent, and a default no child
+// keeps comes off (godel.hoists, derive.hoistOps)
+const HOIST = /^every child of '(.+?)' sets '(.+?): (.*?)' \(lines [\d, ]+\)/;
+const DEAD_DEFAULT = /^'(.+?)' sets '(.+?): (.*?)' but every child overrides it/;
 // The repo-wide findings (src/repo.js). Everything a shared Concept can be
 // made to agree on is already agreed by the time these show — save does it —
 // so each lightbulb here offers the decision a tool may not take for you:
@@ -1480,7 +1585,7 @@ const SYNONYM_PAIR = /^'(.+?)' and '(.+?)' \((?:line \d+|[^)]+)\) are (?:two wor
 // on a word are really the same idea at all.
 const REPO_VALUE_CLASH = /^'(.+?)' sets '(.+?)' to '(.+?)' here but '(.+?)' in /;
 const REPO_GENUS_CLASH = /^'(.+?)' is filed under '.+?' here but '.+?' in /;
-const REPO_STALE_NOTE = /^'.+?' lists \d+ of its Examples here and the rest live elsewhere/;
+const REPO_STALE_NOTE = /^'.+?' (lists \d+ of its Examples here and the rest live elsewhere|keeps a '\.\.\.' note saying where the rest of its Examples live)/;
 const codeActionProvider = {
   provideCodeActions(doc, range, context) {
     const actions = [];
@@ -1528,7 +1633,7 @@ const codeActionProvider = {
     }
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
-      const pair = SYNONYM_PAIR.exec(diagnostic.message);
+      const pair = SYNONYM_PAIR.exec(diagnostic.message) || TWIN_PAIR.exec(diagnostic.message);
       if (!pair) continue;
       const [, mine, other] = pair;
       // the two ways out. Renaming is the usual one, so it comes first and is
@@ -1554,6 +1659,31 @@ const codeActionProvider = {
         arguments: [mine, other],
       };
       actions.push(distinct);
+    }
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot") continue;
+      const hoist = HOIST.exec(diagnostic.message);
+      const dead = hoist ? null : DEAD_DEFAULT.exec(diagnostic.message);
+      if (!hoist && !dead) continue;
+      // the finding names its parent by name; the parent's line is read back
+      // off the same finding, found again on the line the squiggle stands on
+      let found = null;
+      try {
+        const { root, nodes } = parsedDoc(doc);
+        found = godel.hoists(root, nodes).find((h) => h.line === diagnostic.range.start.line + 1
+          && h.kind === (hoist ? "hoist" : "dead") && h.attr === (hoist || dead)[2]);
+      } catch { /* an unparseable document offers nothing */ }
+      if (!found) continue;
+      const parentLine = found.parent.line;
+      const title = hoist ? `Move '${found.attr}: ${found.value}' up to '${hoist[1]}'` : `Keep just '${found.attr}'`;
+      const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+      action.diagnostics = [diagnostic];
+      action.isPreferred = !!hoist;
+      action.command = {
+        command: "aot.hoistValue", title,
+        arguments: [parentLine, found.attr, hoist ? found.value : "", hoist ? "hoist" : "bare"],
+      };
+      actions.push(action);
     }
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
@@ -1623,6 +1753,16 @@ const codeActionProvider = {
         const across = new vscode.CodeAction("Copy formula across the row", vscode.CodeActionKind.QuickFix);
         across.command = { command: "aot.table.copyFormulaAcross", title: "Copy formula across the row" };
         actions.push(across);
+        // every row derives this column the same way: the derivation is the
+        // column's definition, and belongs on its header
+        const block = table.blockAt(doc.getText().split(/\r?\n/), at.line);
+        const def = block && table.columnDefinition(block, cs.indexOf(cell));
+        if (def) {
+          const title = `Define '${def.name}' for the whole column (${def.name} ==${def.source})`;
+          const define = new vscode.CodeAction(title, vscode.CodeActionKind.RefactorRewrite);
+          define.command = { command: "aot.table.defineColumn", title };
+          actions.push(define);
+        }
       }
     } else {
       const colon = lineText.indexOf(":");
@@ -1632,20 +1772,9 @@ const codeActionProvider = {
         actions.push(action);
       }
     }
-    // the Concept the cursor stands in flips between its two spellings from
-    // the lightbulb too — no chord to press, so no keyboard layout to lose it
-    if (at) {
-      try {
-        const { root, nodes } = parsedDoc(doc);
-        const concept = conceptAtCursor(root, nodes, doc.getText().split(/\r?\n/), at.line);
-        if (concept && concept.children.some((c) => c.kind === KIND.INDIVIDUAL)) {
-          const flip = new vscode.CodeAction(
-            `Flip '${concept.name}' between table and free text`, vscode.CodeActionKind.RefactorRewrite);
-          flip.command = { command: "aot.toggleTableForm", title: `Flip '${concept.name}' between table and free text` };
-          actions.push(flip);
-        }
-      } catch { /* an unparseable document offers no flip */ }
-    }
+    // No flip here: offered on every line of every Concept with Examples, it
+    // lit the lightbulb everywhere. The flip lives on its keys (Ctrl+Alt+T,
+    // Ctrl+K T), the right-click menu and the Command Palette.
     // a Python derivation: run it, stub what it calls, or move it out
     try { actions.push(...pythonActions(doc, range)); } catch { /* none offered */ }
     return actions;
@@ -1743,6 +1872,81 @@ function opsToTextEdits(doc, ops) {
   return out;
 }
 
+// AOT: Set Up Git Merge for .aot Files. git merges an .aot by meaning with
+// verify.js as its merge driver: `*.aot merge=aot` and the stable Gödel
+// numbers merged by union go into .gitattributes (committed, so the
+// repository says how its files merge), and the driver itself — a program
+// on this machine — into the repository's local git config, which is never
+// committed. Nothing is set up without this command.
+const GIT_ATTRIBUTES = ["*.aot merge=aot", "aot.files/godel.tsv merge=union"];
+const verifyScript = () => path.join(__dirname, "..", "verify.js");
+const mergeDriver = () => `node "${verifyScript().split(path.sep).join("/")}" --merge %O %A %B %P`;
+let gitRun = (root, args) => require("child_process").execFileSync(
+  python.resolveExecutable("git") || "git", args, { cwd: root, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+
+async function setUpGitMerge() {
+  const editor = vscode.window.activeTextEditor;
+  const folders = vscode.workspace.workspaceFolders || [];
+  const start = editor && editor.document && editor.document.fileName
+    ? path.dirname(editor.document.fileName) : folders[0] && folders[0].uri.fsPath;
+  const root = start && repoRootOf(start);
+  if (!root) {
+    vscode.window.showInformationMessage("AOT: open a file in a git repository to set up how its .aot files merge.");
+    return { ok: false };
+  }
+  const attrFile = path.join(root, ".gitattributes");
+  let text = "";
+  try { text = fs.readFileSync(attrFile, "utf8"); } catch { /* none yet */ }
+  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()));
+  const missing = GIT_ATTRIBUTES.filter((l) => !have.has(l));
+  if (missing.length) fs.writeFileSync(attrFile, text + (text && !/\n$/.test(text) ? "\n" : "") + missing.join("\n") + "\n");
+  try {
+    gitRun(root, ["config", "--local", "merge.aot.name", "AOT: merge .aot files by meaning (verify.js --merge)"]);
+    gitRun(root, ["config", "--local", "merge.aot.driver", mergeDriver()]);
+  } catch (e) {
+    vscode.window.showErrorMessage(`AOT: git could not be configured — ${String(e.stderr || e.message).trim()}`);
+    return { ok: false, root };
+  }
+  vscode.window.showInformationMessage(`AOT: .aot files in ${path.basename(root)} now merge by meaning — `
+    + `${missing.length ? "commit .gitattributes; " : ""}the driver runs Node.js ('node' on PATH), and falls back to git's own merge whenever it cannot vouch for its result.`);
+  return { ok: true, root };
+}
+
+// On activation: a driver set up earlier that points at a verify.js no longer
+// there — an older copy of this extension — is pointed at this one. Only
+// then: a repository that never ran the setup is never touched.
+function repairGitMerge() {
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    const root = repoRootOf(folder.uri.fsPath);
+    if (!root) continue;
+    let config = "";
+    try { config = fs.readFileSync(path.join(root, ".git", "config"), "utf8"); } catch { continue; }
+    const m = /\[merge "aot"\][^[]*?driver\s*=\s*(.*)/.exec(config);
+    const script = m && /"([^"]*verify\.js)"/.exec(m[1].replace(/\\"/g, "\""));
+    if (!script || fs.existsSync(script[1]) || path.resolve(script[1]) === path.resolve(verifyScript())) continue;
+    try { gitRun(root, ["config", "--local", "merge.aot.driver", mergeDriver()]); } catch { /* left as it was */ }
+  }
+}
+
+// The lightbulb on a hoist or a dead default (godel.hoists): the fact moves
+// onto the parent once and off every child — or the dead value comes off,
+// the attribute kept — as one undoable edit (derive.hoistOps).
+async function hoistValue(parentLine, attr, value, mode) {
+  const editor = vscode.window.activeTextEditor;
+  const doc = editor && editor.document;
+  if (!doc || doc.languageId !== "aot") return;
+  const rootName = docRootName(doc);
+  const { root, nodes } = lint(doc.getText(), rootName);
+  const ops = derive.hoistOps(doc.getText().split(/\r?\n/), root, nodes, parentLine, attr, value, rootName, formulaRegistry(doc), mode);
+  if (!ops || !ops.length) {
+    vscode.window.setStatusBarMessage("AOT: nothing to move — the file changed since the warning was found.", 4000);
+    return;
+  }
+  const edit = new vscode.WorkspaceEdit();
+  edit.set(doc.uri, opsToTextEdits(doc, ops));
+  await vscode.workspace.applyEdit(edit);
+}
+
 // The reconcile ops for one document, or [] when there is nothing to do —
 // outside a workspace, with aot.autoReconcile off, or in a file whose text
 // will not parse.
@@ -1754,7 +1958,7 @@ function reconcileOpsFor(doc) {
     const { root, nodes } = lint(text, rootName);
     const all = repo.occurrences([...repoOthers(doc), { file: doc.fileName, text, root, nodes }]);
     return repo.reconcileFile(
-      doc.fileName, all, text.split(/\r?\n/), rootName, formulaRegistry(doc, { root, nodes }));
+      doc.fileName, all, text.split(/\r?\n/), rootName, formulaRegistry(doc, { root, nodes }), root);
   } catch { return []; }
 }
 
@@ -1778,9 +1982,11 @@ async function reconcileAcrossFiles() {
   for (const entry of entries) {
     const rootName = path.basename(entry.file).replace(/\.[^.]*$/, "");
     const ops = repo.reconcileFile(
-      entry.file, all, entry.text.split(/\r?\n/), rootName, registry);
+      entry.file, all, entry.text.split(/\r?\n/), rootName, registry, entry.root);
     if (!ops.length) continue;
-    const doc = await vscode.workspace.openTextDocument(entry.file);
+    // a file gone since it was indexed is skipped, never the end of the sweep
+    let doc;
+    try { doc = await vscode.workspace.openTextDocument(entry.file); } catch { continue; }
     const edit = new vscode.WorkspaceEdit();
     edit.set(doc.uri, opsToTextEdits(doc, ops));
     const beforeText = doc.getText();
@@ -1942,7 +2148,12 @@ async function parkFormulas(editor, store) {
   let tree;
   try { tree = lint(doc.getText(), rootName); }
   catch { return vscode.window.showWarningMessage("AOT: the file does not parse — fix it before parking its formulas."); }
-  const { lines: parkedLines, parked } = park.park(lines, tree.nodes, rootName);
+  const { lines: parkedLines, parked, stayed } = park.park(lines, tree.nodes, rootName, generatedConcepts(doc));
+  // a bare `=` line comes home above the Concept that stood beneath it:
+  // one with none beneath it has nowhere to come home to, so it stays
+  if (stayed && stayed.length) {
+    vscode.window.showWarningMessage(`AOT: the bare '=' line${stayed.length === 1 ? ` on line ${stayed[0]} has` : `s on lines ${stayed.join(", ")} have`} no Concept beneath to come home above, so ${stayed.length === 1 ? "it stays" : "they stay"} in the file — run ${stayed.length === 1 ? "it" : "them"} (Ctrl+Enter) to write ${stayed.length === 1 ? "its" : "their"} tables, and then ${stayed.length === 1 ? "it parks" : "they park"} with the rest.`);
+  }
   if (!parked.length) {
     return vscode.window.setStatusBarMessage("AOT: no derivations or constraints to park.", 3000);
   }
@@ -2080,6 +2291,24 @@ async function saveRunRecords(doc, records) {
   const all = Object.assign({}, pyMemento().get(PY_RUNS_KEY, {}) || {});
   all[fileKey(doc.fileName || "")] = records;
   await pyMemento().update(PY_RUNS_KEY, all);
+}
+
+// What each bare `=` line last wrote — address -> Concept names — from its
+// run record, which outlasts the session.
+function generatedConcepts(doc) {
+  const out = new Map();
+  for (const [address, rec] of Object.entries(runRecords(doc))) {
+    if (address.startsWith("@=") && rec && Array.isArray(rec.concepts)) out.set(address, rec.concepts);
+  }
+  return out;
+}
+
+// The derivations of a document indexed for resolving references, with what
+// each bare `=` line last wrote, so `@Sales` reads the table its Python made.
+function pyHostIndex(doc, hosts) {
+  let nodes = [];
+  try { nodes = parsedDoc(doc).nodes; } catch { /* no nodes: nothing for a rename to follow */ }
+  return python.hostIndex(hosts, generatedConcepts(doc), nodes);
 }
 
 // --- the repository's Python -------------------------------------------------
@@ -2535,7 +2764,13 @@ function pythonCommand(doc) {
   const cfg = pyConfig();
   const manager = cfg.get("python.manager", "auto");
   const explicit = String(cfg.get("python.path", "") || "").trim();
-  if (manager === "python" || (manager !== "uv" && explicit)) return { exe: explicit || "python", project: null };
+  // no path set: the names PATH is searched for, in order — `python3` first
+  // off Windows, since Debian, Ubuntu and WSL ship no bare `python`
+  const onPath = () => {
+    const names = python.defaultPythons(process.platform);
+    return { exe: names[0], names, project: null };
+  };
+  if (manager === "python" || (manager !== "uv" && explicit)) return explicit ? { exe: explicit, project: null } : onPath();
   const project = uvenv.projectDir(aotRoot(doc), aotFilesDir(doc), fs.existsSync);
   // an environment is used only as it was set up here: a .venv a repository
   // arrived with — or one changed since — could hold a python of anyone's
@@ -2545,10 +2780,10 @@ function pythonCommand(doc) {
   if (ours) return { exe, project };
   if (manager === "uv" || (record && fs.existsSync(exe || ""))) {
     throw new Error(!project ? "there is no uv environment here yet — run AOT: Set Up Python Environment"
-      : record ? `the Python in ${relToRepo(doc, project)}/.venv changed since it was set up here — run AOT: Set Up Python Environment to look at it again`
+      : record ? `the Python in ${relToRepo(doc, project)}/${path.basename(uvenv.venvDir(project, process.platform))} changed since it was set up here — run AOT: Set Up Python Environment to look at it again`
         : `the uv environment in ${relToRepo(doc, project)} was not set up here — run AOT: Set Up Python Environment`);
   }
-  return { exe: "python", project: null };
+  return onPath();
 }
 
 // --- setting up the environment with uv ---------------------------------------
@@ -2574,13 +2809,14 @@ const uvSynced = () => pyMemento().get(UV_SYNCED_KEY, {}) || {};
 // reviewed, and its environment's interpreter as uv made it
 const uvRecord = (project) => uvSynced()[fileKey(project)] || null;
 
-// One uv command, logged to the AOT Python output.
-function uv(args, cwd) {
+// One uv command, logged to the AOT Python output. `environment` (optional)
+// is the folder the project's environment lives in, this OS's own.
+function uv(args, cwd, environment) {
   const out = pyOutput();
   out.appendLine(`> uv ${args.join(" ")}`);
   const exe = pyResolve(uvPath(), cwd);
   if (!exe) return Promise.resolve({ code: null, stdout: "", stderr: "", missing: true });
-  return uvenv.runUv(pySpawn, exe, args, { cwd, onOutput: (s) => out.append(s) });
+  return uvenv.runUv(pySpawn, exe, args, { cwd, environment, onOutput: (s) => out.append(s) });
 }
 
 // { ok, project?, message } — the setup, start to finish. Asks what a new
@@ -2636,7 +2872,10 @@ async function setUpPython() {
   // the review: what would be installed, unless it is exactly what was
   // installed before
   const digest = uvDigestOf(project);
-  const venvDir = path.join(project, ".venv");
+  // this OS's own environment: a repository opened from Windows and from
+  // WSL keeps one of each, and neither setup touches the other's
+  const venvDir = uvenv.venvDir(project, process.platform);
+  const venvName = path.basename(venvDir);
   const venv = uvenv.venvPython(project, process.platform);
   const key = fileKey(project);
   const record = uvRecord(project);
@@ -2654,7 +2893,7 @@ async function setUpPython() {
     const before = record && record.digest !== digest ? `${rel}/pyproject.toml or uv.lock has changed since it was last installed here. ` : "";
     const replaced = foreign ? ` The .venv already in ${rel} was not set up here${record ? " as it is now" : ""}, so it is replaced.` : "";
     const pick = await vscode.window.showWarningMessage(
-      `AOT: install ${review.count} Python package${review.count === 1 ? "" : "s"} into ${rel}/.venv? ${before}${shown}.${outside}${replaced} Only built wheels are installed, so nothing is compiled or run to install them — but every installed package runs whenever the derivations' Python starts.`,
+      `AOT: install ${review.count} Python package${review.count === 1 ? "" : "s"} into ${rel}/${venvName}? ${before}${shown}.${outside}${replaced} Only built wheels are installed, so nothing is compiled or run to install them — but every installed package runs whenever the derivations' Python starts.`,
       { modal: true }, "Install", "Open uv.lock");
     if (pick === "Open uv.lock" && vscode.window.showTextDocument) vscode.window.showTextDocument(vscode.Uri.file(path.join(project, "uv.lock")));
     if (pick !== "Install") return { ok: false, project, message: "not installed" };
@@ -2665,14 +2904,19 @@ async function setUpPython() {
   // to bytecode as it installs: the runtime runs with -B and never writes a
   // .pyc, so without them every session would compile pandas from source
   // (40 s and more) before its first derivation could run
-  const synced = await uv(["sync", "--project", project, "--locked", "--no-build", "--no-install-project", "--compile-bytecode"], project);
+  const synced = await uv(["sync", "--project", project, "--locked", "--no-build", "--no-install-project", "--compile-bytecode"], project, venvDir);
   if (synced.code !== 0) return fail(`uv could not install ${rel}/uv.lock`, synced);
+  // uv keeps an environment it makes out of git itself; one it did not
+  // mark is marked here, so no platform's environment is ever committed
+  try {
+    if (fs.existsSync(venvDir) && !fs.existsSync(path.join(venvDir, ".gitignore"))) fs.writeFileSync(path.join(venvDir, ".gitignore"), "*\n");
+  } catch { /* an unwritable folder is uv's to explain */ }
   fileHashCache.delete(venv);
   await pyMemento().update(UV_SYNCED_KEY, Object.assign({}, uvSynced(), { [key]: { digest, exe: fileDigest(venv) } }));
   // every session starts again, in the environment as it is now
   for (const k of [...pySessions.keys()]) pyStop(k, "the environment changed");
   forgetPyIndex();
-  const message = `Python environment ready — ${rel}/.venv${fs.existsSync(venv) ? "" : " (its interpreter was not found where uv puts it)"}`;
+  const message = `Python environment ready — ${rel}/${venvName}${fs.existsSync(venv) ? "" : " (its interpreter was not found where uv puts it)"}`;
   vscode.window.setStatusBarMessage(`AOT: ${message}`, 6000);
   return { ok: true, project, message };
 }
@@ -2714,8 +2958,10 @@ function pySession(doc) {
   let cwd = aotFilesDir(doc);
   if (!fs.existsSync(cwd)) cwd = aotRoot(doc);
   const cmd = pythonCommand(doc);
-  const exe = pyResolve(cmd.exe, aotRoot(doc));
-  if (!exe) throw new Error(python.spawnMessage({ code: "ENOENT" }, cmd.exe));
+  const names = cmd.names || [cmd.exe];
+  let exe = null;
+  for (const name of names) if (!exe) exe = pyResolve(name, aotRoot(doc));
+  if (!exe) throw new Error(python.spawnMessage({ code: "ENOENT" }, names.join("' or '")));
   const guards = pyGuards();
   // the credentials the editor's own environment carries are not handed on
   const scrubbed = guards.credentials ? python.scrubbedEnv(process.env) : { env: undefined, withheld: [] };
@@ -2849,7 +3095,7 @@ async function runPython(editor, opts) {
   }
 
   const registry = formulaRegistry(doc);
-  const ctx = { lines, registry, rootName, index: python.hostIndex(hosts) };
+  const ctx = { lines, registry, rootName, index: pyHostIndex(doc, hosts) };
   const byAddress = new Map(hosts.map((h) => [h.address, h]));
   const resolved = new Map(hosts.map((h) => {
     try { return [h.address, python.resolveHost(h, ctx)]; }
@@ -2898,8 +3144,17 @@ async function runPython(editor, opts) {
   const stale = (a) => !entry.live.has(a) || !records[a] || records[a].run !== runHashes.get(a);
   let toRun;
   if (opts.mode === "here") {
-    const here = hosts.find((h) => h.line - 1 === opts.line);
-    const seeds = here ? [here.address] : order.filter(stale);
+    // a table row may carry several derivations, one per cell: the one the
+    // cursor stands in, or — on the row's name — every one of them
+    const onLine = hosts.filter((h) => h.line - 1 === opts.line);
+    const inCell = onLine.length > 1 && opts.character !== undefined
+      ? onLine.find((h) => {
+        const span = pyCellSpan(lines[opts.line] || "", h);
+        return span && opts.character >= span.start && opts.character <= span.end;
+      })
+      : null;
+    const here = inCell ? [inCell] : onLine;
+    const seeds = here.length ? here.map((h) => h.address) : order.filter(stale);
     toRun = new Set();
     for (const s of seeds) for (const a of python.affected(hosts, depsOf, s, stale)) toRun.add(a);
   } else {
@@ -3007,12 +3262,27 @@ async function runPython(editor, opts) {
         continue;
       }
       results.set(a, out);
-      // the record outlasts the session: when it ran, how long it took, what it wrote
+      // the record outlasts the session: when it ran, how long it took, what
+      // it wrote — for a bare `=` line, the Concepts, which is what lets
+      // `@Sales` elsewhere read the live table and the rows be tinted as its
       const at = new Date();
-      records[a] = { source: src, run: runHashes.get(a), at: at.toISOString(), ms: resp.ms, rows: out.count };
+      // (a Concept with a derivation of its own is that derivation's, never
+      // the bare line's, even when the line returns its name: the line
+      // leaves it alone — no failure, a warning that two places return it)
+      const ownDerived = new Set(hosts.filter((x) => x.kind === "concept").map((x) => x.node.name.toLowerCase()));
+      const returned = out.grids ? out.grids.map((g) => g.name) : undefined;
+      const concepts = returned ? returned.filter((n) => !ownDerived.has(n.toLowerCase())) : undefined;
+      const left = returned ? returned.filter((n) => ownDerived.has(n.toLowerCase())) : [];
+      // the rows it wrote, not the rows of what it left alone
+      const rows = out.grids
+        ? out.grids.filter((g) => !ownDerived.has(g.name.toLowerCase())).reduce((n, g) => n + g.grid.rows.length, 0) : out.count;
+      // a Concept it wrote last time and does not return now stays in the file: say so
+      const dropped = returned && records[a] && Array.isArray(records[a].concepts)
+        ? records[a].concepts.filter((n) => !returned.some((c) => c.toLowerCase() === n.toLowerCase())) : [];
+      records[a] = { source: src, run: runHashes.get(a), at: at.toISOString(), ms: resp.ms, rows, ...(concepts ? { concepts } : {}) };
       status.set(a, {
-        state: "ok", source: src, ms: resp.ms, rows: out.count, stdout: resp.stdout, at, versions,
-        columns: resp.result && resp.result.columns,
+        state: "ok", source: src, ms: resp.ms, rows, stdout: resp.stdout, at, versions,
+        columns: resp.result && resp.result.columns, concepts, dropped, left,
       });
     } catch (e) {
       failed.add(a);
@@ -3082,7 +3352,7 @@ async function checkConstraints(editor, session, allow) {
   let registry;
   try { registry = formulaRegistry(doc); } catch { registry = undefined; }
   const hosts = pythonHostsIn(doc);
-  const plan = python.checkItems(checks, { lines, registry, rootName, index: python.hostIndex(hosts) });
+  const plan = python.checkItems(checks, { lines, registry, rootName, index: pyHostIndex(doc, hosts) });
   const sent = plan.filter((p) => p.item);
   let answers = [];
   if (sent.length) {
@@ -3183,7 +3453,7 @@ function pythonWrite(doc, hosts, results, status) {
   const writes = [];
   const dir = aotFilesDir(doc);
   for (const h of hosts) {
-    if (h.kind === "concept" || !results.has(h.address)) continue;
+    if (h.kind === "concept" || h.kind === "generator" || !results.has(h.address)) continue;
     const out = results.get(h.address);
     let text = out.text;
     if (out.file) {
@@ -3201,6 +3471,18 @@ function pythonWrite(doc, hosts, results, status) {
   }
   const concepts = hosts.filter((h) => h.kind === "concept" && results.has(h.address)).sort((a, b) => b.line - a.line);
   for (const h of concepts) lines = python.writeGrid(lines, h.node, results.get(h.address).grid);
+  // last, the bare `=` lines: each finds its Concepts afresh, by name, in the
+  // lines as they now stand — a table written above moves everything below
+  const generators = hosts.filter((h) => h.kind === "generator" && results.has(h.address));
+  for (const h of generators) {
+    const w = python.writeGenerated(lines, h, results.get(h.address).grids, docRootName(doc));
+    lines = w.lines;
+    if (w.errors.length) {
+      status.set(h.address, Object.assign({}, status.get(h.address), {
+        state: "error", source: python.sourceHash(h.source), message: w.errors.join("; "), at: new Date(),
+      }));
+    }
+  }
   return { lines, writes };
 }
 
@@ -3246,6 +3528,17 @@ function replaceDocumentLines(editor, next) {
 
 // --- what the editor shows --------------------------------------------------
 
+// What a bare `=` line is told when it returned Concepts that a derivation
+// of their own writes: no failure — it ran, and wrote the rest — but one
+// Concept said in two places, which the writer settles by keeping one.
+function leftAloneMessage(names) {
+  const quoted = names.map((n) => `'${n}'`);
+  const list = quoted.length === 1 ? quoted[0] : `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
+  return quoted.length === 1
+    ? `this line returns ${list}, which has a derivation of its own — that one writes its rows, and this line leaves it alone; return it from one place only`
+    : `this line returns ${list}, which have derivations of their own — those write their rows, and this line leaves them alone; return each from one place only`;
+}
+
 // The Python findings for a document, into their own collection: a failed
 // run, a reference naming nothing, a cycle, a value that broke its
 // constraint when last checked, a bound that failed, and — as information — a
@@ -3263,7 +3556,7 @@ function pythonFindings(doc) {
     const records = runRecords(doc);
     let registry;
     try { registry = formulaRegistry(doc); } catch { registry = undefined; }
-    const ctx = { lines, registry, rootName, index: python.hostIndex(hosts) };
+    const ctx = { lines, registry, rootName, index: pyHostIndex(doc, hosts) };
     const resolved = new Map();
     for (const h of hosts) {
       try { resolved.set(h.address, python.resolveHost(h, ctx)); }
@@ -3311,6 +3604,12 @@ function pythonFindings(doc) {
         out.push(mk(`Python did not run — ${s.message.replace(/^not run — /, "")}`, vscode.DiagnosticSeverity.Warning));
         continue;
       }
+      // a bare line that returned a Concept whose own derivation writes it
+      // ran fine — the Concept just has two places saying what it holds
+      if (s && s.source === src && s.state === "ok" && s.left && s.left.length) {
+        out.push(mk(leftAloneMessage(s.left), vscode.DiagnosticSeverity.Warning));
+        continue;
+      }
       const rec = records[h.address];
       if (!rec) {
         out.push(mk(`not run yet — Ctrl+Enter runs it${off}`, vscode.DiagnosticSeverity.Information));
@@ -3329,13 +3628,32 @@ function pythonFindings(doc) {
   pyDims.set(doc.uri.toString(), dims);
 }
 
+// The whole of a cell host's cell on its row, pipe to pipe — { start, end },
+// end inclusive, so a cursor standing just before the next divider is still
+// in it — or null for a host that is not a cell. What Ctrl+Enter and hover
+// go by when a row carries several derivations side by side.
+function pyCellSpan(raw, h) {
+  if (h.kind !== "cell") return null;
+  const ds = table.dividers(raw);
+  const k = h.cell.col;
+  // (a host read off this very row always has its cell among its dividers)
+  return k > ds.length ? null : { start: k === 0 ? 0 : ds[k - 1] + 1, end: k < ds.length ? ds[k] : raw.length };
+}
+
 // Where a host's written value stands: the text in front of its derivation.
+// A cell's is read off its own cell, so a row holding the same value twice
+// fades the right one.
 function pyValueSpan(doc, h) {
   if (h.kind === "concept" || !h.value) return null;
   const raw = doc.lineAt(h.line - 1).text;
-  const start = h.kind === "cell"
-    ? raw.lastIndexOf(h.value, h.startCol)
-    : (python.valueDerivation(raw) || {}).valueStart;
+  let start;
+  if (h.kind === "cell") {
+    const cell = table.cells(raw)[h.cell.col];
+    if (!cell || !cell.text.startsWith(h.value)) return null;
+    start = cell.col;
+  } else {
+    start = (python.valueDerivation(raw) || {}).valueStart;
+  }
   if (start === undefined || start < 0) return null;
   return new vscode.Range(h.line - 1, start, h.line - 1, start + h.value.length);
 }
@@ -3358,6 +3676,23 @@ function pythonMarks(doc) {
       + "([Ctrl+Enter](command:aot.runPython)). Change the Python instead.");
     for (const r of park.ownedRows(lines, node)) {
       out.push({ range: new vscode.Range(r.line - 1, r.startCol, r.line - 1, r.endCol), hoverMessage: md });
+    }
+  }
+  // the Concepts a bare `=` line wrote, while the line is there to own them
+  const generated = generatedConcepts(doc);
+  for (const h of pythonHostsIn(doc)) {
+    if (h.kind !== "generator") continue;
+    for (const name of generated.get(h.address) || []) {
+      const node = parsed.nodes.find((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === name.toLowerCase());
+      if (!node || node.formula !== undefined) continue;
+      const md = new vscode.MarkdownString();
+      md.isTrusted = true;
+      md.appendMarkdown(`**Written by Python** — ${codeSpan("=" + h.source)}, the line on ${h.line}\n\n`);
+      md.appendMarkdown(`Every row of '${node.name}' is that line's: a row typed or changed here is replaced the next time it runs `
+        + "([Ctrl+Enter](command:aot.runPython)). Change the Python instead.");
+      for (const r of park.ownedRows(lines, node)) {
+        out.push({ range: new vscode.Range(r.line - 1, r.startCol, r.line - 1, r.endCol), hoverMessage: md });
+      }
     }
   }
   return out;
@@ -3388,41 +3723,102 @@ const ranWhat = (rows, ms) =>
   [rows !== undefined && rows !== null ? `${rows} row${rows === 1 ? "" : "s"}` : "", ms !== undefined && ms !== null ? `${ms} ms` : ""]
     .filter(Boolean).join(" · ");
 
+// How one derivation last ran, as its inlay says it: { state, label,
+// tooltip, ms, rows, at, message } — state one of running, error, skipped,
+// edited, ok — or null when it has never run.
+function pyRunNote(h, s, rec) {
+  const src = python.sourceHash(h.source);
+  const when = (at) => (ranAt(at) ? ` · ${ranAt(at)}` : "");
+  if (s && s.source === src && s.state !== "ok") {
+    if (s.state === "running") return { state: "running", label: "⟳ running", tooltip: "" };
+    if (s.state === "error") {
+      return {
+        state: "error", message: s.message, at: s.at,
+        label: `✗ ${s.message.length > 60 ? s.message.slice(0, 57) + "…" : s.message}${when(s.at)}`,
+        tooltip: [s.message, s.at ? `failed ${ranStamp(s.at)}` : "", rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n"),
+      };
+    }
+    // skipped: the one state a run marks besides these and ok
+    return {
+      state: "skipped", message: s.message, at: s.at, label: `– not run${when(s.at)}`,
+      tooltip: [s.message, rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n"),
+    };
+  }
+  if (rec && rec.source === src) {
+    // the last successful run — from this session, or from the run records,
+    // which outlast it: a restart does not forget when a value was computed
+    const fresh = s && s.source === src && s.state === "ok" ? s : null;
+    const rows = fresh ? fresh.rows : rec.rows;
+    const ms = fresh ? fresh.ms : rec.ms;
+    // a bare `=` line says how many Concepts it wrote, and names any it
+    // wrote before and no longer does — those stay in the file — and any it
+    // returned that a derivation of their own writes, which it left alone
+    const concepts = (fresh && fresh.concepts) || rec.concepts;
+    const dropped = (fresh && fresh.dropped) || [];
+    const left = (fresh && fresh.left) || [];
+    const what = [concepts ? `${concepts.length} Concept${concepts.length === 1 ? "" : "s"}` : "", ranWhat(rows, ms)]
+      .filter(Boolean).join(" · ");
+    return {
+      state: "ok", rows, ms, at: rec.at,
+      label: `✓ ${what ? what + " · " : ""}${ranAt(rec.at) || "ran"}${dropped.length ? ` · '${dropped[0]}' no longer written` : ""}`
+        + `${left.length ? ` · '${left[0]}' left to its own derivation` : ""}`,
+      tooltip: [`ran ${ranStamp(rec.at)}`, concepts ? `wrote ${concepts.join(", ")}` : "",
+        dropped.length ? `no longer written: ${dropped.join(", ")} — still in the file; delete ${dropped.length === 1 ? "it" : "them"} if gone` : "",
+        left.length ? `left alone: ${left.join(", ")} — ${left.length === 1 ? "its own derivation writes its" : "their own derivations write their"} rows` : "",
+        fresh && fresh.versions, fresh && fresh.stdout ? `printed:\n${fresh.stdout}` : ""]
+        .filter(Boolean).join("\n"),
+    };
+  }
+  if (rec) {
+    return {
+      state: "edited", at: rec.at, label: `✎ edited since ${ranAt(rec.at) || "it ran"} — Ctrl+Enter`,
+      tooltip: `last ran ${ranStamp(rec.at)}, before this edit`,
+    };
+  }
+  return null;
+}
+
+// A table row may carry several derivations, one per cell. They share the
+// row's one end, so they share one inlay, and it names the cells: the worst
+// news first (running, a failure, one not run, one edited since), else every
+// cell that ran. The tooltip has a line for each.
+function combinedRunNote(notes) {
+  const named = (n) => `${n.cell}: `;
+  const time = (at) => (ranAt(at) ? ` · ${ranAt(at)}` : "");
+  const worst = ["running", "error", "skipped", "edited"].map((state) => notes.find((n) => n.state === state)).find(Boolean);
+  let label;
+  if (worst && worst.state === "running") label = "⟳ running";
+  else if (worst && worst.state === "error") {
+    const said = `${named(worst)}${worst.message}`;
+    label = `✗ ${said.length > 60 ? said.slice(0, 57) + "…" : said}${time(worst.at)}`;
+  } else if (worst && worst.state === "skipped") label = `– ${worst.cell} not run${time(worst.at)}`;
+  else if (worst) label = `✎ ${worst.cell} edited since ${ranAt(worst.at) || "it ran"} — Ctrl+Enter`;
+  else {
+    const ms = notes.reduce((sum, n) => sum + (Number(n.ms) || 0), 0);
+    const latest = notes.map((n) => n.at).filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0];
+    label = `✓ ${notes.map((n) => n.cell).join(", ")} · ${ms} ms${time(latest)}`;
+  }
+  const tooltip = notes.map((n) => `${named(n)}${n.label}${n.tooltip ? `\n    ${n.tooltip.split("\n").join("\n    ")}` : ""}`).join("\n");
+  return { label, tooltip };
+}
+
 function pythonInlays(doc, range) {
   const status = pyStatus.get(doc.uri.toString());
   const records = runRecords(doc);
-  const out = [];
+  const byLine = new Map(); // line -> [note]
   for (const h of pythonHostsIn(doc)) {
     const line = h.line - 1;
     if (line < range.start.line || line > range.end.line || line >= doc.lineCount) continue;
-    const src = python.sourceHash(h.source);
-    const s = status && status.get(h.address);
-    const rec = records[h.address];
-    const when = (at) => (ranAt(at) ? ` · ${ranAt(at)}` : "");
-    let label = null, tooltip = "";
-    if (s && s.source === src && s.state !== "ok") {
-      if (s.state === "running") label = "⟳ running";
-      else if (s.state === "error") {
-        label = `✗ ${s.message.length > 60 ? s.message.slice(0, 57) + "…" : s.message}${when(s.at)}`;
-        tooltip = [s.message, s.at ? `failed ${ranStamp(s.at)}` : "", rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n");
-      } else if (s.state === "skipped") {
-        label = `– not run${when(s.at)}`;
-        tooltip = [s.message, rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n");
-      }
-    } else if (rec && rec.source === src) {
-      // the last successful run — from this session, or from the run
-      // records, which outlast it: a restart does not forget when a value
-      // was computed
-      const fresh = s && s.source === src && s.state === "ok" ? s : null;
-      const what = ranWhat(fresh ? fresh.rows : rec.rows, fresh ? fresh.ms : rec.ms);
-      label = `✓ ${what ? what + " · " : ""}${ranAt(rec.at) || "ran"}`;
-      tooltip = [`ran ${ranStamp(rec.at)}`, fresh && fresh.versions, fresh && fresh.stdout ? `printed:\n${fresh.stdout}` : ""]
-        .filter(Boolean).join("\n");
-    } else if (rec) {
-      label = `✎ edited since ${ranAt(rec.at) || "it ran"} — Ctrl+Enter`;
-      tooltip = `last ran ${ranStamp(rec.at)}, before this edit`;
-    }
-    if (!label) continue;
+    const note = pyRunNote(h, status && status.get(h.address), records[h.address]);
+    if (!note) continue;
+    // a cell is named by its column, the second part of its address
+    note.cell = h.kind === "cell" ? String(h.address).split("@")[2] : "";
+    if (!byLine.has(line)) byLine.set(line, []);
+    byLine.get(line).push(note);
+  }
+  const out = [];
+  for (const [line, notes] of byLine) {
+    const { label, tooltip } = notes.length === 1 ? notes[0] : combinedRunNote(notes);
     const hint = new vscode.InlayHint(doc.lineAt(line).range.end, label);
     hint.paddingLeft = true;
     if (tooltip) hint.tooltip = tooltip;
@@ -3509,9 +3905,11 @@ function pythonDefinition(doc, position) {
 // Hover in a derivation: a function's signature, docstring and file; on a
 // computed value, what computed it and when.
 function pythonHover(doc, position) {
-  const h = pythonHostsIn(doc).find((x) => x.line - 1 === position.line);
-  if (!h) return null;
-  if (position.character >= h.startCol && position.character <= h.endCol) {
+  // a table row may carry several derivations: the one whose code, or whose
+  // value, the pointer is over
+  const onLine = pythonHostsIn(doc).filter((x) => x.line - 1 === position.line);
+  if (!onLine.length) return null;
+  if (onLine.some((x) => position.character >= x.startCol && position.character <= x.endCol)) {
     const hit = pyFunctionAt(doc, position);
     if (!hit) return null;
     const md = new vscode.MarkdownString();
@@ -3519,8 +3917,12 @@ function pythonHover(doc, position) {
     if (hit.def.doc) md.appendMarkdown(`\n\n${hit.def.doc}`);
     return new vscode.Hover(md, new vscode.Range(position.line, hit.start, position.line, hit.start + hit.word.length));
   }
-  const span = pyValueSpan(doc, h);
-  if (!span || !span.contains(position)) return null;
+  let span = null;
+  const h = onLine.find((x) => {
+    span = pyValueSpan(doc, x);
+    return span && span.contains(position);
+  });
+  if (!h) return null;
   const s = (pyStatus.get(doc.uri.toString()) || new Map()).get(h.address);
   const rec = runRecords(doc)[h.address];
   const md = new vscode.MarkdownString();
@@ -3624,7 +4026,7 @@ async function runPythonHere(editor) {
   if (!pythonWorkIn(editor.document)) {
     return vscode.commands.executeCommand("editor.action.insertLineAfter");
   }
-  return runPython(editor, { mode: "here", line: editor.selection.active.line });
+  return runPython(editor, { mode: "here", line: editor.selection.active.line, character: editor.selection.active.character });
 }
 
 async function showPythonEnvironment() {
@@ -3652,7 +4054,7 @@ async function showPythonEnvironment() {
   const g = h.guards || {};
   const withheld = (entry.withheld || []).length;
   const detail = [
-    project ? `uv environment: ${relToRepo(doc, project)}/.venv` : "No uv environment — the interpreter aot.python.path names, else python on PATH",
+    project ? `uv environment: ${relToRepo(doc, project)}/${path.basename(uvenv.venvDir(project, process.platform))}` : `No uv environment — the interpreter aot.python.path names, else ${python.defaultPythons(process.platform).join(" or ")} on PATH`,
     h.executable, "",
     ...libs.map(([k, v]) => `${v ? "✓" : "✗"} ${k}${v ? " " + v : ""}`), "",
     "Held to:",
@@ -3737,7 +4139,7 @@ async function movePythonToSidecar(uri, line) {
   if (!doc) return;
   const h = pythonHostsIn(doc).find((x) => x.line - 1 === line);
   if (!h) return;
-  const ctx = { lines: doc.getText().split(/\r?\n/), registry: formulaRegistry(doc), rootName: docRootName(doc), index: python.hostIndex(pythonHostsIn(doc)) };
+  const ctx = { lines: doc.getText().split(/\r?\n/), registry: formulaRegistry(doc), rootName: docRootName(doc), index: pyHostIndex(doc, pythonHostsIn(doc)) };
   const r = python.resolveHost(h, ctx);
   if (r.errors.length) return vscode.window.showWarningMessage(`AOT: fix the reference first — ${r.errors[0]}`);
   const defs = sidecarDefs(doc);
@@ -4488,7 +4890,15 @@ function runTableOp(editor, op) {
     active: { row: cursorRow, col },
   };
   const target = op(block, cursorRow, col, span);
-  if (!target) return;
+  if (!target) {
+    // the column keys leave the first column alone: it names the Concept
+    // and its Examples, and is no attribute to move, copy or delete
+    if (col === 0 && [table.deleteColumn, tableOps["aot.table.moveColumnRight"], tableOps["aot.table.copyColumnLeft"],
+      tableOps["aot.table.copyColumnRight"]].includes(op)) {
+      vscode.window.setStatusBarMessage("AOT: the first column names the Concept and its Examples — it is not an attribute column.", 4000);
+    }
+    return;
+  }
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
   editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
@@ -4521,6 +4931,7 @@ const tableOps = {
   "aot.table.sortRows": table.sortRows,
   "aot.table.copyFormulaDown": table.copyFormulaDown,
   "aot.table.copyFormulaAcross": table.copyFormulaAcross,
+  "aot.table.defineColumn": table.defineColumn,
   // copying and cutting the text itself, in each of the four directions —
   // the cell, the whole row, the whole column
   "aot.table.copyCellDown": (b, r, c) => table.copyCell(b, r, c, 1, 0),
@@ -4589,12 +5000,13 @@ function moveInTable(editor, here, target, extend) {
 // VS Code does with it, so it is never dead.
 
 // The line-form grid the cursor stands in, with the lines it was read from.
-function lineGridAt(editor) {
+// `header`: a column's declaration line counts too (the column keys only).
+function lineGridAt(editor, header) {
   const doc = editor.document;
   const lines = doc.getText().split(/\r?\n/);
   try {
     const { nodes } = parsedDoc(doc);
-    const grid = lineform.gridAt(lines, nodes, editor.selection.active.line);
+    const grid = lineform.gridAt(lines, nodes, editor.selection.active.line, { header: !!header });
     return grid ? { lines, grid } : null;
   } catch {
     return null; // an unparseable document is no grid
@@ -4651,9 +5063,10 @@ function lineChangeEdit(doc, lines, change) {
 // in place as one edit, the cursor (and a filled selection) put back.
 async function runLineOp(editor, id) {
   if (id === "aot.table.copyFormulaDown") return copyFormulaToSiblings(editor); // line form's own copy-down
-  const here = lineGridAt(editor);
+  const name = id.replace("aot.table.", "");
+  const here = lineGridAt(editor, lineform.COLUMN_OPS.has(name));
   if (!here) return ownKey(id);
-  const op = lineform.ops[id.replace("aot.table.", "")];
+  const op = lineform.ops[name];
   if (!op) return;
   const sel = editor.selection;
   const span = sel.isEmpty ? undefined : {
@@ -4802,15 +5215,23 @@ function fromSelection(editor) {
 // and on its value lines as well — every table key but Enter works there
 // (src/lineform.js). A bare attribute line is neither, so Tab still indents
 // it. Decided from the text alone: this runs on every cursor move.
+//
+// aot.inColumn is aot.inGrid plus an attribute's declaration line in free
+// text (`age` under a Concept written as lines): that line is the column's
+// header, so the column keys — Alt+←/→, Alt+Shift+←/→, Ctrl+Alt+←/→ — work
+// there too, while Tab keeps indenting it.
 function updateTableContext() {
   const editor = vscode.window.activeTextEditor;
   const doc = editor && editor.document;
   const line = editor ? editor.selection.active.line : -1;
   const ok = !!(doc && doc.languageId === "aot" && line >= 0 && line < doc.lineCount);
+  const textOf = (i) => (i >= 0 && i < doc.lineCount ? doc.lineAt(i).text : undefined);
   const inTable = ok && table.isRowText(doc.lineAt(line).text);
-  const inGrid = inTable || (ok && lineform.looksLikeCell((i) => doc.lineAt(i).text, line));
+  const inGrid = inTable || (ok && lineform.looksLikeCell(textOf, line));
+  const inColumn = inGrid || (ok && lineform.looksLikeDeclaration(textOf, line));
   vscode.commands.executeCommand("setContext", "aot.inTable", inTable);
   vscode.commands.executeCommand("setContext", "aot.inGrid", inGrid);
+  vscode.commands.executeCommand("setContext", "aot.inColumn", inColumn);
 }
 
 // --- keeping your place in a wide or long table -----------------------------
@@ -5285,6 +5706,8 @@ function activate(context) {
     // or record that the two names are two ideas and stop being asked
     vscode.commands.registerCommand("aot.renameConcept", renameConcept),
     vscode.commands.registerCommand("aot.acceptDistinct", acceptDistinct),
+    vscode.commands.registerCommand("aot.hoistValue", hoistValue),
+    vscode.commands.registerCommand("aot.setUpGitMerge", setUpGitMerge),
     // the Quick Fix that lists an unlisted value as an Example of its Concept
     vscode.commands.registerCommand("aot.addExample", addExample),
     // the repo-wide sweep, and the lightbulb that settles a value two files
@@ -5443,6 +5866,8 @@ function activate(context) {
         refreshPeers(doc.fileName);
       }
       syncAotToCsv(doc);
+      // the stable Gödel numbers, grown by what this save added
+      saveGodelRegistry(doc);
     }),
   );
   const csvWatcher = vscode.workspace.createFileSystemWatcher("**/aot.files/*.csv");
@@ -5517,6 +5942,9 @@ function activate(context) {
   // folder up once, in the background: an unchanged folder does nothing.
   importAllCsvFolders({ silent: true });
 
+  // a merge driver set up by an older copy of this extension, pointed here
+  try { repairGitMerge(); } catch { /* left as it was */ }
+
   const aotWatcher = vscode.workspace.createFileSystemWatcher("**/*.aot");
   const onAotFsEvent = (uri) => {
     try { reindexAot(uri.fsPath, fs.readFileSync(uri.fsPath, "utf8")); } catch { /* gone */ }
@@ -5571,6 +5999,13 @@ const _test = {
   sessions: pySessions,
   runPython,
   ranAt,
+  // what an inlay says of a run, for every state, without staging each run
+  pyRunNote,
+  combinedRunNote,
+  leftAloneMessage,
+  // git, for the merge-driver setup: the tests record the calls instead
+  setGit: (fn) => { gitRun = fn || ((root, args) => childProcess.execFileSync(python.resolveExecutable("git") || "git", args, { cwd: root, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })); },
+  repairGitMerge,
 };
 
 module.exports = { activate, deactivate, _test };

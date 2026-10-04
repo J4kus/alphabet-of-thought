@@ -41,7 +41,7 @@
 
 const { KIND } = require("./linter");
 const {
-  cells, blockAt, isRowText, splitCell, splitConstraint, columnTerm, cleanName, numberless,
+  cells, dividers, blockAt, isRowText, splitCell, splitConstraint, columnTerm, cleanName, numberless,
   lineDerivation,
 } = require("./table");
 
@@ -226,11 +226,49 @@ const valueSpan = (text) => {
   return colon === -1 ? null : { colon, value: text.slice(colon + 1).trim() };
 };
 
+// A bare `=` line — Python that writes Concepts, with no name of its own —
+// is filed by where it stood and what it wrote: `@=Sales@Region`. The first
+// name is the anchor, the Concept that stood directly beneath the line, which
+// it comes home above; it is normally the first table the line wrote. When
+// the Concept beneath is not one it wrote, the anchor is marked `^`
+// (`@=^Notes@Region`) so nothing reads it as the line's. Never confused with
+// a Concept's own derivation (`@Sales`), whose name cannot open `=`.
+const isGeneratorAddress = (address) => String(address).startsWith("@=");
+const generatorEntry = (names) => "@=" + names.join("@");
+const generatorNames = (address) => String(address).slice(2).split("@").map((s) => s.trim()).filter(Boolean);
+const anchorName = (name) => String(name).replace(/^\^/, "");
+const writtenNames = (address) => generatorNames(address).filter((n) => !n.startsWith("^"));
+
+// The Concepts a bare `=` line stands above: the run of tables directly
+// beneath it at its own indent, one blank line between each — where its
+// Python wrote them. What a caller knows it wrote (the run record) wins.
+function tablesBeneath(lines, gen) {
+  const indent = " ".repeat(gen.col);
+  const names = [];
+  let end = gen.line - 1;
+  for (;;) {
+    let j = end + 1;
+    if (end > gen.line - 1 && j < lines.length && !String(lines[j]).trim()) j++;
+    if (j >= lines.length || !isRow(lines[j]) || lines[j].match(/^ */)[0] !== indent) break;
+    const block = blockAt(lines, j);
+    const name = cleanName((cells(lines[block.start])[0] || {}).text || "");
+    if (name) names.push(name);
+    end = block.end;
+  }
+  return names;
+}
+
 // Take every '=' derivation out of the values and hand it back addressed.
-// Returns { lines, parked: [{ address, formula }] } with lines a fresh array;
-// an empty `parked` means there was nothing to take and the caller should
-// leave the document alone.
-function park(lines, nodes, rootName) {
+// Returns { lines, parked: [{ address, formula }], stayed: [line] } with
+// lines a fresh array; an empty `parked` means there was nothing to take and
+// the caller should leave the document alone. `stayed` names the bare `=`
+// lines that could not park, having no Concept directly beneath them to come
+// home above.
+//
+// `generated` (optional) is a Map of each bare line's address (`@=1`) to the
+// Concepts it last wrote — the run record; without it, the tables standing
+// directly beneath the line are the ones it wrote.
+function park(lines, nodes, rootName, generated) {
   const out = lines.slice();
   const found = []; // { line, address, formula } — sorted to document order below
 
@@ -328,9 +366,29 @@ function park(lines, nodes, rootName) {
     out[at] = text.slice(0, span.col).trimEnd() + text.slice(span.end);
   }
 
+  // a bare `=` line comes off whole — nothing of it is data — filed by the
+  // Concepts it wrote. Last, and bottom-up, since each takes a line away.
+  const stayed = [];
+  const gone = [];
+  (nodes.generators || []).forEach((gen, k) => {
+    if (!gen.formula) return;
+    // the anchor: the Concept on the first line that is not blank beneath it
+    let next = gen.line;
+    while (next < lines.length && !String(lines[next]).trim()) next++;
+    const anchor = nodes.find((n) => n.kind === KIND.CONCEPT && n.line === next + 1);
+    if (!anchor) { stayed.push(gen.line); return; }
+    const recorded = generated && generated.get(`@=${k + 1}`);
+    const wrote = recorded && recorded.length ? recorded : tablesBeneath(lines, gen);
+    const own = wrote.some((n) => fold(n) === fold(anchor.name));
+    const names = [own ? anchor.name : "^" + anchor.name, ...wrote.filter((n) => fold(n) !== fold(anchor.name))];
+    found.push({ line: gen.line, address: generatorEntry(names), formula: "=" + gen.formula });
+    gone.push(gen.line - 1);
+  });
+  for (const at of gone.sort((a, b) => b - a)) out.splice(at, 1);
+
   // the store reads like the file it came from
   found.sort((a, b) => a.line - b.line);
-  return { lines: out, parked: found.map(({ address, formula }) => ({ address, formula })) };
+  return { lines: out, parked: found.map(({ address, formula }) => ({ address, formula })), stayed };
 }
 
 // Put them back where they came from. Returns { lines, missing } — missing
@@ -348,7 +406,16 @@ function unpark(lines, nodes, rootName, parked) {
   const byLine = new Map();
   const declsByLine = new Map();
   const conceptLines = new Map(); // a Concept's line -> its derivation
+  const generatorLines = []; // { line (the anchor Concept's), formula }
   for (const entry of parked || []) {
+    // a bare `=` line: back directly above the Concept that stood beneath it
+    if (isGeneratorAddress(entry.address)) {
+      const names = generatorNames(entry.address);
+      const anchor = names.length ? conceptAt(nodes, "@" + anchorName(names[0])) : null;
+      if (!anchor || !(anchor.line >= 1)) { missing.push(entry.address); continue; }
+      generatorLines.push({ line: anchor.line, formula: entry.formula });
+      continue;
+    }
     if (isConstraintEntry(entry.formula)) {
       const decl = declAt(nodes, rootName, entry.address);
       if (!decl) { missing.push(entry.address); continue; }
@@ -430,6 +497,15 @@ function unpark(lines, nodes, rootName, parked) {
       out[at] = `${text.trimEnd()} ${formula}`;
     }
   }
+  // the bare `=` lines last, bottom-up, since each adds a line: at the
+  // anchor Concept's own indent, directly above it — unless it is there already
+  for (const { line, formula } of generatorLines.sort((a, b) => b.line - a.line)) {
+    const at = line - 1;
+    const text = out[at];
+    if (text === undefined) continue;
+    if (at > 0 && String(out[at - 1]).trim() === formula.trim()) continue;
+    out.splice(at, 0, text.match(/^ */)[0] + formula.trim());
+  }
   return { lines: out, missing };
 }
 
@@ -451,11 +527,10 @@ function cellSpan(text, col) {
   const cell = cells(text)[col];
   if (!cell) return null;
   if (cell.text) return { start: cell.col, end: cell.col + cell.text.length };
-  // the pipes divide, so cell k runs from the pipe before it to the pipe
-  // after it — the line's own start opening the first, its end closing the
-  // last
-  const pipes = [];
-  for (let i = 0; i < text.length; i++) if (text[i] === "|") pipes.push(i);
+  // the dividers divide, so cell k runs from the divider before it to the
+  // divider after it — the line's own start opening the first, its end
+  // closing the last (a pipe inside a derivation's Python divides nothing)
+  const pipes = dividers(text);
   const start = col === 0 ? text.match(/^ */)[0].length : pipes[col - 1] + 1;
   const end = col < pipes.length ? pipes[col] : text.length;
   return end > start ? { start, end } : null;
@@ -502,6 +577,17 @@ function parkedSpans(lines, nodes, rootName, parked) {
   const out = [];
   const index = cellIndex(lines, nodes, rootName, true);
   for (const entry of parked || []) {
+    // a bare `=` line wrote whole tables: every row of each is marked
+    if (isGeneratorAddress(entry.address)) {
+      for (const name of writtenNames(entry.address)) {
+        const concept = conceptAt(nodes, "@" + name);
+        if (!concept) continue;
+        for (const r of ownedRows(lines, concept)) {
+          out.push({ ...r, address: entry.address, formula: entry.formula, concept: true });
+        }
+      }
+      continue;
+    }
     if (isConstraintEntry(entry.formula)) {
       const decl = declAt(nodes, rootName, entry.address);
       const text = decl ? lines[decl.line - 1] : undefined;
@@ -603,5 +689,5 @@ function parkedConstraints(nodes, rootName, parked) {
 
 module.exports = {
   park, unpark, parkedSpans, parkedConstraints, addressOf, nodeAt, declAt, isConstraintEntry,
-  serialise, parse, NOTICE, conceptAddress, conceptAt, ownedRows, cellIndex,
+  serialise, parse, NOTICE, conceptAddress, conceptAt, ownedRows, cellIndex, isGeneratorAddress,
 };

@@ -52,11 +52,21 @@ function projectDir(root, aotFiles, exists) {
   return null;
 }
 
+// The environment's folder, one per operating system: `.venv` on Windows,
+// `.venv-linux` / `.venv-darwin` elsewhere. One repository is often opened
+// from two — a checkout on C: used from Windows and from WSL — and an
+// environment holds one system's binaries: a Windows `.venv` cannot run in
+// Linux, and a setup on one side must not replace the other's as foreign.
+// uv is pointed at it with UV_PROJECT_ENVIRONMENT (runUv's `environment`).
+function venvDir(project, platform) {
+  return path.join(project, platform === "win32" ? ".venv" : `.venv-${platform}`);
+}
+
 // The environment's own interpreter.
 function venvPython(project, platform) {
   return platform === "win32"
-    ? path.join(project, ".venv", "Scripts", "python.exe")
-    : path.join(project, ".venv", "bin", "python");
+    ? path.join(venvDir(project, platform), "Scripts", "python.exe")
+    : path.join(venvDir(project, platform), "bin", "python");
 }
 
 // A new project: the libraries chosen, and Python 3.10 or later — the
@@ -115,10 +125,11 @@ function projectDigest(pyproject, lock) {
 }
 
 // uv's environment: it never downloads a Python on its own, and draws no
-// progress bars into a log.
-const uvEnv = (base) => Object.assign({}, base || process.env, {
+// progress bars into a log. `environment` (optional) is the folder the
+// project's environment lives in (venvDir).
+const uvEnv = (base, environment) => Object.assign({}, base || process.env, {
   UV_PYTHON_DOWNLOADS: "never", UV_NO_PROGRESS: "1", NO_COLOR: "1",
-});
+}, environment ? { UV_PROJECT_ENVIRONMENT: environment } : {});
 
 // One uv command: { code, stdout, stderr, missing } — missing when there is
 // no uv to start.
@@ -127,7 +138,7 @@ function runUv(spawnFn, uv, args, options) {
   return new Promise((resolve) => {
     let proc;
     try {
-      proc = spawnFn(uv || "uv", args, { cwd: o.cwd, env: uvEnv(o.env), windowsHide: true });
+      proc = spawnFn(uv || "uv", args, { cwd: o.cwd, env: uvEnv(o.env, o.environment), windowsHide: true });
     } catch (e) {
       return resolve({ code: null, stdout: "", stderr: String(e && e.message), missing: e && e.code === "ENOENT" });
     }
@@ -156,5 +167,5 @@ function installHint(project, relProject) {
 }
 
 module.exports = {
-  LIBRARIES, projectDir, venvPython, pyprojectText, parseLock, lockReview, projectDigest, uvEnv, runUv, lastWords, installHint,
+  LIBRARIES, projectDir, venvDir, venvPython, pyprojectText, parseLock, lockReview, projectDigest, uvEnv, runUv, lastWords, installHint,
 };

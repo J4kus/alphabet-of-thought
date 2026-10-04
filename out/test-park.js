@@ -251,5 +251,71 @@ const parsed = (lines, rootName) => {
     parse("// hello\n\n   \n@A@b: =1\n").length === 1);
 }
 
+// ---------------------------------------------------------------------------
+// a bare `=` line — Python that writes Concepts — parks too: it comes off
+// whole, filed by the Concepts it wrote, and comes home above the first
+// ---------------------------------------------------------------------------
+{
+  const lines = [
+    "Report",
+    "    - Case",
+    "        n: 1",
+    "=load_all()",
+    "Sales|month  |amount",
+    "1    |2026-01|15,000",
+    "",
+    "Region|code",
+    "1     |EU",
+    "",
+    "=not_run_yet()",
+    "Other",
+    "    - Item",
+    "=nothing_beneath()",
+  ];
+  const p = park(lines, parsed(lines).nodes, "Sheet");
+  check("bare =: the line comes off whole, filed by the tables it wrote",
+    !p.lines.includes("=load_all()") && p.lines[3] === "Sales|month  |amount"
+    && p.parked.some((e) => e.address === "@=Sales@Region" && e.formula === "=load_all()"));
+  check("bare =: one with a Concept beneath that it did not write parks above it, the anchor marked ^",
+    !p.lines.includes("=not_run_yet()") && p.parked.some((e) => e.address === "@=^Other" && e.formula === "=not_run_yet()"));
+  check("bare =: one with no Concept beneath it has nowhere to come home to, so it stays, and says where",
+    p.lines.includes("=nothing_beneath()") && p.stayed.join() === "14");
+  const back = unpark(p.lines, parsed(p.lines).nodes, "Sheet", p.parked);
+  check("bare =: it comes home above the first Concept it wrote, exactly as it stood",
+    back.missing.length === 0 && back.lines.join("\n") === lines.join("\n"));
+  const twice = unpark(back.lines, parsed(back.lines).nodes, "Sheet", p.parked);
+  check("bare =: never doubled when it is home already", twice.lines.join("\n") === lines.join("\n"));
+  const spans = parkedSpans(p.lines, parsed(p.lines).nodes, "Sheet", p.parked);
+  check("bare =: every row of every table it wrote is marked as Python's",
+    spans.filter((s) => s.address === "@=Sales@Region").map((s) => s.line).join() === "5,8");
+  const spaced = ["=load()", "", "Sales|n", "1    |2"];
+  const ps = park(spaced, parsed(spaced).nodes, "Sheet");
+  const psBack = unpark(ps.lines, parsed(ps.lines).nodes, "Sheet", ps.parked);
+  // (with no run record, a table past a blank line is not known to be its
+  // own: the anchor is marked ^, and its rows are not tinted as Python's)
+  check("bare =: a blank line between it and its table is passed over; it comes home directly above the table",
+    ps.parked.length === 1 && ps.parked[0].address === "@=^Sales" && !ps.stayed.length
+    && psBack.lines.join("\n") === ["", "=load()", "Sales|n", "1    |2"].join("\n"));
+  const lone = park(["=", "Thing"], parsed(["=", "Thing"]).nodes, "Sheet");
+  check("bare =: a lone '=' is the linter's error: it neither parks nor is said to stay",
+    lone.lines.join("\n") === "=\nThing" && !lone.parked.length && !lone.stayed.length);
+  check("bare =: an entry naming no Concept at all is missing, never guessed at",
+    unpark(["Thing"], parsed(["Thing"]).nodes, "Sheet", [{ address: "@=", formula: "=x()" }]).missing.join() === "@=");
+  check("bare =: a table it wrote that is gone since is no longer marked",
+    parkedSpans(p.lines, parsed(p.lines).nodes, "Sheet", [{ address: "@=Sales@Gone", formula: "=load_all()" }]).map((s) => s.line).join() === "5");
+  const recorded = park(lines, parsed(lines).nodes, "Sheet", new Map([["@=1", ["Region"]]]));
+  check("bare =: the run record says what it wrote; where it stood says where it returns",
+    recorded.parked.some((e) => e.address === "@=^Sales@Region"));
+  const recordedSpans = parkedSpans(recorded.lines, parsed(recorded.lines).nodes, "Sheet", recorded.parked);
+  check("bare =: only what it wrote is marked as Python's, never the anchor it did not write",
+    recordedSpans.filter((s) => s.address === "@=^Sales@Region").map((s) => s.line).join() === "8");
+  const recordedBack = unpark(recorded.lines, parsed(recorded.lines).nodes, "Sheet", recorded.parked);
+  check("bare =: and it comes home exactly where it stood", recordedBack.lines.join("\n") === lines.join("\n"));
+  const gone = unpark(p.lines.filter((l) => !/^Sales|^1    \|2026/.test(l)), parsed(p.lines.filter((l) => !/^Sales|^1    \|2026/.test(l))).nodes, "Sheet", p.parked);
+  check("bare =: with its first Concept gone, it is reported and kept, never guessed at",
+    gone.missing.includes("@=Sales@Region") && !gone.lines.includes("=load_all()"));
+  check("bare =: the store reads it back", parse(serialise(p.parked)).some((e) => e.address === "@=Sales@Region" && e.formula === "=load_all()"));
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

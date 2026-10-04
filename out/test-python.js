@@ -197,6 +197,194 @@ function check(name, ok) {
     plain.targets[0].kind === "frame" && plain.targets[0].header.join() === "Order,price" && plain.targets[0].rows[0].join() === "A,10");
 }
 
+// --- 6c. a bare `=` line writes Concepts -----------------------------------------
+// Tables returned by name: a Concept already in the file is filled where it
+// stands, a new one is written under the line at its indent, one with a
+// derivation of its own is left to it, and nothing is ever deleted.
+{
+  const text = [
+    "=load_all()",
+    "",
+    "Budget",
+    "    Budget|amount",
+    "    1     |9,000",
+    "",
+    "Plan =p()",
+    "Report",
+    "    =per_team()",
+    "    total: =len(@Sales)",
+  ].join("\n");
+  const lines = text.split("\n");
+  const r = lint(text, "t");
+  const hosts = python.hostsOf(r.nodes, lines, "t");
+  const gens = hosts.filter((h) => h.kind === "generator");
+  check("bare =: a host of its own, addressed by its place among the bare lines",
+    gens.map((h) => `${h.address}:${h.source}:${h.line}`).join() === "@=1:load_all():1,@=2:per_team():9");
+  const grid = (name, columns, rows) => ({ name, columns, rows });
+  const res = python.resultOf(gens[0], { kind: "grids", grids: [
+    grid("sales_report", ["month", "amount"], [["1", "2026-01", 15000]]),
+    grid("Region", ["code"], [["1", "EU"]]),
+    grid("budget", ["amount"], [["1", 1], ["2", 2]]),
+    grid("Plan", ["x"], [["1", "y"]]),
+  ] });
+  check("bare =: each table named as the language names a Concept — '_' a space, capitalised",
+    res.grids.map((g) => g.name).join() === "Sales report,Region,Budget,Plan" && res.count === 5);
+  check("bare =: anything but tables by name is an error saying what to return",
+    /return them by name, \{"Sales": df, …\}/.test((() => { try { python.resultOf(gens[0], { kind: "number", value: 1, summary: "1" }); } catch (e) { return e.message; } return ""; })()));
+  check("bare =: one name twice is an error",
+    /returned twice/.test((() => { try { python.resultOf(gens[0], { kind: "grids", grids: [grid("A", [], []), grid("a", [], [])] }); } catch (e) { return e.message; } return ""; })()));
+  const thrown = (fn) => { try { fn(); } catch (e) { return e.message; } return ""; };
+  check("bare =: a table returned without a name is an error saying how to name one",
+    /has no name — name each one/.test(thrown(() => python.resultOf(gens[0], { kind: "grids", grids: [grid(undefined, [], [])] })))
+    && /has no name/.test(thrown(() => python.resultOf(gens[0], { kind: "grids", grids: [grid("__", [], [])] }))));
+  check("bare =: what it produced instead is named as well as it can be — its summary, else its kind, else nothing",
+    /produced number$/.test(thrown(() => python.resultOf(gens[0], { kind: "number", value: 1 })))
+    && /produced nothing$/.test(thrown(() => python.resultOf(gens[0]))));
+  check("bare =: no tables at all writes nothing", python.resultOf(gens[0], { kind: "grids" }).grids.length === 0);
+  const lone = ["=", "Thing"];
+  check("bare =: a lone '=' is the linter's error, never a run",
+    !python.hostsOf(lint(lone.join("\n"), "t").nodes, lone, "t").some((h) => h.kind === "generator"));
+  // what a bare line wrote is read by its name — unless that name has a
+  // derivation of its own, which stays the one read
+  const ix = python.hostIndex(hosts, new Map([["@=1", ["Plan", "Fresh"]]]));
+  check("bare =: a Concept it wrote is found by name; one with its own derivation stays that derivation's",
+    ix.byConcept.get("plan").kind === "concept" && ix.byConcept.get("fresh").address === "@=1" && ix.byConcept.get("fresh").node === null);
+  const w = python.writeGenerated(lines, gens[0], res.grids, "t");
+  check("bare =: a new Concept is written at the line's own indent, directly under it",
+    w.lines.slice(0, 7).join("\n") === ["=load_all()", "Sales report|month  |amount", "1           |2026-01|15,000", "", "Region|code", "1     |EU", ""].join("\n"));
+  check("bare =: a Concept already in the file is filled where it stands",
+    w.lines.includes("Budget|amount") && w.lines.includes("2     |2") && !w.lines.includes("    1     |9,000"));
+  check("bare =: a Concept with a derivation of its own is left to it — no failure, named among what it left",
+    w.lines.includes("Plan =p()") && w.written.join() === "Sales report,Region,Budget" && w.left.join() === "Plan" && !w.errors.length);
+  check("bare =: the file it writes verifies", lint(w.lines.join("\n"), "t").errors.length === 0);
+  // a table somebody else wrote right under the line is not the line's: the
+  // new one goes above it, directly under the line
+  const foreign = ["=load()", "Ledger Note|text", "1          |kept"];
+  const fl = lint(foreign.join("\n"), "t");
+  const fw = python.writeGenerated(foreign, python.hostsOf(fl.nodes, foreign, "t")[0],
+    [{ name: "Fresh", grid: { header: ["Fresh", "n"], rows: [["1", "5"]] } }], "t");
+  const lost = python.writeGenerated(lines, Object.assign({}, gens[0], { ordinal: 7 }), res.grids, "t");
+  check("bare =: a line that cannot be found again writes nothing, and says so",
+    lost.lines.join("\n") === lines.join("\n") && /could not be found again/.test(lost.errors[0]));
+  // a Concept whose own derivation has not written its table yet is in no
+  // registry, but it is still the frame that derivation will make
+  {
+    const t2 = ["Report", "    rows: =len(@Pending)", "Pending =make()"];
+    const r2 = lint(t2.join("\n"), "t");
+    const h2 = python.hostsOf(r2.nodes, t2, "t");
+    const reads = python.resolveHost(h2.find((h) => h.address === "@Report@rows"), {
+      lines: t2, registry: table.mergeRegistries(derive.conceptRegistry(r2.root, r2.nodes)), rootName: "t", index: python.hostIndex(h2),
+    });
+    check("references: a Concept whose derivation has not run yet is its live frame, a dependency",
+      !reads.errors.length && reads.targets[0].kind === "object" && reads.targets[0].address === "@Pending" && reads.deps.join() === "@Pending"
+      && reads.names[0].nodes[0].name === "Pending");
+    // the same from a table cell, whose references resolve through its row
+    const t3 = ["Sheet|n", "S1   |=len(@Pending)", "", "Pending =make()"];
+    const r3 = lint(t3.join("\n"), "t");
+    const h3 = python.hostsOf(r3.nodes, t3, "t");
+    const cellReads = python.resolveHost(h3.find((h) => h.kind === "cell"), {
+      lines: t3, registry: table.mergeRegistries(derive.conceptRegistry(r3.root, r3.nodes)), rootName: "t", index: python.hostIndex(h3),
+    });
+    check("references: a table cell reads a Concept whose derivation has not run as its live frame",
+      !cellReads.errors.length && cellReads.targets[0].kind === "object" && cellReads.targets[0].address === "@Pending"
+      && cellReads.deps.join() === "@Pending" && cellReads.names[0].nodes[0].name === "Pending");
+  }
+  check("bare =: a table it did not write stays below the new one",
+    fw.lines.join("\n") === ["=load()", "Fresh|n", "1    |5", "", "Ledger Note|text", "1          |kept"].join("\n"));
+  const again = python.writeGenerated(w.lines, gens[0], res.grids, "t");
+  check("bare =: a second run replaces in place — nothing moves, nothing doubles", again.lines.join("\n") === w.lines.join("\n"));
+  const fewer = python.writeGenerated(w.lines, gens[0], res.grids.slice(1, 2), "t");
+  check("bare =: a Concept it no longer returns is never deleted", fewer.lines.includes("Sales report|month  |amount"));
+  const nested = python.writeGenerated(w.lines, python.hostsOf(lint(w.lines.join("\n"), "t").nodes, w.lines, "t").find((h) => h.address === "@=2"),
+    [{ name: "Team", grid: { header: ["Team", "size"], rows: [["A", "3"]] } }], "t");
+  check("bare =: under a Concept, its Concepts stand at the line's own indent, filed under that Concept",
+    nested.lines.join("\n").includes(["    =per_team()", "    Team|size", "    A   |3"].join("\n"))
+    && lint(nested.lines.join("\n"), "t").nodes.find((n) => n.name === "Team").parent.name === "Report");
+
+  // what it wrote is read live by name: `@Sales report` is the table its Python made
+  const lines2 = w.lines;
+  const r2 = lint(lines2.join("\n"), "t");
+  const hosts2 = python.hostsOf(r2.nodes, lines2, "t");
+  const index = python.hostIndex(hosts2, new Map([["@=1", ["Sales report", "Region", "Budget"]]]), r2.nodes);
+  const ctx = { lines: lines2, registry: table.mergeRegistries(derive.conceptRegistry(r2.root, r2.nodes)), rootName: "t", index };
+  const reads = python.resolveHost({ kind: "value", source: "len(@Region)", node: r2.nodes.find((n) => n.name === "total"), line: 1 }, ctx);
+  check("bare =: a Concept it wrote is read as its live table, by name, and depends on the line",
+    reads.targets[0].kind === "object" && reads.targets[0].address === "@=1" && reads.targets[0].key === "Region" && reads.deps.join() === "@=1");
+}
+
+// --- 6a. Python sees sub-Examples ----------------------------------------------
+// A Concept's rows are every Example in its scope, sub-Examples included, and
+// where they nest the frame carries the tree in a `parent` column, as the CSV
+// mirror does. A value on an Example reaches the Examples beneath it.
+{
+  const text = [
+    "Thing",
+    "    age",
+    "    - Parent",
+    "        age: 40",
+    "        total: =@Child 1@age + @Child 2@age",
+    "        - Child 1",
+    "            age: 10",
+    "        - Child 2",
+    "            age: 12",
+    "    - Other",
+    "        age: 7",
+    "    count: =len(@Thing)",
+    "    kid: =@Thing@Child 2@age",
+    "    ages: =@Thing@age",
+    "    whose: =@Thing@Child 2@parent",
+    "    parents: =@Thing@parent",
+    "Flat",
+    "    - A",
+    "        n: 1",
+    "    - B",
+    "        n: 2",
+    "    all: =@Flat",
+    "Grid|age",
+    "Top |30",
+    "    Sub|3",
+    "Reader",
+    "    g: =@Grid",
+    "Org",
+    "    parent",
+    "    - Board",
+    "        - Finance",
+    "    - Staff",
+    "        parent: Board",
+    "    found: =@Org@Finance@parent",
+    "    stated: =@Org@Staff@parent",
+  ].join("\n");
+  const lines = text.split("\n");
+  const r = lint(text, "t");
+  const hosts = python.hostsOf(r.nodes, lines, "t");
+  const ctx = { lines, registry: table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes)), rootName: "t", index: python.hostIndex(hosts) };
+  const res = (a) => python.resolveHost(hosts.find((h) => h.address === a), ctx);
+  const frame = res("@Thing@count").targets[0];
+  check("sub-Examples: a Concept's frame holds every Example, sub-Examples included",
+    frame.kind === "frame" && frame.rows.map((row) => row[0]).join() === "Parent,Child 1,Child 2,Other");
+  check("sub-Examples: where they nest, a parent column carries the tree",
+    frame.header.slice(0, 3).join() === "Thing,parent,age" && frame.rows[1].slice(0, 3).join() === "Child 1,Parent,10"
+    && frame.rows[0][1] === "" && frame.rows[3][1] === "");
+  check("sub-Examples: a cell of a sub-Example resolves by name",
+    res("@Thing@kid").targets[0].kind === "value" && res("@Thing@kid").targets[0].text === "12");
+  check("sub-Examples: a column spans the sub-Examples too",
+    res("@Thing@ages").targets[0].values.join() === "40,10,12,7");
+  check("sub-Examples: the parent column reads like any other, a cell or the whole column",
+    res("@Thing@whose").targets[0].text === "Parent" && res("@Thing@parents").targets[0].values.join() === ",Parent,Parent,");
+  check("sub-Examples: a Concept stating its own 'parent' keeps one column — an Example's own value, else where it sits",
+    res("@Org@found").targets[0].text === "Board" && res("@Org@stated").targets[0].text === "Board");
+  const total = res("@Thing@total@Parent");
+  check("sub-Examples: a value on an Example reads the Examples beneath it",
+    !total.errors.length && total.targets.map((t) => t.text).join() === "10,12");
+  const flat = res("@Flat@all").targets[0];
+  // (the Concept's own attributes, 'all' here, are columns as they always were)
+  check("sub-Examples: a flat Concept's frame is unchanged, no parent column",
+    !flat.header.includes("parent") && flat.rows.map((row) => row[0] + "=" + row[flat.header.indexOf("n")]).join() === "A=1,B=2");
+  const grid = res("@Reader@g").targets[0];
+  check("sub-Examples: nested table rows are rows of the frame, with their parent",
+    grid.header.join() === "Grid,parent,age" && grid.rows.map((row) => row.join()).join("|") === "Top,,30|Sub,Top,3");
+}
+
 // --- 6b. the repository's own Python, resolved as the runtime resolves it ---
 {
   const root = path.resolve("/repo");
@@ -281,6 +469,12 @@ function check(name, ok) {
     on(14).length === 1 && on(14)[0].derived && !on(9)[0].derived);
   check("checks: a column a header defines with '==' holds its empty cells too",
     on(17).length === 1 && on(17)[0].definesOnly && on(17)[0].value === "" && on(18).length === 1);
+  // a cell with a value AND a derivation of its own is derived too, so the
+  // header's definition never writes over it (the nearer word wins)
+  const own = lint(["Team|size ==4", "Red |5 =2+3", "Blue|3"].join("\n"), "t");
+  const ownChecks = python.constraintChecks(own.nodes, ["Team|size ==4", "Red |5 =2+3", "Blue|3"]);
+  check("checks: a cell's own derivation is marked derived, so a column definition leaves it be",
+    ownChecks.find((c) => c.host.line === 2).derived === true && ownChecks.find((c) => c.host.line === 3).derived === false);
   const reg = table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes));
   const hosts = python.hostsOf(r.nodes, lines, "t");
   const plan = python.checkItems(checks, { lines, registry: reg, rootName: "t", index: python.hostIndex(hosts) });
@@ -607,14 +801,18 @@ function results() {
 
 // --- 11. the real runtime, when this machine has a Python -------------------
 function realRuntime() {
-  const probe = spawnSync("python", ["-c", "import sys; print(sys.version_info[0])"], { encoding: "utf8", timeout: 15000 });
-  if (probe.status !== 0 || String(probe.stdout).trim() !== "3") {
+  // the interpreter the editor would find: python3 first off Windows, where a
+  // stock system (WSL's Ubuntu) has no plain `python`
+  const interpreter = (process.platform === "win32" ? ["python"] : ["python3", "python"]).find((p) => {
+    const probe = spawnSync(p, ["-c", "import sys; print(sys.version_info[0])"], { encoding: "utf8", timeout: 15000 });
+    return probe.status === 0 && String(probe.stdout).trim() === "3";
+  });
+  if (!interpreter) {
     console.log("SKIP real runtime (no python on PATH)");
     return done();
   }
-  const s = new python.Session(spawn, {
-    python: "python", runtime: path.join(__dirname, "..", "src", "aot_runtime.py"), cwd: os.tmpdir(), timeoutMs: 30000,
-  }).start();
+  const runtime = path.join(__dirname, "..", "src", "aot_runtime.py");
+  const s = new python.Session(spawn, { python: interpreter, runtime, cwd: os.tmpdir(), timeoutMs: 30000 }).start();
   const ev = (code, targets, host) => s.request({ op: "eval", address: "@t@x", code, targets: targets || [], host: host || "value" })
     .then((r) => r.result, (e) => ({ error: e.message }));
   (async () => {
@@ -649,6 +847,38 @@ function realRuntime() {
       (await ev("len(_aot_ref(0))", [{ kind: "object", address: "@t@x" }])).value === 2);
     const named = await ev("aot.grid(['Q', 'n'], [['A', 1], ['B', 2]])", [], "concept");
     check("runtime: a grid Python names row by row says so, and keeps its names", named.named === true && named.rows[1][0] === "B");
+
+    // a bare `=` line: tables by name, each written as a Concept, and each
+    // read back live by the name the file writes it under
+    const genOut = await s.request({
+      op: "eval", address: "@=1", host: "generator", targets: [],
+      code: "{'sales': [{'month': '2026-01', 'amount': 15000}], 'Region': aot.grid(['Region', 'code'], [['EU', 'eu']])}",
+    }).then((r) => r.result, (e) => ({ error: e.message }));
+    check("runtime: a bare = line's tables come back by name, each as a table",
+      genOut.kind === "grids" && genOut.grids.map((g) => g.name).join() === "sales,Region"
+      && genOut.grids[0].columns.join() === "month,amount" && genOut.grids[1].named === true);
+    check("runtime: one of them is read back live by its name, as the file writes it",
+      (await ev("len(_aot_ref(0))", [{ kind: "object", address: "@=1", key: "Sales" }])).value === 1);
+    check("runtime: a name it did not write says so",
+      /not one of the Concepts it wrote/.test((await ev("_aot_ref(0)", [{ kind: "object", address: "@=1", key: "Nope" }])).error));
+    const notTables = await s.request({ op: "eval", address: "@=2", host: "generator", targets: [], code: "{'a': 42}" })
+      .then((r) => r.result, (e) => ({ error: e.message }));
+    check("runtime: a bare = line naming something that is no table says which", /'a' is .*not a table/.test(notTables.error || ""));
+    const gen = (address, code) => s.request({ op: "eval", address, host: "generator", targets: [], code })
+      .then((r) => r.result, (e) => ({ error: e.message }));
+    const oneGrid = await gen("@=3", "aot.grid(['Fleet', 'van'], [['F1', 'V1'], ['F2', 'V2']])");
+    check("runtime: a bare = line returning one aot.grid writes the Concept its header names",
+      oneGrid.kind === "grids" && oneGrid.grids.map((g) => g.name).join() === "Fleet" && oneGrid.grids[0].rows.length === 2);
+    const grids = await gen("@=4", "[aot.grid(['Fleet', 'van'], [['F1', 'V1']]), aot.grid(['Depot', 'city'], [['D1', 'Durban']])]");
+    check("runtime: ...and a list of them, one Concept each", grids.kind === "grids" && grids.grids.map((g) => g.name).join() === "Fleet,Depot");
+    check("runtime: a Concept an aot.grid wrote is read back as a table, a row per Example",
+      (await ev("len(_aot_ref(0))", [{ kind: "object", address: "@=3", key: "fleet" }])).value === 2);
+    const noTables = await gen("@=5", "42");
+    check("runtime: a bare = line returning no tables at all comes back an object, which the editor refuses to write",
+      noTables.kind === "object" && /produced <int/.test((() => {
+        try { python.resultOf({ kind: "generator", address: "@=5" }, noTables); } catch (e) { return e.message; }
+        return "";
+      })()));
 
     // the constraints: every bound in one round trip
     const chk = (items) => s.request({ op: "checks", items }).then((r) => r.results);
@@ -727,9 +957,7 @@ function realRuntime() {
 
     // the guards, in a session of their own: set at hello, before anything
     // of the repository's runs, and never lifted
-    const gs = new python.Session(spawn, {
-      python: "python", runtime: path.join(__dirname, "..", "src", "aot_runtime.py"), cwd: os.tmpdir(), timeoutMs: 30000,
-    }).start();
+    const gs = new python.Session(spawn, { python: interpreter, runtime, cwd: os.tmpdir(), timeoutMs: 30000 }).start();
     const gev = (code) => gs.request({ op: "eval", address: "@g@x", code, targets: [], host: "value" })
       .then((r) => ({ ok: r.result }), (e) => ({ error: e.message }));
     const gh = await gs.request({ op: "hello", guards: { memoryMb: 512, subprocess: false, network: false, credentials: true } });
@@ -765,6 +993,19 @@ function realRuntime() {
       /refused/.test(loosened.guards.subprocess) && /may not start another program/.test((await gev('__import__("os").system("exit 0")')).error || ""));
     await gs.request({ op: "bye" });
     gs.kill();
+    // which limit caps memory off Windows is decided apart from setting it,
+    // so every platform's answer is checked here, whatever this machine is
+    const caps = spawnSync(interpreter, ["-I", "-B", "-c", [
+      "import importlib.util, json, sys",
+      "spec = importlib.util.spec_from_file_location('aot_runtime', sys.argv[1])",
+      "rt = importlib.util.module_from_spec(spec)",
+      "spec.loader.exec_module(rt)",
+      "sys.__stdout__.write(json.dumps([rt._memory_cap(p) for p in ('linux', 'darwin', 'freebsd14')]))",
+    ].join("\n"), runtime], { encoding: "utf8", timeout: 60000 });
+    const capOf = (() => { try { return JSON.parse(caps.stdout); } catch { return []; } })();
+    check("guards: off Windows memory is capped by its data size on Linux, by address space elsewhere, and hello says which",
+      capOf.length === 3 && capOf[0].join() === "RLIMIT_DATA,a data-size limit"
+      && capOf[1][0] === "RLIMIT_AS" && /which macOS does not enforce$/.test(capOf[1][1]) && capOf[2].join() === "RLIMIT_AS,an address-space limit");
 
     await s.request({ op: "bye" });
     fs.rmSync(dir, { recursive: true, force: true });

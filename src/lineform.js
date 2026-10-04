@@ -113,15 +113,58 @@ function looksLikeCell(textOf, lineIdx) {
   return false;
 }
 
-// The grid the cursor's line is a cell of, or null when it is none.
-function gridAt(lines, nodes, lineIdx) {
+// The column keys work from an attribute's declaration too — a bare `age`
+// under the Concept is that column's header, the one line that names it for
+// every Example — so Alt+Shift+← there deletes the column exactly as it does
+// from a value. Only these keys: Tab on a declaration still indents it.
+const COLUMN_OPS = new Set([
+  "moveColumnLeft", "moveColumnRight", "insertColumn", "deleteColumn", "copyColumnLeft", "copyColumnRight",
+]);
+
+// Whether a line is a column's declaration, from the text alone, for the
+// context the column keys are gated on: a bare lowercase term (no colon, no
+// pipe) filed under a Concept's own line, which has a '- ' Example beside it.
+// `textOf` answers undefined past either end of the document.
+function looksLikeDeclaration(textOf, lineIdx) {
+  const text = textOf(lineIdx);
+  if (text === undefined || text === null || isRowText(text)) return false;
+  if (!/^[^A-Z\s\-.:|][^:|]*$/.test(text.trim())) return false;
+  const depth = indentOf(text).length;
+  if (!depth) return false;
+  let parent = -1;
+  for (let i = lineIdx - 1; i >= 0; i--) {
+    const above = textOf(i);
+    if (above === undefined || above === null) break;
+    if (!above.trim()) continue;
+    if (indentOf(above).length < depth) { parent = i; break; }
+  }
+  if (parent === -1) return false;
+  const head = textOf(parent);
+  if (/^\s*(-|\.\.\.)/.test(head) || isRowText(head)) return false;
+  for (let i = parent + 1; ; i++) {
+    const t = textOf(i);
+    if (t === undefined || t === null) return false;
+    if (!t.trim()) continue;
+    const d = indentOf(t).length;
+    if (d < depth) return false;
+    if (d === depth && t.trim().startsWith("- ") && !isRowText(t)) return true;
+  }
+}
+
+// The grid the cursor's line is a cell of, or null when it is none. With
+// `opts.header`, a column's declaration line answers too: its grid has no
+// row (`row` null), and `header` is the declaration.
+function gridAt(lines, nodes, lineIdx, opts) {
   const at = lineIdx + 1;
   const here = nodes.filter((n) => n.line === at);
   const example = here.find((n) => isLineExample(n, lines));
   const value = example ? null : here.find((n) => isLineValue(n, lines));
   const row = example || (value && value.parent);
-  if (!row) return null;
-  let concept = row.parent;
+  const header = row || !(opts && opts.header) ? null
+    : here.find((n) => n.kind === ATTRIBUTE && !n.cell && n.line >= 1 && !n.children.length
+      && n.parent && n.parent.kind === CONCEPT) || null;
+  if (!row && !header) return null;
+  let concept = header ? header.parent : row.parent;
   while (concept && concept.kind !== CONCEPT) concept = concept.parent;
   if (!concept) return null;
   const rows = [];
@@ -132,7 +175,7 @@ function gridAt(lines, nodes, lineIdx) {
     }
   };
   walk(concept);
-  if (!rows.includes(row)) return null;
+  if (row ? !rows.includes(row) : !rows.length) return null;
   const columns = [];
   const index = new Map(); // column key -> its 1-based column
   const claim = (name, label) => {
@@ -153,8 +196,8 @@ function gridAt(lines, nodes, lineIdx) {
   }
   for (const d of declarationsOf(concept)) claim(d.name, splitConstraint((lines[d.line - 1] || "").trim()).value);
   return {
-    lines, concept, rows, columns, index, row,
-    col: value ? index.get(key(value.name)) : 0,
+    lines, concept, rows, columns, index, row: row || null, header,
+    col: value ? index.get(key(value.name)) : header ? index.get(key(header.name)) : 0,
     at: lineIdx,
   };
 }
@@ -453,7 +496,11 @@ function moveColumn(g, dir) {
     if (r === g.row) cursor = { line: y.line - 1 };
   }
   const dx = declarationOf(g, col), dy = declarationOf(g, other);
-  if (dx && dy) swap(dx, dy);
+  if (dx && dy) {
+    swap(dx, dy);
+    // pressed on the declaration, the cursor goes with it
+    if (g.header) cursor = { line: dy.line - 1 };
+  }
   return edits.length ? { edits, cursor: cursor || { line: g.at } } : null;
 }
 
@@ -483,6 +530,8 @@ function deleteColumn(g) {
   }
   const d = declarationOf(g, g.col);
   if (d) edits.push({ type: "delete", from: d.line - 1, to: d.line - 1 });
+  // pressed on the declaration, the cursor takes the next line that stays
+  if (!g.row) return { edits, cursor: { line: g.at } };
   let cursor = null;
   for (let k = g.col + 1; k <= g.columns.length && !cursor; k++) {
     const v = valueNode(g, g.row, k);
@@ -514,7 +563,10 @@ function copyColumn(g, dir) {
     if (r === g.row) cursor = { mark: "cursor" };
   }
   const d = declarationOf(g, g.col);
-  if (d) copy(d, null);
+  if (d) {
+    copy(d, g.header ? "cursor" : null);
+    if (g.header) cursor = { mark: "cursor" };
+  }
   return edits.length ? { edits, cursor: cursor || { line: g.at } } : null;
 }
 
@@ -740,6 +792,6 @@ const ops = {
 };
 
 module.exports = {
-  gridAt, looksLikeCell, cellStart, cellText, ops, jump, corner, conceptSpan,
+  gridAt, looksLikeCell, looksLikeDeclaration, COLUMN_OPS, cellStart, cellText, ops, jump, corner, conceptSpan,
   applyEdits, resolve, changedLines,
 };

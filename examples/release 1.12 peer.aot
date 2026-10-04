@@ -1,0 +1,11 @@
+Lantern
+    fuel
+    - Storm Lantern
+        fuel: paraffin
+    - Camping Lantern
+        fuel: gas
+    - Hurricane Lantern
+        fuel: oil
+Grill
+    power: 1800
+    racks: 2

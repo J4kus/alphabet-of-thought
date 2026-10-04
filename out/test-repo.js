@@ -376,5 +376,27 @@ const JAKUS = {
   check("a split extension leaves V exactly where it was", split.errors.length === 0);
 }
 
+// A maintained note goes stale the moment no other file lists its Concept —
+// the peer deleted, or renamed — and is removed rather than left to lie.
+{
+  const noted = aot("Person", "    age", "    - Ann", "    ... 2 more in b.aot:1", "    ... still to do");
+  const gone = reconciled({ "a.aot": noted, "b.aot": aot("Animal", "    - Rex") }, "a.aot");
+  check("stale note: removed when the peer no longer exists",
+    !/more in b\.aot/.test(gone.text) && /\.\.\. still to do/.test(gone.text));
+  const renamed = reconciled({ "a.aot": noted, "b.aot": aot("Human", "    - Bob", "    - Cy") }, "a.aot");
+  check("stale note: removed when the peer was renamed",
+    !/more in b\.aot/.test(renamed.text));
+  // a note left at the top of the file when its Concept's line was deleted
+  const orphan = reconciled({ "a.aot": aot("... 3 more in b.aot:1", "Other", "    - X"), "b.aot": aot("Animal") }, "a.aot");
+  check("stale note: one no Concept claims is swept away", !/more in b\.aot/.test(orphan.text) && /Other/.test(orphan.text));
+  // with auto-reconcile off nothing is rewritten, so it is reported instead
+  const entries = build({ "a.aot": noted, "b.aot": aot("Animal", "    - Rex") });
+  const found = repo.findings("a.aot", repo.occurrences(entries), { autoReconcile: false });
+  check("stale note: warned about when auto-reconcile is off",
+    found.warnings.some((w) => w.line === 4 && /no other file lists 'Person' any more/.test(w.message)));
+  const quiet = repo.findings("a.aot", repo.occurrences(entries), { autoReconcile: true });
+  check("stale note: not warned about when a save will remove it", !quiet.warnings.length);
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

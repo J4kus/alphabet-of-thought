@@ -113,6 +113,14 @@ const isRowText = (text) => {
 // only the one after the closing bracket divides. A derivation that never
 // closes before the line ends leaves no divider at all, so the line is the
 // Concept's line, pipes and all.
+//
+// Every later cell reads the same way: once its derivation opens — the '='
+// that splitCell finds, which always stands before any pipe of its cell,
+// since a value holds none — a pipe inside the Python's open brackets or
+// strings is the Python's, so `A|=len("a|b")|=@x` is three cells. A cell's
+// Python that never closes before the line ends is read with every pipe a
+// divider after all: a data row must stay a row, and a half-typed bracket is
+// no reason to swallow the cells after it.
 function dividers(text) {
   const t = String(text);
   const out = [];
@@ -122,24 +130,59 @@ function dividers(text) {
   const head = t.slice(0, pipe);
   const lead = head.length - head.trimStart().length;
   const d = splitCell(head.trimStart());
+  // a line that opens with its '=' names nothing before it: no header (a
+  // table names its Concept first) and no row, but the bare derivation that
+  // writes Concepts — every pipe on it is its Python's
+  if (d.eq === 0) return out;
   if (d.eq > 0 && !head.trimStart().slice(0, d.eq).includes(":")) {
-    let depth = 0, quote = null, found = -1;
-    for (let k = lead + d.eq + 1; k < t.length && found === -1; k++) {
-      const ch = t[k];
-      if (quote) {
-        if (ch === "\\") k++;
-        else if (ch === quote) quote = null;
-      } else if (ch === "'" || ch === "\"" || ch === "`") quote = ch;
-      else if (ch === "(" || ch === "[" || ch === "{") depth++;
-      else if (ch === ")" || ch === "]" || ch === "}") depth--;
-      else if (ch === "|" && depth <= 0) found = k;
-    }
+    const found = pythonPipe(t, lead + d.eq + 1).at;
     if (found === -1) return out;
     out.push(found);
     from = found + 1;
   }
-  for (let k = from; k < t.length; k++) if (t[k] === "|") out.push(k);
+  // the cells after the first, one at a time
+  let at = from;
+  while (at < t.length) {
+    const next = t.indexOf("|", at);
+    if (next === -1) break;
+    const seg = t.slice(at, next);
+    const segLead = seg.length - seg.trimStart().length;
+    const cd = splitCell(seg.trimStart());
+    if (cd.eq === -1) {
+      out.push(next);
+      at = next + 1;
+      continue;
+    }
+    const scan = pythonPipe(t, at + segLead + cd.eq + 1);
+    if (scan.at !== -1) {
+      out.push(scan.at);
+      at = scan.at + 1;
+    } else if (scan.closed) {
+      break; // the Python runs to the line's end, its pipes all its own
+    } else {
+      for (let k = next; k < t.length; k++) if (t[k] === "|") out.push(k);
+      break;
+    }
+  }
   return out;
+}
+
+// From `start` inside a derivation: the first pipe standing outside the
+// Python's brackets and strings ({ at }, -1 for none), and whether the
+// Python is closed where the line ends.
+function pythonPipe(t, start) {
+  let depth = 0, quote = null;
+  for (let k = start; k < t.length; k++) {
+    const ch = t[k];
+    if (quote) {
+      if (ch === "\\") k++;
+      else if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === "\"" || ch === "`") quote = ch;
+    else if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth--;
+    else if (ch === "|" && depth <= 0) return { at: k, closed: true };
+  }
+  return { at: -1, closed: !quote && depth <= 0 };
 }
 
 // A derivation written on a line that carries no value — `Sales =by_month(@raw)`
@@ -404,11 +447,16 @@ function nextRow(block, row, col) {
   return { row: block.rows.length - 1, col: target };
 }
 
+// The first column is no attribute: its header cell names the Concept and
+// each row's cell names that row's Example. So the column keys never move,
+// delete or copy it, and a column inserted "where the cursor stands" on it
+// goes in just after it — the names always stay first.
+
 // M-left / M-right: carry the cursor's column left or right.
 function moveColumn(block, row, col, dir) {
   const numCols = widthsOf(block).length;
   const other = col + dir;
-  if (col >= numCols || other < 0 || other >= numCols) return null;
+  if (col < 1 || col >= numCols || other < 1 || other >= numCols) return null;
   padRows(block);
   for (const r of block.rows) {
     if (!r.sep) [r.cells[col], r.cells[other]] = [r.cells[other], r.cells[col]];
@@ -449,18 +497,18 @@ function moveRow(block, row, col, dir) {
 
 // M-S-right: a new empty column where the cursor stands, pushing it right.
 function insertColumn(block, row, col) {
-  const numCols = widthsOf(block).length;
+  const at = Math.max(1, col);
   padRows(block);
   for (const r of block.rows) {
-    if (!r.sep) r.cells.splice(Math.min(col, r.cells.length), 0, "");
+    if (!r.sep) r.cells.splice(Math.min(at, r.cells.length), 0, "");
   }
-  return { row, col };
+  return { row, col: at };
 }
 
 // M-S-left: kill the cursor's column.
 function deleteColumn(block, row, col) {
   const numCols = widthsOf(block).length;
-  if (col >= numCols) return null;
+  if (col < 1 || col >= numCols) return null;
   padRows(block);
   for (const r of block.rows) {
     if (!r.sep) r.cells.splice(col, 1);
@@ -572,6 +620,50 @@ function copyFormulaDown(block, row, col) {
   return { row, col };
 }
 
+// A calculated column. When every data row of a column carries the same
+// derivation (or nothing yet), that derivation is not a fact about each row
+// but the definition of the column — and the language has a place for it:
+// `==` on the header cell, which a run writes into every value of the
+// column that has no derivation of its own. Moving it there leaves each cell
+// its value alone, so two formula columns side by side read as plain data.
+//
+// columnDefinition answers { source, name } for the column — the one source
+// its derivations share and the column's name — or null when it has none,
+// when two rows derive it differently, when the column already has a `==`,
+// or for the name column.
+function columnDefinition(block, col) {
+  const head = headerIndex(block);
+  if (col < 1 || head === -1) return null;
+  const header = block.rows[head].cells[col];
+  if (!header || splitConstraint(header).constraints.some((c) => c.op === "==")) return null;
+  let source = null;
+  for (const r of dataRowsOf(block)) {
+    const text = r.cells[col] || "";
+    const split = splitCell(text);
+    if (split.eq === -1) {
+      if (text.trim()) return null; // a value typed by hand is its own
+      continue;
+    }
+    const own = text.slice(split.eq + 1).trim();
+    if (source === null) source = own;
+    else if (own !== source) return null;
+  }
+  return source ? { source, name: columnTerm(header) } : null;
+}
+
+// The edit: the shared derivation onto the header as `==`, each cell left
+// holding its value. The values computed so far stay; the next run checks
+// them against the definition and fills the empty ones.
+function defineColumn(block, row, col) {
+  const def = columnDefinition(block, col);
+  if (!def) return null;
+  const head = headerIndex(block);
+  padRows(block);
+  block.rows[head].cells[col] = `${block.rows[head].cells[col].trim()} ==${def.source}`;
+  for (const r of dataRowsOf(block)) r.cells[col] = splitCell(r.cells[col] || "").value;
+  return { row, col };
+}
+
 // Copy the cursor cell's derivation onto every other cell in the same ROW,
 // each without a value until the next run. The name column (0) is left
 // alone — it names the Example.
@@ -663,7 +755,7 @@ function copyRow(block, row, col, dir) {
 // repeat until you rename it: that rename is the point of the copy.
 function copyColumn(block, row, col, dir) {
   const numCols = widthsOf(block).length;
-  if (col >= numCols) return null;
+  if (col < 1 || col >= numCols) return null;
   padRows(block);
   const at = dir < 0 ? col : col + 1;
   for (const r of block.rows) {
@@ -1437,9 +1529,9 @@ function align(text, registry, rootName) {
 }
 
 module.exports = {
-  cells, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
+  cells, dividers, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
-  insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross,
+  insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross, columnDefinition, defineColumn,
   subtreeOf, prevSibling, demoteRow, promoteRow,
   copyCell, moveCell, copyRow, copyColumn,
   jumpCell, cornerCell, fill, fillDown, fillRight, copyFormulaFromAbove, copyValueFromAbove,

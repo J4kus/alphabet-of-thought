@@ -132,6 +132,10 @@ function parse(text, rootName, report) {
     value: null, parent: null, children: [],
   };
   const nodes = [];
+  // the bare `=` lines (Python that writes Concepts): no nodes of the model,
+  // so they ride beside it — on the result, and on the nodes array itself,
+  // so every reader already handed a parse's nodes holds them too
+  const generators = [];
   const stack = [root]; // stack[d + 1] is the last node seen at depth d
   let prevDepth = -1;
   // The active table, set by a header row: { depth, attrs } where attrs[c]
@@ -194,6 +198,30 @@ function parse(text, rootName, report) {
     // written in line form, where it has a line to hang one under.
     const tableMap = !!table && !isRow && depth > table.depth && trimmed.startsWith("...");
     if (table && !tableMap && (!isRow || depth < table.depth)) table = null;
+    // A derivation with nothing before its '=' — `=load_all()` on a line of
+    // its own — writes Concepts: its Python returns tables by name, and each
+    // lands as a Concept (python.js writeGenerated). The line itself is no
+    // idea of the model's, so it is no node: it is recorded apart, with the
+    // node it is filed under, and the tree goes on as though it were not
+    // there. A bound on a line of its own holds nothing — it needs the
+    // attribute it bounds.
+    if (/^=(?!=)/.test(trimmed)) {
+      const formula = trimmed.slice(1).trim();
+      if (!formula) {
+        report.error(line, "'=' stands alone — a derivation on a line of its own is the Python that writes Concepts; write the expression, or remove the line",
+          { startCol: spaces, endCol: spaces + trimmed.length });
+      }
+      generators.push({
+        line, depth, formula, col: spaces, end: spaces + trimmed.length,
+        parent: stack[Math.min(depth, stack.length - 1)],
+      });
+      return;
+    }
+    if (trimmed.startsWith("==")) {
+      report.error(line, `'${trimmed}' is a bound with no attribute — a bound holds the values of the attribute it is written on; put the attribute's name in front of it, as in 'status ==("draft", "sent")'`,
+        { startCol: spaces, endCol: spaces + trimmed.length });
+      return;
+    }
     // a dash Example needs its space ('- '); rows carry no gutter
     // spaces, so a cell may start right after its '|'
     if (!isRow && marker === "-" && !trimmed.startsWith("- ")) {
@@ -355,7 +383,7 @@ function parse(text, rootName, report) {
           // a formula ('10 =$1+10') derives the value: only the value part
           // is the Attribute Value; the formula itself is presentation,
           // audited and coloured by the editor, invisible to the model
-          const { value } = splitCell(row[c].text);
+          const { value, eq } = splitCell(row[c].text);
           if (!attr || !value) continue;
           // the column's (alias) types every value in it, exactly as it does
           // in the line form: a cell of `beneficiary (person)` is written out
@@ -368,6 +396,9 @@ function parse(text, rootName, report) {
             value: readValue(value), alias: attr.alias, parent: example, children: [],
             valueCol: row[c].col, cell: true,
           };
+          // a value its own derivation computed: a fact of this row's, never
+          // one to lift onto the Concept (godel.hoists)
+          if (eq !== -1) cellValue.derived = true;
           example.children.push(cellValue);
           nodes.push(cellValue);
         }
@@ -461,7 +492,8 @@ function parse(text, rootName, report) {
     stack.push(node);
     prevDepth = depth;
   });
-  return { root, nodes };
+  Object.defineProperty(nodes, "generators", { value: generators, enumerable: false });
+  return { root, nodes, generators };
 }
 
 // Assign primes and characteristic numbers: chi = prime * chi(parent).
@@ -568,6 +600,24 @@ function verify(root, nodes, report, accepted) {
       report.error(d.line, `${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}) — two identical siblings add nothing and blur the meaning; give them different values, or keep just one`,
         { related: others.map((o) => ({ line: o.line, message: `'${o.name}' repeated here` })) });
     });
+  }
+
+  // A sub-Example is a part, or a finer instance, of the Example it sits
+  // under — so it cannot carry that Example's own name: one name would be
+  // both the whole and its part, and every path through the tree that names
+  // it (`@Order@total@X@X`, the CSV mirror's `parent` column naming its own
+  // row) would say nothing. Checked against every Example up the chain, in
+  // `- ` lines and nested table rows alike; numbering is presentation.
+  for (const node of nodes) {
+    if (node.kind !== INDIVIDUAL || !node.name) continue;
+    const key = numberless(node.name).trim().toLowerCase();
+    for (let p = node.parent; p && p.kind === INDIVIDUAL; p = p.parent) {
+      if (numberless(p.name).trim().toLowerCase() !== key) continue;
+      const cell = node.nameCol !== undefined ? { startCol: node.nameCol, endCol: node.nameCol + node.name.length } : {};
+      report.error(node.line, `Example '- ${node.name}' has the same name as the Example it sits under ('- ${p.name}', line ${p.line}) — one name cannot be both the whole and its part; rename one`,
+        { ...cell, related: [{ line: p.line, message: `'- ${p.name}' is the Example it sits under` }] });
+      break;
+    }
   }
 
   // Single inheritance used to be checked here as gcd(chi(A), chi(B)) ==
@@ -691,7 +741,7 @@ function verify(root, nodes, report, accepted) {
 // before: a lone file, or a smoke test, is judged on its own terms.
 function lint(text, rootName, accepted, repo) {
   const report = makeReport();
-  const { root, nodes } = parse(text, rootName, report);
+  const { root, nodes, generators } = parse(text, rootName, report);
   number(root, nodes);
   verify(root, nodes, report, accepted);
   // Required lazily: subsumption.js reads KIND from this module, so a
@@ -724,7 +774,7 @@ function lint(text, rootName, accepted, repo) {
   }
   const byLine = (a, b) => a.line - b.line;
   return {
-    root, nodes,
+    root, nodes, generators,
     errors: report.errors.sort(byLine),
     warnings: report.warnings.sort(byLine),
     subsumption: { edges: sub.edges, consistent: sub.findings.length === 0 },

@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.11.29",
+  "version": "1.12.2",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -39,7 +39,7 @@
     }
   },
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js"
   },
   "contributes": {
     "configurationDefaults": {
@@ -96,6 +96,11 @@
           "type": "boolean",
           "default": true,
           "description": "Warn when two Concepts look like two names for one idea \u2014 'Client' beside 'Customer' (two words for one idea), 'Governance' beside 'Government' (one word with two endings). Repo-wide: a peer in another .aot counts, and the warning carries a link to it. Advisory, never counted in V; the lightbulb either renames one to the other or records the pair in aot.distinctConcepts and stops asking."
+        },
+        "aot.godelRegistry": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep the G\u00f6del numbers stable in aot.files/godel.tsv: a prime per attribute and a code per value, written on save when the repository gains one, so the numbers the hover and verify.js --godel show stay put when an unrelated attribute is added, and mean the same in every file and branch. Commit it; AOT: Set Up Git Merge for .aot Files merges it with git's union driver. Safe to delete: it is rebuilt, with new numbers."
         },
         "aot.distinctConcepts": {
           "type": "array",
@@ -358,6 +363,12 @@
         "enablement": "editorLangId == aot"
       },
       {
+        "command": "aot.table.defineColumn",
+        "title": "Define the Column by Its Formula (move it to the header as ==)",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
         "command": "aot.table.copyRowDown",
         "title": "Copy Row Down",
         "category": "AOT Table",
@@ -501,6 +512,17 @@
       {
         "command": "aot.acceptDistinct",
         "title": "Keep Two Concept Names Apart",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.setUpGitMerge",
+        "title": "Set Up Git Merge for .aot Files",
+        "category": "AOT"
+      },
+      {
+        "command": "aot.hoistValue",
+        "title": "Move a Value Every Child States Up to Its Parent",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },
@@ -649,12 +671,12 @@
       {
         "command": "aot.table.moveColumnLeft",
         "key": "alt+left",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inColumn"
       },
       {
         "command": "aot.table.moveColumnRight",
         "key": "alt+right",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inColumn"
       },
       {
         "command": "aot.table.moveRowUp",
@@ -669,12 +691,12 @@
       {
         "command": "aot.table.insertColumn",
         "key": "alt+shift+right",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inColumn"
       },
       {
         "command": "aot.table.deleteColumn",
         "key": "alt+shift+left",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inColumn"
       },
       {
         "command": "aot.table.insertRow",
@@ -699,12 +721,12 @@
       {
         "command": "aot.table.copyColumnLeft",
         "key": "ctrl+alt+left",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inColumn"
       },
       {
         "command": "aot.table.copyColumnRight",
         "key": "ctrl+alt+right",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inColumn"
       },
       {
         "command": "aot.toggleFormulaPark",

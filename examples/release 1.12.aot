@@ -1,0 +1,268 @@
+Release Check
+    area
+    fixture
+    try
+    expected
+    - A01 Sub Examples In A Frame
+        area: python
+        fixture: Family and Python Probe below
+        try: turn on aot.python.enabled, answer Run when asked, then Ctrl+Enter on the family count line of Python Probe
+        expected: family count reads 4, since Parent, Child One, Child Two and Other are all rows of the Family frame; in Python the frame has a parent column naming Parent for both children
+    - A02 A Parent Reads Its Children
+        area: python
+        fixture: the total line under Parent in Family
+        try: Ctrl+Enter on the total line
+        expected: total reads 22, the ages of Child One and Child Two, reached by name from the Example above them
+    - A03 A Cell Of A Sub Example
+        area: python
+        fixture: the youngest line of Python Probe
+        try: Ctrl+Enter on it
+        expected: youngest reads 10, the age of Child One read through the Family Concept
+    - A04 Nested Table Rows Are Rows
+        area: python
+        fixture: Orchard and the orchard rows line of Python Probe
+        try: Ctrl+Enter on orchard rows
+        expected: orchard rows reads 6, every row including the indented saplings
+    - A05 The Formula Under The Cursor
+        area: tables
+        fixture: the net cell of row INV-1 in Invoice
+        try: put the cursor inside the net derivation of row INV-1, the right-hand one, and press Ctrl+Enter
+        expected: only net of INV-1 is computed, 99; vat of INV-1 stays empty
+    - A06 A Row Name Runs The Row
+        area: tables
+        fixture: the name cell of row INV-2 in Invoice
+        try: put the cursor on the name INV-2 and press Ctrl+Enter
+        expected: both vat and net of INV-2 are computed, 10 and 49
+    - A07 One Inlay Per Row
+        area: tables
+        fixture: the end of row INV-2, after A06
+        try: look at the end of row INV-2, and hover the inlay
+        expected: one note naming both cells, a tick then vat, net then the time taken; the tooltip has one line per cell
+    - A08 Hover Per Cell
+        area: tables
+        fixture: the values of row INV-2, after A06
+        try: hover the value 10 and then the value 49 on row INV-2
+        expected: each hover names the derivation of its own cell, price times 0.2 for vat and price minus 1 for net
+    - A09 A Pipe Inside A Cell
+        area: tables
+        fixture: the Pipe Probe table
+        try: Ctrl+Enter on row P1
+        expected: length reads 3; the pipe inside the string never split the cell, so the row has three cells, no error
+    - A10 A Calculated Column
+        area: tables
+        fixture: the vat column of Invoice
+        try: put the cursor on any vat cell, press Ctrl+dot and choose Define vat for the whole column, then Ctrl+Enter on the Invoice header
+        expected: the header becomes vat followed by a double equals and price times 0.2; each vat cell keeps only its value, and the run fills the empty ones
+    - A11 Own Derivation Beats The Header
+        area: tables
+        fixture: the Squad table
+        try: Ctrl+Enter on the Squad header
+        expected: Blue and Green fill with 4 from the header; Red keeps 5 from its own derivation, with a warning that 5 is not 4
+    - A12 A Bare Line Writes Concepts
+        area: python
+        fixture: the first bare derivation line near the end of this file
+        try: Ctrl+Enter on that line
+        expected: a Courier Run table appears directly under it at the top level with rows 1 and 2; the Depot table above the line is filled where it stands with Durban; the inlay says 2 Concepts
+    - A13 A Concept With Its Own Derivation
+        area: python
+        fixture: the second bare derivation line, and Fleet
+        try: Ctrl+Enter on the second bare line
+        expected: a Spare Part table appears under it; Fleet is left to its own derivation, and the line says so in red
+    - A14 Reading What A Bare Line Wrote
+        area: python
+        fixture: Courier Probe, after A12
+        try: Ctrl+Enter on the stops line
+        expected: stops reads 2, read live from the table the bare line returned
+    - A15 Nothing Is Deleted
+        area: python
+        fixture: the first bare derivation line, after A12
+        try: delete the Depot entry from its dictionary and press Ctrl+Enter on it again
+        expected: Depot stays in the file; the inlay ends with Depot no longer written
+    - A16 A Bare Line Parks
+        area: parking
+        fixture: the whole file, after A12
+        try: Ctrl+Shift+backtick, look, then Ctrl+Shift+backtick again
+        expected: both bare lines leave the file whole and the tables they wrote stay; aot.files gets release 1.12.formulas; the second press puts each bare line back above the table that stood beneath it
+    - A17 No Flip Lightbulb
+        area: editor
+        fixture: Bicycle
+        try: put the cursor anywhere in Bicycle and press Ctrl+dot; then press Ctrl+K T twice
+        expected: the lightbulb offers no flip; Ctrl+K T writes Bicycle as a table and the second press writes it back as lines
+    - A18 Column Keys On A Declaration
+        area: editor
+        fixture: the colour line directly under Bicycle
+        try: put the cursor on that colour line and press Alt+Shift+Left; then Ctrl+Z
+        expected: colour goes from the declaration and from both Examples in one edit; Tab on a declaration line still indents
+    - A19 The Name Column Is Safe
+        area: editor
+        fixture: the Kite table
+        try: put the cursor on K1 and press Alt+Shift+Left, then Alt+Right, then Ctrl+Alt+Right
+        expected: nothing changes, and the status bar says the first column names the Concept and its Examples
+    - A20 A Part Is Not Its Whole
+        area: linter
+        fixture: the first nine lines of release 1.12 errors.aot
+        try: open it
+        expected: red squiggles on the inner Parent, on the lowercase root row under Mid, and on the nested Top row of Nested Probe, each pointing at its parent
+    - A21 A Lone Equals And A Loose Bound
+        area: linter
+        fixture: the last two lines of release 1.12 errors.aot
+        try: look at its last two lines
+        expected: an error that the equals sign stands alone, and an error that the bound has no attribute
+    - A22 A Maintained Note
+        area: repository
+        fixture: Lantern here and Lantern in release 1.12 peer.aot
+        try: save this file
+        expected: a line under Lantern appears saying 2 more in release 1.12 peer.aot, Ctrl+clickable
+    - A23 A Stale Note Goes
+        area: repository
+        fixture: after A22
+        try: rename Lantern to Torch in release 1.12 peer.aot and save it, then save this file
+        expected: the 2 more line under Lantern here is deleted; with aot.autoReconcile off it stays and warns that it is stale instead
+    - A24 Hover Shows Content
+        area: godel
+        fixture: Instrument
+        try: hover the names Flute and Cello
+        expected: a Content section with G as a factorisation; Cello shows section strings from Instrument with its line; Flute shows section woodwind as its own and an override of strings; each names its nearest sibling and how it differs
+    - A25 A Value Every Child States
+        area: godel
+        fixture: Boat
+        try: look at the yellow squiggle on Boat, press Ctrl+dot, choose Move hull wood up to Boat
+        expected: hull wood is written once under Boat and taken off Canoe and Kayak; the warning goes
+    - A26 A Column Every Row States
+        area: godel
+        fixture: the Receipt table
+        try: Ctrl+dot on the Receipt warning, Move currency ZAR up to Receipt
+        expected: the currency column is dropped, and Receipt gets a line of its own holding currency ZAR with the table filed beneath it
+    - A27 A Default Nothing Keeps
+        area: godel
+        fixture: Meal
+        try: Ctrl+dot on the warning on course main, Keep just course
+        expected: the line becomes course alone; the warning goes
+    - A28 One Content Two Names
+        area: godel
+        fixture: Toaster here and Grill in release 1.12 peer.aot
+        try: open both files
+        expected: each warns that the two carry exactly the same attributes and values, linking the other; Ctrl+dot offers to rename or to keep them apart
+    - A29 Stable Numbers
+        area: godel
+        fixture: aot.files godel.tsv
+        try: save this file, then run node verify.js on this file with the godel flag for Flute twice, adding an attribute to Boat between the runs
+        expected: aot.files gets godel.tsv; the primes for Flute are the same before and after the new attribute
+    - A30 A Diff That Sees Renames
+        area: godel
+        fixture: this file in git
+        try: commit this file, rename Kayak to Sea Kayak, then run node verify.js with the diff-rev flag, HEAD and this file
+        expected: one finding, renamed, with no removed or added lines for anything under it
+    - A31 Merge By Meaning
+        area: git
+        fixture: the walkthrough in docs features-1.12
+        try: run AOT Set Up Git Merge for aot Files, then follow the walkthrough in a scratch repository
+        expected: the rename and the value change merge cleanly, and the value changed two ways conflicts on that one line
+    - A32 Python In WSL
+        area: wsl
+        fixture: this file, opened from WSL with Remote WSL
+        try: install the extension in WSL, enable Python, Ctrl+Enter on Python Probe; then AOT Set Up Python Environment
+        expected: python3 runs with no python on PATH; the environment goes to aot.files .venv-linux and the Windows .venv is left alone; Show Python Environment says memory is a data-size limit
+Family
+    age
+    - Parent
+        age: 40
+        total: 22 =@Child One@age + @Child Two@age
+        - Child One
+            age: 10
+        - Child Two
+            age: 12
+    - Other
+        age: 7
+Orchard       |height
+Apple Tree    |300
+    Sapling A |40
+    Sapling B |35
+Pear Tree     |280
+    Seedling A|20
+    Seedling B|25
+
+Python Probe
+    family count: 4 =len(@Family)
+    youngest: 10 =@Family@Child One@age
+    orchard rows: 6 =len(@Orchard)
+Invoice|price|vat           |net
+INV-1  |100  |20 =@price*0.2|99 =@price-1
+INV-2  |50   |10 =@price*0.2|49 =@price-1
+INV-3  |80   |16 =@price*0.2|79 =@price-1
+
+Pipe Probe|label|length
+P1        |ab   |3 =len("a|b")
+
+Squad|size ==4
+Red  |5 =2+3
+Blue |4
+Green|4
+
+Bicycle
+    colour
+    gears
+    - Roadster
+        colour: red
+        gears: 3
+    - Tourer
+        colour: blue
+        gears: 21
+Kite|span|tail
+K1  |2   |long
+K2  |3   |short
+
+Lantern
+    fuel
+    - Hurricane Lantern
+        fuel: oil
+    ... 2 more in release 1.12 peer.aot:1
+Instrument
+    section: strings
+    Violin
+        size: small
+    Cello
+        size: large
+    Flute
+        section: woodwind
+        size: slim
+Boat
+    Canoe
+        hull: wood
+        paddles: 1
+    Kayak
+        hull: wood
+        paddles: 2
+Meal
+    course: main
+    Starter
+        course: first
+        portion: small
+    Pudding
+        course: last
+        portion: large
+Receipt|currency|amount
+R1     |ZAR     |120
+R2     |ZAR     |45
+R3     |ZAR     |300
+
+
+
+Toaster
+    power: 1800
+    racks: 2
+={"Courier Run": [{"stop": "North", "parcels": 12}, {"stop": "South", "parcels": 7}], "Depot": [{"city": "Durban", "bays": 4}]}
+Courier Run|stop |parcels
+1          |North|12
+2          |South|7
+
+Depot|city  |bays
+1    |Durban|4
+Courier Probe
+    stops: 2 =len(@Courier Run)
+={"Fleet": [{"van": "V1"}], "Spare Part": [{"part": "tyre"}]}
+Spare Part|part
+1         |tyre
+
+Fleet|van
+1    |V1

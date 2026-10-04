@@ -263,7 +263,7 @@ Because the attributes are written into every file and a surviving disagreement 
 
 The total comes first, then `file:line` locations — Ctrl+click any of them to open that file at that Concept, and hover the line for the whole extension, every Example a link to where it is actually written. Past three peer files the line stops growing and the rest moves to the hover.
 
-A `...` line **you** wrote is never touched: only the maintained shape (`N more in …`) is rewritten, so `... still to do` sits beside it untouched. Turn the whole thing off with `aot.autoReconcile`, and the drift is reported as a warning instead of being closed for you. Files that were never open when a peer changed catch up with **AOT: Reconcile Concepts Across Files**, or `node verify.js --workspace --reconcile`.
+A `...` line **you** wrote is never touched: only the maintained shape (`N more in …`) is rewritten, so `... still to do` sits beside it untouched. **A maintained line that has gone stale is deleted on save**: once no other file lists the Concept (the peer deleted, renamed, or its file gone), the note has nothing true left to say, and one left behind at the top of the file when its Concept's line was deleted goes too. Turn the whole thing off with `aot.autoReconcile`, and the drift is reported as a warning instead of being closed for you. Files that were never open when a peer changed catch up with **AOT: Reconcile Concepts Across Files**, or `node verify.js --workspace --reconcile`.
 
 **A Concept written as a table carries its `...` one level under the grid.** A table's first header cell *is* the Concept, so one level under the grid is one level under the Concept — where its children belong — and a `...` written there is read as **the table's own**, never as a note about the row it happens to follow:
 
@@ -503,15 +503,15 @@ Org's table automations are built in. While the cursor is on a table row — any
 | `Enter` | Same column, next row; appends a row at the bottom (`Shift+Enter` still inserts a plain newline to leave the table) |
 | `Alt+←` / `Alt+→` | Move the cursor's column left / right, header and all |
 | `Alt+↑` / `Alt+↓` | Move the cursor's row up / down |
-| `Alt+Shift+→` | Insert an empty column where the cursor stands |
-| `Alt+Shift+←` | Delete the cursor's column |
+| `Alt+Shift+→` | Insert an empty column where the cursor stands (on the name column, just after it) |
+| `Alt+Shift+←` | Delete the cursor's column. The first column, which names the Concept and its Examples, is never moved, copied or deleted by a column key |
 | `Alt+Shift+↓` | Insert an empty row above the cursor's |
 | `Alt+Shift+↑` | Delete the cursor's row |
 | `Ctrl+Alt+↑` / `Ctrl+Alt+↓` | **Copy** the cursor's whole row above / below it — the next Example is usually the last one with two fields changed |
 | `Ctrl+Alt+←` / `Ctrl+Alt+→` | **Copy** the cursor's whole column to its left / right, header and every value |
 | `Ctrl+Alt+Shift+` arrow | **Copy the cell** into its neighbour in that direction and follow it there, so holding the key fills a run |
 | `Tab` / `Shift+Tab` **with lines selected** | Indent / unindent the selected lines, exactly as anywhere else in the editor — which is how a row is **nested** under the row above it, since a row's depth *is* its leading spaces, and how a whole table is re-filed under a different parent |
-| `Ctrl+Alt+T` or `Ctrl+K T` | Write the Concept at the cursor out as free text, and the same key writes it back as a table — see [Flipping between a table and free text](#flipping-between-a-table-and-free-text). Also on the lightbulb (`Ctrl+.`) and the right-click menu, for a keyboard that loses the chord |
+| `Ctrl+Alt+T` or `Ctrl+K T` | Write the Concept at the cursor out as free text, and the same key writes it back as a table — see [Flipping between a table and free text](#flipping-between-a-table-and-free-text). Also on the right-click menu and in the Command Palette, for a keyboard that loses the chord |
 
 The keys a spreadsheet hand reaches for without looking work here too, inside a table row:
 
@@ -544,12 +544,12 @@ Person
 
 - **`Tab` / `Shift+Tab`** walk the Examples' names and values in order, and past the last one grow a new `- ` Example. On a bare attribute line (`age`), the Concept's own line, or an empty line, `Tab` indents exactly as it always has.
 - **Rows:** `Alt+↑`/`↓` moves an Example over its neighbour (sub-Examples travel with it, a blank line between them stays between them), `Ctrl+Alt+↑`/`↓` copies one, `Alt+Shift+↓` inserts an empty `- ` above, `Alt+Shift+↑` deletes one with its sub-Examples.
-- **Columns:** `Alt+←`/`→` swaps the attribute's lines with its neighbour's in every Example that states both, `Alt+Shift+←` deletes the attribute everywhere (declaration included), `Alt+Shift+→` opens an empty declaration line for a new one, `Ctrl+Alt+←`/`→` duplicates it.
+- **Columns:** `Alt+←`/`→` swaps the attribute's lines with its neighbour's in every Example that states both, `Alt+Shift+←` deletes the attribute everywhere (declaration included), `Alt+Shift+→` opens an empty declaration line for a new one, `Ctrl+Alt+←`/`→` duplicates it. These column keys work from the attribute's **declaration line** too (`age` under the Concept), which is the column's header, while `Tab` there still indents.
 - **Cells and the spreadsheet keys** behave as in a table: a value filled or copied into an Example that lacks the attribute gets a new line, placed in column order under the name; a value emptied loses its line, since an empty cell asserts nothing. A derivation a key copies arrives alone and computes on the next `Ctrl+Enter`.
 
 Every operation edits the lines it is about and nothing else — no line is reordered, re-indented, declared or re-spelled that the key did not ask for (flipping the Concept to a table and back would do all four). Where the text looks like an Example's line but the parse says otherwise (an attribute's allowed values, `- draft` under `status`), the key does what VS Code does with it.
 
-**Keyboard layouts.** VS Code does not tell a left modifier from a right one — but on a layout where the right `Alt` is **AltGr** (United Kingdom, US-International, most European layouts) that key is not `Alt` at all, and VS Code on Windows reads neither `Right Alt+↑` as `Alt+↑` nor `Right Ctrl+Right Alt+T` as `Ctrl+Alt+T`. No extension keybinding can tell AltGr apart, so use the left `Alt`, or switch the layout to US (*Settings → Time & language → Language & region →* your language *→ Language options → Keyboards*). The flip has `Ctrl+K T` and the lightbulb, which need no `Alt` at all. Windows' own **Left Alt+Shift** switches input languages, which is also the start of every `Alt+Shift+`arrow table key — if the layout seems to change under you, change that hotkey under *Settings → Time & language → Typing → Advanced keyboard settings → Input language hot keys*.
+**Keyboard layouts.** VS Code does not tell a left modifier from a right one — but on a layout where the right `Alt` is **AltGr** (United Kingdom, US-International, most European layouts) that key is not `Alt` at all, and VS Code on Windows reads neither `Right Alt+↑` as `Alt+↑` nor `Right Ctrl+Right Alt+T` as `Ctrl+Alt+T`. No extension keybinding can tell AltGr apart, so use the left `Alt`, or switch the layout to US (*Settings → Time & language → Language & region →* your language *→ Language options → Keyboards*). The flip has `Ctrl+K T` and the right-click menu, which need no `Alt` at all. Windows' own **Left Alt+Shift** switches input languages, which is also the start of every `Alt+Shift+`arrow table key — if the layout seems to change under you, change that hotkey under *Settings → Time & language → Typing → Advanced keyboard settings → Input language hot keys*.
 
 **`Tab` never moves the data.** Inside a table it travels the cells and nothing else — pressed in the leading spaces, at the head of a name cell, or anywhere past it. It briefly re-indented in those first two places instead (nesting the cursor's row, or shifting the whole table a level), which put an edit on the one key a table is driven with: you pressed `Tab` for the next cell and an Example changed its place in the tree — and where the move was impossible, a first row having no sibling to nest under, the key did nothing at all. Indenting is what a *selection* does, and the cursor's row can be nested or lifted by name from the Command Palette (**AOT Table: Nest Row Under the Row Above** / **Lift Row Out of Its Parent Row**), sub-Examples travelling with it.
 
@@ -607,6 +607,8 @@ Before its first run, the last Concept was the line `Sales =by_month(@raw)`. The
 #### Where it goes
 
 - **On a value**, as in `total: =load()`, or **in a grid cell**, as in `|=math.prod([@width, @height])`, it computes the value in front of it.
+  - **A row may carry several**, one per cell, side by side. A `|` inside a cell's brackets or strings belongs to its Python, as in `|=",".join(@tags)|=len("a|b")`; a cell whose Python is still open reads every pipe as a divider, so the row stays a row.
+  - **A column every row derives alike is a calculated column.** The lightbulb on such a cell offers **Define 'vat' for the whole column**, which moves the derivation onto the header as `vat ==@price*0.2` and leaves each cell its value alone (see [`==` naming one value defines](#constraints)). Two formula columns then read as plain numbers.
 - **On a Concept line**, as in `Sales =by_month(@raw)`, it writes the Concept's **table**. The derivation can return a DataFrame, a list of dicts, or `aot.grid(header, rows)`. **The table is the Concept.** The run turns the Concept's line into the table's header, with the Concept and its derivation in the first cell (`Sales =by_month(@raw)|month|amount`). The rows stand at the Concept's own indent. The table names its Concept in its first cell; it never sits beneath the Concept repeating its name.
   - **Python owns the rows outright.** Each run replaces them, including a row typed into the table, and removes the Concept's `- ` Examples too.
   - **The rows are the Concept's Examples, numbered `1`, `2`, `3` …** Every column of the frame is a column of the table, and an index that means something (a groupby's months) becomes the first column.
@@ -615,6 +617,21 @@ Before its first run, the last Concept was the line `Sales =by_month(@raw)`. The
   - **The name column is as wide as the derivation** until it is [parked](#parking-the-derivations).
   - **Pipes in the derivation:** a `|` inside the derivation's brackets or strings belongs to the Python. One outside every bracket divides the header, so wrap it, as in `Flags =(a() | b())`.
   - **A Concept that states attributes of its own keeps its line**, with the table beneath it, because a table has no line for them. A table written beneath its Concept by an earlier version becomes the header on its next run.
+- **On a line of its own**, as in `=load_all()`, with nothing before the `=`, it writes **several Concepts** at once. It returns its tables by name — a dict, `{"Sales": df, "Region": rows}`, or a list of `aot.grid(header, rows)`, each naming its Concept in its header's first cell — and each is written as that Concept's table:
+  ```aot
+  =load_all()
+  Sales|month  |amount
+  1    |2026-01|15,000
+
+  Region|code
+  1     |EU
+  ```
+  - **A new name** is written as a table at the line's own indent, directly beneath it (after the tables it already wrote), so a bare line at the top of a file writes top-level Concepts, and one under a Concept writes Concepts filed under it.
+  - **A name the file already has hooks into that Concept**: its rows are replaced where it stands, exactly as its own derivation would write them. One with a derivation of its own (`Plan =p()`) is left to it. That is no failure — the line ran and wrote the rest, and its inlay says `'Plan' left to its own derivation` — but one Concept returned from two places is a warning on the line: keep one.
+  - **Names are read as the language writes a Concept**: `_` as a space and the first letter capitalised, so `{"sales_report": df}` writes `Sales report`.
+  - **Nothing is ever deleted.** A Concept it no longer returns stays, and its inlay says `'Old' no longer written`.
+  - **`@Sales` elsewhere reads the live table** the line's Python made, and runs after it, as a Concept's own derivation is read. Its inlay says how many Concepts it wrote, `✓ 2 Concepts · 2 rows · 4 ms · 16:04`, and the rows it wrote are tinted as Python's.
+  - **The line is no idea of the model's**, so it is no node: the linter reads past it. A lone `=` is an error, and so is a bound with no attribute in front of it (`==("a", "b")`). A pipe on the line is its Python's.
 - **One line, one expression.** Statements, loops and `def`s live in a Python file. That can be **`aot.files/<file>.py`**, the file's *sidecar*, whose public names are in every derivation's scope, or [any other Python file of the repository](#the-repositorys-python). It is ordinary Python, with ordinary tooling.
 - **Not** on a bare attribute: `rows =f()` is an error, so add the colon. Not in a `...` Map either.
 - **A value may hold a literal `=`** by escaping it: `note: a \= b` is the value `a = b`, not a derivation of `a`. The value is `a = b` everywhere it is read, while the line keeps its `\=` through every rewrite. Only an `=` that opens a derivation needs escaping. One inside a value's text (`a=b`, no space before it) was never a derivation.
@@ -626,12 +643,12 @@ Before its first run, the last Concept was the line `Sales =by_month(@raw)`. The
 | Reference | Names | Arrives as |
 |-----------|-------|-----------|
 | `@price`, `@basket size` | The same Example's (or row's) attribute. This is the longest case-insensitive match, spaces allowed, an `(alias)` too. On an Example, a value its Concept states is read when the Example states none | The value, typed **strictly**: `$1,204` is `1204`, `2026-09-22` a `date`, `Yes`/`No` a `bool`, empty `None`. `2026-01` is not a whole number, so it stays text |
-| `@price@Acme` / `@Acme@price` | The named sibling Example's value, in either order | The value |
+| `@price@Acme` / `@Acme@price` | The named sibling Example's value, in either order — or, from a value on an Example, one of the sub-Examples beneath it | The value |
 | `@Order@price@Acme` | Another Concept's cell: the Concept first, then a column and an Example in either order. It may live in any `.aot` in the workspace; the current file's own names win a shared name | The value |
 | `@Measurement@alias` | A Concept's **own** value, the default its Examples inherit | The value |
-| `@Order` | A Concept, with its Examples written as rows or as `- ` lines | A **DataFrame** (a list of dicts without pandas); a column of dates is a datetime column |
+| `@Order` | A Concept, with its Examples written as rows or as `- ` lines — **sub-Examples included**, depth-first | A **DataFrame** (a list of dicts without pandas); a column of dates is a datetime column. Where the Examples nest, a `parent` column names the row each one sits under, exactly as the [CSV mirror](#the-csv-mirror) writes it |
 | `@Order@price` | A Concept's column | A **Series** |
-| `@Acme` | A sibling Example | A `dict` of its values |
+| `@Acme` | A sibling Example, or a sub-Example of the value's own Example | A `dict` of its values |
 | `@raw`, `@Sales` | Another derivation | Its **live result**: the DataFrame itself, not its summary. It runs first when it is stale |
 
 - **The local reading is tried first.** A Concept's name gets its turn when the local reading names nothing, or when the Concept reading goes further. In `@Integer@is prime`, `integer` may also be a local alias, but only the Concept Integer has an `is prime`.
@@ -714,6 +731,7 @@ The file name is the value's `@` address, reduced to safe characters. It is neve
 #### Running
 
 - **`Ctrl+Enter` on a derivation** runs it, any stale derivations it reads, and **everything that reads it**, in place, so nothing is left half up to date. It then checks every constraint.
+  - **In a table row holding several derivations**, it runs the one in the cell the cursor stands in; on the row's name, or a cell with none, every derivation on the row.
   - **Anywhere else in the file**, `Ctrl+Enter` (or `F9`) runs every stale derivation and checks every constraint.
   - **A derivation is stale** when its source, what it reads, or the Python files it names (the sidecar among them) changed since it last ran. A fresh one is not run again.
   - **In a file with no derivation and no constraint**, `Ctrl+Enter` inserts a line as it always did.
@@ -743,7 +761,8 @@ A repository can carry its own Python environment, set up with [uv](https://docs
 1. **The project.** It asks which libraries you want (pandas, numpy and matplotlib come ticked) and writes `aot.files/pyproject.toml`. A repository that is already a uv project (a `uv.lock` beside a `pyproject.toml` at its root) is used as it is.
 2. **The lock.** `uv lock` resolves the project into `uv.lock` from built wheels only. Commit both files.
 3. **The review.** Before anything is installed, it shows what the lock would install: every package, and by name any that comes from outside PyPI (a git repository, a URL, another index). Nothing installs without "Install".
-4. **The install.** `uv sync --locked --no-build --no-install-project --compile-bytecode` installs exactly what the lock says into `aot.files/.venv`, from built wheels alone, so nothing is built or run to install it. uv keeps `.venv` out of git itself.
+4. **The install.** `uv sync --locked --no-build --no-install-project --compile-bytecode` installs exactly what the lock says into `aot.files/.venv`, from built wheels alone, so nothing is built or run to install it. uv keeps the environment out of git itself.
+   - **One environment per operating system.** On Linux and macOS it goes to `.venv-linux` / `.venv-darwin` instead. A checkout on `C:` used from Windows and from WSL keeps one of each, and neither setup ever replaces the other's.
    - It compiles the environment to bytecode as it installs. The runtime never writes `.pyc` files itself, so without them every session would compile pandas from source, 40 seconds and more, before its first derivation could run.
 
 - **An unchanged project installs again without asking.** One whose `pyproject.toml` or `uv.lock` changed since (a pull) is reviewed again first.
@@ -751,7 +770,7 @@ A repository can carry its own Python environment, set up with [uv](https://docs
 - **To add a library,** add it to `aot.files/pyproject.toml` and run the setup again. A missing library's message says exactly that.
 
 **Which Python runs** (`aot.python.manager`):
-- **`auto`** (the default): `aot.python.path` when it is set, else the uv environment set up here, else `python` on PATH.
+- **`auto`** (the default): `aot.python.path` when it is set, else the uv environment set up here, else Python on PATH: `python` on Windows, and `python3` then `python` elsewhere, since Debian, Ubuntu and WSL ship no bare `python`.
 - **`uv`**: the environment only; a run with none says to set one up.
 - **`python`**: never an environment.
 
@@ -766,6 +785,7 @@ A uv environment is started **isolated** (`-I`): no `PYTHON*` variables, no user
 
 - **Every Python finding is in a collection of its own** (`aot-python`), and **none counts in `V`**: a failed run or a broken bound is a verdict on a run, not on the model. A derivation that has not run yet says so, as information.
 - **An inlay at the end of each line says how it last ran, and when:** `✓ 3 rows · 12 ms · 16:04`, `✗ KeyError: 'units' · 16:04`, `– not run · 16:04`, `✎ edited since 16:04`.
+  - A table row holding several derivations has **one** inlay that names its cells: `✓ vat, net · 3 ms · 16:04`, or the first cell in trouble, `✗ net: NameError… · 16:04`. Its tooltip has a line for each cell, and hover on a cell's value says what computed that cell.
   - A run from an earlier day shows its date, `2026-09-23 16:04`, and the hover gives the time to the second.
   - The time is kept with the run records, so it outlasts the session and a restart of the editor.
   - A value older than its derivation (edited, or something it reads changed) is **faded**.
@@ -814,6 +834,7 @@ aot.files/Ledger.formulas
 - A value on the Concept itself is two segments (`@Invoice@tax rate`).
 - An Example nested inside another adds a segment, outermost first.
 - A Concept's own derivation is filed under the Concept alone (`@Sales`).
+- A bare `=` line comes off **whole**, and is filed by where it stood and what it wrote, `@=Sales@Region: =load_all()`. It comes home on the line above the Concept that stood directly beneath it — normally the first table it wrote; one it did not write is marked `^` (`@=^Notes`), so its rows are never tinted as the line's. A line with no Concept beneath it has nowhere to come home to, so it stays in the file, and the park key says so.
 
 **A parked value says so.** The same plainness that lets a parked file stand on its own sets one trap: `20` in a cell looks exactly like a `20` somebody typed, so it invites being typed over, and that edit stands only until the derivations come home and run again. So every value the store owns is **tinted where it stands**, in the editor's inlay-hint colours: it is a number the editor is showing you rather than one you wrote.
 
@@ -855,7 +876,7 @@ A `.aot` with Python in it is **a program**, and it runs with your permissions. 
 
 | Setting | Default | What it does |
 |---|---|---|
-| `aot.python.maxMemoryMb` | 4096 | Memory is capped by the operating system: a job object on Windows, an address-space limit on Linux. Past the cap an allocation fails instead of the machine grinding. |
+| `aot.python.maxMemoryMb` | 4096 | Memory is capped by the operating system: a job object on Windows, a data-size limit on Linux (the memory actually used, not the address space numpy and pyarrow reserve, so they import under it on a many-core machine). Past the cap an allocation fails instead of the machine grinding. numpy's BLAS is also held to four threads unless `OPENBLAS_NUM_THREADS` / `OMP_NUM_THREADS` / `MKL_NUM_THREADS` say otherwise. |
 | `aot.python.allowSubprocess` | off | The process may not start another program. On Windows this is the operating system's refusal (the job object admits no second process), which nothing inside Python can undo. Elsewhere Python refuses the calls that start one. |
 | `aot.python.allowNetwork` | on | When off, Python refuses connections beyond this machine. |
 | `aot.python.protectCredentials` | on | Python refuses the places credentials are kept: `~/.ssh`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.gnupg`, `.netrc`, `.git-credentials`, the browsers' profiles, and the Windows credential store. The process also starts without the editor's secrets: variables such as `GITHUB_TOKEN` and `AWS_SECRET_ACCESS_KEY`, the ssh agent's socket, and VS Code's own askpass handles are withheld. |
@@ -923,7 +944,7 @@ That last point is how Alpha answers org's `#+TBLFM` formula line. Org's spreads
 
 ### Flipping between a table and free text
 
-If the two forms say the same thing, the choice between them is a question about the *data*, not about the model — and it is a question you answer differently as the data grows. Six short attributes across twenty Examples want to be a grid; two Examples carrying a paragraph each want to be lines. **`Ctrl+Alt+T` writes the Concept at the cursor out in the other form, and the same key writes it back.** Where the operating system or the keyboard layout takes `Ctrl+Alt+T` for itself, `Ctrl+K T` does the same, and so do the lightbulb (`Ctrl+.`) and the right-click menu. The cursor may stand anywhere inside the Concept — its own line, a header cell, a row, an attribute name, a value — and it lands on the Concept's first line in the new form.
+If the two forms say the same thing, the choice between them is a question about the *data*, not about the model — and it is a question you answer differently as the data grows. Six short attributes across twenty Examples want to be a grid; two Examples carrying a paragraph each want to be lines. **`Ctrl+Alt+T` writes the Concept at the cursor out in the other form, and the same key writes it back.** Where the operating system or the keyboard layout takes `Ctrl+Alt+T` for itself, `Ctrl+K T` does the same, and so do the right-click menu and the Command Palette (**AOT: Flip Concept Between Table and Free Text**). It is not on the lightbulb: offered on every line of every Concept, it lit the bulb everywhere. The cursor may stand anywhere inside the Concept — its own line, a header cell, a row, an attribute name, a value — and it lands on the Concept's first line in the new form.
 
 ```aot
 Person                                  |Person   |first name|age      |
@@ -967,7 +988,7 @@ The VS Code extension adds syntax colouring for `.aot` files and an arithmetic l
 - **Two names for one idea** (`src/synonyms.js`) — the one half of univocity a linter cannot prove: two *different* names may still be one idea, and nothing in the tree records that `Client` and `Customer` are the same word in two dialects. So it asks, repo-wide and on both sides, with a lightbulb to rename one into the other or to record that they are genuinely different. Advisory, never in `V` (see [Two names for one idea](#two-names-for-one-idea)).
 - **Subsumption** (`src/subsumption.js`) — a reasoner re-derives the Concept hierarchy from the facts each Concept declares and holds the written tree to it.
 - **Formal Concept Analysis** (`src/fca.js`) — the linter treats the Examples and their attributes as a formal context, computes the concept lattice, and flags groupings the data supports that no Concept names, Examples filed away from the Concept whose attributes they share, and sub-Concepts that fail to cover or distinguish their parent's Examples. The crosslinks deepen the analysis: a value that names an Example elsewhere in the file carries that Example's whole ancestry into the context, so `operation: Ratio` and `operation: Formula` group together when Ratio is filed under Formula.
-- **Gödel numbering** (`src/godel.js`) — where a line's characteristic number encodes only *where* it sits, a second Gödel number encodes *what it says* — one prime per attribute, raised to a power that encodes the value — and the linter compares those numbers to catch content clashes (see [Gödel numbering](#gödel-numbering)).
+- **Gödel numbering** (`src/godel.js`) — where a line's characteristic number encodes only *where* it sits, a second Gödel number encodes *what it says* — one prime per attribute, raised to a power that encodes the value — and the linter compares those numbers to catch content clashes, values every child states, defaults no child keeps, and one content under two names across files. The numbers are stable (`aot.files/godel.tsv`), hover shows a node's content, `--diff` recognises renames, and git can merge an `.aot` by meaning (see [Gödel numbering](#gödel-numbering) and [Merging with git](#merging-with-git)).
 - **Dependency inference** (`src/armstrong.js`) — the linter infers the functional dependencies the Examples bear out (see [Armstrong's axioms](#armstrongs-axioms-dependency-inference)).
 
 The extension maps its findings to two severities: **errors** squiggle red and **warnings** squiggle yellow. Only errors count toward the violation total `V`; the file **verifies** when `V = 0`.
@@ -984,12 +1005,13 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | `aot.exampleHints` | `true` | Hint a value that names no Example of the Concept typing its attribute, with a Quick Fix that lists it. See [Values against their Concept](#values-against-their-concept). |
 | `aot.synonymWarnings` | `true` | Warn when two Concepts look like two names for one idea (rule 14). Repo-wide. |
 | `aot.distinctConcepts` | `[]` | Pairs you have declared genuinely different, written `client\|customer` — fed by the Quick Fix on a synonym warning. |
+| `aot.godelRegistry` | `true` | Keep the [Gödel numbers](#gödel-numbering) stable in `aot.files/godel.tsv`, written on save when the repository gains an attribute or a value. Commit it; **AOT: Set Up Git Merge for .aot Files** merges it with git's union driver. Safe to delete: it is rebuilt, with new numbers. |
 | `aot.dependencyFindings` | `false` | Surface the inferred functional-dependency warnings (rules 12–13) as squiggles. Off by default: correlated attributes are allowed; `verify.js --fd` always prints the full set. |
 | `aot.chainHints` | `true` | Write the first dependency chain in small print (an inlay hint) at the end of each crosslinked line; the full chains stay on hover. |
 | `aot.urlMetadata` | `true` | Hovering a URL fetches its status, content type, and last-modified date (one cached HEAD request); Ctrl+click opens it regardless. |
 | `aot.parkedValueMarks` | `true` | Tint every value whose derivation is [parked](#parking-the-derivations), so a computed number is never mistaken for a typed one; hover names the derivation and offers the key back. |
 | `aot.python.enabled` | `false` | Run the [Python](#python) a file carries, when asked (`Ctrl+Enter`, `F9`, or the park key). A user setting only, and never in an untrusted workspace. |
-| `aot.python.manager` | `auto` | Which Python runs: `auto` (the path below if set, else the [uv environment](#the-environment-uv) set up here, else `python` on PATH), `uv`, or `python`. User setting only. |
+| `aot.python.manager` | `auto` | Which Python runs: `auto` (the path below if set, else the [uv environment](#the-environment-uv) set up here, else `python3` or `python` on PATH), `uv`, or `python`. User setting only. |
 | `aot.python.path` | `""` | The interpreter, as an absolute path. Empty uses the uv environment or `python` on PATH, never one in the folder the run starts in. User setting only. |
 | `aot.uv.path` | `""` | uv, for **AOT: Set Up Python Environment**. Empty finds `uv` on PATH. User setting only. |
 | `aot.python.maxMemoryMb` | `4096` | The memory Python may take, enforced by the operating system; `0` for no limit. User setting only. See [Trust](#trust). |
@@ -1016,9 +1038,10 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | 9 | **Univocity** | The same Concept name defined more than once — case-insensitively, and numbering prefixes ignored (`Foo`, `FOO`, and `2. Foo` are one name). Every definition squiggles, each pointing at the others. One name, one prime; a recurrence needs a distinguishing qualifier prefix. |
 | 10 | **No identical siblings** | Two children of one parent with the same kind, name, **and** value — compared case-insensitively, as references resolve. Siblings may share a slot only if their values differ. |
 | 11 | **One alias, one target** | A Concept's alias must be a genuinely new name: two Concepts sharing an alias, an alias repeating its own Concept's name, or an alias that is the name of **another** Concept (`Home Address (Location)` where `Location` is also a Concept) — the last makes the two a single duplicated identity. If one is a *kind* of the other, file it under it in the tree; otherwise merge or rename. (Attribute aliases like `duration (time)` are unaffected — they are the attribute's crosslink.) |
-| 12 | **Well-placed derivations** | A derivation on a bare attribute (`rows =f()` — it computes a value, and a bare attribute declares none; add the colon), or a Concept's `=` with nothing after it. What a derivation or a bound *computes* is never the linter's to judge: it is [Python](#python), which runs only when asked, and its findings — a failure, a breached constraint — are in a collection of their own that never counts in `V`. |
+| 12 | **Well-placed derivations** | A derivation on a bare attribute (`rows =f()` — it computes a value, and a bare attribute declares none; add the colon), a Concept's `=` with nothing after it, a lone `=` on a line of its own, or a bound with no attribute in front of it (`==("a", "b")`). What a derivation or a bound *computes* is never the linter's to judge: it is [Python](#python), which runs only when asked, and its findings — a failure, a breached constraint — are in a collection of their own that never counts in `V`. |
+| 24 | **A part is not its whole** | A sub-Example carrying the name of an Example it sits under — directly or further up, in `- ` lines or nested table rows, case and numbering aside. One name cannot be both the whole and its part, and every path that names it (`@Order@total@X@X`, the CSV mirror's `parent` column naming its own row) would say nothing. The error is on the child, pointing at the parent. |
 
-Rules 1–12 are the syntactic and arithmetic checks (`src/linter.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, values, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. Placements the derived order contradicts are errors, also counted in `V`:
+Rules 1–12 and 24 are the syntactic and arithmetic checks (`src/linter.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, values, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. Placements the derived order contradicts are errors, also counted in `V`:
 
 | # | Rule | What triggers it |
 |---|------|------------------|
@@ -1068,6 +1091,10 @@ Two more come from the **repo** (`src/repo.js` — see [Concepts across files](#
 | 9 | **Stale derivation** | *No longer the linter's.* A derivation edited since it last ran, or reading something that changed, is an information note in the `aot-python` collection, and its value is faded until `Ctrl+Enter` runs it — see [In the editor](#in-the-editor). Nothing recomputes on its own. |
 | 10 | **Breached constraint** | *Found when Python runs.* A value that fails its attribute's constraint (`age: 15` under `age >=18`, `status: void` under `status ==("draft", "sent", "paid")`) is a warning in the `aot-python` collection, pinned to the offending value, naming the bound — worth knowing, but data out of bounds is not a broken file, so it never counts in `V`. It stands until the value is edited or the next run. See [Constraints](#constraints). |
 | 11 | **Redundant dependency** | A direct dependency edge that a chain through another Concept already implies (Armstrong Transitivity): `share` on `Shares Outstanding` when `Shares Outstanding ─tensor→ Tensor ─share→ Share` already holds. The declaration adds nothing — drop the direct slot, or drop an intermediate link if the direct dependency is the one meant. Two attributes of the same type (`from node` / `to node`, both a `Node`) never imply each other: the witnessing chain must pass through an intermediate Concept. |
+| 15 | **State a fact once** | Every child of a node sets one attribute to one value for itself — `wheels: 4` under both `Car` and `Van` — so it is a fact about the parent written once per child. The lightbulb **moves it up**: written once under the parent, taken off every child; a table column holding it in every row is dropped, the table taking the [merge form](#tables). Needs two children that are kinds, or three that are Examples (two rows agreeing is as often chance), and no `...` Map (an open division may yet gain a child that differs). A derived value is its own row's, never lifted. |
+| 16 | **A default nothing keeps** | A node sets `temperature: cold` and every child overrides it — the default is in force for nothing under it. The lightbulb keeps just the attribute; when the children agree on one value instead, rule 15 offers to write that one in its place. |
+
+Rules 15 and 16 are Gödel arithmetic (`godel.hoists`: every child's valuation of one prime equal, and the parent's not), so like the clash they run only once rules 1–16 are clean.
 
 A `...` Map child marks a node intentionally incomplete, which **excuses** warnings 4–7 for that node: the missing siblings or differentiae are declared, not forgotten. A Map says *what is still missing, a todo, or uncertain* — it is never a description of the line above it (use a parenthetical alias to name or explain a term).
 
@@ -1089,12 +1116,15 @@ So the check does the only honest thing available offline: it recognises the col
 | # | Rule | What triggers it |
 |---|------|------------------|
 | 14 | **Two names for one idea** | Two Concepts whose names match word for word once each word is mapped to its synonym group (`Sales Client` / `Sales Customer`, `Fix Defect` / `Repair Bug`), or once each word is cut to a shared prefix of six characters or more (`Governance` / `Government`, `Reconciled Item` / `Reconciliation Item`). |
+| 17 | **One content, two names** | Two Concepts in **different files** carrying exactly the same attributes and values (equal [Gödel numbers](#gödel-numbering), numbered as one over the repository) under names that share nothing — `Kettle` here, `Boiler` there. Within one file this is the content clash, an error (rule 20); across files it is a warning, since one file may still be writing its differentia. Asked only of a file that is itself clean, and only in a workspace. |
 
 Three things end the question, and each is a decision only you can make:
 
 - **Rename one to the other** — the lightbulb's first, preferred fix. It goes through the rename engine, so every reference follows exactly as `F2` would move them.
 - **Write the alias**: `Human (Natural Person)` *declares* that the two names are one idea, which is the supported way to say what the check is asking about. A pair where one is the other's alias is never raised.
 - **Say they are different**: the second lightbulb records the pair in `aot.distinctConcepts` and never asks again, in either order and in any file.
+
+The same two lightbulbs — rename one to the other, or keep them apart — answer rule 17, the same content under two names in two files, which asks the same question from the other side.
 
 It is advisory and never counted in `V` — a naming collision is a question, not a contradiction — and it is off entirely with `aot.synonymWarnings`. The vocabulary (`src/synonyms.js`) is deliberately small and domain-shaped rather than a thesaurus: a general thesaurus makes near-synonyms of words a model needs to keep apart (`cost` and `price`, `target` and `goal`), and every false finding spends the reader's attention. Names that differ only in **number** (`Person` / `People`) are left to the singular-Concept warning above, and names that differ only in **case** are univocity's business.
 
@@ -1112,7 +1142,11 @@ The characteristic number `chi = prime × chi(parent)` is a squarefree product: 
 
 So a line that sets three attributes becomes one integer like `2³ × 3⁵ × 5²`. The two numbers cover both axes of a line — `chi` the *where*, `G` the *what*. Every question a model asks of its content is then plain arithmetic on `G`: whether idea *n* carries attribute *a* (`prime(a)` divides `G(n)`), whether two ideas carry the same attributes (equal radicals) or identical content (equal `G`), what value an attribute takes on a line (the exponent of its prime, decoded), which ideas override an inherited default (a prime dividing both `G(n)` and `G(ancestor)` with unequal exponents ≥ 2), and which attributes are present but not yet valued (primes with exponent exactly 1).
 
-The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V` (rule 20) — two Concepts whatever they are called, since a kind *is* its definition, but two Examples only when they share their name too, since an individual is told apart by what it is called before anything it carries (case and a numbering prefix aside, as everywhere). Like the FCA findings, it is meaningless over a tree that does not yet verify, so it runs only once the syntactic and subsumption passes are clean — but when it fires, it is a violation, not an advisory.
+The linter puts this to work in the lint pass: two ideas with identical attributes *and* values (equal `G`) are a content **clash**, an **error** counted in `V` (rule 20) — two Concepts whatever they are called, since a kind *is* its definition, but two Examples only when they share their name too, since an individual is told apart by what it is called before anything it carries (case and a numbering prefix aside, as everywhere). Like the FCA findings, it is meaningless over a tree that does not yet verify, so it runs only once the syntactic and subsumption passes are clean — but when it fires, it is a violation, not an advisory. Three warnings read the same arithmetic: a value **every child states** belongs on the parent (15), a default **every child overrides** is in force for nothing (16), and the same content under **two names in two files** is one idea twice (17).
+
+**The numbers are stable.** Primes and value codes are handed out once and kept in `aot.files/godel.tsv` — `a⇥legs⇥2` gives an attribute its prime, `v⇥legs⇥3⇥4` a value its code — and a save adds what is new without renumbering anything (`aot.godelRegistry`). So the number you read today is the one you read after an unrelated attribute is added, and one attribute has one prime in every file and on every branch, which is what lets two files, or two sides of a merge, be compared at all. No file stores `G` itself, so the registry is safe to delete: it is rebuilt with new numbers. It merges with git's union driver, and a merge's duplicate claims are settled when it is read — a prime claimed twice goes to the name that sorts first, conflict markers are skipped. `node verify.js --workspace [dir] --primes` writes it from the command line.
+
+**Hover shows it.** Hovering a Concept's or an Example's name adds its **content**: `G` as a factorisation (`G = 2 · 13² · 19⁴`, the integer itself while it has thirty digits or fewer), one line per attribute with where an inherited one came from (`` `legs`: `4` — from 'Pet' (line 2) ``), what it overrides, and the **nearest sibling** of its kind with how the two differ — or *identical in content to …*, which is the clash seen from the inside.
 
 ### Armstrong's axioms (dependency inference)
 
@@ -1160,12 +1194,36 @@ The flags turn the arithmetic into queries:
 | `--near X [k]` | The `k` nearest ideas by content distance, with the slots that differ |
 | `--fd` | The full set of inferred functional dependencies, including the covariations, provisional findings, and transitively implied ones (tagged `[implied by …]`) the editor holds back |
 | `--depends X` | A Concept's declared dependencies, direct and transitive with a witnessing path |
-| `--diff old new` | Version diff as factorisation comparison: added, removed, and changed nodes per attribute |
+| `--diff old new` | Version diff as factorisation comparison: added, removed, and changed nodes per attribute — and **renamed** and **moved** ones recognised, when the pairing is unambiguous, so a renamed Concept is one finding rather than everything under it removed and added again |
+| `--diff-rev REV file` | The same, against the file as it stood at a git revision (`--diff-rev HEAD~1 "examples/godel.aot"`) |
 | `--suggest` | The FCA audit, plus the positive report the editor never shows: which Concepts the Examples' attributes *confirm* |
 | `--workspace [dir]` | The repo-wide check: every Concept written in more than one `.aot` under `dir` (default the current directory) is listed, file and line, and every [contradiction](#concepts-across-files) — one attribute with two values, one Concept under two kinds — is reported on both sides. **Exits `1` when there is one**, so CI can gate on it |
-| `--workspace [dir] --reconcile` | Writes the agreement in first, then checks: attributes a peer declares are filled in, the `...` line saying where the rest of a Concept's Examples live is kept true. Additive — nothing is ever deleted — and idempotent, so a second run over a repo already in step changes nothing. The headless form of what a save does in the editor |
+| `--workspace [dir] --reconcile` | Writes the agreement in first, then checks: attributes a peer declares are filled in, the `...` line saying where the rest of a Concept's Examples live is kept true — and a stale one removed. Additive otherwise — nothing you wrote is deleted — and idempotent, so a second run over a repo already in step changes nothing. The headless form of what a save does in the editor. `--workspace` also prints the one-content-two-names warnings (rule 17), which never change the exit code |
+| `--workspace [dir] --primes` | Extends the [stable Gödel numbers](#gödel-numbering) with every attribute and value under `dir` and writes `aot.files/godel.tsv` |
+| `--merge %O %A %B %P` | git's merge driver — see [Merging with git](#merging-with-git) |
 
 Two views are CLI-exclusive: `--suggest`'s `confirmed` line (the lattice agreeing with your tree is worth seeing, but it is not a squiggle), and the full `--fd` / `--clashes` sets (the editor surfaces only the confident, strong cases).
+
+### Merging with git
+
+A line merge sees text; two people who edit one Concept see an idea. **AOT: Set Up Git Merge for .aot Files** makes git merge an `.aot` by meaning:
+
+- it adds `*.aot merge=aot` and `aot.files/godel.tsv merge=union` to `.gitattributes` (commit it: the repository says how its files merge), and
+- it points the repository's **local** git config at `node "<extension>/verify.js" --merge %O %A %B %P` — a program on your machine, so never committed. It needs Node.js on PATH. Nothing is configured without the command, and a driver left pointing at an older copy of the extension is repointed on activation.
+
+The driver tries **git's own line merge first**: when that is clean it is kept (and any error the merge brought that neither side had is printed). When it conflicts, the **semantic merge** (`src/merge.js`) reads both sides against the ancestor as changes to Concepts and Examples — found by name, and where a name changed, by content — and replays theirs onto ours:
+
+| One side | The other | Result |
+|---|---|---|
+| renames `Dog` to `Hound` | changes Dog's `sound` on the next line | both apply — the case a line merge conflicts on |
+| sets `sound: woof` | sets `colour: black` two lines down | both apply |
+| changes one cell of a row | changes another cell of the same row | both apply, cell by cell |
+| adds `- Fish` | adds `- Bird` | both land, each after the sibling it follows on its own side |
+| sets `sound: woof` | sets `sound: yap` | **conflict**, marked on that one line |
+| removes `Cat` | changes Cat's `sound` | **conflict**, marked on Cat's block |
+| moves a Concept, reorders, edits a `...` | anything | **git's own merge**, conflicts and all |
+
+Three checks decide whether it may answer at all. **Replay**: each side's changes, applied to the ancestor alone, must give back that side exactly — an edit it has no word for fails it. **Arithmetic**: every node's Gödel number in the result must be, prime by prime, theirs where theirs changed it, else ours — so a rename that would cut a link the other side made fails it. **No new errors**: two edits each fine alone can be wrong together — a rename onto the name the other side gave a new Concept — so a result with an error neither side had fails too. Whatever a check cannot vouch for goes back to git's own conflicted text — so the driver is never worse than git's default. A row added above every other row of a table is one of those: it has no row to follow, and git places it. Run by hand, it is `node verify.js --merge base.aot ours.aot theirs.aot path.aot`, writing into `ours.aot` and exiting `0` when clean.
 
 ### The conformance examples
 
@@ -1175,6 +1233,9 @@ The prose above describes the rules; a handful of files in [`examples/`](example
 - [`examples/warning.aot`](examples/warning.aot) exercises the analytical passes: a Gödel content clash (two Examples with identical attributes and values), FCA drift (a Goldfish filed under `Fowl` while carrying `Fish`'s attributes), an exhaustion gap (a Sponge matching no sub-Concept), differentia twins, and dependency pairs with enough witnessed repeats to trip the Armstrong warnings.
 - [`examples/thought.aot`](examples/thought.aot) and [`examples/spreadsheet.aot`](examples/spreadsheet.aot) are the clean pair: real models (all four primitives; tables and the CSV mirror) that must verify at `V = 0`. Their derivations were written in the formula language before it was removed; they still verify, since the linter judges values, not derivations, but they are not Python and fail when run.
 - [`examples/monthly close.aot`](examples/monthly%20close.aot) and [`examples/bank recon.aot`](examples/bank%20recon.aot) are the clean *repo* pair: one Concept, `Jakus`, written in two files — the same definition in both, the Examples split between them, and a maintained `...` line in each. Both must verify at `V = 0`, and `node verify.js --workspace examples --reconcile` must leave them exactly as they stand.
+
+- [`examples/godel.aot`](examples/godel.aot) and [`examples/godel twins.aot`](examples/godel%20twins.aot) verify at `V = 0` and carry the Gödel warnings on purpose: a value every child states (`Vehicle`'s `wheels: 4`, `Payment`'s `EUR` column), a default no child keeps (`Drink`), and `Kettle` / `Boiler`, one content under two names. Hover `Pet`'s kinds for their content.
+- [`examples/release 1.12.aot`](examples/release%201.12.aot) is 1.12's hands-on checklist as a file — entries A01–A32, each saying what to do in the editor and what you should see — and verifies at `V = 0` with its three Gödel warnings; [`examples/release 1.12 peer.aot`](examples/release%201.12%20peer.aot) is its other file for the cross-file entries; [`examples/release 1.12 errors.aot`](examples/release%201.12%20errors.aot) must fail at `V = 5` (an Example named like the Example it sits under, a lone `=`, a bound with no attribute).
 
 A change to the linter is correct when it flags every planted violation in the first two files and nothing in the clean pair. The check is one command per file: `node verify.js examples/thought.aot` must exit `0`, `node verify.js examples/lint.aot` must not — and `node out/test-<module>.js` runs each module's smoke tests.
 
@@ -1289,10 +1350,12 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | Path | What it is |
 |------|------------|
 | [`verify.js`](verify.js) | [The command line](#the-command-line): whole-file check with exit code, plus the query flags |
-| [`src/linter.js`](src/linter.js) | Syntactic and arithmetic checks (error rules 1–12) |
+| [`src/linter.js`](src/linter.js) | Syntactic and arithmetic checks (error rules 1–12 and 24) |
 | [`src/subsumption.js`](src/subsumption.js) | Subsumption reasoner (error rules 13–16) |
 | [`src/fca.js`](src/fca.js) | Formal Concept Analysis audit (error rules 17–19) |
-| [`src/godel.js`](src/godel.js) | Gödel numbering and the content clash (error rule 20) |
+| [`src/godel.js`](src/godel.js) | Gödel numbering: the content clash (error rule 20), values every child states and defaults no child keeps (warning rules 15–16), one content under two names across files (warning rule 17), the stable numbers of `aot.files/godel.tsv`, a node's content for the hover, and the rename-aware diff |
+| [`src/merge.js`](src/merge.js) | [Merging with git](#merging-with-git): the semantic three-way merge, its replay guard and its arithmetic check |
+| [`src/git.js`](src/git.js) | The two git calls the command line makes: a file at a revision, and git's own line merge |
 | [`src/armstrong.js`](src/armstrong.js) | Dependency inference (warning rules 12–13), the declared dependency graph, and the axiom checks (error rule 21, warning rule 11) |
 | [`src/synonyms.js`](src/synonyms.js) | Two names for one idea (warning rule 14): the synonym vocabulary, the stem rule, and the dismissal key |
 | [`src/park.js`](src/park.js) | Taking the `=` derivations out of the data and putting them back: the `@` addresses, the round trip, and the `.formulas` store |
@@ -1311,11 +1374,13 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`examples/lint.aot`](examples/lint.aot), [`examples/warning.aot`](examples/warning.aot) | The [conformance examples](#the-conformance-examples) — one planted violation per rule |
 | [`examples/numbering.aot`](examples/numbering.aot) | A file to try [Numbering](#numbering) on: save it and watch the Examples and Concepts number themselves |
 | [`examples/monthly close.aot`](examples/monthly%20close.aot), [`examples/bank recon.aot`](examples/bank%20recon.aot) | One Concept written in two files: the same definition in both, the Examples split, a maintained `...` line in each |
+| [`examples/godel.aot`](examples/godel.aot), [`examples/godel twins.aot`](examples/godel%20twins.aot) | The Gödel warnings to try by hand, in two files that verify |
 | [`examples/python edge cases.aot`](examples/python%20edge%20cases.aot) | The [Python](#python) edge cases, each with what should happen — live where running it is harmless, escaped where it would break the file — with its sidecar in `aot.files` |
-| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all fifteen; `test-python.js` runs the real Python runtime when there is a `python` on PATH, and `test-uv.js` the real uv when there is a `uv`, and each skips it when there is not) |
+| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all sixteen, `test-merge.js` a real git merge when there is a `git`; `test-python.js` runs the real Python runtime when there is a `python` on PATH, and `test-uv.js` the real uv when there is a `uv`, and each skips it when there is not) |
 | [`docs/features-1.1-1.2.md`](docs/features-1.1-1.2.md) | Per-feature reference for the 1.1 → 1.2 line: what changed, a snippet to exercise it, and its edge cases |
 | [`docs/features-1.3-1.5.md`](docs/features-1.3-1.5.md) | The same for 1.3 → 1.5: how each feature worked *before*, a snippet for the case that works and the neighbouring one that does not, and the test that holds it |
 | [`docs/features-1.6.md`](docs/features-1.6.md) | The same for 1.6: tables and free text as one notation — the unified registry, the outer scope, the union CSV mirror, chained constraints |
+| [`docs/features-1.12.md`](docs/features-1.12.md) | The same for 1.12: Python across sub-Examples, table rows and bare `=` lines; the column keys; stable Gödel numbers, the hover, the Gödel warnings, the rename-aware diff and the git merge driver — with a merge walkthrough |
 | [`docs/features-1.8.md`](docs/features-1.8.md) | The same for 1.8: two-sided duplicates and reconcile, case- and number-insensitive names, [Numbering](#numbering), width cookies and wrapped cells, the in-cell Example dropdown, one-stroke spelling fixes |
 | [`out/token-experiment.js`](out/token-experiment.js) | The measurement behind [What it costs to think in Alpha](#what-it-costs-to-think-in-alpha) — re-derive the numbers rather than trust them |
 | [`docs/`](docs/) | README assets (`edit-loop.svg` is the editable source of the header image) |

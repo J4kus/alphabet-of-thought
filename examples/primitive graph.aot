@@ -40,13 +40,13 @@
         - Tests
             path: tests/
 
-    Person      | |age|is alive
-    Aristotle   | |10 |No
-    Socrates    | |20 |No
-    Sophroniscus| |30 |No
-    Bob         | |   |Yes
-    Charlie     | |   |Yes
-    Dave        | |   |Yes
+    Person      |age|is alive
+    Aristotle   |10 |No
+    Socrates    |20 |No
+    Sophroniscus|30 |No
+    Bob         |   |Yes
+    Charlie     |   |Yes
+    Dave        |   |Yes
         average age: 20 =@Person@age.mean()
 
     tax rate: 0.2

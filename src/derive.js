@@ -99,11 +99,16 @@ function makeCtx(d, current, registry) {
       if (!names.has(a)) names.set(a, key);
     }
   };
+  // The host Example's own sub-Examples are named too, after its siblings
+  // (the first of equal names wins, so a sibling keeps a shared name): a
+  // value on `- Parent` reads `@Child 1@age` from the Example beneath it.
+  const kids = host ? host.children.filter((c) => c.kind === KIND.INDIVIDUAL && !examples.includes(c)) : [];
   (d.parent ? d.parent.children : []).forEach(addName);
   for (const ex of examples) ex.children.forEach(addName);
   if (owner) owner.children.forEach(addName);
+  for (const kid of kids) kid.children.forEach(addName);
   const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
-  const rowCands = examples.map((ex) => ({ key: ex.name.toLowerCase(), id: ex }));
+  const rowCands = [...examples, ...kids].map((ex) => ({ key: ex.name.toLowerCase(), id: ex }));
   // an owner's value for the attribute; undefined when the owner never
   // asserts it, "" when it is declared but (not yet) valued
   const valueOn = (owner, id) => {
@@ -154,8 +159,14 @@ function makeCtx(d, current, registry) {
 // default — the inheritance the tree already means. References are
 // name-only, so a numeric part can only name an Example, which is what a
 // Concept whose Examples are numbers (`- 1`, `- 35`) needs.
+//
+// The rows are every Example in the Concept's scope, sub-Examples included,
+// depth-first — the rows the CSV mirror writes (scopeRowsOf) — so `@Thing`
+// holds `- Child` as well as `- Parent`. Where they nest, the grid carries
+// the tree in a `parent` column exactly as the mirror does, so a DataFrame
+// and the CSV read the same.
 function conceptScope(concept) {
-  const examples = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+  const examples = scopeRowsOf(concept);
   const names = new Map();   // lowercased name or alias -> canonical id
   const display = new Map(); // canonical id -> the name as written
   const addAttrs = (owner) => {
@@ -168,6 +179,9 @@ function conceptScope(concept) {
   };
   addAttrs(concept);
   for (const ex of examples) addAttrs(ex);
+  const tree = parentColumnOf(concept, examples, names);
+  // the `parent` column is a column like any other where the scope nests
+  if (tree.addParent) names.set(PARENT_COLUMN, PARENT_COLUMN);
   const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
   const rowCands = examples.map((ex, r) => ({ key: ex.name.toLowerCase(), id: r }));
   const valueOn = (owner, id) => {
@@ -180,7 +194,8 @@ function conceptScope(concept) {
     const ex = examples[r];
     if (!ex) throw new Error(`there is no Example @${r} on '${concept.name}'`);
     const own = valueOn(ex, id);
-    if (own !== undefined) return own;
+    if (own !== undefined && (own !== "" || id !== PARENT_COLUMN)) return own;
+    if (id === PARENT_COLUMN && (tree.addParent || tree.owned)) return tree.parentOf(ex);
     const inherited = valueOn(concept, id); // the Concept's default
     return inherited === undefined ? "" : inherited;
   };
@@ -207,10 +222,27 @@ function conceptScope(concept) {
     // Concept and names its Examples, as the CSV mirror writes a table's,
     // so a line-form Concept mirrors like any other
     grid: () => [
-      [concept.name, ...display.values()],
-      ...examples.map((ex, r) => [ex.name, ...[...display.keys()].map((id) => valueAt(r, id))]),
+      [concept.name, ...(tree.addParent ? [PARENT_COLUMN] : []), ...display.values()],
+      ...examples.map((ex, r) => [
+        ex.name,
+        ...(tree.addParent ? [tree.parentOf(ex)] : []),
+        ...[...display.keys()].map((id) => valueAt(r, id)),
+      ]),
     ],
   };
+}
+
+// How a scope carries its tree when it is written as a grid: a nested row
+// names the row it sits under in a `parent` column — the one shape a CSV (or
+// a DataFrame) can hold, since every reader trims the indent away. A row
+// directly under the scope's own node is top-level. A scope that already
+// states its own `parent` attribute keeps that one column (`owned`), since it
+// is the same fact under the same name. { parentOf, nested, owned, addParent }
+function parentColumnOf(scopeNode, rows, names) {
+  const parentOf = (r) => (r.parent && r.parent !== scopeNode && r.parent.kind === KIND.INDIVIDUAL ? r.parent.name : "");
+  const nested = rows.some((r) => parentOf(r) !== "");
+  const owned = names.has(PARENT_COLUMN);
+  return { parentOf, nested, owned, addParent: nested && !owned };
 }
 
 // The scopes one file offers to cross-Concept references: a Map from each
@@ -685,12 +717,9 @@ function mirrorGrids(root, nodes) {
     // one sits under, empty for a top-level row — which a spreadsheet
     // cannot damage. A flat scope has no such rows and gains no column, so
     // its CSV is exactly the file it always was.
-    const nested = scopeRows.some((r) => r.parent && r.parent.kind === KIND.INDIVIDUAL);
-    // a Concept that already states its own `parent` attribute keeps that
-    // one column: it is the same fact under the same name, not a second
-    const owned = names.has(PARENT_COLUMN);
-    const addParent = nested && !owned;
-    const parentOf = (r) => (r.parent && r.parent.kind === KIND.INDIVIDUAL ? r.parent.name : "");
+    // (a Concept that already states its own `parent` attribute keeps that
+    // one column: it is the same fact under the same name, not a second)
+    const { owned, addParent, parentOf } = parentColumnOf(concept, scopeRows, names);
     out.push({
       name: concept.name,
       node: concept,
@@ -1094,7 +1123,80 @@ function flipForm(lines, concept, rootName) {
   return toTableForm(lines, concept);
 }
 
+// --- stating a fact once -----------------------------------------------------
+// The quick fixes for godel.hoists. `mode` "hoist": 'attr: value' goes onto
+// the parent, written once, and comes off every child that sets it for
+// itself — a line-form declaration is deleted, a table column holding it in
+// every row is dropped (a standalone table taking the merge form, since a
+// table has no line for the Concept's own attributes). A parent that says
+// the attribute already (the dead default the children agree against) has
+// that line rewritten rather than a second one added. `mode` "bare": the
+// parent's dead default keeps just its attribute, the value no child kept
+// taken off. Answers ops in repo.applyOps' shape, or null when the parent
+// or the attribute is not found.
+function hoistOps(lines, root, nodes, parentLine, attr, value, rootName, registry, mode) {
+  const parent = parentLine === 0 ? root : [root, ...nodes].find((n) => n.line === parentLine
+    && (n.kind === KIND.CONCEPT || n.kind === KIND.INDIVIDUAL));
+  if (!parent) return null;
+  const key = String(attr).toLowerCase();
+  const matches = (c) => isAttrKind(c) && c.name.toLowerCase() === key;
+  const own = parent.children.find((c) => c.kind === KIND.DEFAULT && !c.cell && matches(c));
+  if (mode === "bare") {
+    if (!own) return null;
+    const raw = lines[own.line - 1] || "";
+    const colon = raw.indexOf(":");
+    return colon === -1 ? null : [{ type: "replace", line: own.line, text: raw.slice(0, colon).trimEnd() }];
+  }
+  const ops = [];
+  const indentOf = (n) => (lines[n.line - 1] || "").match(/^ */)[0];
+  // every child's own line-form declaration goes
+  const kids = parent.children.filter((c) => c.kind === KIND.CONCEPT || c.kind === KIND.INDIVIDUAL);
+  for (const kid of kids) {
+    for (const c of kid.children) {
+      if (c.kind === KIND.DEFAULT && !c.cell && matches(c)) ops.push({ type: "delete", line: c.line });
+    }
+  }
+  // a table of the parent's that states it in a column: the column goes
+  const grid = gridOfConcept(lines, parent, rootName);
+  const col = grid ? grid.header.findIndex((h, k) => k > 0 && headerColName(h).toLowerCase() === key) : -1;
+  const standalone = grid && grid.start + 1 === parent.line;
+  const dropped = col > 0 ? {
+    header: grid.header.filter((_, k) => k !== col),
+    rows: grid.rows.map((r) => r.filter((_, k) => k !== col)),
+  } : null;
+  const fact = `${attr}: ${value}`;
+  if (standalone) {
+    // the table stood where the Concept's line stands: the Concept takes a
+    // line of its own, the fact under it, and the grid files beneath
+    const indent = grid.indent;
+    const inner = indent + " ".repeat(INDENT);
+    const shape = dropped || { header: grid.header, rows: grid.rows };
+    const drawn = render({
+      indent: inner,
+      rows: [{ sep: false, cells: shape.header }, ...shape.rows.map((cells, i) => ({ sep: false, cells, depth: (grid.rowDepths || [])[i] || 0 }))],
+    });
+    const head = grid.header[0].trim();
+    ops.push({ type: "block", from: grid.start, to: grid.end, block: [indent + head, inner + fact, ...drawn] });
+    return ops;
+  }
+  if (dropped) {
+    const u = updateTable(lines, grid.name, dropped.header, dropped.rows, rootName, registry);
+    if (u && u.changed) ops.push({ type: "block", from: u.from, to: u.to, block: u.block });
+  }
+  if (own) {
+    const raw = lines[own.line - 1] || "";
+    ops.push({ type: "replace", line: own.line, text: raw.slice(0, raw.indexOf(":") + 1) + " " + value });
+  } else {
+    const decls = parent.children.filter((c) => isAttrKind(c) && !c.cell && c.line > parent.line);
+    const after = decls.length ? lastLineOf(decls[decls.length - 1]) : parent.line;
+    const indent = parent.line > 0 ? indentOf(parent) + " ".repeat(INDENT) : "";
+    ops.push({ type: "insert", afterLine: after, text: indent + fact });
+  }
+  return ops;
+}
+
 module.exports = {
+  hoistOps,
   derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, valueSpanOf, makeCtx, scopeOf,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
   mirrorGrids, updateScope,

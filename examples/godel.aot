@@ -1,0 +1,35 @@
+Pet
+    legs: 4
+    sound
+    Dog
+        sound: bark
+        coat: fur
+    Cat
+        sound: meow
+        coat: fur
+    Parrot
+        sound: squawk
+        coat: feathers
+        legs: 2
+Vehicle
+    Car
+        wheels: 4
+        doors: 5
+    Van
+        wheels: 4
+        doors: 3
+Drink
+    temperature: cold
+    Tea
+        temperature: hot
+        leaf: black
+    Cocoa
+        temperature: warm
+        leaf: none
+Kettle
+    power: 2000
+    volume: 1.7
+Payment|currency|amount
+P1     |EUR     |120
+P2     |EUR     |45
+P3     |EUR     |300

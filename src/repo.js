@@ -204,7 +204,25 @@ function findings(file, all, opts) {
   const stale = !opts || opts.autoReconcile === false;
   for (const [, list] of all) {
     const mine = list.filter((o) => o.file === file);
-    if (!mine.length || list.length === mine.length) continue;
+    if (!mine.length) continue;
+    if (list.length === mine.length) {
+      // no other file lists this Concept any more, so a maintained note
+      // about where the rest of its Examples live says something false —
+      // only reported when auto-reconcile is off, since a save removes it
+      if (!stale) continue;
+      for (const occ of mine) {
+        const note = maintainedNotes(occ.node)[0];
+        if (!note) continue;
+        warnings.push({
+          line: note.line,
+          message: `'${occ.node.name}' keeps a '...' note saying where the rest of its Examples live, but no other file `
+            + `lists '${occ.node.name}' any more — the note is stale; run 'AOT: Reconcile Concepts Across Files', `
+            + `or turn aot.autoReconcile back on to have it removed on save`,
+          related: [],
+        });
+      }
+      continue;
+    }
     for (const occ of mine) {
       const peers = peersOf(occ, list);
       const where = (p) => ({
@@ -448,16 +466,31 @@ function mergeInserts(ops) {
 
 // Every op for a whole file, one Concept at a time. Ops are returned in
 // descending line order, ready to apply.
-function reconcileFile(file, all, lines, rootName, registry) {
+//
+// A maintained `...` says where the rest of a Concept's Examples live, so it
+// goes stale the moment no other file lists that Concept any more — the peer
+// deleted, renamed, or its file gone. Those notes are removed here too: a
+// Concept with no peers keeps none, and a note no Concept's scope claims (one
+// left at the top of the file when its Concept's line was deleted) is swept
+// away. `root` (optional) is this file's root, for a file that no longer
+// holds any Concept to find it through. Only lines this module wrote match
+// NOTE_RE, so nothing you wrote is ever deleted.
+function reconcileFile(file, all, lines, rootName, registry, root) {
   const ops = [];
+  let fileRoot = root || null;
   for (const [, list] of all) {
     for (const occ of list) {
       if (occ.file !== file) continue;
+      fileRoot = fileRoot || occ.root;
       const peers = peersOf(occ, list);
-      if (!peers.length) continue;
+      if (!peers.length) {
+        for (const n of maintainedNotes(occ.node)) ops.push({ type: "delete", line: n.line });
+        continue;
+      }
       ops.push(...reconcileOps(lines, occ, peers, rootName, registry));
     }
   }
+  if (fileRoot) for (const n of maintainedNotes(fileRoot)) ops.push({ type: "delete", line: n.line });
   const lineOf = (op) =>
     op.type === "replace" || op.type === "delete" ? op.line
       : op.type === "block" ? op.from + 1 : op.afterLine;

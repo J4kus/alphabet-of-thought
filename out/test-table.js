@@ -238,6 +238,21 @@ const fresh = () => blockAt(doc, 2);
   deleteColumn(b, 1, 1);
   check("deleteColumn: kills the cursor's column",
     b.rows[0].cells.join(",") === "name,colour" && b.rows[2].cells.join(",") === "Pebble,grey");
+
+  // the first column names the Concept and its Examples — no attribute to
+  // move, delete or copy, and nothing is inserted in front of it
+  const same = (x) => x.rows.map((r) => r.cells.join(",")).join("/") === fresh().rows.map((r) => r.cells.join(",")).join("/");
+  b = fresh();
+  check("name column: deleteColumn refuses it and changes nothing", deleteColumn(b, 1, 0) === null && same(b));
+  b = fresh();
+  check("name column: moveColumn neither moves it nor moves onto it",
+    moveColumn(b, 1, 0, 1) === null && moveColumn(b, 1, 1, -1) === null && same(b));
+  b = fresh();
+  check("name column: copyColumn refuses it", copyColumn(b, 1, 0, 1) === null && same(b));
+  b = fresh();
+  const ins = insertColumn(b, 1, 0);
+  check("name column: insertColumn puts the new column just after it",
+    ins.col === 1 && b.rows[0].cells.join(",") === "name,,size,colour");
 }
 
 // ---------------------------------------------------------------------------
@@ -704,6 +719,59 @@ const fresh = () => blockAt(doc, 2);
   const block = blockAt(lines, 0);
   check("blockAt: a value line holding a pipe ends the table",
     block && block.start === 0 && block.end === 1 && blockAt(lines, 2) === null);
+}
+
+// ---------------------------------------------------------------------------
+// a pipe inside a cell's Python is the Python's, in any cell — not only the
+// first — while the Python is open in a bracket or a string
+// ---------------------------------------------------------------------------
+{
+  const texts = (line) => cells(line).map((c) => c.text);
+  check("cells: a pipe inside a later cell's string is the Python's",
+    texts('A|=len("a|b")|=@x').join(" ¶ ") === 'A ¶ =len("a|b") ¶ =@x');
+  check("cells: ... and inside its brackets, the value in front of it kept",
+    texts("A|3 =(@a | @b)|x").join(" ¶ ") === "A ¶ 3 =(@a | @b) ¶ x");
+  check("cells: a closed derivation running to the line's end keeps its pipes",
+    texts('A|1|=",".join(["x|y"])').join(" ¶ ") === 'A ¶ 1 ¶ =",".join(["x|y"])');
+  check("cells: an escaped quote does not close the string, so the pipe after it is still the Python's",
+    texts('A|=len("a\\"|b")|=@x').join(" ¶ ") === 'A ¶ =len("a\\"|b") ¶ =@x');
+  check("cells: a derivation still open reads every pipe as a divider (the row stays a row)",
+    texts("A|=f(@a|b|c").join(" ¶ ") === "A ¶ =f(@a ¶ b ¶ c");
+  check("cells: a pipe outside the brackets still divides, and a plain cell is untouched",
+    texts("A|=a() | b()|it's|x").join(" ¶ ") === "A ¶ =a() ¶ b() ¶ it's ¶ x");
+  const parsed = lint(["Box|n|label", 'A  |1|=",".join(["x|y"])'].join("\n"), "t");
+  check("lint: a row holding a pipe in its Python parses with no extra cell",
+    parsed.errors.length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// a calculated column: one derivation shared by every row moves to the
+// header as `==`, and each cell keeps its value alone
+// ---------------------------------------------------------------------------
+{
+  const { columnDefinition, defineColumn } = require("../src/table");
+  const grid = (...lines) => blockAt(lines, 0);
+  const rowsOf = (b) => b.rows.map((r) => r.cells.join("|")).join(" / ");
+  const b = grid("Invoice|price|vat           |net", "A      |100  |20 =@price*0.2|=@price-1", "B      |50   |=@price*0.2   |", "C      |10   |              |=@price-1");
+  const def = columnDefinition(b, 2);
+  check("define column: offered when every row derives the column alike (empty cells allowed)",
+    def && def.source === "@price*0.2" && def.name === "vat" && columnDefinition(b, 3).source === "@price-1");
+  defineColumn(b, 1, 2);
+  check("define column: the derivation moves to the header as ==, each cell keeps its value",
+    rowsOf(b) === "Invoice|price|vat ==@price*0.2|net / A|100|20|=@price-1 / B|50|| / C|10||=@price-1");
+  check("define column: not once the header defines it already", columnDefinition(b, 2) === null);
+  check("define column: not when two rows derive it differently, or a row typed its own value",
+    columnDefinition(grid("T|a|b", "x|1 =f()|", "y|2 =g()|"), 1) === null
+    && columnDefinition(grid("T|a", "x|=f()", "y|7"), 1) === null);
+  check("define column: never the name column, nor a column with no derivation, nor an empty one",
+    columnDefinition(grid("T|a", "=f()|1", "y|2"), 0) === null && columnDefinition(grid("T|a", "x|1"), 1) === null
+    && columnDefinition(grid("T|a|b", "x||1", "y||2"), 1) === null);
+  const plain = grid("T|a", "x|1");
+  check("define column: with nothing to define, the edit changes nothing", defineColumn(plain, 1, 1) === null && rowsOf(plain) === "T|a / x|1");
+  const other = grid("T|a >=0|b", "x|=f()|1", "y|=f()|2");
+  defineColumn(other, 1, 1);
+  check("define column: a header's own bound stays, the definition chained after it",
+    other.rows[0].cells[1] === "a >=0 ==f()" && other.rows[1].cells[1] === "" && other.rows[2].cells[2] === "2");
 }
 
 // ---------------------------------------------------------------------------

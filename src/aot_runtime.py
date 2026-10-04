@@ -465,9 +465,49 @@ def _image_bytes(v):
     return None
 
 
+def _generated(v):
+    """A bare `=` line's result as (name, table) pairs: a dict of tables by
+    name, or aot.grid()s, each naming its Concept in its header's first
+    cell. None when it is neither."""
+    if isinstance(v, _Grid):
+        return [(v.header[0] if v.header else "", v)]
+    if isinstance(v, dict):
+        return list(v.items())
+    if isinstance(v, (list, tuple)) and v and all(isinstance(g, _Grid) for g in v):
+        return [(g.header[0] if g.header else "", g) for g in v]
+    return None
+
+
+def _member(obj, key):
+    """One Concept a bare `=` line wrote, read out of its live result by the
+    name the file writes it under — `@Sales` is the "sales" table of
+    `{"sales": df}`. An aot.grid() arrives as a frame, like any Concept."""
+    for name, table in _generated(obj) or []:
+        if str(name) == key or _norm(name) == _norm(key):
+            if isinstance(table, _Grid):
+                rows = table.rows
+                return _frame_from(table.header, [r[0] if r else "" for r in rows], [list(r)[1:] for r in rows])
+            return table
+    raise KeyError(f"'{key}' is not one of the Concepts it wrote")
+
+
 def _envelope(v, host):
     """What the file receives for a result — the classification the editor
     writes from. The result itself stays in the registry untouched."""
+    if host == "generator":
+        items = _generated(v)
+        if items is None:
+            return {"kind": "object", "summary": _summary(v)}
+        grids = []
+        for name, table in items:
+            env = _envelope(table, "concept")
+            if env.get("kind") != "frame":
+                raise TypeError(f"'{name}' is {env.get('summary') or _summary(table)}, not a table — each Concept "
+                                "a bare = derivation writes is a DataFrame, a list of dicts, or aot.grid(header, rows)")
+            env["name"] = str(name)
+            grids.append(env)
+        return {"kind": "grids", "grids": grids,
+                "summary": f"<{len(grids)} Concept{'' if len(grids) == 1 else 's'}>"}
     if isinstance(v, _Image):
         pic = _image_bytes(v.value)
         if pic is None:
@@ -888,7 +928,10 @@ def _target(t):
         address = t["address"]
         if address not in _registry:
             raise LookupError(f"{address} has not been computed in this session")
-        return _pick(_registry[address], t.get("column"), t.get("row"))
+        obj = _registry[address]
+        if t.get("key") is not None:
+            obj = _member(obj, t["key"])
+        return _pick(obj, t.get("column"), t.get("row"))
     if kind == "value":
         return _typed(t.get("text"))
     if kind == "frame":
@@ -1096,6 +1139,20 @@ def _windows_job(memory_mb, one_process):
     _guards["job"] = job  # held for the life of the process
 
 
+def _memory_cap(platform):
+    """The limit that caps memory off Windows, and how hello says so. On Linux
+    it is the data size: the heap and the private writable mappings, which is
+    the memory the process uses. An address-space cap also counts what numpy's
+    BLAS threads and pyarrow reserve and never touch, so on a many-core machine
+    (WSL often is one) importing them fails under it. macOS has no data limit
+    worth the name, and enforces neither."""
+    if platform.startswith("linux"):
+        return "RLIMIT_DATA", "a data-size limit"
+    if platform == "darwin":
+        return "RLIMIT_AS", "an address-space limit, which macOS does not enforce"
+    return "RLIMIT_AS", "an address-space limit"
+
+
 def _set_guards(policy):
     """Install the guards a policy asks for. Once only; a report of what holds."""
     if _guards["set"]:
@@ -1120,9 +1177,9 @@ def _set_guards(policy):
         try:
             import resource
             limit = memory_mb * 1024 * 1024
-            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
-            report["memory"] = (f"at most {memory_mb:,} MB (an address-space limit"
-                                + (", which macOS does not enforce)" if sys.platform == "darwin" else ")"))
+            which, how = _memory_cap(sys.platform)
+            resource.setrlimit(getattr(resource, which), (limit, limit))
+            report["memory"] = f"at most {memory_mb:,} MB ({how})"
         except Exception as e:
             report["memory"] = f"not limited — {e}"
     report.setdefault("memory", "not limited")

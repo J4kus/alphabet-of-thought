@@ -31,7 +31,14 @@ function check(name, ok) {
   check("project: none set up is none", uvenv.projectDir(root, af, has()) === null);
   check("project: the environment's interpreter, per platform",
     uvenv.venvPython(af, "win32") === path.join(af, ".venv", "Scripts", "python.exe")
-    && uvenv.venvPython(af, "linux") === path.join(af, ".venv", "bin", "python"));
+    && uvenv.venvPython(af, "linux") === path.join(af, ".venv-linux", "bin", "python"));
+  // one checkout used from Windows and from WSL keeps an environment for each
+  check("project: one environment folder per operating system",
+    uvenv.venvDir(af, "win32") === path.join(af, ".venv") && uvenv.venvDir(af, "linux") === path.join(af, ".venv-linux")
+    && uvenv.venvDir(af, "darwin") === path.join(af, ".venv-darwin"));
+  check("uv: pointed at that folder, when one is named",
+    uvenv.uvEnv({}, path.join(af, ".venv-linux")).UV_PROJECT_ENVIRONMENT === path.join(af, ".venv-linux")
+    && !("UV_PROJECT_ENVIRONMENT" in uvenv.uvEnv({})));
 }
 
 // --- 2. a new project -------------------------------------------------------------
@@ -109,6 +116,19 @@ function check(name, ok) {
     && python.resolveExecutable(".venv\\Scripts\\python.exe", { ...win, base: "C:\\repo" }) === "C:\\repo\\.venv\\Scripts\\python.exe");
   check("path: POSIX reads its PATH the same way",
     python.resolveExecutable("python3", { platform: "linux", env: { PATH: "/usr/bin:.:bin" }, exists: on("/usr/bin/python3", "./python3", "bin/python3") }) === "/usr/bin/python3");
+  // WSL, Debian and Ubuntu ship `python3` and no bare `python`
+  check("path: with no path set, python3 is tried first off Windows, python on Windows",
+    python.defaultPythons("linux").join() === "python3,python" && python.defaultPythons("darwin").join() === "python3,python"
+    && python.defaultPythons("win32").join() === "python");
+  const wsl = { platform: "linux", env: { PATH: "/usr/local/bin:/usr/bin:/mnt/c/Windows" }, exists: on("/usr/bin/python3") };
+  const found = python.defaultPythons("linux").map((n) => python.resolveExecutable(n, wsl)).find(Boolean);
+  check("path: a WSL with only python3 on PATH still finds a Python", found === "/usr/bin/python3");
+  check("path: the message for none found names every name tried",
+    /^'python3' or 'python' was not found/.test(python.spawnMessage({ code: "ENOENT" }, "python3' or 'python")));
+  // numpy's BLAS is held to four threads unless the user said otherwise
+  check("threads: BLAS capped at four, a user's own setting kept",
+    python.blasThreads({}).OPENBLAS_NUM_THREADS === "4" && python.blasThreads({}).OMP_NUM_THREADS === "4"
+    && !("OMP_NUM_THREADS" in python.blasThreads({ OMP_NUM_THREADS: "16" })));
 }
 
 // --- 5. uv as a child process, against a fake ----------------------------------------------
@@ -132,6 +152,9 @@ async function childProcesses() {
   check("run: the code and what uv wrote come back", ok.code === 0 && ok.stdout === "uv 0.11.17\n" && !ok.missing);
   check("run: uv is started where asked, and never downloads a Python",
     fake.last.cmd === "C:\\u\\uv.exe" && fake.last.opts.cwd === "C:\\r" && fake.last.opts.env.UV_PYTHON_DOWNLOADS === "never");
+  await uvenv.runUv(fake(0, ""), "uv", ["sync"], { cwd: "/r", environment: "/r/aot.files/.venv-linux" });
+  check("run: the environment folder reaches uv as UV_PROJECT_ENVIRONMENT",
+    fake.last.opts.env.UV_PROJECT_ENVIRONMENT === "/r/aot.files/.venv-linux");
   const bad = await uvenv.runUv(fake(2, "", "error: no\nerror: the lock is out of date\n"), "uv", ["sync"], {});
   check("run: a failure keeps its code and its last words", bad.code === 2 && uvenv.lastWords(bad) === "error: the lock is out of date");
   const missing = await uvenv.runUv(fake(0, "", "", true), "uv", ["--version"], {});
@@ -148,7 +171,7 @@ async function realUv() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aot-uv-"));
   try {
     fs.writeFileSync(path.join(dir, "pyproject.toml"), uvenv.pyprojectText(["six"]));
-    const run = (args) => uvenv.runUv(spawn, uv, args, { cwd: dir, timeoutMs: 300000 });
+    const run = (args) => uvenv.runUv(spawn, uv, args, { cwd: dir, timeoutMs: 300000, environment: uvenv.venvDir(dir, process.platform) });
     const before = await run(["lock", "--project", dir, "--check"]);
     check("real uv: a project with no lock fails the check", before.code !== 0);
     const locked = await run(["lock", "--project", dir, "--no-build"]);
@@ -169,7 +192,7 @@ async function realUv() {
     const cache = path.join(site, "__pycache__");
     check("real uv: installed compiled to bytecode, so a session never compiles a library from source",
       fs.existsSync(cache) && fs.readdirSync(cache).some((f) => /^six\..*\.pyc$/.test(f)));
-    check("real uv: uv keeps the environment out of git itself", fs.readFileSync(path.join(dir, ".venv", ".gitignore"), "utf8").trim() === "*");
+    check("real uv: uv keeps the environment out of git itself", fs.readFileSync(path.join(uvenv.venvDir(dir, process.platform), ".gitignore"), "utf8").trim() === "*");
     // the project moves on without its lock: nothing installs until it is locked again
     fs.writeFileSync(path.join(dir, "pyproject.toml"), uvenv.pyprojectText(["six"]).replace('">=3.10"', '">=3.11"'));
     check("real uv: a project changed since its lock fails the check", (await run(["lock", "--project", dir, "--check"])).code !== 0);
