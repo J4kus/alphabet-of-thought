@@ -101,10 +101,25 @@
                     end: )
                     allow special value override: Ellipsis
                     - For Dependency Or A More General Context Name
+                        begin: (
+                        end: )
+                        allow special value override: Ellipsis
                     - Can Be Used For Both A Frame And A Slot
+                        begin: (
+                        end: )
+                        allow special value override: Ellipsis
                     - On The Same Line As Frame Or Slot
                         - When Frame Has More Than One Of The Same Slots
+                            begin: (
+                            end: )
+                            allow special value override: Ellipsis
                         - May Link To Frame
+                        begin: (
+                        end: )
+                        allow special value override: Ellipsis
+                            begin: (
+                            end: )
+                            allow special value override: Ellipsis
             Reference to a `not said of` Idea
                 - attribute-is-a-concept
                 - default-is-a-example

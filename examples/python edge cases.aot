@@ -141,8 +141,8 @@ Python Edge Case
     - On A Bare Attribute
         area: where it stands
         case: rows ==f()
-        expected: a definition, not an error: once run, every value of rows is what f() returns; one whose Python does not read as an expression (rows == some words) is an error that says so
-        because: on an attribute '=' says what every value of it is (1.12 wrote '=='); the case is escaped here, its equals sign doubled, so this file still verifies
+        expected: an error that counts in V, saying to add a colon so the derivation sits on a value
+        because: a derivation computes a value, and a bare attribute declares none; escaped here so this file still verifies
     - An Empty Concept Derivation
         area: where it stands
         case: Sales ==
@@ -168,7 +168,7 @@ Python Edge Case
     - One Value Defines
         area: constraints
         expected: once run, I1's empty vat reads 10 and I2's 99 is corrected to 20; the cells carry the value alone
-        because: an == whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
+        because: a === whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
         Vat Check|price|vat =@price*0.2
         I1       |50   |10
         I2       |100  |20
@@ -208,8 +208,8 @@ Python Edge Case
     - An Equals Sign In Prose
         area: where it stands
         case: a == b
-        expected: the value reads a == b, with one equals sign
-        because: a space then one equals sign starts a derivation, so a literal one is doubled; a run of them reads one shorter (a === b reads a == b)
+        expected: the value reads with its equals sign
+        because: unescaped, a space then an equals sign starts a derivation
     - A Money Value Arrives As A Number
         area: references
         price: $1,204

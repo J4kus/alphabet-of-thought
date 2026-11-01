@@ -1625,7 +1625,7 @@ async function offerTypedRename(doc, s, renamed, now) {
   const merge = twin ? `; '${renamed.name}' already names another ${renamed.kind === KIND.CONCEPT ? "Concept" : renamed.kind === KIND.INDIVIDUAL ? "Example" : "attribute"} (line ${twin.line}), so updating them would merge the two into it` : "";
   const update = `Update ${count} Use${count === 1 ? "" : "s"}`;
   const answer = await vscode.window.showWarningMessage(
-    `AOT: '${s.oldName}' is now '${renamed.name}' — ${count} use${count === 1 ? "" : "s"} still say '${s.oldName}'${where}${merge}.`,
+    `AOT: '${s.oldName}' is now '${renamed.name}' — ${count} use${count === 1 ? " still says" : "s still say"} '${s.oldName}'${where}${merge}.`,
     ...(twin ? ["Dismiss", update] : [update, "Dismiss"]));
   if (answer === update) await applyTypedRename(key, s.line);
   else if (answer === "Dismiss") dropRenameOffer(key, s.line);

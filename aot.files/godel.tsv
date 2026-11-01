@@ -314,6 +314,29 @@ a	hue	2069
 a	philosopher	2081
 a	tax: =@price*2	2083
 a	warmth	2087
+a	cost	2089
+a	sage	2099
+a	spread	2111
+a	function	2113
+a	parent function	2129
+a	term format	2131
+a	business priority	2137
+a	criticality	2141
+a	frequency	2143
+a	input result rule	2153
+a	is external	2161
+a	output all motivations	2179
+a	result rule	2203
+a	rule	2207
+a	architect	2213
+a	importance	2221
+a	input rule	2237
+a	output architect	2239
+a	employee	2243
+a	seats	2251
+a	tax	2267
+a	after facilitator	2269
+a	facilitator	2273
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -324,6 +347,13 @@ v	actual	7	overconfident
 v	actual	8	partial
 v	actual	9	result of an affordable heuristic
 v	actual	10	seconds of scarce working memory
+v	actual	11	incomplete operational understanding baised to specific viewpoint
+v	actual	12	unnatural functional decomposition with low cohesion and high coupling
+v	actual	13	Different understanding of function between reader and writer
+v	actual	14	Unclear or ambigious functions defined
+v	actual	15	contention or malfunction of functional understanding
+v	actual	16	different understanding of function between reader and writer
+v	actual	17	unclear or ambiguous functions defined
 v	after	2	#ERR
 v	after	3	confusing time
 v	after	4	grappling with a subject
@@ -453,6 +483,8 @@ v	because	51	what a string holds is characters, never code
 v	because	52	a space then one equals sign starts a derivation, so a literal one is doubled; a run of them reads one shorter (a === b reads a == b)
 v	because	53	an == whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
 v	because	54	on an attribute '=' says what every value of it is (1.12 wrote '=='); the case is escaped here, its equals sign doubled, so this file still verifies
+v	because	55	a space then one equals sign starts a derivation, so a literal one is doubled; a run of them reads one shorter (a == b reads a = b)
+v	because	56	an = whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
 v	begin	2	(
 v	begin	3	...
 v	beneficiary	2	Aristotle
@@ -752,6 +784,16 @@ v	expected	153	the hover names the row Bench and Ctrl+click lands on it; after t
 v	expected	154	the note reads a
 v	expected	155	the table carries a divider under the header and one between Spring and Summer; flipped back, the blank lines are where they were
 v	expected	156	the warning says the tree belongs in a parent column; after Tab the table carries a parent (orchard old) column naming Apple for Sapling and Seedling, and the warning is gone
+v	expected	157	a notice says Socrates is now Sokrates and that 1 use still says Socrates, offering Update 1 Use; the same offer is on the lightbulb of the Sokrates line
+v	expected	158	after each CSV save this file changes and saves itself; Bolt reads 6, and the count cell of Washer is empty
+v	expected	159	nothing syncs until Ctrl+K Y; then Nut reads 8 here, and one notice names Nut and count, says the later save won and took 8 from Stock.csv, and offers Use release 1.13.aot's Values, which puts 4 back in both
+v	expected	160	the CSV has Screw back at once, and a notice asks whether to delete it from release 1.13.aot too; Keep leaves Screw here
+v	expected	161	the hover lists the note as a
+v	expected	162	the hover of Rent lists currency EUR as the default of Currency; EUR under Lunch is underlined dotted and lands on the Currency line; the completion offers EUR first
+v	expected	163	the hover of Starter lists seats 1 from Plan; the CSV has Starter with 10 and 1 and Team with 40 and 5, and no row for Basic, which is the default and not an Example
+v	expected	164	the table carries a divider under the header and one between Design and Build; flipped back, the blank lines are where they were
+v	expected	165	a definition, not an error: once run, every value of rows is what f() returns; one whose Python does not read as an expression (rows = some words) is an error that says so
+v	expected	166	the value reads a = b, with one equals sign
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot
@@ -814,6 +856,11 @@ v	fixture	48	aot.files/Stock.csv
 v	fixture	49	the Shelf row of Workshop
 v	fixture	50	the line under Lantern in release 1.12.aot saying 2 more in release 1.12 peer.aot
 v	fixture	51	the setting aot.tableCsvSyncMode
+v	fixture	52	Currency and Outlay below
+v	fixture	53	Outlay below
+v	fixture	54	Phase below
+v	fixture	55	Sage and Lecture below
+v	fixture	56	Stock below, aot.files/Stock.csv, and the setting aot.tableCsvSyncMode
 v	flag	2	Yes
 v	format	2	plain text
 v	from the ledger	2	12
@@ -823,6 +870,10 @@ v	fuel	3	oil
 v	fuel	4	paraffin
 v	gears	2	21
 v	gears	3	3
+v	grade interval maximum	2	A
+v	grade interval maximum	3	a
+v	grade interval minimum	2	F
+v	grade interval minimum	3	f
 v	grammar capacity	2	unbound
 v	green	2	2
 v	has lock	2	no
@@ -865,7 +916,9 @@ v	is correct	2	yes
 v	is integer	2	No
 v	is living	2	yes
 v	is maximum ranking open	2	false
+v	is maximum ranking open	3	yes
 v	is minimum ranking open	2	false
+v	is minimum ranking open	3	yes
 v	is on-off switch	2	no
 v	is present in	2	no
 v	is race	2	yes
@@ -889,6 +942,8 @@ v	left	3	b
 v	legs	2	2
 v	legs	3	4
 v	length	2	3
+v	length	3	2
+v	length	4	6
 v	location	2	building 3
 v	location	3	entrance hall
 v	location	4	tank 1
@@ -905,6 +960,8 @@ v	measurement operation used	3	Grading
 v	measurement operation used	4	Observation
 v	measurement operation used	5	Ranking
 v	measurement operation used	6	Ratio
+v	measurement operation used	7	Rank
+v	measurement operation used	8	rank
 v	mechanism	2	Condition
 v	mechanism	3	Synchronisation
 v	memo	2	solo
@@ -931,6 +988,8 @@ v	note	5	no Example named reads the value the Concept states on its own line, th
 v	note	6	references are name-only, positional numbers were removed in 1.6; a digits lead names an Example, never a column
 v	note	7	the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
 v	note	8	a == b means equal
+v	note	9	a = b means equal
+v	number of grades	2	6
 v	numeric base	2	10
 v	offset scaling magnitude	2	0
 v	on	2	Yes
@@ -971,6 +1030,7 @@ v	price	6	2
 v	price	7	50
 v	price	8	80
 v	price	9	5
+v	price	10	40
 v	processing rule	2	Dedicated
 v	qty	2	2
 v	qty	3	4
@@ -1064,6 +1124,16 @@ v	target	8	evaluate externalised cognition
 v	target	9	exceptional
 v	target	10	no more than the stakes justify
 v	target	11	stated confidence equals achieved accuracy
+v	target	12	full content derived to most useful level with sharp boundaries
+v	target	13	
+v	target	14	Higher Order Types Are Better
+v	target	15	Peer child objective follows "magic formula" in sequence to achieve parent objective
+v	target	16	Specific reader terms integrated into standardised industry terminology
+v	target	17	Understanding between reader and writer
+v	target	18	higher order types are better
+v	target	19	peer child objective follows "magic formula" in sequence to achieve parent objective
+v	target	20	specific reader terms integrated into standardised industry terminology
+v	target	21	understanding between reader and writer
 v	tax rate	2	0.2
 v	team	2	Back-end
 v	team	3	Content
@@ -1145,6 +1215,13 @@ v	try	49	read the warning on Sapling, then press Tab in the height cell of Apple
 v	try	50	select the Vice and Clamp rows and press Tab
 v	try	51	set it to manual, edit the CSV, save this file, then press Ctrl+K Y
 v	try	52	under Power Tool type a line Drill one level deeper, watch the status bar, then move the cursor up to Machine
+v	try	53	delete the Screw row from the CSV and save it, then choose Keep
+v	try	54	hover the name Q1, and look at the colours on the vat line of Quote and on the note line of Q1
+v	try	55	hover the name Rent; hover EUR on the currency line of Lunch and Ctrl+click it; then under Rent type currency and a colon and press Ctrl+Space
+v	try	56	hover the name Starter; then save this file and open aot.files/Plan.csv
+v	try	57	put the cursor on Phase and press Ctrl+Alt+T twice
+v	try	58	save this file; in the CSV change Bolt to 6 and save it; then empty the count of Washer in the CSV and save it
+v	try	59	set the setting to manual; change Nut to 4 here and save; change Nut to 8 in the CSV and save; press Ctrl+K Y; afterwards set the setting back to auto
 v	turns	2	WIDGET into widget
 v	turns	3	a packed value into its fields
 v	turns	4	a part into its position, or zero when it is absent
@@ -1215,3 +1292,20 @@ v	philosopher	2	Socrates
 v	warmth	2	100
 v	warmth	3	150
 v	warmth	4	200
+v	cost	2	12
+v	cost	3	4
+v	cost	4	900
+v	sage	2	Socrates
+v	spread	2	20
+v	spread	3	200
+v	spread	4	30
+v	term format	2	verb + qualified object
+v	criticality	2	importance to achieve parent function
+v	frequency	2	how often the result is needed to achieve parent function
+v	is external	2	no
+v	seats	2	1
+v	seats	3	5
+v	tax	2	
+v	after facilitator	2	derive motivation
+v	after facilitator	3	determine system objective
+v	after facilitator	4	evaluate business process

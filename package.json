@@ -377,7 +377,7 @@
       },
       {
         "command": "aot.table.defineColumn",
-        "title": "Define the Column by Its Formula (move it to the header as ==)",
+        "title": "Define the Column by Its Formula (move it to the header as =)",
         "category": "AOT Table",
         "enablement": "editorLangId == aot"
       },

@@ -163,6 +163,7 @@ Release Check
         fixture: this file, opened from WSL with Remote WSL
         try: install the extension in WSL, enable Python, Ctrl+Enter on Python Probe; then AOT Set Up Python Environment
         expected: python3 runs with no python on PATH; the environment goes to aot.files .venv-linux and the Windows .venv is left alone; Show Python Environment says memory is a data-size limit
+    ... 19 more in release 1.13.aot:1
 Family
     age
     - Parent
@@ -170,8 +171,10 @@ Family
         total: 22 =@Child One@age + @Child Two@age
         - Child One
             age: 10
+            total: 22
         - Child Two
             age: 12
+            total: 22
     - Other
         age: 7
 Orchard   |parent (orchard)|height

@@ -30,7 +30,7 @@ Release Check
         expected: only Washer and Screw reorder, the divider stays between the groups and is redrawn to the column widths
     - B06 The Flip Keeps The Cursor
         area: flip
-        fixture: Payment below
+        fixture: Outlay below
         try: put the cursor inside 900 and press Ctrl+Alt+T, then press it again
         expected: both times the cursor stands inside 900, in its cell and then on its value line
     - B07 A Concept With No Examples Flips
@@ -40,44 +40,44 @@ Release Check
         expected: Colour becomes the header Colour then hue then shade divided by pipes, and back to its three lines
     - B08 Blank Lines Become Dividers
         area: flip
-        fixture: Season below
-        try: put the cursor on Season and press Ctrl+Alt+T twice
-        expected: the table carries a divider under the header and one between Spring and Summer; flipped back, the blank lines are where they were
+        fixture: Phase below
+        try: put the cursor on Phase and press Ctrl+Alt+T twice
+        expected: the table carries a divider under the header and one between Design and Build; flipped back, the blank lines are where they were
     - B09 A Concept Default
         area: defaults
-        fixture: Currency and Payment below
-        try: hover EUR on the currency line of Lunch; type a new currency value under Rent and open the completion
-        expected: EUR is underlined dotted and links to the Currency line as its default; the completion offers EUR first; Rent, saying nothing, reads EUR
+        fixture: Currency and Outlay below
+        try: hover the name Rent; hover EUR on the currency line of Lunch and Ctrl+click it; then under Rent type currency and a colon and press Ctrl+Space
+        expected: the hover of Rent lists currency EUR as the default of Currency; EUR under Lunch is underlined dotted and lands on the Currency line; the completion offers EUR first
     - B10 Defaults In A Header
         area: defaults
         fixture: Plan below
-        try: hover the empty seats cell of Starter, and look at the Plan CSV after a save
-        expected: Starter reads 1 from the header default; the CSV has no row for Basic, which is the default and not an Example
+        try: hover the name Starter; then save this file and open aot.files/Plan.csv
+        expected: the hover of Starter lists seats 1 from Plan; the CSV has Starter with 10 and 1 and Team with 40 and 5, and no row for Basic, which is the default and not an Example
     - B11 Equals Defines And A Doubled Equals Is Literal
         area: syntax
         fixture: Quote below
-        try: hover the note value of Q1, and look at the colours of vat and its definition
-        expected: the note reads a = b means equal; vat is defined by the Python after its single equals sign
-    - B12 The CSV Mirror Merges Three Ways
+        try: hover the name Q1, and look at the colours on the vat line of Quote and on the note line of Q1
+        expected: the hover lists the note as a = b means equal; the Python after the single equals sign of vat is coloured as code, and the doubled equals of the note as an escape
+    - B12 The CSV Mirror Writes Back
         area: csv
         fixture: Stock below, and aot.files/Stock.csv after a save
-        try: in the CSV change Bolt to 6 and save it; then in this file change Nut to 4, and in the CSV change Nut to 8, saving the CSV last
-        expected: Bolt reads 6 here; Nut reads 8, and one notice names the cell, says which side won, and offers Use release 1.13.aot's Values
+        try: save this file; in the CSV change Bolt to 6 and save it; then empty the count of Washer in the CSV and save it
+        expected: after each CSV save this file changes and saves itself; Bolt reads 6, and the count cell of Washer is empty
     - B13 A Dropped Row Is Asked About
         area: csv
         fixture: aot.files/Stock.csv
-        try: delete the Screw row from the CSV and save it
-        expected: a notice asks Delete from release 1.13.aot or Keep; Keep leaves Screw here and puts it back in the CSV
-    - B14 Sync By Hand
+        try: delete the Screw row from the CSV and save it, then choose Keep
+        expected: the CSV has Screw back at once, and a notice asks whether to delete it from release 1.13.aot too; Keep leaves Screw here
+    - B14 A Cell Both Sides Changed
         area: csv
-        fixture: the setting aot.tableCsvSyncMode
-        try: set it to manual, edit the CSV, save this file, then press Ctrl+K Y
-        expected: nothing syncs until Ctrl+K Y, which runs both ways
+        fixture: Stock below, aot.files/Stock.csv, and the setting aot.tableCsvSyncMode
+        try: set the setting to manual; change Nut to 4 here and save; change Nut to 8 in the CSV and save; press Ctrl+K Y; afterwards set the setting back to auto
+        expected: nothing syncs until Ctrl+K Y; then Nut reads 8 here, and one notice names Nut and count, says the later save won and took 8 from Stock.csv, and offers Use release 1.13.aot's Values, which puts 4 back in both
     - B15 Rename By Typing
         area: rename
-        fixture: Philosopher and Lecture below
+        fixture: Sage and Lecture below
         try: change Socrates to Sokrates on its line, then move the cursor to another line
-        expected: a notice says Socrates is now Sokrates and that 1 use still says Socrates, offering to update it; the same offer is on the lightbulb of the Sokrates line
+        expected: a notice says Socrates is now Sokrates and that 1 use still says Socrates, offering Update 1 Use; the same offer is on the lightbulb of the Sokrates line
     - B16 F2 Across The Workspace
         area: rename
         fixture: Lantern in release 1.12.aot and release 1.12 peer.aot
@@ -98,16 +98,17 @@ Release Check
         fixture: Hand Tool below
         try: Ctrl+click Machine inside the alias of Hand Tool
         expected: it lands on Machine
+    ... 32 more in release 1.12.aot:1
 Workshop|parent (workshop)|weight
 Bench   |                 |40
 Vice    |Bench            |9
 Clamp   |Bench            |2
 Shelf   |                 |15
 
-Orchard Old|height
-Apple      |300
-    Sapling|40
-    Seedling|35
+Orchard Old|height|spread
+Apple      |300   |200
+    Sapling|40    |30
+    Seedling|35   |20
 
 Stock |count
 Bolt  |5
@@ -117,28 +118,28 @@ Washer|9
 Screw |1
 
 Currency: EUR
-Payment
+Outlay
     currency
-    amount
+    cost
     - Rent
-        amount: 900
+        cost: 900
     - Coffee
-        amount: 4
+        cost: 4
         currency: USD
     - Lunch
-        amount: 12
+        cost: 12
         currency: EUR
 Colour
     hue
     shade
-Season
+Phase
     length
 
-    - Spring
-        length: 3
+    - Design
+        length: 2
 
-    - Summer
-        length: 3
+    - Build
+        length: 6
 Plan: Basic|price|seats: 1
 Starter    |10   |
 Team       |40   |5
@@ -150,13 +151,13 @@ Quote
         price: 100
         vat: 20
         note: a == b means equal
-Philosopher
+Sage
     - Socrates
     - Plato
 Lecture
-    philosopher
+    sage
     - Ethics Talk
-        philosopher: Socrates
+        sage: Socrates
 Machine
     Power Tool
     Hand Tool (Machine Part)
