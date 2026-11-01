@@ -1,8 +1,8 @@
 - Metric
-    Architect
-        - scope of what must be done
+    Solution Architect
+        - scope of what must be done balanced to motivation
             target: full content derived to most useful level with sharp boundaries
-            actual: incomplete operational understanding baised to specific viewpoint
+            actual: specific viewpoint operational understanding bais
             measurement operation used: rank
             grade interval minimum: f
             grade interval maximum: a
@@ -21,23 +21,26 @@
             - terminology defined
                 target: specific reader terms integrated into standardised industry terminology
                 actual: different understanding of function between reader and writer
-
+        - balanced paradigms
+            target: all paradigms align to each other
+            actual: inconsistent and contradictory paradigms
+    
     Reader
         - essential elements evaluation against motivation
         - identify outputs required
         - intrinsic dependencies
-            
-
 - Workflow
-    Facilitator                    |after facilitator
-    determine system objective     |
-    derive motivation              |determine system objective
-    evaluate business process      |derive motivation
-    prioritised functional delivery|evaluate business process
-
-    
-
-        
+    Facilitator
+        - understand requirement
+            - discussion
+            - research
+            - think
+        - model solution    
+            - system objective
+            - motivation
+            - business process evaluation
+            - delivery prioritisation
+        - use solution
 - Graph
     
     Function

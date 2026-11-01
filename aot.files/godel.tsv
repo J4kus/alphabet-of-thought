@@ -354,6 +354,9 @@ v	actual	14	Unclear or ambigious functions defined
 v	actual	15	contention or malfunction of functional understanding
 v	actual	16	different understanding of function between reader and writer
 v	actual	17	unclear or ambiguous functions defined
+v	actual	18	inconsistant and contridictory paradigms
+v	actual	19	inconsistent and contradictory paradigms
+v	actual	20	specific viewpoint operational understanding bais
 v	after	2	#ERR
 v	after	3	confusing time
 v	after	4	grappling with a subject
@@ -1134,6 +1137,7 @@ v	target	18	higher order types are better
 v	target	19	peer child objective follows "magic formula" in sequence to achieve parent objective
 v	target	20	specific reader terms integrated into standardised industry terminology
 v	target	21	understanding between reader and writer
+v	target	22	all paradigms align to each other
 v	tax rate	2	0.2
 v	team	2	Back-end
 v	team	3	Content
