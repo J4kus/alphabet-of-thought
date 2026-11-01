@@ -1,0 +1,162 @@
+Release Check
+    area
+    fixture
+    try
+    expected
+    - B01 A Table Nests Through Its Parent Column
+        area: tables
+        fixture: Workshop below
+        try: hover Bench in the parent cell of the Vice row, then Ctrl+click it; then put the cursor in a name cell and run Sort Rows by Column at Cursor
+        expected: the hover names the row Bench and Ctrl+click lands on it; after the sort Vice and Clamp still name Bench, and the Outline still lists them under Workshop
+    - B02 A Table From 1.12 Migrates On The First Key
+        area: tables
+        fixture: Orchard Old below
+        try: read the warning on Sapling, then press Tab in the height cell of Apple
+        expected: the warning says the tree belongs in a parent column; after Tab the table carries a parent (orchard old) column naming Apple for Sapling and Seedling, and the warning is gone
+    - B03 Tab Never Indents A Table
+        area: tables
+        fixture: Workshop below
+        try: select the Vice and Clamp rows and press Tab
+        expected: the cursor moves to the next cell; no line is indented; Ctrl+] still indents the selection, as VS Code always does
+    - B04 Nest And Lift Write The Parent Cell
+        area: tables
+        fixture: the Shelf row of Workshop
+        try: on Shelf run AOT Table Nest Row Under the Row Above, then AOT Table Lift Row Out of Its Parent Row
+        expected: nesting writes Clamp into the parent cell of Shelf; lifting writes Bench, the parent of Clamp
+    - B05 Dividers Group The Rows
+        area: tables
+        fixture: Stock below
+        try: put the cursor on Screw and run Sort Rows by Column at Cursor; then Format Document
+        expected: only Washer and Screw reorder, the divider stays between the groups and is redrawn to the column widths
+    - B06 The Flip Keeps The Cursor
+        area: flip
+        fixture: Payment below
+        try: put the cursor inside 900 and press Ctrl+Alt+T, then press it again
+        expected: both times the cursor stands inside 900, in its cell and then on its value line
+    - B07 A Concept With No Examples Flips
+        area: flip
+        fixture: Colour below
+        try: put the cursor on Colour and press Ctrl+Alt+T twice
+        expected: Colour becomes the header Colour then hue then shade divided by pipes, and back to its three lines
+    - B08 Blank Lines Become Dividers
+        area: flip
+        fixture: Season below
+        try: put the cursor on Season and press Ctrl+Alt+T twice
+        expected: the table carries a divider under the header and one between Spring and Summer; flipped back, the blank lines are where they were
+    - B09 A Concept Default
+        area: defaults
+        fixture: Currency and Payment below
+        try: hover EUR on the currency line of Lunch; type a new currency value under Rent and open the completion
+        expected: EUR is underlined dotted and links to the Currency line as its default; the completion offers EUR first; Rent, saying nothing, reads EUR
+    - B10 Defaults In A Header
+        area: defaults
+        fixture: Plan below
+        try: hover the empty seats cell of Starter, and look at the Plan CSV after a save
+        expected: Starter reads 1 from the header default; the CSV has no row for Basic, which is the default and not an Example
+    - B11 Equals Defines And A Doubled Equals Is Literal
+        area: syntax
+        fixture: Quote below
+        try: hover the note value of Q1, and look at the colours of vat and its definition
+        expected: the note reads a = b means equal; vat is defined by the Python after its single equals sign
+    - B12 The CSV Mirror Merges Three Ways
+        area: csv
+        fixture: Stock below, and aot.files/Stock.csv after a save
+        try: in the CSV change Bolt to 6 and save it; then in this file change Nut to 4, and in the CSV change Nut to 8, saving the CSV last
+        expected: Bolt reads 6 here; Nut reads 8, and one notice names the cell, says which side won, and offers Use release 1.13.aot's Values
+    - B13 A Dropped Row Is Asked About
+        area: csv
+        fixture: aot.files/Stock.csv
+        try: delete the Screw row from the CSV and save it
+        expected: a notice asks Delete from release 1.13.aot or Keep; Keep leaves Screw here and puts it back in the CSV
+    - B14 Sync By Hand
+        area: csv
+        fixture: the setting aot.tableCsvSyncMode
+        try: set it to manual, edit the CSV, save this file, then press Ctrl+K Y
+        expected: nothing syncs until Ctrl+K Y, which runs both ways
+    - B15 Rename By Typing
+        area: rename
+        fixture: Philosopher and Lecture below
+        try: change Socrates to Sokrates on its line, then move the cursor to another line
+        expected: a notice says Socrates is now Sokrates and that 1 use still says Socrates, offering to update it; the same offer is on the lightbulb of the Sokrates line
+    - B16 F2 Across The Workspace
+        area: rename
+        fixture: Lantern in release 1.12.aot and release 1.12 peer.aot
+        try: F2 on Lantern in release 1.12.aot and type Lamp
+        expected: Lantern is renamed in both files, the peer left unsaved for review
+    - B17 Findings Wait While You Write
+        area: hold
+        fixture: Machine below
+        try: under Power Tool type a line Drill one level deeper, watch the status bar, then move the cursor up to Machine
+        expected: no squiggle on Power Tool while typing; the status bar says 1 waiting, leave Power Tool to see it; leaving shows the lone sub-Concept warning
+    - B18 The Note Hovers By Part
+        area: notes
+        fixture: the line under Lantern in release 1.12.aot saying 2 more in release 1.12 peer.aot
+        try: hover 2 more, hover the file name, then Ctrl+click the file name
+        expected: the first hover lists the two Examples written in the peer, the second that file's Examples; Ctrl+click opens the peer at Lantern
+    - B19 An Alias Links By Its Words
+        area: links
+        fixture: Hand Tool below
+        try: Ctrl+click Machine inside the alias of Hand Tool
+        expected: it lands on Machine
+Workshop|parent (workshop)|weight
+Bench   |                 |40
+Vice    |Bench            |9
+Clamp   |Bench            |2
+Shelf   |                 |15
+
+Orchard Old|height
+Apple      |300
+    Sapling|40
+    Seedling|35
+
+Stock |count
+Bolt  |5
+Nut   |3
+------|-----
+Washer|9
+Screw |1
+
+Currency: EUR
+Payment
+    currency
+    amount
+    - Rent
+        amount: 900
+    - Coffee
+        amount: 4
+        currency: USD
+    - Lunch
+        amount: 12
+        currency: EUR
+Colour
+    hue
+    shade
+Season
+    length
+
+    - Spring
+        length: 3
+
+    - Summer
+        length: 3
+Plan: Basic|price|seats: 1
+Starter    |10   |
+Team       |40   |5
+
+Quote
+    price
+    vat =@price*0.2
+    - Q1
+        price: 100
+        vat: 20
+        note: a == b means equal
+Philosopher
+    - Socrates
+    - Plato
+Lecture
+    philosopher
+    - Ethics Talk
+        philosopher: Socrates
+Machine
+    Power Tool
+    Hand Tool (Machine Part)

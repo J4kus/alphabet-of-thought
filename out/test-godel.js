@@ -431,5 +431,84 @@ const aot = (...lines) => lines.join("\n");
   }
 }
 
+// 15) G is kept as its factorisation: every reading agrees with the integer
+{
+  const { firstN, isPrime, nth } = require("../src/primes");
+  // the sieve against trial division, the slow way, for the first 10,000
+  const slow = [];
+  for (let n = 2; slow.length < 10000; n++) if (slow.every((p) => p * p > n || n % p)) slow.push(n);
+  const fast = firstN(10000);
+  check("primes: the sieve gives the same first 10,000 primes as trial division", fast.length === 10000 && fast.every((p, i) => p === slow[i]));
+  check("primes: isPrime agrees with the list, past the sieve too",
+    isPrime(2) && isPrime(104729) && !isPrime(104730) && !isPrime(1) && isPrime(2147483647n) && !isPrime(2147483649) && nth(0) === 2);
+
+  // every fixture node: the factorisation and the integer say the same thing
+  const sources = [colours, override, clash, aot("Pet", "    legs: 4", "    sound: none", "    - Dog", "        sound: bark", "        fur: short",
+    "    - Cat", "        sound: meow", "        fur: short", "    - Fish", "        sound: bark", "        fur: short")];
+  let agree = true, n = 0;
+  for (const text of sources) {
+    const { root, nodes } = lint(text, "World");
+    const { attrPrime } = buildGodel(root, nodes);
+    const numbered = [root, ...nodes].filter((x) => x.gvec);
+    for (const a of numbered) {
+      n++;
+      const product = a.gvec.p.reduce((g, p, i) => g * BigInt(p) ** BigInt(a.gvec.e[i]), 1n);
+      if (a.godel !== product || String(product).length !== G.digits(a.gvec)) agree = false;
+      for (const p of attrPrime.values()) {
+        let e = 0n, g = product;
+        while (g % p === 0n) { g /= p; e++; }
+        if (valuation(a.godel, p) !== e || BigInt(G.vecValuation(a.gvec, p)) !== e) agree = false;
+      }
+      for (const b of numbered) if ((a.godel === b.godel) !== G.vecEqual(a.gvec, b.gvec)) agree = false;
+    }
+  }
+  check(`factorisation: integer, valuations, digit counts and equality agree on ${n} fixture nodes`, agree && n > 10);
+
+  // random factorisations: the product tree, gcd, lcm, divisibility, distance
+  let seed = 7;
+  const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const ps = firstN(60);
+  const random = () => G.vecOf(ps.filter(() => rand() < 0.4).map((p) => [p, 1 + Math.floor(rand() * 300)]));
+  const big = (v) => v.p.reduce((g, p, i) => g * BigInt(p) ** BigInt(v.e[i]), 1n);
+  const gcdBig = (a, b) => { while (b) [a, b] = [b, a % b]; return a; };
+  let ok = true;
+  for (let t = 0; t < 40; t++) {
+    const a = random(), b = random();
+    const A = big(a), B = big(b);
+    if (G.toBigInt(a) !== A) ok = false;
+    if (G.toBigInt(G.vecGcd(a, b)) !== gcdBig(A, B)) ok = false;
+    if (G.toBigInt(G.vecLcm(a, b)) !== (A / gcdBig(A, B)) * B) ok = false;
+    if (G.vecDivides(G.vecGcd(a, b), a) !== true || G.vecDivides(a, b) !== (B % A === 0n)) ok = false;
+    if (G.digits(a) !== String(A).length) ok = false;
+    if (G.vecDistance(a, a) !== 0 || G.vecDistance(a, b) !== G.vecDistance(b, a)) ok = false;
+  }
+  check("factorisation: product tree, gcd, lcm, divisibility and digit counts match BigInt arithmetic on 40 random pairs", ok);
+  const huge = G.vecOf([[2, 4000], [3, 2500], [1993, 135]]);
+  check("factorisation: a number of some 2,800 digits is sized and quoted without being made",
+    G.digits(huge) > 2000 && huge.big === undefined && /^\d\.\d\d × 10\^[\d,]+$/.test(G.approx(huge)) && huge.big === undefined);
+  check("factorisation: one prime given twice is one prime, exponents added; an exponent of 0 drops out",
+    G.vecOf([[3, 2], [3, 5], [7, 0]]).key === "3^7" && G.factorsOf(G.vecOf([[2, 3], [5, 1], [11, 2]])) === "2³ · 5 · 11²");
+}
+
+// 16) a part inherits nothing from its whole: a sub-Example's content comes
+// from its kinds, never from the Example it sits under — in lines exactly as
+// in a nested table row, and an attribute's listed values likewise
+{
+  const lines = lint(aot("Thing", "    age", "    - Parent", "        age: 40", "        - Child", "            colour: red"), "World");
+  buildGodel(lines.root, lines.nodes);
+  const child = node(lines.root, lines.nodes, "Child");
+  const ages = lines.nodes.filter((x) => x.name === "age");
+  const agePrime = ages.length && buildGodel(lines.root, lines.nodes).attrPrime.get("age");
+  check("inheritance: a sub-Example carries the attribute its kind declares, unvalued — not its parent Example's value",
+    G.vecValuation(child.gvec, agePrime) === 1);
+  const listed = lint(aot("Rule", "    - Strict", "        mode: hard", "        begin", "            - Dash"), "World");
+  const t = buildGodel(listed.root, listed.nodes);
+  const dash = node(listed.root, listed.nodes, "Dash");
+  check("inheritance: an Example listed under an attribute does not take on the Example that attribute sits on",
+    G.vecValuation(dash.gvec, t.attrPrime.get("mode")) === 0);
+  check("inheritance: the override is measured against the kind, not the Example above",
+    !overrides(lines.root, lines.nodes).findings.some((f) => /Child/.test(f.message)));
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

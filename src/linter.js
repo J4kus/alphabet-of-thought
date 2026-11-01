@@ -20,7 +20,8 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation } = require("./table");
+const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation, defaultColon, isParentColumn } = require("./table");
+const { bigPrimes } = require("./primes");
 
 const INDENT = 4;
 
@@ -49,14 +50,10 @@ function makeReport() {
 // than divide it, so the structural checks skip them.
 const realChildren = (node) => node.children.filter((c) => c.kind !== MAP);
 
+// Every prime in order, as BigInts — from the sieve primes.js keeps for the
+// life of the process, so a lint no longer re-derives them one by one.
 function* primes() {
-  const found = [];
-  for (let n = 2; ; n++) {
-    if (found.every((p) => n % p)) {
-      found.push(n);
-      yield BigInt(n);
-    }
-  }
+  yield* bigPrimes();
 }
 
 function gcd(a, b) {
@@ -93,11 +90,11 @@ function eachDuplicate(groups, fn) {
 // A colon gives the term on its left a single inline value. What that value
 // is depends on the term: a lowercase term is an attribute, so its value is
 // an Attribute Value (a Default); a capitalised term is a Concept, so its
-// value is the Concept's one inline Example — `Run Command: code ...` is the
-// Concept 'Run Command' described by the single Example 'code ...', all on
-// one line. parse materialises that Example as a child so it is an Example
-// everywhere the tree is read. value is null when there is no colon, and ""
-// when the colon has nothing after it (an empty value, caught in parse).
+// value is the Concept's default — `Currency: EUR` says what any attribute
+// typed by Currency reads where nothing values it (crosslinks.typeDefault).
+// A default is not an Example: it is no row, no CSV line, no member of the
+// Concept's extension. value is null when there is no colon, and "" when the
+// colon has nothing after it (an empty value, caught in parse).
 function classify(text) {
   if (text.startsWith("...")) return { kind: MAP, name: text.slice(3).trim(), value: null };
   // '- ' opens an Example. A table row is the other way of writing one,
@@ -143,17 +140,22 @@ function parse(text, rootName, report) {
   // header cell). Only an unbroken run of rows at the header's depth or
   // deeper shares columns — a blank line, a line carrying no pipe, or a
   // line shallower than the header ends it.
-  // rowStack[d] is the last row Example seen at depth d, the table's own
-  // copy of the `stack` above: a row written one level deeper than the row
-  // above it nests under it, exactly as an indented line nests under the
-  // line above it.
+  // rows are the table's Examples in the order written, filed under the rows
+  // their parent cells name once the table is complete (refile). rowStack[d]
+  // is the last row seen at depth d: a row a 1.12 file indents one level
+  // under the row above it still nests under it, as an indented line nests
+  // under the line above it, and is warned about.
   let table = null;
+  const closeTable = () => {
+    if (table) refile(table, report);
+    table = null;
+  };
   const lines = text.split(/\r?\n/);
   lines.forEach((raw, i) => {
     const line = i + 1;
     let content = raw;
     if (!content.trim()) {
-      table = null; // a blank line ends a table, as in org
+      closeTable(); // a blank line ends a table, as in org
       return;
     }
     if (content.includes("\t")) {
@@ -178,10 +180,9 @@ function parse(text, rootName, report) {
       depth = prevDepth + 1;
     }
     let trimmed = content.trim();
-    // a '---+---' rule is layout left over from before 1.12, when it marked
-    // the row above it as the header. Standing first is what marks the header
-    // now, so the rule states nothing — it is skipped without ending the
-    // table, and the next re-draw takes it out of the file
+    // a '----|----' divider groups a table's rows, as a blank line groups an
+    // outline's: it is presentation, so it is skipped without ending the
+    // table (and a '---+---' rule left from before 1.12 is read as one)
     if (isSeparator(trimmed)) return;
     const marker = trimmed[0];
     // a row carries a '|' between its cells; a row deeper than the table's
@@ -197,7 +198,7 @@ function parse(text, rootName, report) {
     // its last row is missing). A row that needs a Map of its own is
     // written in line form, where it has a line to hang one under.
     const tableMap = !!table && !isRow && depth > table.depth && trimmed.startsWith("...");
-    if (table && !tableMap && (!isRow || depth < table.depth)) table = null;
+    if (table && !tableMap && (!isRow || depth < table.depth)) closeTable();
     // A derivation with nothing before its '=' — `=load_all()` on a line of
     // its own — writes Concepts: its Python returns tables by name, and each
     // lands as a Concept (python.js writeGenerated). The line itself is no
@@ -218,7 +219,7 @@ function parse(text, rootName, report) {
       return;
     }
     if (trimmed.startsWith("==")) {
-      report.error(line, `'${trimmed}' is a bound with no attribute — a bound holds the values of the attribute it is written on; put the attribute's name in front of it, as in 'status ==("draft", "sent")'`,
+      report.error(line, `'${trimmed}' is a bound with no attribute — a bound holds the values of the attribute it is written on; put the attribute's name in front of it, as in 'status =("draft", "sent")'`,
         { startCol: spaces, endCol: spaces + trimmed.length });
       return;
     }
@@ -242,7 +243,7 @@ function parse(text, rootName, report) {
         // filed under already bears the same name, the table fills that
         // node in rather than declaring a twin, so a Concept can carry
         // line-form defaults and '- ' Examples beside its grid.
-        table = { depth, attrs: [], rowStack: [] };
+        table = { depth, attrs: [], rows: [], rowStack: [] };
         // the header names the Concept the whole table describes, so it is
         // the table's own line: its indent IS the table's, and every row
         // written deeper than it nests inside it
@@ -256,6 +257,28 @@ function parse(text, rootName, report) {
           if (d) {
             headDerivation = { formula: d.formula, col: row[0].col + d.eq, end: row[0].col + row[0].text.length };
             cName = d.head;
+          }
+        }
+        // the first cell may state the Concept's default, as the Concept's
+        // own line would: `Currency: EUR|symbol` (table.isRowText lets a
+        // capitalised colon through)
+        let cDefault = null, cDefaultCol;
+        {
+          const colon = cName.indexOf(":");
+          if (colon !== -1 && row.length) {
+            const after = cName.slice(colon + 1);
+            const written = after.trim();
+            const split = splitCell(written);
+            cDefaultCol = row[0].col + colon + 1 + (after.length - after.trimStart().length);
+            if (!written) {
+              report.error(line, `'${cName}' has 0 characters after ':', expected the Concept's default — write it, or drop the colon`,
+                { startCol: row[0].col, endCol: row[0].col + row[0].text.length });
+            } else if (split.eq !== -1) {
+              report.error(line, `'${cName}' derives the Concept's default — a default is stated, not derived; write the value, or double a literal '=' (==)`,
+                { startCol: cDefaultCol + split.eq, endCol: cDefaultCol + written.length });
+            }
+            cDefault = written ? readValue(split.eq !== -1 ? split.value : written) || null : null;
+            cName = cName.slice(0, colon).trim();
           }
         }
         if (cName.endsWith(")") && cName.includes("(")) {
@@ -273,6 +296,16 @@ function parse(text, rootName, report) {
             row.length ? { startCol: row[0].col, endCol: row[0].col + Math.max(row[0].text.length, 1) } : undefined);
         } else if (sameAsParent) {
           owner = parent; // the table fills in the line it is filed under
+          // its default with it — one Concept, one default
+          if (cDefault !== null) {
+            if (parent.value && String(parent.value).toLowerCase() !== String(cDefault).toLowerCase()) {
+              report.error(line, `'${cName}' states two defaults — '${parent.value}' on its line (line ${parent.line}) and '${cDefault}' in its table's header; keep one`,
+                { startCol: row[0].col, endCol: row[0].col + row[0].text.length, related: [{ line: parent.line, message: `'${cName}' says '${parent.value}' here` }] });
+            } else if (!parent.value) {
+              parent.value = cDefault;
+              parent.valueCol = cDefaultCol;
+            }
+          }
         } else if (cName[0] >= "a" && cName[0] <= "z") {
           // (a 'name: value' line whose value holds a pipe never reaches
           // here: the colon before its first pipe keeps it a line —
@@ -281,9 +314,10 @@ function parse(text, rootName, report) {
             { startCol: row[0].col, endCol: row[0].col + row[0].text.length });
         } else {
           const concept = {
-            line, depth, kind: CONCEPT, name: cName, value: null,
+            line, depth, kind: CONCEPT, name: cName, value: cDefault,
             alias: cAlias, aliasCol: cAliasCol, parent, children: [], nameCol: row[0].col, cell: true,
           };
+          if (cDefault !== null) concept.valueCol = cDefaultCol;
           parent.children.push(concept);
           nodes.push(concept);
           owner = concept;
@@ -300,15 +334,77 @@ function parse(text, rootName, report) {
         }
         table.owner = owner;
         let last = null;
+        // `parent (thing)` is no attribute but the table's own structure:
+        // each row's cell under it names the row that row sits under
+        const owners = [owner.name, owner.alias];
+        const structural = (cell, alias, aliasCol) => {
+          if (table.attrs.some((a) => a && a.structural)) {
+            report.error(line, `a second '${cell.text}' column — a table names each row's parent in one column; remove this one`,
+              { startCol: cell.col, endCol: cell.col + cell.text.length });
+            table.attrs.push(null);
+            return;
+          }
+          const col = { structural: true, line, nameCol: cell.col, alias, aliasCol };
+          (owner.parentColumns || (owner.parentColumns = [])).push(col);
+          table.attrs.push(col);
+        };
         for (const cell of row.slice(1)) {
+          // a cell with a colon states the column's default, exactly the line
+          // that would state it under the Concept — `tax rate: 0.2` — so an
+          // empty cell below inherits it as a silent Example does. It is the
+          // Concept's own value, as that line is (not a cell's: no grid row
+          // holds it), and a default is stated, not derived, in a header.
+          const colon = defaultColon(cell.text);
+          if (colon !== -1) {
+            let dName = cell.text.slice(0, colon).trim(), dAlias = null, dAliasCol;
+            const after = cell.text.slice(colon + 1);
+            const written = after.trim();
+            const split = splitCell(written);
+            const valueCol = cell.col + colon + 1 + (after.length - after.trimStart().length);
+            if (dName.endsWith(")") && dName.includes("(")) {
+              const open = dName.lastIndexOf("(");
+              const inner = dName.slice(open + 1, -1);
+              dAlias = inner.trim() || null;
+              if (dAlias) dAliasCol = cell.col + open + 1 + (inner.length - inner.trimStart().length);
+              dName = dName.slice(0, open).trim();
+            }
+            if (!dName) { table.attrs.push(null); continue; }
+            if (isParentColumn(dName, dAlias, owners)) {
+              report.error(line, `'${cell.text}' gives the parent column a default — the column names the row each row sits under, so a row naming none is a row of '${owner.name}' itself; drop the ':' and what follows it`,
+                { startCol: cell.col + colon, endCol: cell.col + cell.text.length });
+              structural(cell, dAlias, dAliasCol);
+              continue;
+            }
+            if (dName[0] >= "A" && dName[0] <= "Z") {
+              report.error(line, `column '${dName}' is capitalised — a table column names an attribute of '${owner.name}', and attributes are lowercase; lowercase it`,
+                { startCol: cell.col, endCol: cell.col + cell.text.length });
+            }
+            if (!written) {
+              report.error(line, `'${cell.text}' has 0 characters after ':', expected the column's default — write it, or drop the colon to leave '${dName}' a plain column`,
+                { startCol: cell.col, endCol: cell.col + cell.text.length });
+            } else if (split.eq !== -1) {
+              report.error(line, `'${cell.text}' derives the column's default — a default in a header is stated, not derived; write the value, or put the derivation on the Concept's own line ('${dName}: =…')`,
+                { startCol: valueCol + split.eq, endCol: valueCol + written.length });
+            }
+            const def = {
+              line, depth, kind: DEFAULT, name: dName, value: readValue(split.eq !== -1 ? split.value : written),
+              alias: dAlias, aliasCol: dAliasCol, parent: owner, children: [], nameCol: cell.col, valueCol, header: true,
+            };
+            owner.children.push(def);
+            nodes.push(def);
+            table.attrs.push(def);
+            last = def;
+            continue;
+          }
           // a header cell is an attribute term, so it may carry a trailing
           // (alias) and trailing constraints (`qty >=1`, chained as
-          // `age >=18 <=65`) exactly as the bare line form does — each
-          // constraint bounds the whole column
+          // `age >=18 <=65`, or the column's definition `vat =@price*0.2`)
+          // exactly as the bare line form does — each constraint bounds the
+          // whole column
           let name = cell.text, alias = null, aliasCol, constraints = null;
           const con = splitConstraint(name);
           if (con.eq !== -1) {
-            constraints = con.constraints.map((b) => ({ op: b.op, formula: b.formula, opCol: cell.col + b.eq }));
+            constraints = con.constraints.map((b) => ({ op: b.op, opText: b.opText, formula: b.formula, opCol: cell.col + b.eq }));
             name = con.value;
           }
           if (name.endsWith(")") && name.includes("(")) {
@@ -320,6 +416,14 @@ function parse(text, rootName, report) {
           }
           if (!name) {
             table.attrs.push(null);
+            continue;
+          }
+          if (isParentColumn(name, alias, owners)) {
+            if (constraints) {
+              report.error(line, `'${cell.text}' bounds the parent column — the column names the row each row sits under, and holds nothing to bound or define; drop the '${constraints[0].opText}' and what follows it`,
+                { startCol: constraints[0].opCol, endCol: cell.col + cell.text.length });
+            }
+            structural(cell, alias, aliasCol);
             continue;
           }
           if (name[0] >= "A" && name[0] <= "Z") {
@@ -354,16 +458,20 @@ function parse(text, rootName, report) {
           report.error(line, `table row has ${row.length} cells but the header names ${table.attrs.length + 1} columns — remove the extra cells, or add columns to the header`,
             { startCol: first.col, endCol: lastCell.col + Math.max(lastCell.text.length, 1) });
         }
-        // A row's leading spaces inside its name cell are its depth in the
-        // table's tree: a row one level deeper than the row above it is a
-        // sub-Example of that row, exactly as '- Child' under '- Parent' is.
-        // Its parent is the nearest shallower row; at depth 0 it is the
-        // Concept the header names, as every row always was.
-        // With the outer pipe gone the name stands where the line starts,
-        // so a row's depth is simply its line's, past the table's own — the
-        // one indent law the whole language runs on, and already checked
-        // for whole levels above.
+        // A table never nests by indentation: a row that sits under another
+        // names it in the `parent (thing)` column, and is filed there once the
+        // table is complete (refile). A 1.12 file wrote the same tree as the
+        // name's indent past the table's own — a row one level deeper than
+        // the row above it its sub-Example — and that reading still holds,
+        // so no file changes meaning; the next re-draw rewrites it as the
+        // column, and the warning says so.
         let rowDepth = depth - table.depth;
+        if (rowDepth > 0 && !table.indentWarned) {
+          table.indentWarned = true;
+          const thing = numberless(table.owner.name || "").toLowerCase();
+          report.warn(line, `row '${row[0].text}' nests by its indent — since 1.13 a table never nests that way: a sub-Example names the row it sits under in a 'parent (${thing})' column; Format Document (or any table key) rewrites the table so`,
+            { startCol: row[0].col - row[0].indent, endCol: row[0].col + Math.max(row[0].text.length, 1) });
+        }
         if (rowDepth > table.rowStack.length) {
           report.error(line, `row '${row[0].text}' is ${rowDepth - table.rowStack.length} ${rowDepth - table.rowStack.length === 1 ? "level" : "levels"} deeper than the row above it, but a sub-Example sits exactly one level under its parent row — there is no row at depth ${rowDepth - 1} to be its parent; indent its name cell to depth ${table.rowStack.length}`,
             { startCol: row[0].col - row[0].indent, endCol: row[0].col + Math.max(row[0].text.length, 1) });
@@ -376,10 +484,16 @@ function parse(text, rootName, report) {
         };
         rowParent.children.push(example);
         nodes.push(example);
+        table.rows.push(example);
         table.rowStack.length = rowDepth;
         table.rowStack.push(example);
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
           const attr = table.attrs[c - 1];
+          // the parent cell is structure: it names a row, and holds no value
+          if (attr && attr.structural) {
+            if (row[c].text) example.parentCell = { text: row[c].text, col: row[c].col };
+            continue;
+          }
           // a formula ('10 =$1+10') derives the value: only the value part
           // is the Attribute Value; the formula itself is presentation,
           // audited and coloured by the editor, invisible to the model
@@ -409,16 +523,17 @@ function parse(text, rootName, report) {
       }
     }
     // a bare attribute may carry trailing constraints — `age >=18` bounds
-    // every value the attribute takes (checked by derive.js), and several
-    // may chain on the one declaration: `age >=18 <=65`. The head must
-    // be a colon-less lowercase term, so `age: 25 >=18` (a value) and
-    // Concepts are left whole.
+    // every value the attribute takes (checked by derive.js), several may
+    // chain on the one declaration (`age >=18 <=65`), and `=` defines them:
+    // `vat =@price*0.2` is what every value of vat is. The head must be a
+    // colon-less lowercase term, so `age: 25 >=18` (a value) and Concepts
+    // are left whole.
     let constraints = null;
     {
       const con = splitConstraint(trimmed);
       const head = con.eq === -1 ? "" : con.value;
       if (head && !head.includes(":") && head[0] >= "a" && head[0] <= "z") {
-        constraints = con.constraints.map((b) => ({ op: b.op, formula: b.formula, opCol: spaces + b.eq }));
+        constraints = con.constraints.map((b) => ({ op: b.op, opText: b.opText, formula: b.formula, opCol: spaces + b.eq }));
         trimmed = head;
       }
     }
@@ -427,8 +542,9 @@ function parse(text, rootName, report) {
     // it comes off the line before the line is classified, so the Concept is
     // named `Sales` everywhere it is read (and a colon inside the Python,
     // `Sales =df[:10]`, never becomes an inline Example). On a bare
-    // attribute it is misplaced: a derivation computes a value, and a
-    // declaration has none.
+    // attribute an `=` whose Python reads as an expression was a definition
+    // above; one that reaches here does not read as one, so it defines
+    // nothing and says so.
     let derivation = null;
     if (!constraints) {
       const d = lineDerivation(trimmed);
@@ -439,7 +555,9 @@ function parse(text, rootName, report) {
     }
     const { kind, name, value, alias } = classify(trimmed);
     if (derivation && kind !== CONCEPT) {
-      report.error(line, `'${name} =${derivation.formula}' puts a derivation on a bare attribute — a derivation computes a value, and '${name}' declares none; add a colon so it sits on the value: '${name}: =${derivation.formula}'`,
+      report.error(line, derivation.formula
+        ? `'${name} =${derivation.formula}' does not read as Python, so it defines nothing — on an attribute, '=' defines every value it takes ('${name} =@price*0.2'); write the definition as Python, or add a colon to make it the value's own derivation: '${name}: =${derivation.formula}'`
+        : `'${name} =' has nothing after '=' — on an attribute, '=' defines every value it takes; write the definition, or remove the '='`,
         { startCol: derivation.col, endCol: derivation.end });
     } else if (derivation && !derivation.formula) {
       report.error(line, `'${name} =' has nothing after '=' — a derivation on a Concept is the Python that writes its table; write the expression, or remove the '='`,
@@ -473,38 +591,97 @@ function parse(text, rootName, report) {
       }
       node.value = readValue(split.value);
     }
+    // A capitalised line with a colon states the Concept's default, read as
+    // any value is (a doubled '=' is one). A default is stated, not derived,
+    // so far: an '=' that would open a derivation here is an error rather
+    // than a guess, which leaves the spelling free for a later release.
+    if (kind === CONCEPT && value) {
+      const split = splitCell(value);
+      if (split.eq !== -1) {
+        const at = raw.indexOf(value, raw.indexOf(":") + 1);
+        report.error(line, `'${name}: ${value}' derives the Concept's default — a default is stated, not derived; write the value, or double a literal '=' (==)`,
+          at === -1 ? undefined : { startCol: at + split.eq, endCol: at + value.length });
+      }
+      node.value = readValue(split.eq !== -1 ? split.value : value);
+    }
     parent.children.push(node);
     nodes.push(node);
-    // A capitalised line with a colon is a Concept with one inline Example.
-    // Materialise that Example as a real child, sharing the Concept's line,
-    // so counts, crosslinks and the FCA context all see it as an Example —
-    // the only difference from a '- ' line being that it rode in on the
-    // Concept's own line.
-    if (kind === CONCEPT && value) {
-      const example = {
-        line, depth: depth + 1, kind: INDIVIDUAL, name: value,
-        value: null, parent: node, children: [],
-      };
-      node.children.push(example);
-      nodes.push(example);
-    }
     stack.length = depth + 1;
     stack.push(node);
     prevDepth = depth;
   });
+  closeTable(); // the last table ends with the file
   Object.defineProperty(nodes, "generators", { value: generators, enumerable: false });
   return { root, nodes, generators };
 }
 
-// Assign primes and characteristic numbers: chi = prime * chi(parent).
+// A complete table's rows, filed under the rows their parent cells name.
+// A cell names the nearest row ABOVE it of that name (numbering and case
+// aside), else the first one below — a parent may be written after its
+// child, as a sort leaves it — and never the row itself, so a child named
+// like its parent is still filed under it and meets the whole-and-part rule
+// as it would in line form. A name no row carries, a row naming itself and a
+// chain of parents that comes back round are errors; each such row stays a
+// row of the table's own Concept. The tree that comes out is the one the
+// same Examples written as nested '- ' lines parse to.
+function refile(table, report) {
+  const rows = table.rows;
+  if (!rows.some((r) => r.parentCell)) return;
+  const keyOf = (name) => numberless(name).trim().toLowerCase();
+  const spanOf = (row) => ({ startCol: row.parentCell.col, endCol: row.parentCell.col + row.parentCell.text.length });
+  const want = new Map(); // row -> the row its cell names
+  rows.forEach((row, i) => {
+    const cell = row.parentCell;
+    if (!cell) return;
+    const key = keyOf(cell.text);
+    let target = null;
+    for (let j = i - 1; j >= 0 && !target; j--) if (keyOf(rows[j].name) === key) target = rows[j];
+    for (let j = i + 1; j < rows.length && !target; j++) if (keyOf(rows[j].name) === key) target = rows[j];
+    if (target) { want.set(row, target); return; }
+    report.error(row.line, keyOf(row.name) === key
+      ? `'${row.name}' names itself as its parent — a row cannot sit under itself; name the row it sits under, or empty the cell to make it a row of '${table.owner.name}' itself`
+      : `'${row.name}' names '${cell.text}' as its parent, but no row of this table is called '${cell.text}' — a parent cell names the row this one sits under; name one of the table's rows, or empty the cell to make '${row.name}' a row of '${table.owner.name}' itself`,
+    spanOf(row));
+  });
+  // a circle of parents has no top, so no row in it has a place in the tree
+  const cyclic = new Set();
+  for (const start of want.keys()) {
+    const path = [], onPath = new Set();
+    let p = start;
+    while (want.has(p) && !onPath.has(p) && !cyclic.has(p)) { onPath.add(p); path.push(p); p = want.get(p); }
+    if (!onPath.has(p)) continue;
+    const loop = path.slice(path.indexOf(p));
+    const round = [...loop, p].map((r) => `'${r.name}'`).join(" → ");
+    for (const r of loop) {
+      cyclic.add(r);
+      report.error(r.line, `'${r.name}' sits under a row that sits under it — the parent cells go round in a circle (${round}), so none of these rows has a place in the tree; empty one of their parent cells to break it`,
+        { ...spanOf(r), related: loop.filter((o) => o !== r).map((o) => ({ line: o.line, message: `'${o.name}' names '${o.parentCell.text}'` })) });
+    }
+  }
+  for (const r of cyclic) want.delete(r);
+  for (const [row, target] of want) {
+    const from = row.parent.children;
+    from.splice(from.indexOf(row), 1);
+    target.children.push(row);
+    row.parent = target;
+    row.parentCell.row = target;
+  }
+}
+
+// Assign primes and characteristic numbers: chi = prime * chi(parent). The
+// primes go out in the order the file is written; a row filed under a parent
+// written below it (refile) takes its chi once its parent has one.
 function number(root, nodes) {
   const gen = primes();
   root.prime = gen.next().value;
   root.chi = root.prime;
-  for (const node of nodes) {
-    node.prime = gen.next().value;
-    node.chi = node.prime * node.parent.chi;
-  }
+  for (const node of nodes) node.prime = gen.next().value;
+  const done = new Set([root]);
+  const chiOf = (n) => {
+    if (!done.has(n)) { n.chi = n.prime * chiOf(n.parent); done.add(n); }
+    return n.chi;
+  };
+  for (const node of nodes) chiOf(node);
 }
 
 // Run the arithmetic checks, reporting errors and warnings to the report.

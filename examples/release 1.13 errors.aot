@@ -1,0 +1,16 @@
+Kiln|parent (kiln)|heat
+Low |Nobody       |600
+Mid |Mid          |900
+Hot |Top          |1200
+Top |Hot          |1300
+
+Glaze: Clear =pick()
+Pot
+    note = some words
+Bowl|tax: =@price*2|price
+Rim |              |5
+
+Oven Old|warmth
+Base    |100
+    Upper|200
+    Lower|150

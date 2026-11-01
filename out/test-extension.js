@@ -93,7 +93,7 @@ const vscode = {
     },
   },
   CompletionItem: class { constructor(label, kind) { Object.assign(this, { label, kind }); } },
-  CompletionItemKind: { Field: 4, EnumMember: 19, Function: 2, Module: 8 },
+  CompletionItemKind: { Field: 4, EnumMember: 19, Function: 2, Module: 8, Value: 11, Constant: 20 },
   DocumentLink: class { constructor(range, target) { Object.assign(this, { range, target }); } },
   Uri: {
     parse: (s) => ({ toString: () => s }),
@@ -151,11 +151,15 @@ const vscode = {
     onDidChangeTextEditorSelection: (fn) => { vscode.window._selectionChanged = fn; return { dispose() {} }; },
     onDidChangeActiveTextEditor: () => ({ dispose() {} }),
     // the answer a test sets is the button the user "presses"; the items
-    // offered are recorded beside the message
+    // offered are recorded beside the message. An answer keyed to a message
+    // (_answers: [{ test: RegExp, answer }]) is pressed for that message
+    // alone, whatever another block has set meanwhile
+    _answers: [],
     showWarningMessage: (m, ...items) => {
       vscode.window._warnings.push(m);
       vscode.window._warningItems = items.filter((i) => typeof i === "string");
-      return Promise.resolve(vscode.window._warningAnswer);
+      const keyed = vscode.window._answers.find((a) => a.test.test(m));
+      return Promise.resolve(keyed ? keyed.answer : vscode.window._warningAnswer);
     },
     showInformationMessage: (m, ...rest) => {
       vscode.window._info.push(m);
@@ -727,18 +731,17 @@ const listed = [
   });
 }
 
-// 5b) Tab travels the cells from ANYWHERE in a row — the leading spaces and
-// the head of a nested row's name included. It re-indents nothing: a row's
-// depth is its own leading spaces, and a key that moved them would move an
-// Example's place in the tree when all that was asked for was the next cell
-// (and would do nothing at all on a row with no sibling to nest under).
-// Lines *selected* are the indent edit, as everywhere else in the editor.
+// 5b) Tab travels the cells from ANYWHERE in a row, and never indents one:
+// a table nests through its `parent (thing)` column, so there is no indent
+// a key could mean — with lines selected Tab still moves to the next cell.
+// Line form keeps the editor's own indent on a selection, since there the
+// indent IS the nesting. And the first key pressed in a table a 1.12 file
+// nested by indent rewrites it with the column, the cursor's cell kept.
 (async () => {
   const lines = [
-    "Otter",
-    "    name   |size",
-    "    Ollie  |5",
-    "        Pup|1",
+    "Otter|parent (otter)|size",
+    "Ollie|              |5",
+    "Pup  |Ollie         |1",
   ];
   const doc = {
     languageId: "aot", fileName: "c:\\repo\\World.aot", eol: vscode.EndOfLine.LF,
@@ -750,8 +753,8 @@ const listed = [
   const written = lines.join("\n");
   const editor = {
     document: doc,
-    // the head of the nested row's name: its own indent, which is its depth
-    selection: new vscode.Selection(3, 4, 3, 4),
+    // the head of the sub-Example's name
+    selection: new vscode.Selection(2, 0, 2, 0),
     edit: (cb) => {
       cb({ replace: (range, t) => { const [sl, , el] = range.a; lines.splice(sl, el - sl + 1, ...t.split("\n")); } });
       return Promise.resolve(true);
@@ -761,24 +764,39 @@ const listed = [
   };
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
-  // nothing moved but the cursor, which is now in the value cell
+  // nothing moved but the cursor, which is now in the parent cell
   const kept = lines.join("\n") === written;
-  const toValue = editor.selection.active.line === 3 && editor.selection.active.character === 12;
+  const toNext = editor.selection.active.line === 2 && editor.selection.active.character === 6;
   registeredCommands.get("aot.table.prevCell")(editor);
   await new Promise((r) => setImmediate(r));
   const back = lines.join("\n") === written
-    && editor.selection.active.line === 3 && editor.selection.active.character === 4;
-  // lines selected: the editor's own indent, which is how a row is nested
-  // and how a whole table is re-filed
-  editor.selection = new vscode.Selection(2, 0, 3, 0);
+    && editor.selection.active.line === 2 && editor.selection.active.character === 0;
+  // rows selected: still the next cell, and no indent
+  editor.selection = new vscode.Selection(1, 0, 2, 0);
   vscode.commands._calls.length = 0;
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const indents = lines.join("\n") === written
-    && vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines");
-  console.log(kept && toValue && back && indents
-    ? "PASS (table editor: Tab travels the cells and re-indents nothing; a selection indents)"
-    : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toValue, back, indents, sel: editor.selection.a }));
+  const noIndent = lines.join("\n") === written
+    && !vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines")
+    && editor.selection.active.line === 2 && editor.selection.active.character === 6;
+  // line form selected: the editor's indent, as everywhere else
+  lines.splice(0, lines.length, "Otter", "    - Ollie", "    - Pup");
+  editor.selection = new vscode.Selection(1, 0, 2, 0);
+  vscode.commands._calls.length = 0;
+  registeredCommands.get("aot.table.nextCell")(editor);
+  await new Promise((r) => setImmediate(r));
+  const lineIndent = vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines");
+  // a 1.12 table nested by indent: Tab in its value cell migrates it, and the
+  // cursor lands in the next cell of the table as drawn now
+  lines.splice(0, lines.length, "Otter    |size", "Ollie    |5", "    Pup  |1");
+  editor.selection = new vscode.Selection(1, 10, 1, 10); // Ollie's size
+  registeredCommands.get("aot.table.nextCell")(editor);
+  await new Promise((r) => setImmediate(r));
+  const migrated = lines.join("\n") === ["Otter|parent (otter)|size", "Ollie|              |5", "Pup  |Ollie         |1"].join("\n")
+    && editor.selection.active.line === 2 && editor.selection.active.character === 0;
+  console.log(kept && toNext && back && noIndent && lineIndent && migrated
+    ? "PASS (table editor: Tab travels the cells and indents nothing, selected or not; line form indents a selection; a 1.12 nested table migrates on the first key)"
+    : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toNext, back, noIndent, lineIndent, migrated, sel: editor.selection.a }));
 })();
 
 // 5c) a first '|' typed on an otherwise empty line scaffolds a fresh table —
@@ -905,12 +923,13 @@ const listed = [
 // Concept; a CSV edit folds back; legacy per-file folders migrate; an
 // orphaned CSV is archived with '_' (never deleted).
 (async () => {
-  const tmp = path.join(__dirname, "tmp-sync");
-  fs.rmSync(tmp, { recursive: true, force: true });
-  fs.mkdirSync(tmp, { recursive: true });
+  // a fresh folder outside the repository: a file-syncing client (OneDrive)
+  // watching the repository can write an earlier run's copy back into a
+  // fixture kept there, mid-test
+  const tmp = fs.mkdtempSync(path.join(require("os").tmpdir(), "aot-sync-"));
   // the fixture is a repository of its own: 'aot.files' hangs off the root
   // the '.git' marks, and without one the walk would climb out of the
-  // fixture and into the repository this test file itself lives in
+  // fixture and into whatever repository holds it
   fs.mkdirSync(path.join(tmp, ".git"), { recursive: true });
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
   const aotPath = path.join(tmp, "World.aot");
@@ -1175,6 +1194,179 @@ const listed = [
   fs.rmSync(root, { recursive: true, force: true });
 })();
 
+// 6e) the CSV mirror both ways at once (1.13): every cell merged against what
+// the .aot and its CSV last agreed on, so whichever side changed it is the
+// one that counts. Run late and on a timer: it presses buttons on the shared
+// warning mock, which another block's message must not answer — and the
+// blocks that do the same wait for it to finish (lateBlocks).
+let lateBlocks = Promise.resolve();
+const late = (ms, fn) => {
+  const ready = new Promise((r) => setTimeout(r, ms));
+  lateBlocks = Promise.all([lateBlocks, ready]).then(fn);
+};
+late(2600, async () => {
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-3way-"));
+  fs.mkdirSync(path.join(root, ".git"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const dir = path.join(root, "aot.files");
+  const aotPath = path.join(root, "Shop.aot");
+  const csvPath = path.join(dir, "Order.csv");
+  const writeAot = (...lines) => fs.writeFileSync(aotPath, lines.join("\n"));
+  const aot = () => fs.readFileSync(aotPath, "utf8");
+  const csv = () => fs.readFileSync(csvPath, "utf8").replace(/\r\n/g, "\n");
+  const sync = () => plainCommands.get("aot.importCsvFiles")(root);
+  const settle = () => new Promise((r) => setTimeout(r, 60)); // a button's answer lands
+  const older = (p) => { const t = Date.now() / 1000 - 120; fs.utimesSync(p, t, t); };
+  const results = [];
+  const expect = (name, ok, detail) => results.push(ok ? `PASS (csv 3-way: ${name})` : `UNEXPECTED csv 3-way ${name} ${JSON.stringify(detail)}`);
+  // its notices all name Order.csv: the button pressed is pressed for those alone
+  const press = (answer) => {
+    vscode.window._answers = vscode.window._answers.filter((a) => a.key !== "3way");
+    if (answer !== undefined) vscode.window._answers.push({ key: "3way", test: /Order\.csv/, answer });
+  };
+
+  writeAot("Order|price|qty", "Acme |100  |1", "Bolt |50   |2");
+  vscode.workspace._save(makeDoc(aotPath, aot()));
+  expect("the first save writes the CSV", csv() === "Order,price,qty\nAcme,100,1\nBolt,50,2\n", csv());
+
+  // a .aot changed with the editor closed — a pull — while the CSV still says
+  // what the two agreed on: the .aot's value goes out, never the old one in
+  writeAot("Order|price|qty", "Acme |110  |1", "Bolt |50   |2");
+  await sync();
+  expect("a .aot changed while closed is written out, not reverted",
+    aot().includes("Acme |110  |1") && csv() === "Order,price,qty\nAcme,110,1\nBolt,50,2\n", { aot: aot(), csv: csv() });
+
+  // the CSV changed a cell the .aot did not: it folds in, and nothing else does
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,110,1\nBolt,55,2\n");
+  await sync();
+  expect("a cell the CSV changed folds in", aot() === "Order|price|qty\nAcme |110  |1\nBolt |55   |2", aot());
+
+  // an emptied cell empties now (it held a value when the two last agreed)
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,110,\nBolt,55,2\n");
+  await sync();
+  expect("a cell the CSV emptied is emptied", aot() === "Order|price|qty\nAcme |110  |\nBolt |55   |2", aot());
+
+  // a program that held an older copy saves it back with one edit of its
+  // own: merged against the copy it descends from, it brings that edit and
+  // never undoes what changed since (Acme's emptied qty stays empty)
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,110,1\nBolt,56,2\n");
+  await sync();
+  expect("a stale copy brings only its own edit",
+    aot() === "Order|price|qty\nAcme |110  |\nBolt |56   |2", aot());
+
+  // both changed one cell: the later save wins, and it is said by cell
+  writeAot("Order|price|qty", "Acme |120  |", "Bolt |55   |2");
+  older(aotPath);
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,130,\nBolt,55,2\n");
+  vscode.window._warnings.length = 0;
+  press(undefined);
+  await sync();
+  await settle();
+  const said = vscode.window._warnings.find((w) => /both changed/.test(w)) || "";
+  expect("a cell both changed goes to the later save, named in one notice with the other side's button",
+    aot().includes("Acme |130  |") && /Acme · price: took 130 from Order\.csv \(Shop\.aot said 120\)/.test(said)
+    && (vscode.window._warningItems || []).includes("Use Shop.aot's Values"), { aot: aot(), said, items: vscode.window._warningItems });
+
+  // the same, the button pressed: one click puts the other side's value back
+  writeAot("Order|price|qty", "Acme |140  |", "Bolt |55   |2");
+  older(aotPath);
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,150,\nBolt,55,2\n");
+  press("Use Shop.aot's Values");
+  await sync();
+  await settle();
+  press(undefined);
+  expect("the notice's button takes the other side's value, in the .aot and the CSV",
+    aot().includes("Acme |140  |") && csv().includes("Acme,140,"), { aot: aot(), csv: csv() });
+
+  // a row the CSV dropped is asked about — Keep leaves it, and the CSV has it back
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,140,\n");
+  vscode.window._warnings.length = 0;
+  press("Keep");
+  await sync();
+  await settle();
+  expect("a dropped row is asked about, never deleted in silence; Keep keeps it",
+    aot().includes("Bolt |55   |2") && vscode.window._warnings.some((w) => /no longer lists 'Bolt'/.test(w))
+    && csv().includes("Bolt,55,2"), { aot: aot(), csv: csv(), warnings: vscode.window._warnings });
+  // Delete takes it out of the .aot
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,140,\n");
+  press("Delete from Shop.aot");
+  await sync();
+  await settle();
+  press(undefined);
+  expect("Delete takes the dropped row out of the .aot", !aot().includes("Bolt") && aot().includes("Acme"), aot());
+
+  // a fold into a .aot with unsaved edits edits the buffer and leaves it
+  // for its writer to save — a sync never saves somebody's work in progress
+  const lines = aot().split("\n");
+  let saves = 0;
+  const open = {
+    lines, languageId: "aot", fileName: aotPath, eol: vscode.EndOfLine.LF, isDirty: true,
+    get lineCount() { return this.lines.length; },
+    getText() { return this.lines.join("\n"); },
+    lineAt(i) { return { range: new vscode.Range(i, 0, i, this.lines[i].length), text: this.lines[i] }; },
+    save: async () => { saves++; return true; },
+  };
+  open.uri = { fsPath: aotPath, toString: () => "file:///" + aotPath, __doc: open };
+  vscode.workspace.textDocuments.push(open);
+  const onDisk = aot();
+  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,145,\n");
+  await sync();
+  vscode.workspace.textDocuments.splice(vscode.workspace.textDocuments.indexOf(open), 1);
+  expect("a fold into a document with unsaved edits edits it and does not save it",
+    open.getText().includes("Acme |145  |") && saves === 0 && aot() === onDisk, { text: open.getText(), saves });
+  fs.writeFileSync(aotPath, open.getText()); // the writer saves it
+  vscode.workspace._save(makeDoc(aotPath, aot()));
+
+  // one Concept written in two files: the CSV holds both files' rows, and a
+  // row's edit lands in the file that lists it
+  const peerPath = path.join(root, "Shop2.aot");
+  fs.writeFileSync(peerPath, ["Order|price|qty", "Cog  |7    |3"].join("\n"));
+  vscode.workspace._save(makeDoc(peerPath, fs.readFileSync(peerPath, "utf8")));
+  const union = csv();
+  fs.writeFileSync(csvPath, union.replace("Cog,7,3", "Cog,8,3"));
+  await sync();
+  expect("a Concept two files spell mirrors both, and each row's edit goes to its own file",
+    /Acme,145,/.test(union) && /Cog,7,3/.test(union) && fs.readFileSync(peerPath, "utf8").includes("Cog  |8    |3") && !aot().includes("Cog"),
+    { union, peer: fs.readFileSync(peerPath, "utf8"), aot: aot() });
+
+  // manual mode: nothing syncs until Sync CSVs Now, which does both ways
+  configStore.tableCsvSyncMode = "manual";
+  writeAot("Order|price|qty", "Acme |146  |");
+  vscode.workspace._save(makeDoc(aotPath, aot()));
+  const unsynced = csv();
+  await sync();
+  delete configStore.tableCsvSyncMode;
+  expect("in manual mode a save writes no CSV, and Sync CSVs Now does",
+    /Acme,145,/.test(unsynced) && /Acme,146,/.test(csv()), { unsynced, csv: csv() });
+
+  // no baseline yet (a fresh clone): the committed CSV is the ancestor, so
+  // a .aot edit and a CSV edit since the commit both stand
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "aot-3way-git-"));
+  fs.mkdirSync(path.join(fresh, ".git"));
+  fs.mkdirSync(path.join(fresh, "aot.files"));
+  fs.writeFileSync(path.join(fresh, "Shop.aot"), ["Order|price|qty", "Acme |100  |9", "Bolt |50   |2"].join("\n"));
+  fs.writeFileSync(path.join(fresh, "aot.files", "Order.csv"), "Order,price,qty\nAcme,100,1\nBolt,60,2\n");
+  const asked = [];
+  ext._test.setGit((at, args) => {
+    asked.push(args.join(" "));
+    if (args[0] === "show" && args[1] === "HEAD:aot.files/Order.csv") return "Order,price,qty\nAcme,100,1\nBolt,50,2\n";
+    throw new Error("unexpected git call");
+  });
+  await plainCommands.get("aot.importCsvFiles")(fresh);
+  ext._test.setGit(null);
+  const merged = fs.readFileSync(path.join(fresh, "Shop.aot"), "utf8");
+  expect("with no baseline the committed CSV is the ancestor — both sides' edits stand",
+    merged.includes("Acme |100  |9") && merged.includes("Bolt |60   |2") && asked.includes("show HEAD:aot.files/Order.csv"),
+    { merged, asked });
+
+  press(undefined);
+  vscode.workspace.workspaceFolders = undefined;
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(fresh, { recursive: true, force: true });
+  for (const r of results) console.log(r);
+});
+
 // 6d) value completion: an attribute typed by a Concept offers that
 // Concept's Examples, with its archived CSV's values beside them.
 (async () => {
@@ -1328,6 +1520,44 @@ const listed = [
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
+// 7b2) the maintained `...` note: its file names link to the Concept where it
+// stands now (a peer edited since may have moved it), a name with spaces
+// included; hovering `N more` lists those N Examples where they are written,
+// hovering a file name lists that file's.
+{
+  const tmp = fs.mkdtempSync(path.join(require("os").tmpdir(), "aot-note-"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  const herePath = path.join(tmp, "Close.aot");
+  const peerPath = path.join(tmp, "bank recon.aot");
+  const herePeer = path.join(tmp, "Vat.aot");
+  fs.writeFileSync(peerPath, ["Intro", "", "Team", "    - Two", "    - Three"].join("\n")); // Team now on line 3
+  fs.writeFileSync(herePeer, ["Team", "    - One", "    - Two"].join("\n"));
+  const hereText = ["Team", "    - One", "    ... 2 more in bank recon.aot:1, Vat.aot:1"].join("\n");
+  fs.writeFileSync(herePath, hereText);
+  for (const p of [peerPath, herePeer, herePath]) vscode.workspace._aotCreated({ fsPath: p });
+  const doc = makeDoc(herePath, hereText);
+  vscode.workspace._open(doc);
+  const links = (documentLinkProvider.provideDocumentLinks(doc) || []).filter((l) => l.range.a[0] === 2);
+  const bank = links.find((l) => l.target.fsPath === peerPath);
+  console.log(bank && bank.target.fragment === "L3" && bank.range.a[1] === hereText.split("\n")[2].indexOf("bank recon.aot:1")
+    ? "PASS (note: a file name with spaces links, to the Concept's line as it stands now)"
+    : "UNEXPECTED note link " + JSON.stringify(links.map((l) => [l.range.a, l.target.fsPath, l.target.fragment])));
+  const noteLine = hereText.split("\n")[2];
+  const count = hoverProvider.provideHover(doc, new vscode.Position(2, noteLine.indexOf("2 more") + 1));
+  const countText = count && count.contents ? String(count.contents.value || count.contents) : "";
+  console.log(/2 more Team/.test(countText) && /Three/.test(countText) && /Two/.test(countText) && !/\bOne\b/.test(countText)
+    ? "PASS (note: hovering `N more` lists the Examples written elsewhere and not here)"
+    : "UNEXPECTED note count hover " + JSON.stringify(countText));
+  const onFile = hoverProvider.provideHover(doc, new vscode.Position(2, noteLine.indexOf("Vat.aot") + 2));
+  const fileText = onFile && onFile.contents ? String(onFile.contents.value || onFile.contents) : "";
+  console.log(/Team\*\* in \[Vat\.aot\]/.test(fileText) && /One/.test(fileText) && /Two/.test(fileText) && !/Three/.test(fileText)
+    ? "PASS (note: hovering a file name lists that file's Examples)"
+    : "UNEXPECTED note file hover " + JSON.stringify(fileText));
+  vscode.workspace.workspaceFolders = undefined;
+  for (const p of [peerPath, herePeer, herePath]) vscode.workspace._aotDeleted({ fsPath: p });
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
 // 7c) the same file reaching the index in two different cases is one file.
 // On Windows and macOS a path arrives as 'C:\repo\A.aot' from VS Code's URIs
 // and 'c:\repo\A.aot' from a glob; keyed by raw case that is two entries, and
@@ -1431,18 +1661,21 @@ if (process.platform === "win32" || process.platform === "darwin") {
   console.log(carText && /\*\*Content\*\*/.test(carText) && /Nearest sibling: 'Van' \(line 5\), 1 slot apart — `~ doors: 3 \| 5`/.test(carText)
     ? "PASS (hover: a Concept with no chains and no usages still shows its content, and its nearest sibling)"
     : "UNEXPECTED Concept content hover " + JSON.stringify(carText));
-  // Examples are named as the file writes them, '- ' and all; and a Concept
-  // with nothing to say — no chains, no usages, no content — has no hover
+  // Examples are named as the file writes them, '- ' and all; a sub-Example
+  // inherits from its kinds and never from the Example it sits under — a
+  // part takes nothing from its whole, in lines exactly as in a nested
+  // table row; and a Concept with nothing to say — no chains, no usages, no
+  // content — has no hover
   const lText = ["Litter", "    size: small", "    - Pup One", "        colour: brown", "    - Pup Two", "        colour: black", "        weight: 3",
     "        - Runt", "            colour: grey"].join("\n");
   const docL = makeDoc(path.join(tmp, "Litter.aot"), lText);
   const runt = hoverProvider.provideHover(docL, new vscode.Position(7, 12));
   const pup = hoverProvider.provideHover(docL, new vscode.Position(2, 8));
-  console.log(runt && /- `weight`: `3` — from '- Pup Two' \(line 7\)/.test(runt.contents.value)
-    && /- overrides `colour`: `black` from '- Pup Two' with `grey`/.test(runt.contents.value)
+  console.log(runt && /- `size`: `small` — from 'Litter' \(line 2\)/.test(runt.contents.value)
+    && !/weight/.test(runt.contents.value) && !/overrides/.test(runt.contents.value)
     && pup && /Nearest sibling: '- Pup Two' \(line 5\), 2 slots apart/.test(pup.contents.value)
     && hoverProvider.provideHover(makeDoc(path.join(tmp, "Alone.aot"), "Lonely"), new vscode.Position(0, 2)) === null
-    ? "PASS (hover: an Example is named '- X' wherever its content is shown; a Concept with nothing to say has no hover)"
+    ? "PASS (hover: an Example is named '- X' wherever its content is shown; a sub-Example inherits nothing from the Example above it; a Concept with nothing to say has no hover)"
     : "UNEXPECTED Example naming hover " + JSON.stringify({ runt: runt && runt.contents.value, pup: pup && pup.contents.value }));
 
   vscode.workspace._save(docV);
@@ -2217,8 +2450,9 @@ async function hoistAndReconcile() {
     : "UNEXPECTED spreadsheet rename " + (failed || JSON.stringify(ops)));
 }
 
-// 8e) the F2 nudge: standing in a name that is used elsewhere shows ghost
-// text with the count F2 would edit; an unused name shows nothing
+// 8e) the ghost text: standing in a name that is used elsewhere says how
+// many uses it has (typing over it offers to update them); an unused name
+// shows nothing
 {
   const web = makeDoc("c:\\repo\\Nudge.aot", [
     "Registry",
@@ -2237,9 +2471,9 @@ async function hoistAndReconcile() {
   vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
   const hint = shown.pop();
   console.log(hint && hint.length === 1
-    && hint[0].renderOptions.after.contentText === "2 uses elsewhere — F2 renames them all"
+    && hint[0].renderOptions.after.contentText === "2 uses elsewhere"
     && hint[0].range.a[0] === 1
-    ? "PASS (nudge: a used Concept shows the F2 ghost text with its count)"
+    ? "PASS (nudge: a used Concept shows its count of uses in ghost text)"
     : "UNEXPECTED nudge " + JSON.stringify(hint));
   editor.selections = [new vscode.Selection(0, 2, 0, 2)];
   vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
@@ -2248,23 +2482,111 @@ async function hoistAndReconcile() {
     ? "PASS (nudge: an unused name shows nothing)"
     : "UNEXPECTED nudge clear " + JSON.stringify(cleared));
 
-  // standing in a usage is ambiguous — typing may be the right move — so
-  // the ghost text names the target and says which key does which
+  // standing in a usage, typing may be the right move — this one reference
+  // pointing somewhere else — so the ghost text names its target and says so
   editor.selections = [new vscode.Selection(4, 10, 4, 10)]; // in 'person:', wearing Concept Person's name
   vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
   const usage = shown.pop();
   console.log(usage && usage.length === 1 && usage[0].range.a[0] === 4
-    && usage[0].renderOptions.after.contentText === "names 'Person' — F2 renames its 2 uses, typing changes just this one"
-    ? "PASS (nudge: an attribute wearing a Concept's name offers both keys)"
+    && usage[0].renderOptions.after.contentText === "names 'Person' — typing changes just this one"
+    ? "PASS (nudge: an attribute wearing a Concept's name says what it names)"
     : "UNEXPECTED usage nudge " + JSON.stringify(usage));
   editor.selections = [new vscode.Selection(4, 18, 4, 18)]; // in the value 'Socrates'
   vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
   const value = shown.pop();
   console.log(value && value.length === 1
-    && value[0].renderOptions.after.contentText === "names 'Socrates' — F2 renames its 1 use, typing changes just this one"
-    ? "PASS (nudge: a value naming an Example offers both keys)"
+    && value[0].renderOptions.after.contentText === "names 'Socrates' — typing changes just this one"
+    ? "PASS (nudge: a value naming an Example says what it names)"
     : "UNEXPECTED value nudge " + JSON.stringify(value));
 }
+
+// 8f) a name typed over: the uses it leaves behind — here and in another
+// file — are offered for updating once the cursor leaves the name, in one
+// notice and on the lightbulb; F2 reaches the other file too; undo never
+// starts one. Late, after the CSV block (lateBlocks): it answers the shared
+// warning mock and stands in for applyEdit while it runs.
+late(3200, async () => {
+  const tmp = fs.mkdtempSync(path.join(require("os").tmpdir(), "aot-typed-"));
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: tmp } }];
+  const herePath = path.join(tmp, "Here.aot"), otherPath = path.join(tmp, "Other.aot"), peerPath = path.join(tmp, "Peer.aot");
+  const start = ["Person", "    - Socrates", "Emp", "    person: Socrates", "    friend (person): Socrates"];
+  fs.writeFileSync(herePath, start.join("\n"));
+  fs.writeFileSync(otherPath, ["Visit", "    person: Socrates"].join("\n"));
+  fs.writeFileSync(peerPath, ["Person", "    - Plato"].join("\n"));
+  // Here first: the file whose 'Person' other files resolve a name to
+  for (const p of [herePath, otherPath, peerPath]) vscode.workspace._aotCreated({ fsPath: p });
+  const lines = start.slice();
+  const doc = {
+    languageId: "aot", fileName: herePath, eol: vscode.EndOfLine.LF,
+    uri: { fsPath: herePath, toString: () => "file:///typed-here" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  doc.uri.__doc = doc;
+  const editor = { document: doc, selection: new vscode.Selection(1, 8, 1, 8), selections: [], setDecorations: () => {}, revealRange: () => {} };
+  const activeBefore = vscode.window.activeTextEditor, applyBefore = vscode.workspace.applyEdit;
+  vscode.window.activeTextEditor = editor;
+  vscode.workspace._open(doc);
+  const moveTo = (line, ch) => {
+    editor.selection = new vscode.Selection(line, ch, line, ch);
+    editor.selections = [editor.selection];
+    vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections });
+  };
+  const type = (line, from, to, text, reason) => {
+    const was = lines[line];
+    lines[line] = was.slice(0, from) + text + was.slice(to);
+    vscode.workspace._changed({ document: doc, reason, contentChanges: [{ text, range: new vscode.Range(line, from, line, to) }] });
+  };
+  const applied = [];
+  vscode.workspace.applyEdit = async (edit) => { applied.push(edit); return true; };
+  const results = [];
+  const expect = (name, ok, detail) => results.push(ok ? `PASS (typed rename: ${name})` : `UNEXPECTED typed rename ${name} ${JSON.stringify(detail)}`);
+
+  // 'Socrates' becomes 'Sokrates', a character at a time, the cursor in it
+  type(1, 8, 9, "k");             // So|c|rates -> Sokrates
+  moveTo(1, 9);
+  vscode.window._warnings.length = 0;
+  // the notice goes unanswered — whatever answer another block has set — so
+  // the offer stays on the lightbulb
+  vscode.window._answers.push({ key: "typed", test: /is now/, answer: undefined });
+  moveTo(3, 4);                   // and away
+  await new Promise((r) => setTimeout(r, 30));
+  const said = vscode.window._warnings.find((w) => /is now/.test(w)) || "";
+  expect("leaving the name counts the uses it left, here and in another file",
+    /'Socrates' is now 'Sokrates' — 3 uses still say 'Socrates' — 2 here, 1 in Other\.aot/.test(said), said);
+  const fixes = codeActionsProvider.provideCodeActions(doc, new vscode.Range(1, 0, 1, 0), { diagnostics: [] });
+  const fix = fixes.find((f) => /Update 3 uses of 'Socrates' to 'Sokrates'/.test(f.title));
+  expect("the offer stays on the declaration's lightbulb", !!fix, { titles: fixes.map((f) => f.title), warnings: vscode.window._warnings, lines });
+  if (fix) await plainCommands.get("aot.applyTypedRename")(...fix.command.arguments);
+  const ops = (applied[0] && applied[0].ops) || [];
+  const at = (o) => `${o.uri.fsPath === otherPath ? "Other" : o.uri.fsPath === peerPath ? "Peer" : "Here"}:${o.range.a.slice(0, 2).join(",")}=${o.text}`;
+  expect("taken, one edit updates every use — this file's and the other file's",
+    ops.map(at).sort().join(" ") === ["Here:3,12=Sokrates", "Here:4,21=Sokrates", "Other:1,12=Sokrates"].sort().join(" "), ops.map(at));
+  expect("taken, the offer leaves the lightbulb",
+    !codeActionsProvider.provideCodeActions(doc, new vscode.Range(1, 0, 1, 0), { diagnostics: [] }).some((f) => /Update/.test(f.title)));
+
+  // undo brings a name back: it is no rename, and offers nothing
+  vscode.window._warnings.length = 0;
+  type(1, 8, 9, "c", 1);          // reason 1: Undo
+  moveTo(3, 4);
+  await new Promise((r) => setTimeout(r, 30));
+  expect("undo starts nothing", !vscode.window._warnings.some((w) => /is now/.test(w)), vscode.window._warnings);
+
+  // F2 renames across the workspace: the peer Concept in Other.aot too
+  const f2 = renameProvider.provideRenameEdits(doc, new vscode.Position(0, 2), "Human");
+  const f2ops = f2.ops.map(at).sort();
+  expect("F2 on a Concept renames its peer in another file, a reference from a third, and this file's uses",
+    f2ops.includes("Here:0,0=Human") && f2ops.includes("Peer:0,0=Human") && f2ops.includes("Other:1,4=human") && f2ops.includes("Here:3,4=human"), f2ops);
+
+  vscode.workspace.applyEdit = applyBefore;
+  vscode.window._answers = vscode.window._answers.filter((a) => a.key !== "typed");
+  vscode.window.activeTextEditor = activeBefore;
+  vscode.workspace.workspaceFolders = undefined;
+  for (const p of [otherPath, peerPath, herePath]) vscode.workspace._aotDeleted({ fsPath: p });
+  fs.rmSync(tmp, { recursive: true, force: true });
+  for (const r of results) console.log(r);
+});
 
 // 9) aliases are alternative names: an attribute typed by a Concept's alias
 // crosslinks to that Concept, a Concept's alias that names another Concept
@@ -2534,11 +2856,16 @@ async function hoistAndReconcile() {
     : "UNEXPECTED line completion " + JSON.stringify(litems.map((i) => [i.label, i.detail])));
 }
 
-// 9d) the lone-sub grace: only the "1 sub-Concept" warning waits — every
-// other squiggle (a plural name) shows at the debounce. The warning lands
-// once typing has been quiet past the grace, without the cursor moving.
+// 9d) findings elsewhere wait while you write (hold.js). Typing a first
+// child under Parent makes Parent "have 1 sub-Concept" — a finding about a
+// line not being typed, so it waits, counted in the status bar; one already
+// on screen (the plural name) keeps showing; a second sibling typed makes it
+// moot without it ever flashing; and leaving the family shows what waited.
+// Begun once this file's synchronous blocks have run, so its debounces are
+// the ones it measures.
 (async () => {
-  const lines = ["Animals", "Parent"];
+  await new Promise((r) => setTimeout(r, 0));
+  const lines = ["Animals", "Parent", "Stone"];
   const doc = {
     languageId: "aot", fileName: "c:\\repo\\Hold.aot", eol: vscode.EndOfLine.LF,
     uri: { toString: () => "file:///hold" },
@@ -2546,28 +2873,53 @@ async function hoistAndReconcile() {
     getText: () => lines.join("\n"),
     lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
   };
+  const editor = { document: doc, selection: new vscode.Selection(1, 6, 1, 6), setDecorations: () => {}, revealRange: () => {} };
+  const activeBefore = vscode.window.activeTextEditor;
+  vscode.window.activeTextEditor = editor;
   vscode.workspace._open(doc);
   const diagsOf = () => published.get(doc.uri.toString()) || [];
   const plural = () => diagsOf().some((d) => /appears plural/.test(d.message));
   const lone = () => diagsOf().some((d) => /has 1 sub-Concept/.test(d.message));
+  const settle = () => new Promise((r) => setTimeout(r, 400)); // past the 300 ms debounce
+  const moveTo = (line, ch) => {
+    editor.selection = new vscode.Selection(line, ch, line, ch);
+    vscode.window._selectionChanged({ textEditor: editor, selections: [editor.selection] });
+  };
   const before = plural() && !lone();
 
-  // the user types '    Child' under Parent, creating the lone-sub warning
-  // on the parent line the moment the child exists
-  lines.push("    Child");
-  vscode.workspace._changed({
-    document: doc,
-    contentChanges: [{ text: "\n    Child", range: new vscode.Range(1, 6, 1, 6) }],
-  });
-  await new Promise((r) => setTimeout(r, 400)); // past the 300ms debounce, before the 600ms grace
-  const during = plural() && !lone(); // plural shows at once, the lone warning still waits
-  const duringDiags = diagsOf().map((d) => d.message.slice(0, 40));
+  // Enter at the end of 'Parent' and '    Child' typed: Parent's line is
+  // not edited, so what is newly said of it waits
+  lines.splice(2, 0, "    Child");
+  vscode.workspace._changed({ document: doc, contentChanges: [{ text: "\n    Child", range: new vscode.Range(1, 6, 1, 6) }] });
+  moveTo(2, 9);
+  await settle();
+  const status = ext._test.holdStatus();
+  const waiting = plural() && !lone() && status && status.shown && /1 waiting — leave 'Parent'/.test(status.text);
 
-  await new Promise((r) => setTimeout(r, 400)); // now past the grace, typing stayed quiet
-  const after = plural() && lone();
-  console.log(before && during && after
-    ? "PASS (hold: only the lone-sub warning waits a grace; other squiggles are immediate)"
-    : "UNEXPECTED hold behaviour " + JSON.stringify({ before, during, after, duringDiags, diags: diagsOf().map((d) => d.message.slice(0, 40)) }));
+  // moving about inside the family — Child's line — ends nothing
+  moveTo(2, 4);
+  const stillWaiting = !lone();
+
+  // a second sibling: the finding is moot, and never showed
+  lines.splice(3, 0, "    Child Two");
+  vscode.workspace._changed({ document: doc, contentChanges: [{ text: "\n    Child Two", range: new vscode.Range(2, 9, 2, 9) }] });
+  moveTo(3, 13);
+  await settle();
+  const moot = !lone() && !status.shown;
+
+  // take the second one away again: it waits once more; then leave the
+  // family — Stone's line — and it shows
+  lines.splice(3, 1);
+  vscode.workspace._changed({ document: doc, contentChanges: [{ text: "", range: new vscode.Range(2, 9, 3, 13) }] });
+  moveTo(2, 9);
+  await settle();
+  const waitsAgain = !lone();
+  moveTo(3, 2);
+  const shown = lone() && plural() && !status.shown;
+  vscode.window.activeTextEditor = activeBefore;
+  console.log(before && waiting && stillWaiting && moot && waitsAgain && shown
+    ? "PASS (hold: a new finding off the lines being typed waits, counted, until the cursor leaves the family; one already shown stays; a moot one never flashes)"
+    : "UNEXPECTED hold behaviour " + JSON.stringify({ before, waiting, stillWaiting, moot, waitsAgain, shown, status: status && status.text, diags: diagsOf().map((d) => d.message.slice(0, 40)) }));
 })();
 
 // 10) spelling: a word longer than four characters that no English dialect
@@ -2654,7 +3006,9 @@ async function hoistAndReconcile() {
 
 // Ctrl+Alt+T: the Concept at the cursor written out in its other form, end
 // to end — the cursor standing anywhere inside it, and the re-align that
-// follows computing the formulas where they have landed.
+// follows computing nothing: a flip is a re-spelling, and each derivation
+// waits for the next run where it has landed. A Concept's own defaults ride
+// in the header (`tax rate: 0.2`), so it flips to one standalone table.
 //
 // Last, and on a timer: the command names what it did in the status bar,
 // which is one shared global here, so running it after every other block has
@@ -2698,24 +3052,29 @@ setTimeout(async () => {
 
   await registeredCommands.get("aot.toggleTableForm")(editor);
   const gridLines = text.split("\n");
-  console.log(gridLines[0] === "Invoice" && gridLines[1] === "    tax rate: 0.2"
-    && gridLines[2] === "    Invoice|price|vat"
-    && gridLines[3] === "    INV-1  |100  |20 =@price*@tax rate"
-    && gridLines[4] === "    INV-9  |50   |10 =@price*@tax rate"
-    ? "PASS (flip: a cursor inside the Concept writes the whole Concept out as a grid)"
+  console.log(gridLines.join("\n") === [
+    "Invoice|tax rate: 0.2|price|vat",
+    "INV-1  |             |100  |20 =@price*@tax rate",
+    "INV-9  |             |50   |10 =@price*@tax rate",
+  ].join("\n")
+    ? "PASS (flip: a cursor inside the Concept writes the whole Concept out as a grid, its default in the header)"
     : "UNEXPECTED flip grid " + JSON.stringify(gridLines));
   console.log(lint(text, "Books").errors.length === 0
     ? "PASS (flip: the flipped file verifies — V is unchanged by a re-spelling)"
     : "UNEXPECTED flip errors " + JSON.stringify(lint(text, "Books").errors.map((e) => e.message)));
-  console.log(editor.selection.a[0] === 0
-    ? "PASS (flip: the cursor lands on the Concept's first line in its new form)"
+  // the cursor was on INV-1's 'vat' line: it stays on that idea, now INV-1's vat cell
+  console.log(editor.selection.a.join(",") === [1, 28, 1, 28].join(",")
+    ? "PASS (flip: the cursor stays on its idea — a value line's becomes that value's cell)"
     : "UNEXPECTED flip cursor " + JSON.stringify(editor.selection.a));
 
   // and back, the same key from inside the grid: every Example, value and
   // derivation returns — and the grid's header, which is a declaration,
-  // returns as the attribute lines that declare the same columns
-  editor.selection = new vscode.Selection(4, 12, 4, 12);
+  // returns as the attribute lines that declare the same columns, the
+  // default's cell as the line stating that default
+  editor.selection = new vscode.Selection(2, 12, 2, 12); // INV-9's empty 'tax rate' cell
   await registeredCommands.get("aot.toggleTableForm")(editor);
+  // an empty cell writes no line, so the cursor goes to its Example's name
+  const backAt = editor.selection.a.join(",");
   console.log(text === [
     "Invoice",
     "    tax rate: 0.2",
@@ -2730,6 +3089,18 @@ setTimeout(async () => {
   ].join("\n")
     ? "PASS (flip: the same key writes it back, every value and derivation intact)"
     : "UNEXPECTED unflipped " + JSON.stringify(text.split("\n")));
+  console.log(backAt === [7, 6, 7, 6].join(",")
+    ? "PASS (flip: a cursor in an empty cell lands on its Example's name in line form)"
+    : "UNEXPECTED unflip cursor " + backAt);
+
+  // a Concept with no Examples flips too — its header alone — and the
+  // cursor stays on the declaration it stood on
+  text = ["Colour", "    hue", "    shade"].join("\n");
+  editor.selection = new vscode.Selection(2, 6, 2, 6); // inside 'shade'
+  await registeredCommands.get("aot.toggleTableForm")(editor);
+  console.log(text === "Colour|hue|shade" && editor.selection.a.join(",") === [0, 13, 0, 13].join(",")
+    ? "PASS (flip: a Concept with no Examples is written as its header, the cursor on the same column)"
+    : "UNEXPECTED empty flip " + JSON.stringify({ text, sel: editor.selection.a }));
 }, 2000);
 
 // 11b) the settings that choose what runs, and what it is held to, are the
@@ -3501,10 +3872,10 @@ setTimeout(async () => {
       t.editor.selection = new vscode.Selection(0, 0, 0, 0);
       await registeredCommands.get("aot.runPython")(t.editor);
       const computed = t.lines().slice(0, 3);
-      console.log(offered && /Define 'vat' for the whole column \(vat ==@price\*0\.2\)/.test(offered.title)
-        && defined.join("\n") === ["Invoice|price|vat ==@price*0.2|net ==@price-1", "A      |100  |                |99", "B      |50   |10              |49"].join("\n")
-        && computed.join("\n") === ["Invoice|price|vat ==@price*0.2|net ==@price-1", "A      |100  |20              |99", "B      |50   |10              |49"].join("\n")
-        ? "PASS (python in a table: a column every row derives alike moves to its header as ==, and the next run fills its cells)"
+      console.log(offered && /Define 'vat' for the whole column \(vat =@price\*0\.2\)/.test(offered.title)
+        && defined.join("\n") === ["Invoice|price|vat =@price*0.2|net =@price-1", "A      |100  |               |99", "B      |50   |10             |49"].join("\n")
+        && computed.join("\n") === ["Invoice|price|vat =@price*0.2|net =@price-1", "A      |100  |20             |99", "B      |50   |10             |49"].join("\n")
+        ? "PASS (python in a table: a column every row derives alike moves to its header as =, and the next run fills its cells)"
         : "UNEXPECTED define column " + JSON.stringify({ offered: offered && offered.title, defined, computed }));
       vscode.workspace._close(t.doc);
       vscode.workspace.textDocuments = [f.doc];

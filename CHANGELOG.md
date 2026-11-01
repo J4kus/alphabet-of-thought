@@ -4,6 +4,68 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.13.0] - 2026-11-01
+
+- **A table never nests by indentation.** A sub-Example names the row it sits under in a `parent (thing)` column — named `parent`, its `(alias)` the table's own Concept, lowercased. It is the column the CSV mirror has always carried the tree in. A parent cell names the nearest row above of that name, else the first below, so a sort can leave a parent below its child. A name no row carries, a row naming itself and a circle of parents are errors.
+  - A 1.12 table nested by indent still reads as before, with a warning; Format Document, any table key, or the upgrade command rewrites it with the column.
+  - `Tab` and `Shift+Tab` in a table never indent, with lines selected or not: they move between cells. A whole table is re-filed with VS Code's own `Ctrl+]` / `Ctrl+[`.
+  - **Nest Row Under the Row Above** and **Lift Row Out of Its Parent Row** write the parent cell, adding the column when the table has none. Deleting a row takes the rows under it, wherever they stand.
+  - Parent cells link to the row they name (Ctrl+click, hover, rename), and the Outline lists a table's rows flat under its header.
+- **Dividers.** `-----|---` between rows groups them, as a blank line groups an outline. Dividers are kept and redrawn to the columns' widths; every key steps over them, and a sort stays within its group. A `---+---` rule from before 1.12 reads as a divider now, instead of being dropped.
+- **The flip keeps your place.** `Ctrl+Alt+T` lands the cursor on the same idea in the other form: the same value, cell, Example or column, as far into it as it was. An empty cell lands on its Example's name in line form, and comes back as that cell.
+  - A Concept with no Examples flips to its header alone (`Person|age|city`).
+  - Blank lines above Examples become dividers, and back.
+  - A row with an empty name keeps its values on the way out.
+  - The grid no longer swallows a table written straight after the Concept: a blank line keeps them apart.
+- **The CSV mirror merges three ways.** Each cell is judged against the text the `.aot` and its CSV last agreed on, a baseline kept per machine in the extension's own storage:
+  - whichever side changed a cell is the one that counts;
+  - a cell both changed apart goes to the later save, named cell by cell in one notice, with one button that takes the other side's values;
+  - an emptied cell empties;
+  - a row the CSV dropped is asked about (**Delete** / **Keep**), never deleted in silence;
+  - a row the `.aot` dropped stays dropped.
+
+  This fixes three ways edits were lost:
+  - a program holding a stale copy saving over newer `.aot` edits (a stale copy is merged against the baseline it descends from, so it brings only its own edits);
+  - a `.aot` changed while the editor was closed being reverted;
+  - a fold saving your unsaved work (a fold into a document with unsaved edits now edits it and leaves it for you to save).
+
+  Also:
+  - With no baseline yet (a fresh clone), the CSV as the last commit holds it is the ancestor.
+  - A Concept written in several files mirrors their union, and each row's edit goes to the file that lists it.
+  - `aot.tableCsvSyncMode: manual` syncs only on **AOT: Sync CSVs Now** (`Ctrl+K Y`; it was *Import Edited CSVs*), which now runs both ways.
+  - A fold no longer writes an inherited value down as an Example's own, and no longer repeats a nested `- ` Example at the top with a literal `parent:` line.
+- **Rename by typing.** Type over a used name, and once the cursor leaves it the extension counts the uses still saying the old name, across the workspace (`3 uses — 2 here, 1 in bank.aot`), and offers to update them all in one edit. Other files are left unsaved for review. The offer stays on the declaration's lightbulb until it is taken, dismissed or moot, and says so when the new name already names another of its kind. Undo and redo never start one.
+  - **F2 reaches the whole workspace too**: a Concept's spelling in other files, and every crosslink and `@` reference to it there.
+  - The ghost text drops "F2 renames them all".
+- **Findings elsewhere wait while you write.** Typing a first child no longer flashes "'Parent' has 1 sub-Concept" at the parent mid-thought. From the first edit, a finding that is new, and not on a line you edited, waits until the cursor leaves what you are editing (the edited node's parent and everything under it), you save, or you switch editors. A finding already on screen stays, a fix shows at once, and your own lines speak. A status item counts what waits, and a click shows it. This replaces the 600 ms grace on the two lone-child warnings.
+- **`Concept: value` is the Concept's default.** `Currency: EUR` says what any attribute typed by `Currency` reads where nothing values it. It is no longer an Example, so it is no CSV row, no `@Currency` row and no FCA object.
+  - A value equal to the default links, dotted, to the Concept's line, and is offered first in completion.
+  - A table states defaults in its header: `Currency: EUR|symbol`, and `Order|tax rate: 0.2|price`, whose empty cells read `0.2`.
+  - A derived default (`Currency: EUR =pick()`) is an error, for now.
+  - *Consequences:* a CSV that held only such an inline Example (`Run Command.csv`, `Click DropDown.csv`) is archived as `_X.csv` on the next save. A capitalised `Name: value|…` line is now a table's header, where 1.12 read it as a value holding a pipe. `alphabet of thought.aot` loses seven dependency warnings that only the inline Examples produced.
+- **`=` defines, and `==` escapes.**
+  - On an attribute declaration `=` is the definition 1.12 spelled `==`: `vat =@price*0.2` on a header cell is a column calculation, and `status =("draft", "sent")` lists the allowed values.
+  - In a value, a doubled `=` after a space is a literal one: `note: a == b` reads `a = b`.
+  - The older spellings still read.
+  - **AOT: Upgrade Files to 1.13 Syntax** (asked once per workspace) and `node verify.js --workspace [dir] --upgrade` rewrite a 1.12 file: `\=` becomes `==`, a literal `==` gains one more `=` so it still reads `==`, a definition's `==` becomes `=`, and a table nested by indent gains its parent column. *A 1.12 value holding a literal ` ==` changes meaning until the upgrade runs.*
+  - The hoist quick fix, the reconcile and the breach checks no longer turn an escaped value into a derivation.
+- **Gödel numbers are computed as exponent vectors**, never as the integers they stand for unless one is shown. On a 2,000-row table, a hover went from 6.7 s to 0.6 ms, rules 15–16 from 3.5 s to 7 ms, and a lint from 0.9 s to 0.1 s. Primes come from a cached sieve. A hover shows a large number as `≈ 4.12 × 10^1,234 (1,235 digits)`, a clash shows its factorisation, and `verify.js --godel` adds the digit count. See [docs/godel-numbers.md](docs/godel-numbers.md).
+- **The `... N more in …` note:**
+  - a file name with spaces links (`bank recon.aot:14` never did);
+  - the link lands on the Concept's current line;
+  - hovering `N more` lists those Examples where they are written, and hovering a file name lists that file's;
+  - an Example two peers list counts once.
+- **A Concept's alias links the Concepts its words name**: `Human (Natural Person)` links `Person`.
+- **Fixed:**
+  - A sub-Example no longer inherits its parent Example's values in its Gödel number, the FCA context, the CSV mirror or Python: a part inherits nothing from its whole. `examples()` in Python now fills in inherited Concept defaults.
+  - The Gödel numbers type an attribute by its `(alias)`, as the FCA audit and the crosslinks always did.
+  - The table editor and the linter agree where a table ends at a row shallower than its header.
+  - "Define … for the whole column" is offered only for a source that reads as Python.
+  - The grammar colours a row whose first cell holds `a=b`.
+  - git is started only by its absolute path from PATH, never by bare name inside a repository.
+  - The CSV mirror's file cache is checked by content, so a file rewritten to the same size within one clock tick is read anew.
+- See [docs/features-1.13.md](docs/features-1.13.md).
+
 ## [1.12.0] - 2026-09-30
 
 - **Python sees sub-Examples.** `@Thing` holds every Example in the Concept's scope, sub-Examples included. Where they nest, a `parent` column carries the tree, as the CSV mirror writes it. A value on an Example reaches the Examples beneath it (`@Child 1@age`).

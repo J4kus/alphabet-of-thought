@@ -28,9 +28,12 @@
 const { KIND, INDENT } = require("./linter");
 const {
   splitCell, splitConstraint, longestMatch,
-  tablesOf, updateTable, readValue, render, isRowText,
-  numberless,
+  tablesOf, updateTable, readValue, writtenValue, render, isRowText,
+  numberless, columnTerm, defaultColon, parentHeader, parentsOf,
+  parentColumnOf: headerParentColumn,
+  blockAt, cells, colAt, cellStart, dividers,
 } = require("./table");
+const { typeDefaultOf } = require("./crosslinks");
 
 // The `==` bound on an attribute declaration — the one that *defines* every
 // value of the attribute rather than bounding it, when what it computes is
@@ -76,6 +79,16 @@ function referencesAt(nodes, line) {
   return { columns: [...columns], rows: examples.map((e) => e.name) };
 }
 
+// The kind an Example inherits from: the nearest node above it that is not
+// itself an Example. An Example above it — the `- Parent` of a `- Child`, the
+// row a nested row sits under — is the whole it is a part of, and a part
+// inherits nothing from its whole.
+function kindAbove(node) {
+  let k = node ? node.parent : null;
+  while (k && k.kind === KIND.INDIVIDUAL) k = k.parent;
+  return k || null;
+}
+
 // The evaluation context for one host. `current` maps a DEFAULT node to
 // its value-in-progress, so the recompute fixpoint sees fresh values.
 // `registry` (optional) lets a line-form formula reach a foreign table's
@@ -87,13 +100,17 @@ function makeCtx(d, current, registry) {
   // definition) on a value under an Example may name them beside its own
   // siblings — `=@price*@tax rate` with `tax rate: 0.2` on the Concept.
   // This is the reading a grid cell already gets through its enclosing
-  // scope (table.js's `outer`); the line form answers it the same way.
-  const owner = d.parent && d.parent.kind === KIND.INDIVIDUAL ? d.parent.parent : null;
+  // scope (table.js's `outer`); the line form answers it the same way. A
+  // sub-Example's kind is the Concept above the Examples it sits under,
+  // never the Example it sits under (kindAbove).
+  const owner = d.parent && d.parent.kind === KIND.INDIVIDUAL ? kindAbove(d.parent) : null;
   const names = new Map(); // lowercased key -> canonical attribute id
+  const declFor = new Map(); // canonical id -> the nearest declaration, for its type
   const addName = (n) => {
     if (n.kind !== KIND.DEFAULT && n.kind !== KIND.ATTRIBUTE) return;
     const key = n.name.toLowerCase();
     if (!names.has(key)) names.set(key, key);
+    if (!declFor.has(key)) declFor.set(key, n);
     if (n.alias) {
       const a = n.alias.toLowerCase();
       if (!names.has(a)) names.set(a, key);
@@ -118,13 +135,20 @@ function makeCtx(d, current, registry) {
     if (!hit) return undefined;
     return hit.kind === KIND.DEFAULT ? current(hit) : "";
   };
-  // the Concept's own value for the attribute — what a silent Example inherits
+  // the Concept's own value for the attribute — what a silent Example
+  // inherits — else the default of the Concept that types the attribute
   const inherited = (id) => (owner ? valueOn(owner, id) : undefined);
+  const typed = (id) => {
+    const td = typeDefaultOf(declFor.get(id));
+    return td ? td.value : undefined;
+  };
   const read = (on, id) => {
     let v = valueOn(on, id);
     if (v === undefined || v === "") {
       const own = inherited(id);
       if (own !== undefined && own !== "") return own;
+      const fromType = typed(id);
+      if (fromType !== undefined) return fromType;
     }
     return v === undefined ? "" : v;
   };
@@ -190,6 +214,21 @@ function conceptScope(concept) {
       && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id)));
     return hit && hit.kind === KIND.DEFAULT ? hit.value || "" : undefined;
   };
+  // the default of the Concept that types an attribute, read off its first
+  // declaration in the scope (`Currency: EUR` for a `currency`)
+  const declOf = (id) => {
+    for (const owner of [concept, ...examples]) {
+      const hit = owner.children.find((c) => (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
+        && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id)));
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const typeDefault = (id) => {
+    if (id === PARENT_COLUMN) return undefined;
+    const td = typeDefaultOf(declOf(id));
+    return td ? td.value : undefined;
+  };
   const valueAt = (r, id) => {
     const ex = examples[r];
     if (!ex) throw new Error(`there is no Example @${r} on '${concept.name}'`);
@@ -197,7 +236,9 @@ function conceptScope(concept) {
     if (own !== undefined && (own !== "" || id !== PARENT_COLUMN)) return own;
     if (id === PARENT_COLUMN && (tree.addParent || tree.owned)) return tree.parentOf(ex);
     const inherited = valueOn(concept, id); // the Concept's default
-    return inherited === undefined ? "" : inherited;
+    if (inherited !== undefined) return inherited;
+    const fromType = typeDefault(id); // the type's
+    return fromType === undefined ? "" : fromType;
   };
   return {
     name: concept.name, // original case, for the completion
@@ -218,6 +259,10 @@ function conceptScope(concept) {
     // Concept offers it: `@Measurement@alias` means the value Measurement
     // itself carries, the same one its Examples would inherit.
     self: (c) => valueOn(concept, c),
+    // what an Example silent on the attribute reads when the Concept states
+    // nothing either: the default of the Concept that types it — the reading
+    // a grid's empty cell gets through table.tableCtx's `outer`
+    typeDefault,
     // the same Examples as a grid — the first column is headed by the
     // Concept and names its Examples, as the CSV mirror writes a table's,
     // so a line-form Concept mirrors like any other
@@ -469,43 +514,95 @@ function addExample(root, nodes, lines, concept, value, rootName, registry) {
 // At most one op ever targets a given line, so that order is all a caller
 // has to get right.
 // A value as the file writes it: an `=` that would open a derivation
-// escaped, `\=` — the reader never sees the backslash (readValue).
-const asWritten = (v) => String(v == null ? "" : v).replace(/(^|\s)=(?!=)/g, "$1\\=");
-// Two spellings of one value: escaped or not, and a pipe or the broken bar
-// the mirror bends one to — so a round trip through a CSV rewrites nothing.
+// doubled, `==` — the reader never sees the doubling (readValue).
+const asWritten = (v) => writtenValue(v);
+// Two written spellings of one value — escaped either way, a pipe or the
+// broken bar the mirror bends one to — so a round trip through a CSV
+// rewrites nothing. Both sides must be as the file writes them: reading is
+// not idempotent (`a == b` reads 'a = b', which would read on as itself), so
+// a value the model already read goes in through writtenValue.
 const sameValue = (a, b) =>
   readValue(String(a == null ? "" : a)).replace(/¦/g, "|") === readValue(String(b == null ? "" : b)).replace(/¦/g, "|");
 
+// What an Example silent on an attribute reads in the mirror: the nearest
+// default stated by one of its kinds, up to the Concept whose scope it is in
+// (an Example above it is a whole, which lends its parts nothing), else the
+// default of the Concept that types the attribute. undefined when nothing
+// is in force — the reading mirrorGrids writes into a silent row's cell.
+function inheritedValue(ex, key, concept) {
+  const match = (c) => isAttrKind(c) && !c.cell
+    && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key));
+  let decl = ex.children.find((c) => isAttrKind(c) && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key))) || null;
+  for (let p = ex.parent; p; p = p.parent) {
+    if (p.kind !== KIND.INDIVIDUAL) {
+      const hit = p.children.find((c) => c.kind === KIND.DEFAULT && match(c));
+      if (hit) return hit.value || "";
+      if (!decl) decl = p.children.find(match) || null;
+    }
+    if (p === concept) break;
+  }
+  const td = typeDefaultOf(decl);
+  return td ? String(td.value) : undefined;
+}
+
 function updateExamples(lines, concept, header, rows) {
   const attrs = header.slice(1);
-  const indent = " ".repeat(INDENT * (concept.depth + 1));
-  const childIndent = " ".repeat(INDENT * (concept.depth + 2));
-  const examples = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
-  const byName = new Map(examples.map((e) => [e.name.toLowerCase(), e]));
+  const levelOf = (depth) => " ".repeat(INDENT * Math.max(0, depth));
+  // every Example written as lines in the Concept's scope, sub-Examples
+  // too — a CSV row names one wherever it is filed (a table's rows are its
+  // table's to update)
+  const examples = scopeRowsOf(concept).filter((c) => c.nameCol === undefined);
+  const byName = new Map();
+  for (const e of examples) if (!byName.has(e.name.toLowerCase())) byName.set(e.name.toLowerCase(), e);
+  // the mirror's `parent` column is the tree, not an attribute — unless the
+  // scope states a `parent` of its own, whose column it then is
+  const owned = [concept, ...examples].some((o) => o.children.some((c) => isAttrKind(c) && c.name.toLowerCase() === PARENT_COLUMN));
+  const pk = owned ? -1 : attrs.findIndex((a) => String(a || "").trim().toLowerCase() === PARENT_COLUMN);
   const ops = [];
+  // fresh Examples: { name, depth, under (the written Example they go
+  // under, or null for the Concept's own), lines } in the order written
   const fresh = [];
   for (const row of rows) {
     const name = (row[0] || "").trim();
     if (!name) continue;
     const ex = byName.get(name.toLowerCase());
     if (!ex) {
-      fresh.push(indent + `- ${name}`);
+      // a new Example goes under the one its parent cell names: written
+      // here already, or arriving in the same CSV ahead of it
+      const parentName = pk === -1 ? "" : (row[pk + 1] || "").trim().toLowerCase();
+      const under = parentName ? byName.get(parentName) || null : null;
+      const before = !under && parentName ? fresh.find((f) => f.name.toLowerCase() === parentName) : null;
+      const depth = under ? under.depth + 1 : before ? before.depth + 1 : concept.depth + 1;
+      const entry = { name, depth, under: under || (before ? before.under : null), lines: [levelOf(depth) + `- ${name}`] };
       attrs.forEach((a, k) => {
+        if (k === pk) return;
         const v = (row[k + 1] || "").trim();
-        if (v) fresh.push(childIndent + `${a}: ${v}`);
+        if (v) entry.lines.push(levelOf(depth + 1) + `${a}: ${v}`);
       });
+      if (before) {
+        // after the fresh parent and everything already filed under it
+        let at = fresh.indexOf(before) + 1;
+        while (at < fresh.length && fresh[at].under === before.under && fresh[at].depth > before.depth) at++;
+        fresh.splice(at, 0, entry);
+      } else fresh.push(entry);
       continue;
     }
     const missing = [];
+    const ownIndent = levelOf(ex.depth + 1);
     attrs.forEach((a, k) => {
+      if (k === pk) return; // where it is filed is not a value of it
       const v = (row[k + 1] || "").trim();
       if (!v) return;
       const key = a.toLowerCase();
       const hit = ex.children.find((c) =>
         (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
         && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key)));
-      if (!hit) { missing.push(childIndent + `${a}: ${v}`); return; }
-      if (hit.formula !== undefined || sameValue(hit.value, v)) return;
+      // a value the Example already reads, from a default, is no news: the
+      // mirror shows it, and writing it down would make it the Example's own
+      const inherited = inheritedValue(ex, key, concept);
+      if ((!hit || hit.kind === KIND.ATTRIBUTE) && inherited !== undefined && sameValue(writtenValue(inherited), v)) return;
+      if (!hit) { missing.push(ownIndent + `${a}: ${v}`); return; }
+      if (hit.formula !== undefined || sameValue(writtenValue(hit.value), v)) return;
       const raw = lines[hit.line - 1] || "";
       const colon = raw.indexOf(":");
       if (colon === -1) return;
@@ -513,12 +610,22 @@ function updateExamples(lines, concept, header, rows) {
     });
     if (missing.length) ops.push({ type: "insert", afterLine: lastLineOf(ex), text: missing.join("\n") });
   }
-  if (fresh.length) {
-    // after the last Example's whole subtree, so the new ones are siblings
-    // of the others and not children of the last one's deepest attribute
-    const last = examples.length ? examples[examples.length - 1]
-      : concept.children[concept.children.length - 1];
-    ops.push({ type: "insert", afterLine: last ? lastLineOf(last) : concept.line, text: fresh.join("\n") });
+  // the fresh ones under a written Example go after its whole subtree; the
+  // rest after the last of the Concept's own Examples, so they are siblings
+  // of the others and not children of the last one's deepest attribute
+  const groups = new Map(); // the Example they go under (null: the Concept) -> lines
+  for (const f of fresh) {
+    if (!groups.has(f.under)) groups.set(f.under, []);
+    groups.get(f.under).push(...f.lines);
+  }
+  for (const [under, text] of groups) {
+    if (!under) continue;
+    ops.push({ type: "insert", afterLine: lastLineOf(under), text: text.join("\n") });
+  }
+  if (groups.has(null)) {
+    const own = concept.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+    const last = own.length ? own[own.length - 1] : concept.children[concept.children.length - 1];
+    ops.push({ type: "insert", afterLine: last ? lastLineOf(last) : concept.line, text: groups.get(null).join("\n") });
   }
   // Two inserts after the same line would fight. It happens whenever the
   // *last* Example gains an attribute and a fresh Example is appended too:
@@ -643,13 +750,9 @@ function nearestConcept(n, root) {
   return root;
 }
 
-// A header cell's column name: the term minus its constraint and its
-// (alias).
-function headerColName(cell) {
-  let name = splitConstraint(cell).value;
-  if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
-  return name;
-}
+// A header cell's column name: the term minus its default, its constraint
+// and its (alias) — table.columnTerm, the one reading every grid uses.
+const headerColName = (cell) => columnTerm(cell);
 
 // The Examples in a Concept's scope, document order: every INDIVIDUAL in
 // its subtree that no deeper Concept claims — and that no attribute claims.
@@ -697,18 +800,28 @@ function mirrorGrids(root, nodes) {
     };
     addNames(concept);
     for (const r of scopeRows) addNames(r);
-    // a row silent on a column answers the nearest enclosing default
+    // a row silent on a column answers the nearest enclosing default — of
+    // its kinds: an Example above it is the whole it is a part of, and a
+    // part inherits nothing from its whole, written as lines or as a row. A
+    // bare attribute on the row names no value, so the default still holds
+    // there, as it does for the Gödel number, the FCA context and @Concept.
     const valueAt = (r, key) => {
       const match = (c) => isAttrKind(c)
         && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key));
-      const own = r.children.find(match);
-      if (own) return own.kind === KIND.DEFAULT ? own.value || "" : "";
+      const own = r.children.find((c) => c.kind === KIND.DEFAULT && match(c));
+      if (own) return own.value || "";
+      let decl = r.children.find(match) || null;
       for (let p = r.parent; p; p = p.parent) {
-        const hit = p.children.find((c) => c.kind === KIND.DEFAULT && !c.cell && match(c));
-        if (hit) return hit.value || "";
+        if (p.kind !== KIND.INDIVIDUAL) {
+          const hit = p.children.find((c) => c.kind === KIND.DEFAULT && !c.cell && match(c));
+          if (hit) return hit.value || "";
+          if (!decl) decl = p.children.find(match) || null;
+        }
         if (p === concept) break;
       }
-      return "";
+      // nothing in force states it: the default of the Concept that types it
+      const td = key === PARENT_COLUMN ? null : typeDefaultOf(decl);
+      return td ? String(td.value) : "";
     };
     // A nested Example is written as a row indented under its parent row,
     // and no CSV can hold that: every reader of a CSV trims its cells, so
@@ -744,12 +857,22 @@ function mirrorGrids(root, nodes) {
 // arrive when a table is created, never from the mirror), a line-form
 // Example updates attribute by attribute (updateExamples), and a name the
 // file does not hold yet is appended — as a row of the Concept's own table
-// when it has one, else as a '- ' block. Nothing is ever deleted; a blank
-// cell says nothing; a value carrying a formula is left to its formula.
+// when it has one, else as a '- ' block. A blank cell says nothing; a value
+// carrying a formula is left to its formula. `opts.erase` — [{ row, col }],
+// the values a CSV emptied since the two copies last agreed (csvsync) —
+// empties them: a cell, or an Example's own value line. Nothing else is ever
+// deleted (deleteExamples does that, when asked).
 // Returns ops in the updateExamples shape — plus { type: "block", from,
 // to, block } (0-based inclusive lines) for a touched table, redrawn
-// aligned exactly as updateTable redraws one.
-function updateScope(lines, root, nodes, concept, header, csvRows, rootName) {
+// aligned exactly as updateTable redraws one, and { type: "delete", line }.
+function updateScope(lines, root, nodes, concept, header, csvRows, rootName, opts = {}) {
+  // the values to empty, by Example and column (case aside)
+  const wipe = new Map();
+  for (const e of opts.erase || []) {
+    const row = String(e.row || "").trim().toLowerCase();
+    if (!wipe.has(row)) wipe.set(row, new Set());
+    wipe.get(row).add(String(e.col || "").trim().toLowerCase());
+  }
   // a CSV is data, written by whoever edited it: nothing it carries becomes
   // code here, so an `=` that would open a derivation arrives escaped, `\=`
   const rows = csvRows.map((r) => r.map((c, k) => (k === 0 ? c : asWritten(c))));
@@ -772,23 +895,56 @@ function updateScope(lines, root, nodes, concept, header, csvRows, rootName) {
   });
   const direct = inScope.find((t) => t.name.toLowerCase() === concept.name.toLowerCase());
   const matched = new Set(); // names a table row already answered for
-  const touched = []; // { t, rows, depths, changed }
-  // the mirror writes a nested scope's shape as a `parent` column; a flat
-  // one has none, and then every row keeps the depth it is written at
+  const touched = []; // { t, header, rows, changed }
+  // the mirror writes a nested scope's shape as a `parent` column, and a
+  // table carries it in its own `parent (thing)` column: a row's parent
+  // cell is set from the CSV's as any other cell is — the name it gives,
+  // which a spreadsheet may reorder and reword rows around freely — and a
+  // row the CSV files at the top has its cell emptied. A table nesting for
+  // the first time gains the column.
   const parentAt = csvIdx.get(PARENT_COLUMN);
   for (const t of inScope) {
-    const colNames = t.header.map(headerColName);
-    let changed = false;
-    // a row's depth is its own until the CSV says otherwise — a redraw that
-    // forgot it would flatten the tree the table is written as
-    const depths = (t.rowDepths || t.rows.map(() => 0)).slice();
-    const nextRows = t.rows.map((cellsRow) => {
+    let header = t.header;
+    let rowsHere = t.rows;
+    let pcol = t.parentCol === undefined ? -1 : t.parentCol;
+    // a table stating a `parent` attribute of its own is mirrored by it, as
+    // the same fact under the same name (mirrorGrids): its column is a column
+    const structured = parentAt !== undefined
+      && !header.some((h, k) => k > 0 && k !== pcol && headerColName(h).toLowerCase() === PARENT_COLUMN);
+    const wants = (cellsRow) => {
+      const rowName = splitCell(cellsRow[0] || "").value.trim();
+      const csvRow = rowName && byName.get(rowName.toLowerCase());
+      return csvRow ? (csvRow[parentAt] || "").trim() : "";
+    };
+    if (pcol === -1 && structured && rowsHere.some((r) => wants(r))) {
+      header = [header[0], parentHeader(header), ...header.slice(1)];
+      rowsHere = rowsHere.map((r) => [r[0], "", ...r.slice(1)]);
+      pcol = 1;
+    }
+    const colNames = header.map(headerColName);
+    let changed = header !== t.header;
+    const nextRows = rowsHere.map((cellsRow, i) => {
       const next = cellsRow.slice();
       const rowName = splitCell(next[0] || "").value.trim();
+      const rowNode = nodes.find((n) => n.kind === KIND.INDIVIDUAL && n.line === t.rowLines[i]);
       const csvRow = rowName && byName.get(rowName.toLowerCase());
-      if (!csvRow || matched.has(rowName.toLowerCase())) return next;
+      const wipes = rowName && wipe.get(rowName.toLowerCase());
+      if ((!csvRow && !wipes) || matched.has(rowName.toLowerCase())) return next;
       matched.add(rowName.toLowerCase());
-      for (let k = 1; k < t.header.length; k++) {
+      for (let k = 1; k < header.length; k++) {
+        if (k === pcol) {
+          if (!structured || !csvRow) continue;
+          const want = (csvRow[parentAt] || "").trim();
+          if ((next[k] || "").trim().toLowerCase() !== want.toLowerCase()) { next[k] = want; changed = true; }
+          continue;
+        }
+        // an emptied cell empties — unless a formula owns it
+        if (wipes && colNames[k] && wipes.has(colNames[k].toLowerCase())) {
+          const cur = splitCell(next[k] || "");
+          if (cur.eq === -1 && cur.value.trim()) { next[k] = ""; changed = true; }
+          continue;
+        }
+        if (!csvRow) continue;
         const at = colNames[k] && csvIdx.get(colNames[k].toLowerCase());
         if (!at) continue;
         // a pipe divides cells, so one in a value is the broken bar here
@@ -797,38 +953,23 @@ function updateScope(lines, root, nodes, concept, header, csvRows, rootName) {
         const cur = splitCell(next[k] || "");
         if (cur.eq !== -1) continue; // a formula owns its value
         if (sameValue(cur.value.trim(), v)) continue;
+        // an empty cell already reads the default the CSV shows: no news
+        if (!cur.value.trim() && rowNode) {
+          const inherited = inheritedValue(rowNode, colNames[k].toLowerCase(), concept);
+          if (inherited !== undefined && sameValue(writtenValue(inherited), v)) continue;
+        }
         next[k] = v;
         changed = true;
       }
       return next;
     });
-    // The shape comes back from the `parent` column: a row sits one level
-    // under the row it names, which is why the mirror writes the name and
-    // not the depth — a spreadsheet may reorder and reword rows freely.
-    // A parent the table does not hold ABOVE the row cannot be nested under
-    // without moving lines about, which is not a fold's business, so that
-    // row keeps the depth it has.
-    if (parentAt !== undefined) {
-      const above = new Map(); // lowercased row name -> its index
-      nextRows.forEach((cellsRow, i) => {
-        const rowName = splitCell(cellsRow[0] || "").value.trim();
-        const csvRow = rowName && byName.get(rowName.toLowerCase());
-        if (csvRow) {
-          const key = (csvRow[parentAt] || "").trim().toLowerCase();
-          let want = depths[i];
-          if (!key) want = 0; // a row naming no parent is a top-level row
-          else if (above.has(key)) want = depths[above.get(key)] + 1;
-          if (want !== depths[i]) { depths[i] = want; changed = true; }
-        }
-        if (rowName) above.set(rowName.toLowerCase(), i);
-      });
-    }
-    touched.push({ t, rows: nextRows, depths, changed });
+    touched.push({ t, header, pcol, structured, rows: nextRows, changed });
   }
   // the rest: line-form Examples merge in place, fresh names land in the
   // Concept's own shape — its direct table when it has one, else '- ' form
-  const lineNames = new Set(concept.children
-    .filter((c) => c.kind === KIND.INDIVIDUAL && !isRowText(lines[c.line - 1] || ""))
+  // every Example of the scope written as lines, sub-Examples among them
+  const lineNames = new Set(scopeRowsOf(concept)
+    .filter((c) => c.nameCol === undefined && !isRowText(lines[c.line - 1] || ""))
     .map((c) => c.name.toLowerCase()));
   const forLines = [], freshRows = [];
   for (const r of rows) {
@@ -839,39 +980,76 @@ function updateScope(lines, root, nodes, concept, header, csvRows, rootName) {
   }
   const ops = [];
   if (forLines.length) ops.push(...updateExamples(lines, concept, header, forLines));
+  // an emptied value of an Example written as lines: its own value line
+  // goes (an inherited one is no line of its own to empty), a formula's
+  // value stays its formula's
+  const lineExamples = scopeRowsOf(concept).filter((c) => c.nameCol === undefined);
+  for (const [row, cols] of wipe) {
+    if (matched.has(row)) continue;
+    const ex = lineExamples.find((c) => c.name.toLowerCase() === row);
+    if (!ex) continue;
+    for (const c of ex.children) {
+      if (c.kind !== KIND.DEFAULT || c.cell || c.formula !== undefined) continue;
+      if (cols.has(c.name.toLowerCase()) || (c.alias && cols.has(c.alias.toLowerCase()))) {
+        if (!c.children.length) ops.push({ type: "delete", line: c.line });
+      }
+    }
+  }
   if (freshRows.length && direct) {
     const own = touched.find((x) => x.t === direct);
+    // a new row nesting under another brings the parent column with it
+    if (own.pcol === -1 && own.structured && freshRows.some((r) => (r[parentAt] || "").trim())) {
+      own.header = [own.header[0], parentHeader(own.header), ...own.header.slice(1)];
+      own.rows = own.rows.map((r) => [r[0], "", ...r.slice(1)]);
+      own.pcol = 1;
+    }
     for (const r of freshRows) {
-      own.rows.push(direct.header.map((cell, k) => {
+      // the parent cell takes the CSV's `parent`, as the column of that name
+      own.rows.push(own.header.map((cell, k) => {
         if (k === 0) return (r[0] || "").trim();
+        if (k === own.pcol && !own.structured) return "";
         const at = csvIdx.get(headerColName(cell).toLowerCase());
         return at ? (r[at] || "").trim() : "";
       }));
-      // a new row nests under the row it names, when that row is already there
-      let depth = 0;
-      if (parentAt !== undefined) {
-        const key = (r[parentAt] || "").trim().toLowerCase();
-        const at = key && own.rows.findIndex((c) =>
-          splitCell(c[0] || "").value.trim().toLowerCase() === key);
-        if (at !== undefined && at > -1) depth = (own.depths[at] || 0) + 1;
-      }
-      own.depths.push(depth);
     }
     own.changed = true;
   }
-  // a touched table is redrawn whole, aligned, appended rows included
-  for (const { t, rows: nextRows, depths, changed } of touched) {
+  // a touched table is redrawn whole, aligned, appended rows included, its
+  // dividers where they stood
+  for (const { t, header: drawnHeader, rows: nextRows, changed } of touched) {
     if (!changed) continue;
-    const block = render({
-      indent: t.indent,
-      rows: [
-        { sep: false, cells: t.header },
-        ...nextRows.map((cells, i) => ({ sep: false, cells, depth: depths[i] || 0 })),
-      ],
+    const body = [];
+    nextRows.forEach((cells, i) => {
+      if ((t.breaks || []).includes(i)) body.push({ sep: true, cells: [] });
+      body.push({ sep: false, cells });
     });
+    if ((t.breaks || []).includes(t.rows.length) && nextRows.length === t.rows.length) body.push({ sep: true, cells: [] });
+    const block = render({ indent: t.indent, rows: [{ sep: false, cells: drawnHeader }, ...body] });
     ops.push({ type: "block", from: t.start, to: t.end, block });
   }
   return ops;
+}
+
+// The edit that deletes Examples a CSV stopped listing, once that has been
+// asked: each one `names` holds (case aside) in the Concept's scope — a
+// table's row, or a '- ' line with everything written under it. One with a
+// sub-Example that is not going too is kept, since deleting it would take
+// a row the CSV still lists. Answers { ops, kept: [name] }, the ops one
+// { type: "delete", line } per line (1-based).
+function deleteExamples(lines, root, nodes, concept, names) {
+  const going = new Set(names.map((n) => String(n).trim().toLowerCase()));
+  const ops = [], kept = [];
+  const gone = new Set();
+  const drop = (line) => { if (!gone.has(line)) { gone.add(line); ops.push({ type: "delete", line }); } };
+  for (const ex of scopeRowsOf(concept)) {
+    if (!going.has(ex.name.toLowerCase())) continue;
+    if (scopeRowsOf(ex).some((s) => !going.has(s.name.toLowerCase()))) { kept.push(ex.name); continue; }
+    // a row is its own line, its sub-rows lines of their own; a '- ' line
+    // takes the lines written under it
+    const last = ex.nameCol !== undefined ? ex.line : lastLineOf(ex);
+    for (let l = ex.line; l <= last; l++) drop(l);
+  }
+  return { ops, kept };
 }
 
 // --- flipping a Concept between its two forms --------------------------------
@@ -910,7 +1088,8 @@ function gridOfConcept(lines, concept, rootName) {
   if (!concept || !concept.name) return null;
   const end = lastLineOf(concept);
   const id = numberless(concept.name).toLowerCase();
-  return tablesOf(lines, rootName).find((t) =>
+  // a header with no rows yet is the table of a Concept with no Examples
+  return tablesOf(lines, rootName, { headerOnly: true }).find((t) =>
     t.start + 1 >= concept.line && t.start + 1 <= end
     && numberless(t.name).toLowerCase() === id) || null;
 }
@@ -928,15 +1107,15 @@ function rawValueOf(lines, node) {
 // The Concept's Examples that can be rows. A row is a name, a flat list of
 // values, and a place in the tree: an Example whose children are attributes
 // with no structure of their own is a row, and so is one whose further
-// children are themselves rows — a sub-Example is a row indented inside its
-// name cell. A Map or a sub-Concept still has nowhere to go in a grid, so
-// an Example carrying one is no row; nor is the inline Example riding on
-// the Concept's own line ('Colour: red').
+// children are themselves rows — a sub-Example is a row naming its parent
+// in the `parent (thing)` column. A Map or a sub-Concept still has nowhere
+// to go in a grid, so an Example carrying one is no row.
 const isRowable = (c) => c.kind === KIND.INDIVIDUAL
   && c.children.every((g) => (isAttrKind(g) && !g.children.length) || isRowable(g));
 
 // Those Examples depth-first, each tagged with the depth it is written at —
-// the order the grid draws them in, and the indent each name cell carries.
+// the order the grid draws them in; a row at depth 1 or more names its
+// parent in the parent column.
 function rowableExamples(concept) {
   const out = [];
   const walk = (n, depth) => {
@@ -951,28 +1130,43 @@ function rowableExamples(concept) {
 }
 
 // A bare attribute line under the Concept declares a column and nothing
-// else, so the grid's header takes over from it. One with children of its
-// own (an attribute listing the values it may take) is not a column: it
-// stays a line.
-const columnAttributes = (concept) => concept.children.filter((c) =>
-  c.kind === KIND.ATTRIBUTE && !c.children.length);
+// else, so the grid's header takes over from it — and so does a line giving
+// the column its default (`tax rate: 0.2`), which a header cell states the
+// same way. One with children of its own (an attribute listing the values it
+// may take) is not a column: it stays a line. Nor is a default that is
+// derived (a header states, it does not derive) or one whose attribute is
+// also declared with a constraint (one cell cannot hold both).
+const columnAttributes = (concept) => {
+  const constrained = new Set(concept.children
+    .filter((c) => c.kind === KIND.ATTRIBUTE && c.constraints && c.constraints.length)
+    .map((c) => c.name.toLowerCase()));
+  return concept.children.filter((c) => !c.children.length && !c.cell && !c.header
+    && (c.kind === KIND.ATTRIBUTE
+      || (c.kind === KIND.DEFAULT && c.formula === undefined && !constrained.has(c.name.toLowerCase()))));
+};
 
 // Write the Concept as a table. The header's first cell names the Concept
 // (1.9) and the cells after it are its attributes: the bare attribute lines
 // it declares, as written — (alias) and constraints and all — then any
-// further attribute only its Examples carry. Every Example becomes a row.
+// further attribute only its Examples carry. Every Example that can be a
+// row becomes one; a sub-Example names the row it sits under in a
+// `parent (thing)` column, written second, which the table gains only when
+// something nests. A Concept with no Example yet is a header and nothing
+// more — `Person|age|city`, or `Person|` with no attribute either.
 //
 // Everything else the Concept holds keeps its line: when that is nothing at
 // all the table stands alone where the Concept's line stood, and when it is
 // not the Concept keeps its line and the grid is filed beneath it, repeating
-// its name in the first cell — the merge form, which is what lets a default
-// or a Map survive the flip.
+// its name in the first cell — the merge form, which is what lets a Map, a
+// sub-Concept or an Example too deep to be a row survive the flip.
 //
-// Returns { form: "table", from, to, block } with 0-based inclusive lines,
-// or null when the Concept has no Example to make a row of.
+// A blank line straight above an Example's line becomes a divider above its
+// row — above the first, one under the header — and the flip back writes
+// it again. Blank lines anywhere else are presentation, and go.
+//
+// Returns { form: "table", from, to, block } with 0-based inclusive lines.
 function toTableForm(lines, concept) {
   const examples = rowableExamples(concept);
-  if (!examples.length) return null;
   const declared = columnAttributes(concept);
   const columns = []; // { at, cell } — the header cell as it will be drawn
   // A column is identified by the attribute's **name** and nothing else,
@@ -991,8 +1185,15 @@ function toTableForm(lines, concept) {
     seen.set(key, fresh);
   };
   // the declarations first, in the order they are written, so the columns
-  // read left to right as the lines read top to bottom
-  for (const attr of declared) claim(attr, (lines[attr.line - 1] || "").trim());
+  // read left to right as the lines read top to bottom — a default line's
+  // cell carrying its default (`tax rate: 0.2`), which says more than a bare
+  // declaration of the same attribute beside it
+  for (const attr of declared) {
+    const text = (lines[attr.line - 1] || "").trim();
+    const had = seen.get(attr.name.toLowerCase());
+    if (had && attr.kind === KIND.DEFAULT) had.cell = text;
+    else claim(attr, text);
+  }
   // then any attribute only an Example carries. It has no declaration line
   // to copy, so its header cell is written from the node: the name and the
   // (alias) that crosslinks it, which is all such an attribute ever states.
@@ -1008,13 +1209,19 @@ function toTableForm(lines, concept) {
   const cell = (text) => String(text).replace(/\|/g, "¦");
   const consumed = new Set([...declared, ...examples.map((e) => e.node)]);
   const kept = concept.children.filter((c) => !consumed.has(c) && c.line !== concept.line);
-  const standalone = !kept.length && !concept.value && concept.line > 0;
+  const standalone = !kept.length && concept.line > 0;
   const indent = " ".repeat(INDENT * (concept.depth + (standalone ? 0 : 1)));
+  // the Concept's own default as its line wrote it, escapes and all
+  const ownDefault = concept.value != null && concept.value !== "" ? rawValueOf(lines, concept) : "";
   const first = standalone
-    // the Concept's line becomes the header's first cell, so its name — and
-    // the (alias) that names the same idea — move into the grid
-    ? concept.name + (concept.alias ? ` (${concept.alias})` : "")
+    // the Concept's line becomes the header's first cell, so its name — the
+    // (alias) that names the same idea, and the default it states — move
+    // into the grid
+    ? concept.name + (concept.alias ? ` (${concept.alias})` : "") + (ownDefault ? `: ${ownDefault}` : "")
     : concept.name;
+  // the parent column, second, when any row sits under another
+  const nested = examples.some((e) => e.depth > 0);
+  const parentCells = nested ? [parentHeader([concept.name])] : [];
   // each value placed in the column its own name claimed, rather than each
   // column hunting for a value: one map decided both, so every value has a
   // column and no column can quietly take another's
@@ -1025,15 +1232,19 @@ function toTableForm(lines, concept) {
       const col = seen.get(child.name.toLowerCase());
       if (col) cells[col.at + 1] = cell(rawValueOf(lines, child));
     }
-    // the depth rides on the row; render() writes it into the name cell
-    return { cells, depth };
+    // where it sits: its parent's name, as the parent's own row writes it
+    if (nested) cells.splice(1, 0, depth > 0 ? cell(ex.parent.name) : "");
+    return cells;
+  });
+  const body = [];
+  examples.forEach(({ node: ex }, i) => {
+    const above = ex.line - 2;
+    if (above >= concept.line && !String(lines[above] || "").trim()) body.push({ sep: true, cells: [] });
+    body.push({ sep: false, cells: rows[i] });
   });
   const block = {
     indent,
-    rows: [
-      { sep: false, cells: [cell(first), ...columns.map((c) => cell(c.cell))] },
-      ...rows.map((r) => ({ sep: false, cells: r.cells, depth: r.depth })),
-    ],
+    rows: [{ sep: false, cells: [cell(first), ...parentCells, ...columns.map((c) => cell(c.cell))] }, ...body],
   };
   // no recompute here: a flip is a re-spelling, not a recalculation, and
   // the grid is not in the document yet — a formula reading the Concept's
@@ -1041,24 +1252,38 @@ function toTableForm(lines, concept) {
   // over a value that was right. The caller's own re-align computes them
   // where they land, with the whole file around them.
   const drawn = render(block);
+  const from = concept.line - 1;
+  const to = lastLineOf(concept) - 1;
+  // A table touching a row of another table would read as more of its rows,
+  // or they as more of its: a blank line keeps every two apart — the grid
+  // and the tables either side of the flip, and two kept sub-Concepts
+  // written as tables, which stood apart before they were gathered here.
+  const touches = (i) => i >= 0 && i < lines.length && isRowText(lines[i]);
+  const out = standalone && touches(from - 1) ? [""] : [];
+  const put = (part) => {
+    if (out.length && part.length && isRowText(out[out.length - 1]) && isRowText(part[0])) out.push("");
+    out.push(...part);
+  };
   // the lines that are kept travel whole — each with the subtree beneath it
   // — and the grid is filed last, after everything still written as lines
-  const before = standalone ? [] : [
-    lines[concept.line - 1],
-    ...kept.flatMap((c) => lines.slice(c.line - 1, lastLineOf(c))),
-  ];
-  return {
-    form: "table",
-    from: concept.line - 1,
-    to: lastLineOf(concept) - 1,
-    block: [...before, ...drawn],
-  };
+  if (!standalone) {
+    put([lines[concept.line - 1]]);
+    for (const c of kept) put(lines.slice(c.line - 1, lastLineOf(c)));
+  }
+  put(drawn);
+  if (touches(to + 1)) out.push("");
+  return { form: "table", from, to, block: out };
 }
 
 // Write the Concept's table out as lines: the Concept, then a bare
 // attribute line per column, then a '- Example' per row with a value line
 // for each cell that says something. An empty cell asserts nothing, so it
-// writes no line.
+// writes no line. A row naming its parent in the `parent (thing)` column is
+// written under that parent's '- ' line, a level deeper, the rows of one
+// parent in the order the table writes them; a divider is a blank line
+// above the row it stood above. A row with no name keeps its values, under
+// a '- ' that waits for one (an error until it has it), rather than losing
+// them.
 //
 // A standalone grid is replaced by the Concept's line and its subtree; a
 // merge-form grid is replaced in place, beneath the line it already has —
@@ -1068,23 +1293,39 @@ function toTableForm(lines, concept) {
 // Returns { form: "lines", from, to, block } with 0-based inclusive lines.
 function toLineForm(lines, concept, grid) {
   const standalone = grid.start + 1 === concept.line;
-  // a column the Concept states outside the grid is declared already: its
-  // line stays where it is and the flip does not repeat it
-  const outside = new Set(concept.children
-    .filter((c) => isAttrKind(c) && !c.cell)
+  // a column the Concept declares outside the grid is declared already: its
+  // line stays where it is and the flip does not repeat it. A default line
+  // outside (`age: 18`) declares the bare name only — a column whose header
+  // says more (`age >=0`, an alias) still writes its declaration, or the
+  // bound would be lost. The header's own cells are the grid's, not outside.
+  const outsideDecl = new Set(concept.children
+    .filter((c) => c.kind === KIND.ATTRIBUTE && !c.cell && !c.header)
     .map((c) => c.name.toLowerCase()));
-  const columns = grid.header.slice(1).map((cell) => {
+  const outsideValue = new Set(concept.children
+    .filter((c) => c.kind === KIND.DEFAULT && !c.cell && !c.header)
+    .map((c) => c.name.toLowerCase()));
+  const outside = {
+    keeps: (col) => outsideDecl.has(col.name.toLowerCase())
+      || (outsideValue.has(col.name.toLowerCase()) && col.term.toLowerCase() === col.name.toLowerCase()),
+  };
+  const pcol = grid.parentCol === undefined ? headerParentColumn(grid.header) : grid.parentCol;
+  const columns = grid.header.slice(1).map((cell, k) => {
     const bare = cell.trim();
+    const colon = defaultColon(bare);
     return {
+      at: k + 1,
       name: headerColName(cell),
-      // the term exactly as the header wrote it
+      // the term exactly as the header wrote it — a default's cell comes
+      // back as the line stating that default, `tax rate: 0.2`
       term: bare,
       // what a value line writes before its colon: the name with the
       // (alias) that crosslinks it, but never the constraint — a bound
-      // belongs to the declaration, not to each value it governs
-      label: splitConstraint(bare).value.trim() || bare,
+      // belongs to the declaration, not to each value it governs — nor the
+      // column's default
+      label: (colon !== -1 ? bare.slice(0, colon).trim() : splitConstraint(bare).value.trim()) || bare,
     };
-  }).filter((c) => c.name);
+  // the parent column is where a row is filed, and the nesting writes it
+  }).filter((c) => c.name && c.at !== pcol);
   const out = [];
   // a standalone grid stands where the Concept's line stands, so the flip
   // writes that line first and files everything a level under it; a merge
@@ -1093,34 +1334,222 @@ function toLineForm(lines, concept, grid) {
   if (standalone) out.push(grid.indent + (grid.header[0] || "").trim());
   const declIndent = grid.indent + (standalone ? " ".repeat(INDENT) : "");
   for (const col of columns) {
-    if (outside.has(col.name.toLowerCase())) continue;
+    if (outside.keeps(col)) continue;
     out.push(declIndent + col.term);
   }
-  // a row nested inside its name cell comes back as a '- Example' nested by
-  // the same number of levels: the grid's indent and the tree's are one
-  grid.rows.forEach((row, r) => {
-    const name = (row[0] || "").trim();
-    if (!name) return;
-    const rowIndent = declIndent + " ".repeat(INDENT * ((grid.rowDepths && grid.rowDepths[r]) || 0));
-    out.push(rowIndent + `- ${name}`);
-    columns.forEach((col, k) => {
-      const value = (row[k + 1] || "").trim();
-      if (value) out.push(rowIndent + " ".repeat(INDENT) + `${col.label}: ${value}`);
-    });
+  // each row under the row its parent cell names, as the linter files it
+  // (table.parentsOf, over the grid as a block); the rest are the Concept's
+  const parents = parentsOf({ rows: [{ sep: false, cells: grid.header }, ...grid.rows.map((cells) => ({ sep: false, cells }))] });
+  const kids = new Map(); // row index -> its sub-rows' indices, in table order
+  const top = [];
+  grid.rows.forEach((_, r) => {
+    const p = parents.get(r + 1);
+    if (p === undefined || p === -1) top.push(r);
+    else {
+      if (!kids.has(p - 1)) kids.set(p - 1, []);
+      kids.get(p - 1).push(r);
+    }
   });
+  const breaks = new Set(grid.breaks || []);
+  const write = (r, level) => {
+    const row = grid.rows[r];
+    const rowIndent = declIndent + " ".repeat(INDENT * level);
+    if (breaks.has(r)) out.push("");
+    out.push(rowIndent + "- " + (row[0] || "").trim());
+    for (const col of columns) {
+      const value = (row[col.at] || "").trim();
+      if (value) out.push(rowIndent + " ".repeat(INDENT) + `${col.label}: ${value}`);
+    }
+    for (const k of kids.get(r) || []) write(k, level + 1);
+  };
+  for (const r of top) write(r, 0);
   return { form: "lines", from: grid.start, to: grid.end, block: out };
 }
 
 // The edit that writes the Concept out in its other form — a table where it
-// is lines today, lines where it is a table. Returns { form, from, to,
+// is lines today, lines where it is a table. A Concept with no Examples
+// flips too: its header alone is its table. Returns { form, from, to,
 // block } with 0-based inclusive lines (lines from..to become `block`), or
-// null when the Concept has nothing to flip: no Examples at all, or a table
-// with no rows yet.
+// null for no Concept (the file's root has no line to flip).
 function flipForm(lines, concept, rootName) {
   if (!concept || !concept.name || concept.line < 1) return null;
   const grid = gridOfConcept(lines, concept, rootName);
-  if (grid) return grid.rows.length ? toLineForm(lines, concept, grid) : null;
+  if (grid) return toLineForm(lines, concept, grid);
   return toTableForm(lines, concept);
+}
+
+// --- where the cursor is, across a flip ----------------------------------------
+// A flip rewrites the Concept's lines, so a cursor kept by line number lands
+// on whatever took its place. It is kept by idea instead. Before the flip,
+// ideaAt names the node under it by its path from the Concept — each step
+// its kind, its name (numbering and case aside) and which of its same-named
+// siblings it is — with the part the cursor is in (the name, or the value as
+// written) and how far into it. After the flip, positionOf walks the same path
+// through the file as it now reads. Both forms parse to one tree, so the path
+// is the same in either: a header cell and a declaration line are one
+// attribute, a row and a '- ' line one Example, a cell and a value line one
+// value. An empty cell has no node, so it is remembered by its column: it is
+// that cell again in a table, and the Example's name in line form, where an
+// empty cell writes no line. Pure.
+
+const stepKind = (n) => (isAttrKind(n) ? "attr" : n.kind);
+const stepKey = (n) => numberless(n.name || "").trim().toLowerCase();
+
+// The node's path from `concept`, or null when it is not under it.
+function pathTo(concept, node) {
+  const steps = [];
+  for (let n = node; n !== concept; n = n.parent) {
+    if (!n || !n.parent) return null;
+    const same = n.parent.children.filter((c) => stepKind(c) === stepKind(n) && stepKey(c) === stepKey(n));
+    steps.unshift({ kind: stepKind(n), key: stepKey(n), dup: Math.max(0, same.indexOf(n)) });
+  }
+  return steps;
+}
+
+// Where a node's name stands on its line: { start, end }.
+function nameSpanOf(lines, node) {
+  const raw = lines[node.line - 1] || "";
+  let start = node.nameCol;
+  if (start === undefined) {
+    const lead = raw.length - raw.trimStart().length;
+    if (node.kind === KIND.INDIVIDUAL) start = lead + 2;
+    else if (node.kind === KIND.MAP) {
+      const rest = raw.slice(lead + 3);
+      start = lead + 3 + (rest.length - rest.trimStart().length);
+    } else start = lead;
+  }
+  return { start, end: start + String(node.name || "").length };
+}
+
+// Where a value stands as written — its derivation and escapes included — on
+// its line: a cell to its divider, a line to its end. null for no value.
+function writtenValueSpan(lines, node) {
+  if (node.value == null || node.value === "") return null;
+  const raw = lines[node.line - 1] || "";
+  let start = node.valueCol;
+  if (start === undefined) {
+    const colon = raw.indexOf(":", nameSpanOf(lines, node).start);
+    if (colon === -1) return null;
+    const after = raw.slice(colon + 1);
+    start = colon + 1 + (after.length - after.trimStart().length);
+  }
+  let end = raw.length;
+  if (isRowText(raw)) {
+    const next = dividers(raw).find((d) => d >= start);
+    if (next !== undefined) end = next;
+  }
+  while (end > start && raw[end - 1] === " ") end--;
+  return { start, end };
+}
+
+// The idea under `pos` ({ line 0-based, character }) in the Concept being
+// flipped: { concept, path, part: "name" | "value" | "cell", offset, column? },
+// or null when the cursor is outside the Concept.
+function ideaAt(lines, nodes, concept, pos) {
+  const lineNo = pos.line + 1;
+  const raw = lines[pos.line] || "";
+  const ch = pos.character;
+  const here = nodes.filter((n) => n.line === lineNo);
+  const idea = (node, part, offset, column) => {
+    const path = pathTo(concept, node);
+    return path ? { concept: stepKey(concept), path, part, offset: Math.max(0, offset), column } : null;
+  };
+  const inValue = (n) => { const v = writtenValueSpan(lines, n); return v && ch >= v.start && ch <= v.end ? v : null; };
+  const named = (n) => { const s = nameSpanOf(lines, n); return idea(n, "name", Math.min(ch - s.start, s.end - s.start)); };
+  if (isRowText(raw)) {
+    const block = blockAt(lines, pos.line);
+    if (!block) return null;
+    const head = block.rows.findIndex((r) => !r.sep);
+    const rowAt = pos.line - block.start;
+    const row = block.rows[rowAt];
+    // a divider: the row above it, or the table's Concept
+    if (!row || row.sep) {
+      for (let i = rowAt - 1; i > head; i--) {
+        const ex = nodes.find((n) => n.line === block.start + i + 1 && n.kind === KIND.INDIVIDUAL && n.nameCol !== undefined);
+        if (ex) return idea(ex, "name", 0);
+      }
+      return idea(concept, "name", 0);
+    }
+    const col = colAt(raw, ch);
+    const cellCol = (cells(raw)[col] || {}).col;
+    if (rowAt === head) {
+      // the header: the Concept's own cell, or a column's attribute
+      if (col === 0) {
+        const own = here.find((n) => n === concept);
+        if (own && inValue(own)) return idea(own, "value", ch - inValue(own).start);
+        return own ? named(own) : idea(concept, "name", 0);
+      }
+      const attr = here.find((n) => isAttrKind(n) && n.nameCol === cellCol);
+      if (!attr) return idea(concept, "name", 0); // the parent column, an empty cell
+      if (attr.kind === KIND.DEFAULT && inValue(attr)) return idea(attr, "value", ch - inValue(attr).start);
+      return named(attr);
+    }
+    const ex = here.find((n) => n.kind === KIND.INDIVIDUAL && n.nameCol !== undefined);
+    if (!ex) return idea(concept, "name", 0);
+    if (col === 0) return named(ex);
+    const value = here.find((n) => n.kind === KIND.DEFAULT && n.cell && n.valueCol === cellCol);
+    if (value) {
+      const v = writtenValueSpan(lines, value);
+      return idea(value, "value", v ? Math.min(ch - v.start, v.end - v.start) : 0);
+    }
+    // an empty cell, remembered by its column — the parent column is none
+    const header = block.rows[head].cells;
+    const pcol = headerParentColumn(header);
+    const key = col !== pcol && header[col] ? headerColName(header[col]).toLowerCase() : "";
+    return key ? idea(ex, "cell", 0, key) : idea(ex, "name", 0);
+  }
+  // a line: its node, by the part the cursor stands in
+  const node = here.find((n) => n.kind !== KIND.DEFAULT || !n.cell);
+  if (node) {
+    const v = inValue(node);
+    if (v) return idea(node, "value", ch - v.start);
+    return named(node);
+  }
+  // a blank line: the next idea below it inside the Concept, else the Concept
+  const end = lastLineOf(concept);
+  const below = nodes.filter((n) => n.line > lineNo && n.line <= end && (n.kind !== KIND.DEFAULT || !n.cell))
+    .sort((a, b) => a.line - b.line)[0];
+  return below ? idea(below, "name", 0) : (lineNo >= concept.line && lineNo <= end ? idea(concept, "name", 0) : null);
+}
+
+// Where `idea` (from ideaAt) stands in the file as it now reads: { line
+// (0-based), character }, or null when its Concept is gone. `near` (0-based)
+// picks among same-named Concepts — the flip's first line. A path that no
+// longer reaches all the way lands on the last node it does reach.
+function positionOf(lines, root, nodes, idea, near) {
+  if (!idea) return null;
+  const candidates = [root, ...nodes].filter((n) => n && n.kind === KIND.CONCEPT && n.line > 0 && stepKey(n) === idea.concept);
+  if (!candidates.length) return null;
+  const distance = (n) => Math.abs(n.line - 1 - (near || 0));
+  let node = candidates.reduce((a, b) => (distance(b) < distance(a) ? b : a));
+  let reached = 0;
+  for (const step of idea.path) {
+    const same = node.children.filter((c) => stepKind(c) === step.kind && stepKey(c) === step.key);
+    const next = same[step.dup] || same[same.length - 1];
+    if (!next || !(next.line > 0)) break;
+    node = next;
+    reached++;
+  }
+  const whole = reached === idea.path.length;
+  if (whole && idea.part === "value") {
+    const v = writtenValueSpan(lines, node);
+    if (v) return { line: node.line - 1, character: Math.min(v.start + idea.offset, v.end) };
+  }
+  if (whole && idea.part === "cell" && idea.column && node.nameCol !== undefined) {
+    // back in a table: the same empty cell of the row
+    const block = blockAt(lines, node.line - 1);
+    const head = block ? block.rows.findIndex((r) => !r.sep) : -1;
+    const k = head === -1 ? -1 : block.rows[head].cells.findIndex((h, j) => j > 0 && headerColName(h).toLowerCase() === idea.column);
+    if (k > 0) return { line: node.line - 1, character: cellStart(block, k) };
+  }
+  // a cell's attribute is named in the header, so a value line's name lands
+  // on the value's own cell — the row's, not the column's
+  if (node.kind === KIND.DEFAULT && node.cell && node.valueCol !== undefined) {
+    return { line: node.line - 1, character: node.valueCol };
+  }
+  const s = nameSpanOf(lines, node);
+  const offset = whole && idea.part === "name" ? Math.min(idea.offset, s.end - s.start) : 0;
+  return { line: node.line - 1, character: s.start + offset };
 }
 
 // --- stating a fact once -----------------------------------------------------
@@ -1164,17 +1593,26 @@ function hoistOps(lines, root, nodes, parentLine, attr, value, rootName, registr
     header: grid.header.filter((_, k) => k !== col),
     rows: grid.rows.map((r) => r.filter((_, k) => k !== col)),
   } : null;
-  const fact = `${attr}: ${value}`;
+  // `value` is the value as the model reads it, so it is written back the
+  // way the file must hold it: an `=` it holds would otherwise open a
+  // derivation where the fact lands
+  const written = writtenValue(value);
+  const fact = `${attr}: ${written}`;
   if (standalone) {
     // the table stood where the Concept's line stands: the Concept takes a
     // line of its own, the fact under it, and the grid files beneath
     const indent = grid.indent;
     const inner = indent + " ".repeat(INDENT);
     const shape = dropped || { header: grid.header, rows: grid.rows };
-    const drawn = render({
-      indent: inner,
-      rows: [{ sep: false, cells: shape.header }, ...shape.rows.map((cells, i) => ({ sep: false, cells, depth: (grid.rowDepths || [])[i] || 0 }))],
+    // the rows as they stand — their parent cells with them — and the
+    // dividers where they stood
+    const breaks = new Set(grid.breaks || []);
+    const body = [];
+    shape.rows.forEach((cells, i) => {
+      if (breaks.has(i)) body.push({ sep: true, cells: [] });
+      body.push({ sep: false, cells });
     });
+    const drawn = render({ indent: inner, rows: [{ sep: false, cells: shape.header }, ...body] });
     const head = grid.header[0].trim();
     ops.push({ type: "block", from: grid.start, to: grid.end, block: [indent + head, inner + fact, ...drawn] });
     return ops;
@@ -1185,7 +1623,7 @@ function hoistOps(lines, root, nodes, parentLine, attr, value, rootName, registr
   }
   if (own) {
     const raw = lines[own.line - 1] || "";
-    ops.push({ type: "replace", line: own.line, text: raw.slice(0, raw.indexOf(":") + 1) + " " + value });
+    ops.push({ type: "replace", line: own.line, text: raw.slice(0, raw.indexOf(":") + 1) + " " + written });
   } else {
     const decls = parent.children.filter((c) => isAttrKind(c) && !c.cell && c.line > parent.line);
     const after = decls.length ? lastLineOf(decls[decls.length - 1]) : parent.line;
@@ -1197,9 +1635,9 @@ function hoistOps(lines, root, nodes, parentLine, attr, value, rootName, registr
 
 module.exports = {
   hoistOps,
-  derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, valueSpanOf, makeCtx, scopeOf,
+  derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, valueSpanOf, makeCtx, scopeOf, kindAbove,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
-  mirrorGrids, updateScope,
+  mirrorGrids, updateScope, deleteExamples,
   lastLineOf, headerColName, renumberExamples, renumberConcepts,
-  flipForm, gridOfConcept, toTableForm, toLineForm,
+  flipForm, gridOfConcept, toTableForm, toLineForm, ideaAt, positionOf,
 };

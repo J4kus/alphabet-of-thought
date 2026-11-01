@@ -78,9 +78,13 @@ const isRowNode = (d, n) => n.kind === KIND.INDIVIDUAL && n.nameCol !== undefine
 // The Concept a standalone table names in its first header cell.
 const isHeaderNode = (d, n) => n.kind === KIND.CONCEPT && n.cell && table.isRowText(d.lines[n.line - 1] || "");
 
+// A row's table, read as 1.13 reads it — a 1.12 table's indented rows
+// flattened into its parent column — so a cell's index here is its index in
+// the table the merge draws.
 function rowOf(d, n) {
   const block = table.blockAt(d.lines, n.line - 1);
   if (!block) return null;
+  table.flatten(block);
   const head = table.headerIndex(block);
   return { block, r: n.line - 1 - block.start, header: head === -1 ? [] : block.rows[head].cells };
 }
@@ -177,6 +181,7 @@ function applyChanges(ch, target, toTarget, side) {
   const tableEdit = (line0) => {
     const block = table.blockAt(target.lines, line0);
     if (!block) return null;
+    table.flatten(block); // indexed as rowOf indexes it
     if (!tables.has(block.start)) {
       tables.set(block.start, { block, drop: new Set(), cells: new Map(), after: new Map(), before: [] });
     }
@@ -205,10 +210,10 @@ function applyChanges(ch, target, toTarget, side) {
     const t = toTarget.get(a);
     if (!t) continue; // gone there already
     if (isRowNode(target, t)) {
+      // the row, and the rows that name it as their parent, at any depth
       const te = tableEdit(t.line - 1);
       const r = t.line - 1 - te.block.start;
-      const span = table.subtreeOf(te.block, r);
-      for (let k = r; k < r + span; k++) te.drop.add(k);
+      for (const k of [r, ...table.branchOf(te.block, r)]) te.drop.add(k);
     } else if (t.line >= 1) {
       for (let l = t.line; l <= lastLineOf(t); l++) deleted.add(l);
     }
@@ -294,9 +299,10 @@ function applyChanges(ch, target, toTarget, side) {
       if (!te) { fail(`nowhere to put the row '${b.name}'`); continue; }
       const head = table.headerIndex(te.block);
       const targetHeader = te.block.rows[head].cells;
-      const span = table.subtreeOf(src.block, src.r);
+      // the row and the rows naming it as their parent, in the order its
+      // side writes them: cells merge as cells, the parent cell among them
       const rows = [];
-      for (let k = src.r; k < src.r + span; k++) {
+      for (const k of [src.r, ...table.branchOf(src.block, src.r)].sort((x, y) => x - y)) {
         const cells = src.block.rows[k].cells;
         const out = targetHeader.map(() => "");
         out[0] = cells[0] || "";
@@ -306,10 +312,11 @@ function applyChanges(ch, target, toTarget, side) {
           if (at < 1) fail(`the row '${b.name}' has a column '${table.columnTerm(h)}' the table here lacks`);
           else out[at] = cells[j];
         });
-        const depthShift = (te.block.rows[anchor.line - 1 - te.block.start].depth || 0) - (src.block.rows[src.r].depth || 0);
-        rows.push({ sep: false, cells: out, depth: (src.block.rows[k].depth || 0) + depthShift });
+        rows.push({ sep: false, cells: out });
       }
-      const afterRow = anchor.line - 1 - te.block.start + table.subtreeOf(te.block, anchor.line - 1 - te.block.start) - 1;
+      // after the sibling it follows, and the rows under that sibling
+      const anchorRow = anchor.line - 1 - te.block.start;
+      const afterRow = Math.max(anchorRow, ...table.branchOf(te.block, anchorRow));
       if (!te.after.has(afterRow)) te.after.set(afterRow, []);
       te.after.get(afterRow).push(...rows);
       continue;
@@ -328,14 +335,17 @@ function applyChanges(ch, target, toTarget, side) {
   for (const te of tables.values()) {
     const rows = [];
     te.block.rows.forEach((row, r) => {
-      if (row.sep) return;
+      if (row.sep) {
+        rows.push({ sep: true, cells: [] }); // a divider stays where it stands
+        return;
+      }
       if (!te.drop.has(r)) {
         const cells = row.cells.slice();
         for (const [k, text] of te.cells.get(r) || []) {
           while (cells.length <= k) cells.push("");
           cells[k] = text;
         }
-        rows.push({ sep: false, cells, depth: row.depth || 0 });
+        rows.push({ sep: false, cells });
       }
       for (const added of te.after.get(r) || []) rows.push(added);
     });
@@ -447,20 +457,23 @@ function merge(baseText, oursText, theirsText, rootName) {
   if (brought) return fallback(`the merge would bring an error neither side had — ${brought.message}`);
 
   // the arithmetic: every node, prime by prime, theirs where theirs changed
-  // it, else ours (a conflict keeps ours until the markers say otherwise)
-  const pool = godel.pool([base, ours, theirs, result], registry);
-  const primes = [...pool.attrPrime.values()];
+  // it, else ours (a conflict keeps ours until the markers say otherwise).
+  // Only a prime one of the four carries can disagree — every other is 0 in
+  // all of them — so each node's four factorisations are walked, not every
+  // prime of the numbering.
   const pM = godel.pairNodes(base.root, base.nodes, result.root, result.nodes, registry);
   godel.pool([base, ours, theirs, result], registry); // pairing renumbered two of them: number all four as one again
+  const exponent = (n, p) => godel.vecValuation(n.gvec, p);
   for (const a of [base.root, ...base.nodes].filter(isSubstance)) {
     const o = cO.map.get(a), t = cT.map.get(a), m = pM.mapAB.get(a);
     if (!o || !t) continue; // removed on a side: its block is the conflict's, or gone
     if (!m) return fallback(`'${a.name}' could not be found in the result`);
+    const primes = new Set([...a.gvec.p, ...o.gvec.p, ...t.gvec.p, ...m.gvec.p]);
     for (const p of primes) {
-      const vb = godel.valuation(a.godel, p), vo = godel.valuation(o.godel, p), vt = godel.valuation(t.godel, p);
+      const vb = exponent(a, p), vo = exponent(o, p), vt = exponent(t, p);
       const want = vt !== vb && vo === vb ? vt : vo;
       if (vt !== vb && vo !== vb && vo !== vt) continue; // a conflict, marked on its line
-      if (godel.valuation(m.godel, p) !== want) return fallback(`'${a.name}' did not merge to what both sides say`);
+      if (exponent(m, p) !== want) return fallback(`'${a.name}' did not merge to what both sides say`);
     }
   }
 

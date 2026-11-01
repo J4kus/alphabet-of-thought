@@ -16,6 +16,7 @@
 //     node verify.js --workspace [dir]                   (repo: shared Concepts, contradictions; exit 1 if any)
 //     node verify.js --workspace [dir] --reconcile       (repo: write the agreement in first, then check)
 //     node verify.js --workspace [dir] --primes          (repo: extend and write the stable Gödel numbers, aot.files/godel.tsv)
+//     node verify.js --workspace [dir] --upgrade         (repo: respell files written for 1.12 — `==` escapes, `=` definitions)
 
 const fs = require("fs");
 const path = require("path");
@@ -26,6 +27,7 @@ const armstrong = require("./src/armstrong");
 const table = require("./src/table");
 const derive = require("./src/derive");
 const repo = require("./src/repo");
+const { upgradeText } = require("./src/upgrade");
 
 // past this many Examples the lattice is no longer cheap; matches the extension
 const MAX_FCA_OBJECTS = 200;
@@ -103,7 +105,7 @@ function readFile(f) {
 function main() {
   const args = process.argv.slice(2);
   if (!args.length) {
-    console.error("usage: node verify.js <file.aot> [--ask X Y | --genus X Y | --number X | --godel X | --clashes | --overrides | --find \"a: v\" | --common X Y | --near X | --fd | --depends X | --diff old.aot new.aot | --suggest] | --diff-rev REV file.aot | --workspace [dir] [--reconcile] [--primes]");
+    console.error("usage: node verify.js <file.aot> [--ask X Y | --genus X Y | --number X | --godel X | --clashes | --overrides | --find \"a: v\" | --common X Y | --near X | --fd | --depends X | --diff old.aot new.aot | --suggest] | --diff-rev REV file.aot | --workspace [dir] [--upgrade] [--reconcile] [--primes]");
     process.exit(2);
   }
 
@@ -123,6 +125,23 @@ function main() {
       text: readFile(f),
       rootName: path.basename(f).replace(/\.[^.]*$/, ""),
     })).map((e) => ({ ...e, ...lint(e.text, e.rootName) }));
+
+    // --upgrade: a file written for 1.12 respelled for 1.13 first (a literal
+    // '=' doubled rather than `\=`, a definition `=` rather than `==`), so
+    // everything after it reads the files as 1.13 does
+    if (args.includes("--upgrade")) {
+      let written = 0;
+      for (const f of files) {
+        const text = readFile(f);
+        const next = upgradeText(text, path.basename(f).replace(/\.[^.]*$/, ""));
+        if (next === text) continue;
+        fs.writeFileSync(f, next);
+        console.log(`upgraded ${f}`);
+        written++;
+      }
+      console.log(written ? `\n${written} file${written === 1 ? "" : "s"} upgraded to the 1.13 spelling\n`
+        : "\nevery file already uses the 1.13 spelling\n");
+    }
 
     let entries = read();
     if (fix) {
@@ -326,6 +345,8 @@ function main() {
     }
     const factors = slots.map((s) => `${s.prime}^${s.exponent}`).join(" * ");
     console.log(`G(${x.name}) = ${factors} = ${x.godel}`);
+    const length = godel.digits(x.gvec);
+    console.log(`   ${length.toLocaleString("en-US")} digit${length === 1 ? "" : "s"}`);
     console.log("   legend (prime^exponent -> attribute: value):");
     for (const s of slots) console.log(`     ${s.prime}^${s.exponent} -> ${s.attr}: ${s.value}`);
     return;

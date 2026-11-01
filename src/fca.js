@@ -35,10 +35,13 @@ const setKey = (s) => [...s].sort().join("\0");
 
 // The formal context: objects (Examples) and their intents (column
 // keys). A column is an attribute name or an "attribute: value" pair,
-// collected from the Example and every ancestor; for the value
-// column the nearest declaration wins (an override shadows the
-// inherited default). Keys are lowercased; `display` keeps the original
-// casing for reports.
+// collected from the Example and every ancestor that is one of its kinds;
+// for the value column the nearest declaration wins (an override shadows
+// the inherited default). An Example above it — the `- Parent` of a
+// `- Child`, the row a nested row sits under — is the whole it is a part
+// of, and a part inherits nothing from its whole, so that Example's lines
+// are passed over, exactly as godel.effFeatures passes them. Keys are
+// lowercased; `display` keeps the original casing for reports.
 //
 // Crosslinks deepen the columns, because the primitives define
 // Concepts too:
@@ -82,7 +85,40 @@ function buildContext(root, nodes) {
     const direct = new Set();
     const origin = new Map();
     const valued = new Set();
+    const declared = new Map(); // name key -> its nearest declaration
+    // a value's columns: the `attribute: value` pair and, when the value
+    // names an Example, that Example's ancestry
+    const putValue = (put, child, value, type) => {
+      put(`${child.name}: ${value}`);
+      // A value naming an Example contributes that Example's ancestry as
+      // columns, so a deep value groups with the shallower kinds above it.
+      // The Examples an attribute ranges over live in one of two places,
+      // and both anchor the walk the same way: the attribute itself, when
+      // it directly holds them (`operation` with `- Formula`, `- Observation`
+      // beneath, so `operation: Ratio` yields `operation: Formula`), or the
+      // Concept that types it (attribute-is-a-Concept, `shade colour` naming
+      // the `Colour` Concept whose Examples are `- Red`, `- Crimson`, so
+      // `shade colour: Crimson` yields `shade colour: Red`). The walk stops
+      // at whichever anchor the Example sits under.
+      const target = individuals.get(String(value).toLowerCase());
+      const anchor =
+        target && target !== child
+          ? instantiates(target, child.name)
+            ? child.name
+            : type && instantiates(target, type.name)
+              ? type.name
+              : null
+          : null;
+      if (anchor) {
+        const stop = anchor.toLowerCase();
+        for (let a = target.parent; a && a !== root; a = a.parent) {
+          if (a.name.toLowerCase() === stop) break;
+          put(`${child.name}: ${a.name}`);
+        }
+      }
+    };
     for (let n = g; n; n = n.parent) {
+      if (n !== g && n.kind === INDIVIDUAL) continue;
       const put = (text) => {
         const k = keyOf(text);
         intent.add(k);
@@ -94,38 +130,27 @@ function buildContext(root, nodes) {
         put(child.name);
         const type = conceptOf(child);
         if (type) put(type.name);
-        if (child.kind !== DEFAULT) continue;
         const nameKey = keyOf(child.name);
+        if (!declared.has(nameKey)) declared.set(nameKey, child);
+        if (child.kind !== DEFAULT) continue;
         if (valued.has(nameKey)) continue;
         valued.add(nameKey);
-        put(`${child.name}: ${child.value}`);
-        // A value naming an Example contributes that Example's ancestry as
-        // columns, so a deep value groups with the shallower kinds above it.
-        // The Examples an attribute ranges over live in one of two places,
-        // and both anchor the walk the same way: the attribute itself, when
-        // it directly holds them (`operation` with `- Formula`, `- Observation`
-        // beneath, so `operation: Ratio` yields `operation: Formula`), or the
-        // Concept that types it (attribute-is-a-Concept, `shade colour` naming
-        // the `Colour` Concept whose Examples are `- Red`, `- Crimson`, so
-        // `shade colour: Crimson` yields `shade colour: Red`). The walk stops
-        // at whichever anchor the Example sits under.
-        const target = individuals.get(child.value.toLowerCase());
-        const anchor =
-          target && target !== child
-            ? instantiates(target, child.name)
-              ? child.name
-              : type && instantiates(target, type.name)
-                ? type.name
-                : null
-            : null;
-        if (anchor) {
-          const stop = anchor.toLowerCase();
-          for (let a = target.parent; a && a !== root; a = a.parent) {
-            if (a.name.toLowerCase() === stop) break;
-            put(`${child.name}: ${a.name}`);
-          }
-        }
+        putValue(put, child, child.value, type);
       }
+    }
+    // an attribute nothing valued reads its type's default (`Currency: EUR`
+    // for a `currency`), as godel.effFeatures reads it — a column of the
+    // Example's, though not one it declares itself
+    for (const [nameKey, child] of declared) {
+      if (valued.has(nameKey)) continue;
+      const type = conceptOf(child);
+      if (!type || type.value == null || String(type.value) === "") continue;
+      const put = (text) => {
+        const k = keyOf(text);
+        intent.add(k);
+        if (!origin.has(k)) origin.set(k, type);
+      };
+      putValue(put, child, type.value, type);
     }
     intents.set(g, intent);
     directs.set(g, direct);

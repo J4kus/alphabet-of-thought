@@ -31,21 +31,38 @@ const hold = require("./hold");
 const lineform = require("./lineform");
 const python = require("./python");
 const uvenv = require("./uvenv");
+const { upgradeEdits } = require("./upgrade");
+const csvsync = require("./csvsync");
 
 const DEBOUNCE_MS = 300;
 // past this many Examples the lattice is no longer keystroke-cheap
 const MAX_FCA_OBJECTS = 200;
-// how long the lone-sub warnings wait past the last keystroke before they
-// show: the debounce (typing settled) plus a breath, so pressing Enter to
-// add the sibling never triggers a flash
-const LONE_GRACE_MS = 600;
 
 // uri string -> { links, root, nodes } from the last analysis of that document
 const analysisByDoc = new Map();
-// uri string -> { baseline, timer } while an edit burst is live (see
-// hold.js): the two lone-child warnings wait for typing to settle, every
-// other squiggle publishes at once
+// uri string -> { baseline, edited, lastLine, family, held } while an edit
+// burst is live (see hold.js): a new finding off the lines being edited waits
+// until the cursor leaves what is being edited; everything else publishes at
+// once
 const holdState = new Map();
+// set in activate(): ends a document's burst, and publishes what waited
+let releaseHold = () => {};
+
+// The status item that says what waits — nothing is held silently. Set up
+// in activate(); shown while the active document holds findings back.
+let holdStatus = null;
+function updateHoldStatus() {
+  if (!holdStatus) return;
+  const editor = vscode.window.activeTextEditor;
+  const state = editor && editor.document && holdState.get(editor.document.uri.toString());
+  const held = state && state.held ? state.held : [];
+  if (!held.length) { holdStatus.hide(); return; }
+  holdStatus.text = `$(clock) ${held.length} waiting — leave '${state.family ? state.family.name : "this"}' to see ${held.length === 1 ? "it" : "them"}`;
+  holdStatus.tooltip = `Findings waiting while you write here — they show when the cursor leaves '${state.family ? state.family.name : "this"}', on save, or now on a click:\n`
+    + held.slice(0, 10).map((d) => `• line ${d.range.start.line + 1}: ${d.message}`).join("\n")
+    + (held.length > 10 ? `\n• and ${held.length - 10} more` : "");
+  holdStatus.show();
+}
 
 // The user's accepted words (aot.acceptedWords, lowercased): the spelling
 // hints skip them and a Concept ending in one is not read as plural. The
@@ -244,10 +261,13 @@ function parsedDoc(doc) {
 let indexGeneration = 0;
 const registryByDoc = new Map(); // uri string -> { version, generation, registry }
 
-function formulaRegistry(doc, parsed) {
+// `swap` (optional): { key, concepts } — one indexed file read another way, as
+// a rename reads the file it renames in as it stood before the name was typed
+// over, which is what every other file's references still resolve against.
+function formulaRegistry(doc, parsed, swap) {
   // a caller passing its own tree gets a registry built on that tree; only
   // the shared parse is cached, so a caller's older tree can never be served
-  const cacheable = !parsed && typeof doc.version === "number";
+  const cacheable = !parsed && !swap && typeof doc.version === "number";
   const key = doc.uri.toString();
   if (cacheable) {
     const hit = registryByDoc.get(key);
@@ -256,7 +276,9 @@ function formulaRegistry(doc, parsed) {
   const here = fileKey(doc.fileName || "");
   const maps = [];
   for (const [fsPath, v] of workspaceIndex) {
-    if (fsPath !== here && v.concepts) maps.push(v.concepts);
+    if (fsPath === here) continue;
+    if (swap && fsPath === swap.key) maps.push(swap.concepts);
+    else if (v.concepts) maps.push(v.concepts);
   }
   try {
     const { root, nodes } = parsed || parsedDoc(doc);
@@ -317,6 +339,16 @@ function peerPathFor(doc, base) {
     if (key !== here && path.basename(v.fsPath).toLowerCase() === want) return v.fsPath;
   }
   return null;
+}
+
+// The line a Concept stands on in an indexed file as it reads now (its name
+// numbering and case aside), or null when the index has no such Concept.
+function conceptLineIn(fsPath, name) {
+  const entry = workspaceIndex.get(fileKey(fsPath));
+  if (!entry || !name) return null;
+  const want = table.numberless(name).trim().toLowerCase();
+  const hit = entry.nodes.find((n) => n.kind === KIND.CONCEPT && table.numberless(n.name).trim().toLowerCase() === want);
+  return hit ? hit.line : null;
 }
 
 // The tree and its crosslinks, without any of the findings: the tree, the
@@ -476,12 +508,15 @@ function decorate(editor, decorationTypes) {
   const concepts = [];
   const individuals = [];
   for (const link of links) {
-    // dotted underline for links to an Example, solid for links to a Concept
-    const isConcept = link.target.kind !== KIND.INDIVIDUAL;
+    // dotted underline for links to an Example — or to the default a value
+    // names, which is a value too — solid for links to a Concept
+    const isConcept = link.target.kind !== KIND.INDIVIDUAL && !link.asValue;
     const where = link.target.line ? `line ${link.target.line}` : "the file name";
     (isConcept ? concepts : individuals).push({
       range: linkRange(link),
-      hoverMessage: `${link.connection}: ${isConcept ? "Concept" : "Example"} '${link.target.name}' (${where})`,
+      hoverMessage: link.asValue
+        ? `${link.connection}: the default of Concept '${link.target.name}' (${where})`
+        : `${link.connection}: ${isConcept ? "Concept" : "Example"} '${link.target.name}' (${where})`,
     });
   }
   editor.setDecorations(decorationTypes.concept, concepts);
@@ -571,6 +606,8 @@ function lineEditText(doc, e) {
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
   if (doc.fileName) watchAotRoot(aotRoot(doc));
+  // the text a first edit will be read against, should it type over a name
+  if (!textBefore.has(doc.uri.toString())) textBefore.set(doc.uri.toString(), doc.getText());
   const { errors, warnings, hints, root, nodes } = analyse(doc);
   const toDiagnostic = (severity) => ({ line, message, startCol, endCol, related }) => {
     // lines are 1-based; a finding that carries columns (a table cell)
@@ -610,13 +647,27 @@ function refresh(diagnostics, decorationTypes, doc) {
     ...warnings.map(toDiagnostic(vscode.DiagnosticSeverity.Warning)),
     ...hints.map(toDiagnostic(vscode.DiagnosticSeverity.Hint)),
   ];
-  // the lone-sub warnings wait while an edit burst is live, so the linter
-  // never nags a parent the instant its first child is typed; every other
-  // squiggle publishes at once. Decorations and colours are not
-  // diagnostics and are never held.
+  // While an edit burst is live, a finding that is new and not on a line
+  // being edited waits until the cursor leaves what is being edited (hold.js)
+  // — so a parent is never nagged the instant its first child is typed —
+  // while one already on screen, and every one on an edited line, publishes
+  // at once. The family is re-read off this fresh tree, since lines move as
+  // you type. Decorations and colours are not diagnostics and never wait.
   const state = holdState.get(doc.uri.toString());
-  if (state) publish = hold.partition(publish, state.baseline).show;
+  if (state) {
+    const { show, held } = hold.partition(publish, state.baseline, state.edited);
+    publish = show;
+    state.held = held;
+    const family = hold.familyOf(root, nodes, state.lastLine + 1);
+    if (family) {
+      // the line being written is in it, whatever stands there yet
+      family.from = Math.min(family.from, state.lastLine + 1);
+      family.to = Math.max(family.to, state.lastLine + 1);
+      state.family = family;
+    }
+  }
   diagnostics.set(doc.uri, publish);
+  updateHoldStatus();
   // the Python findings live apart from the linter's: none of them is a
   // verdict on the model, so none of them is in V
   try { pythonFindings(doc); } catch { /* the linter's findings stand regardless */ }
@@ -792,9 +843,9 @@ function archivedValues(doc, conceptName) {
 // the same rule the unlisted-value hint applies — so those are the
 // suggestions, with the Concept's archived CSV folded in beside them and
 // marked as such.
-// The dropdown a Concept-typed attribute offers: the Concept's Examples
-// first, its archived CSV values after — shared by the line form and the
-// table cells, so the two spellings behave identically.
+// The dropdown a Concept-typed attribute offers: the Concept's default
+// first, then its Examples, its archived CSV values after — shared by the
+// line form and the table cells, so the two spellings behave identically.
 function valueItemsFor(doc, type) {
   const items = [];
   const seen = new Set();
@@ -806,8 +857,10 @@ function valueItemsFor(doc, type) {
     it.sortText = group + String(i).padStart(3, "0");
     items.push(it);
   };
+  // the value the attribute already reads when nothing is written
+  if (type.value) push(String(type.value), `the default of ${type.name}`, vscode.CompletionItemKind.Constant, "0", 0);
   listedExamples(type).forEach((ex, i) =>
-    push(ex.name, `Example of ${type.name}`, vscode.CompletionItemKind.EnumMember, "0", i));
+    push(ex.name, `Example of ${type.name}`, vscode.CompletionItemKind.EnumMember, "0", i + 1));
   // the archive comes second: a value that was real once, but is not now
   archivedValues(doc, type.name).forEach((v, i) =>
     push(v, `archived in _${csvName(type.name)}`, vscode.CompletionItemKind.Value, "1", i));
@@ -1050,9 +1103,14 @@ function linkHoverAt(doc, position) {
 //     where it is used;
 //   - an Example's defining name -> its details plus where it is used as a
 //     value.
-// The hover on a maintained `...` line: the Concept's whole extension, this
-// file's share first and then each peer's, every Example a link to where it
-// is actually written. The line itself only has room for the count.
+// The hover on a maintained `...` line answers the part of it under the
+// cursor. Over `N more`: those N Examples — the ones written elsewhere and
+// not here — grouped by the file each is written in. Over a file name: that
+// file's Examples of the Concept. Anywhere else: the whole extension, this
+// file's share and every peer's. Every Example is a link to where it is
+// written, and a long list is cut short with how many more it holds.
+const NOTE_HOVER_CAP = 12;
+const mdText = (s) => String(s).replace(/[\\`*_{}[\]()#+!|<>]/g, "\\$&");
 function crossFileHover(doc, analysis, position) {
   if (!underWorkspace(doc)) return null;
   const node = (analysis.nodes || []).find((n) =>
@@ -1063,18 +1121,46 @@ function crossFileHover(doc, analysis, position) {
     ...repoOthers(doc),
     { file: doc.fileName, text: doc.getText(), root: analysis.root, nodes: analysis.nodes },
   ]);
-  const list = all.get(table.numberless(concept.name).trim().toLowerCase()) || [];
+  const fold = (name) => table.numberless(name).trim().toLowerCase();
+  const list = all.get(fold(concept.name)) || [];
   if (list.length < 2) return null;
+  const isHere = (occ) => fileKey(occ.file) === fileKey(doc.fileName);
+  const examplesOf = (occ) => occ.node.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+  const linkTo = (file, line, label) => `[${label}](${vscode.Uri.file(file).with({ fragment: `L${line}` })})`;
+  const where = (occ) => linkTo(occ.file, occ.node.line, isHere(occ) ? "here" : mdText(path.basename(occ.file)));
+  const listed = (occ, exs) => {
+    const shown = exs.slice(0, NOTE_HOVER_CAP).map((e) => linkTo(occ.file, e.line, mdText(e.name)));
+    if (exs.length > NOTE_HOVER_CAP) shown.push(`… and ${exs.length - NOTE_HOVER_CAP} more`);
+    return shown.length ? shown.join(", ") : "_none_";
+  };
   const md = new vscode.MarkdownString();
   md.isTrusted = true;
-  const total = repo.unionExamples(list).length;
-  md.appendMarkdown(`**${concept.name}** — ${total} Example${total === 1 ? "" : "s"} across ${list.length} files\n\n`);
-  for (const occ of list) {
-    const here = occ.file === doc.fileName;
-    const names = occ.node.children.filter((c) => c.kind === KIND.INDIVIDUAL).map((c) => c.name);
-    const where = here ? "here" : path.basename(occ.file);
-    const open = `[${where}](${vscode.Uri.file(occ.file).with({ fragment: `L${occ.node.line}` })})`;
-    md.appendMarkdown(`- ${open} (${names.length}): ${names.length ? names.join(", ") : "_none_"}\n`);
+  const parts = repo.noteParts(doc.lineAt(position.line).text);
+  const ch = position.character;
+  const over = (s) => s && ch >= s.startCol && ch <= s.endCol;
+  const spanOf = (s) => new vscode.Range(position.line, s.startCol, position.line, s.endCol);
+  if (parts && over(parts.count)) {
+    const seen = new Set(list.filter(isHere).flatMap((o) => examplesOf(o).map((e) => fold(e.name))));
+    md.appendMarkdown(`**${parts.count.n} more ${mdText(concept.name)}** — written elsewhere, and not here\n\n`);
+    for (const occ of list) {
+      if (isHere(occ)) continue;
+      const exs = examplesOf(occ).filter((e) => !seen.has(fold(e.name)));
+      for (const e of exs) seen.add(fold(e.name));
+      if (exs.length) md.appendMarkdown(`- ${where(occ)} (${exs.length}): ${listed(occ, exs)}\n`);
+    }
+    return new vscode.Hover(md, spanOf(parts.count));
+  }
+  const file = parts && parts.files.find(over);
+  const named = file && list.find((o) => !isHere(o) && path.basename(o.file).toLowerCase() === file.file.toLowerCase());
+  if (named) {
+    const exs = examplesOf(named);
+    md.appendMarkdown(`**${mdText(concept.name)}** in ${where(named)} — ${exs.length} Example${exs.length === 1 ? "" : "s"}\n\n${listed(named, exs)}`);
+    return new vscode.Hover(md, spanOf(file));
+  }
+  const total = new Set(list.flatMap((o) => examplesOf(o).map((e) => fold(e.name)))).size;
+  md.appendMarkdown(`**${mdText(concept.name)}** — ${total} Example${total === 1 ? "" : "s"} across ${list.length} files\n\n`);
+  for (const occ of [...list.filter(isHere), ...list.filter((o) => !isHere(o))]) {
+    md.appendMarkdown(`- ${where(occ)} (${examplesOf(occ).length}): ${listed(occ, examplesOf(occ))}\n`);
   }
   return new vscode.Hover(md, doc.lineAt(position.line).range);
 }
@@ -1093,12 +1179,18 @@ function appendContent(md, doc, analysis, node) {
   } catch { return false; }
   if (!profile || (!profile.slots.length && !profile.nearest)) return false;
   const name = (n) => (n.kind === KIND.INDIVIDUAL ? `- ${n.name}` : n.name);
-  const digits = String(profile.number);
+  // how long G is comes from its logarithm: the integer is made only when it
+  // is short enough to read, and a longer one is given to three figures
+  const whole = !profile.slots.length ? ""
+    : profile.digits <= 30 ? ` = ${profile.number}`
+      : ` ≈ ${godel.approx(profile.vec)} (${profile.digits.toLocaleString("en-US")} digits)`;
   if (md.value.trim()) md.appendMarkdown("\n\n---\n\n");
-  md.appendMarkdown(`**Content** — G = ${profile.factors}${profile.slots.length && digits.length <= 30 ? ` = ${digits}` : ""}\n\n`);
+  md.appendMarkdown(`**Content** — G = ${profile.factors}${whole}\n\n`);
   for (const s of profile.slots) {
     const value = s.value === "(unvalued)" ? "*(declared, no value)*" : codeSpan(s.value);
-    const where = s.own ? "" : s.from ? ` — from '${name(s.from)}'${s.fromLine ? ` (line ${s.fromLine})` : ""}` : "";
+    const where = s.own ? ""
+      : s.typeDefault ? ` — the default of '${name(s.from)}'${s.fromLine ? ` (line ${s.fromLine})` : ""}`
+        : s.from ? ` — from '${name(s.from)}'${s.fromLine ? ` (line ${s.fromLine})` : ""}` : "";
     const through = s.via ? ` — through '${s.via}'` : "";
     md.appendMarkdown(`- \`${s.attr}\`: ${value}${where}${through}\n`);
   }
@@ -1248,7 +1340,7 @@ function renameRecords(doc, analysis, registry) {
     for (const con of a.constraints) {
       let r;
       try { r = python.resolveHost({ kind: "value", node: anchor, line: a.line, source: con.formula }, ctx); } catch { continue; }
-      push(a.line, from(lines[a.line - 1] || "", con.opCol + con.op.length), r);
+      push(a.line, from(lines[a.line - 1] || "", con.opCol + (con.opText || con.op).length), r);
     }
   }
   return out;
@@ -1425,6 +1517,289 @@ function renumberEdits(doc) {
   return out;
 }
 
+// --- a name typed over ------------------------------------------------------------
+// Typing over a declared name renames that one declaration, and leaves every
+// use of the old name pointing at nothing. So the edit is followed: while the
+// cursor stays in the name it is a rename in progress; when it leaves — or the
+// file is saved, or another editor takes over — the uses the old name still
+// has across the workspace are found (workspaceRenameSpans, against the text
+// as it stood before), and one notice offers to update them: one edit, one
+// undo, other files left unsaved for review. The offer stays on the
+// declaration's lightbulb until it is taken, dismissed, or moot. Undo and
+// redo never start one, nor does an edit the extension makes itself or a
+// save's own edits.
+const typedRenames = new Map(); // uri -> { before, oldName, line, start, length }
+const textBefore = new Map();   // uri -> the text before its latest change
+const renameOffers = new Map(); // uri -> [{ line, oldName, newName, here, files, count }]
+let ownEdits = 0;               // > 0 while the extension applies an edit of its own
+const savingDocs = new Set();   // uri while a save's own edits land
+
+// A name a rename may be typed over: a Concept, an Example, an attribute
+// declaration (a line, or a header cell) — never a cell's value.
+const typedRenameable = (n) => n.name && !isValueCell(n)
+  && (n.kind === KIND.CONCEPT || n.kind === KIND.INDIVIDUAL || n.kind === KIND.ATTRIBUTE || isAttrDecl(n));
+
+function trackTypedRename(event) {
+  const doc = event.document;
+  if (doc.languageId !== "aot") return;
+  const key = doc.uri.toString();
+  const before = textBefore.get(key);
+  textBefore.set(key, doc.getText());
+  const session = typedRenames.get(key);
+  if (ownEdits > 0 || savingDocs.has(key) || before === undefined) {
+    if (session) typedRenames.delete(key);
+    return;
+  }
+  const c = event.contentChanges.length === 1 ? event.contentChanges[0] : null;
+  const single = !!c && c.range.start.line === c.range.end.line && !/[\r\n]/.test(c.text);
+  if (session) {
+    // inside the name being typed, the rename goes on
+    if (single && c.range.start.line === session.line && c.range.start.character >= session.start
+      && c.range.end.character <= session.start + session.length) {
+      session.length += c.text.length - (c.range.end.character - c.range.start.character);
+      return;
+    }
+    closeTypedRename(doc); // an edit anywhere else ends it
+  }
+  // undo and redo bring names back, they do not rename
+  const undoing = event.reason === 1 || event.reason === 2;
+  const active = vscode.window.activeTextEditor;
+  if (!single || undoing || !active || active.document !== doc) return;
+  let parsed;
+  try { parsed = lint(before, docRootName(doc)); } catch { return; }
+  const pre = textDoc(doc.fileName, before);
+  for (const node of parsed.nodes) {
+    if (node.line - 1 !== c.range.start.line || !typedRenameable(node)) continue;
+    const start = nameStartOf(pre, node);
+    if (c.range.start.character < start || c.range.end.character > start + node.name.length) continue;
+    typedRenames.set(key, {
+      before, oldName: node.name, line: c.range.start.line, start,
+      length: node.name.length + c.text.length - (c.range.end.character - c.range.start.character),
+    });
+    return;
+  }
+}
+
+// The cursor left the name, the file saved, or another editor took over:
+// the rename is done, and its uses are counted.
+function closeTypedRename(doc) {
+  const key = doc.uri.toString();
+  const s = typedRenames.get(key);
+  if (!s) return null;
+  typedRenames.delete(key);
+  let now;
+  try { now = lint(doc.getText(), docRootName(doc)); } catch { return null; }
+  // the name now standing where the old one stood — a different name, not
+  // just a different case (names resolve case-insensitively)
+  const node = now.nodes.find((n) => n.line - 1 === s.line && typedRenameable(n) && nameStartOf(doc, n) === s.start);
+  if (!node || node.name.toLowerCase() === s.oldName.toLowerCase()) return null;
+  return offerTypedRename(doc, s, node, now);
+}
+
+async function offerTypedRename(doc, s, renamed, now) {
+  const key = doc.uri.toString();
+  let analysis, target;
+  try {
+    analysis = textAnalysis(doc.fileName, s.before);
+    const pre = textDoc(doc.fileName, s.before);
+    target = analysis.nodes.find((n) => n.line - 1 === s.line && n.name === s.oldName && nameStartOf(pre, n) === s.start);
+  } catch { return null; }
+  if (!target) return null;
+  const found = workspaceRenameSpans(doc, analysis, s.before, target);
+  // the declaration typed over is done; every other span is on a line the
+  // typing did not touch, but for those after the name on its own line
+  const delta = renamed.name.length - s.oldName.length;
+  const here = found.here
+    .filter((x) => !(x.line - 1 === s.line && x.startCol === s.start))
+    .map((x) => (x.line - 1 === s.line && x.startCol > s.start ? { ...x, startCol: x.startCol + delta, endCol: x.endCol + delta } : x));
+  const { count } = renameEdit(doc, here, found.files, s.oldName, renamed.name);
+  if (!count) return null;
+  const offer = { line: s.line, oldName: s.oldName, newName: renamed.name, here, files: found.files, count };
+  renameOffers.set(key, [...(renameOffers.get(key) || []).filter((o) => o.line !== s.line), offer]);
+  const inFiles = found.files.map((f) => `${f.spans.length} in ${path.basename(f.fsPath)}`);
+  const where = here.length && inFiles.length ? ` — ${[`${here.length} here`, ...inFiles].join(", ")}` : inFiles.length ? ` — ${inFiles.join(", ")}` : "";
+  // a name that already names another of its kind: the update would make the two one
+  const lower = renamed.name.toLowerCase();
+  const twin = now.nodes.find((n) => n !== renamed && n.kind === renamed.kind && n.name && n.name.toLowerCase() === lower
+    && (renamed.kind === KIND.CONCEPT || n.parent === renamed.parent));
+  const merge = twin ? `; '${renamed.name}' already names another ${renamed.kind === KIND.CONCEPT ? "Concept" : renamed.kind === KIND.INDIVIDUAL ? "Example" : "attribute"} (line ${twin.line}), so updating them would merge the two into it` : "";
+  const update = `Update ${count} Use${count === 1 ? "" : "s"}`;
+  const answer = await vscode.window.showWarningMessage(
+    `AOT: '${s.oldName}' is now '${renamed.name}' — ${count} use${count === 1 ? "" : "s"} still say '${s.oldName}'${where}${merge}.`,
+    ...(twin ? ["Dismiss", update] : [update, "Dismiss"]));
+  if (answer === update) await applyTypedRename(key, s.line);
+  else if (answer === "Dismiss") dropRenameOffer(key, s.line);
+  return answer;
+}
+
+function dropRenameOffer(key, line) {
+  const left = (renameOffers.get(key) || []).filter((o) => o.line !== line);
+  if (left.length) renameOffers.set(key, left); else renameOffers.delete(key);
+}
+
+// AOT: the offer taken — from the notice or the lightbulb. Only spans that
+// still say the old name are edited; one undo takes it all back.
+async function applyTypedRename(key, line) {
+  const offer = (renameOffers.get(key) || []).find((o) => o.line === line);
+  dropRenameOffer(key, line);
+  if (!offer) return false;
+  const doc = (vscode.workspace.textDocuments || []).find((d) => d.uri.toString() === key)
+    || (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri.toString() === key ? vscode.window.activeTextEditor.document : null);
+  if (!doc) return false;
+  const { edit, count } = renameEdit(doc, offer.here, offer.files, offer.oldName, offer.newName);
+  if (!count) return false;
+  ownEdits++;
+  try { await vscode.workspace.applyEdit(edit); } finally { ownEdits--; }
+  return true;
+}
+
+// A text read as a document — what renameSpans and renameRecords read off
+// one: its lines, its file name, a uri. For a file no editor has open, and
+// for a file's text as it stood before a name was typed over. No version:
+// nothing caches a parse of it.
+function textDoc(fsPath, text) {
+  const lines = String(text).split(/\r?\n/);
+  return {
+    fileName: fsPath, languageId: "aot", uri: vscode.Uri.file(fsPath),
+    lineCount: lines.length,
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ text: lines[i] || "", range: new vscode.Range(i, 0, i, (lines[i] || "").length) }),
+  };
+}
+
+// The tree and its crosslinks for a text, read against every other indexed
+// file — and, when `swapIn` is given ({ file, root, nodes }), against that
+// file read as `swapIn` has it rather than as the index does.
+function textAnalysis(fsPath, text, swapIn) {
+  const { root, nodes } = lint(text, path.basename(fsPath).replace(/\.[^.]*$/, ""));
+  const here = fileKey(fsPath);
+  const entries = [];
+  for (const [key, v] of workspaceIndex) {
+    if (key === here) continue;
+    if (swapIn && key === fileKey(swapIn.file)) entries.push(swapIn);
+    else entries.push({ file: v.fsPath, root: v.root, nodes: v.nodes });
+  }
+  const links = resolve(text, root, nodes, externalIndex(entries));
+  const usagesOf = new Map();
+  for (const l of links) {
+    if (!usagesOf.has(l.target)) usagesOf.set(l.target, []);
+    usagesOf.get(l.target).push(l);
+  }
+  return { root, nodes, links, usagesOf };
+}
+
+// One rename, the whole workspace: every span a rename of `target` edits —
+// shared by F2 and by the offer that follows a name typed over by hand.
+//
+//   this file    renameSpans: the declarations the name means, and every
+//                crosslink and `@` reference resolving to them;
+//   peer files   a Concept written there too — one idea in two places — its
+//                declaration and its own uses there;
+//   other files  every crosslink and `@` reference resolving to `target`.
+//
+// `analysis` is the tree `target` is a node of, read over `text` — this
+// file as it reads now (F2), or as it read before a name was typed over
+// (the offer), which is what every other file still resolves against. A
+// span is found only where it says the old name (an alias or a plural keeps
+// its own words). Answers { here: [span], files: [{ fsPath, spans }] },
+// spans { line, startCol, endCol } with 1-based lines on the text read.
+function workspaceRenameSpans(doc, analysis, text, target) {
+  const lower = target.name.toLowerCase();
+  const hereDoc = textDoc(doc.fileName, text);
+  const registry = formulaRegistry(hereDoc, { root: analysis.root, nodes: analysis.nodes });
+  const { decl, uses } = renameSpans(hereDoc, analysis, registry, renameRecords(hereDoc, analysis, registry), target);
+  const files = [];
+  if (!underWorkspace(doc) || (target.kind !== KIND.CONCEPT && target.kind !== KIND.INDIVIDUAL)) {
+    return { here: [...decl, ...uses], files };
+  }
+  const mine = { file: doc.fileName, root: analysis.root, nodes: analysis.nodes };
+  const swap = { key: fileKey(doc.fileName), concepts: derive.conceptRegistry(analysis.root, analysis.nodes) };
+  const fold = (name) => table.numberless(name).trim().toLowerCase();
+  for (const [key, entry] of workspaceIndex) {
+    if (key === swap.key || entry.text === undefined) continue;
+    let other;
+    try { other = textAnalysis(entry.fsPath, entry.text, mine); } catch { continue; }
+    const otherDoc = textDoc(entry.fsPath, entry.text);
+    const otherRegistry = formulaRegistry(otherDoc, { root: other.root, nodes: other.nodes }, swap);
+    const records = renameRecords(otherDoc, other, otherRegistry);
+    const spans = [];
+    const seen = new Set();
+    const push = (s) => {
+      const k = `${s.line}:${s.startCol}`;
+      if (!seen.has(k)) { seen.add(k); spans.push({ line: s.line, startCol: s.startCol, endCol: s.endCol }); }
+    };
+    if (target.kind === KIND.CONCEPT) {
+      for (const peer of other.nodes) {
+        if (peer.kind !== KIND.CONCEPT || fold(peer.name) !== fold(target.name)) continue;
+        const s = renameSpans(otherDoc, other, otherRegistry, records, peer);
+        for (const x of [...s.decl, ...s.uses]) {
+          if (otherDoc.lineAt(x.line - 1).text.slice(x.startCol, x.endCol).toLowerCase() === lower) push(x);
+        }
+      }
+    }
+    // a reference to it — or to any file's spelling of the same idea,
+    // whichever the workspace index resolved the name to: a Concept is one
+    // idea in every file that writes it (repo.js), and an Example of one
+    // name under it is one individual
+    const conceptAbove = (n) => { for (let p = n.parent; p; p = p.parent) if (p.kind === KIND.CONCEPT) return p; return null; };
+    const sameIdea = (n) => {
+      if (n === target) return true;
+      if (!n || n.kind !== target.kind || fold(n.name) !== fold(target.name)) return false;
+      if (target.kind === KIND.CONCEPT) return true;
+      const a = conceptAbove(n), b = conceptAbove(target);
+      return !!a && !!b && fold(a.name) === fold(b.name);
+    };
+    for (const l of other.links) {
+      if (sameIdea(l.target) && otherDoc.lineAt(l.line - 1).text.slice(l.startCol, l.endCol).toLowerCase() === lower) push(l);
+    }
+    for (const r of records) {
+      if (String(r.text).toLowerCase() !== lower) continue;
+      const scope = r.kind === "table" && r.id ? otherRegistry.scopes.get(r.id) : null;
+      if ((scope && sameIdea(scope.node)) || (r.nodes && r.nodes.some(sameIdea))) push(r);
+    }
+    if (spans.length) files.push({ fsPath: entry.fsPath, spans });
+  }
+  return { here: [...decl, ...uses], files };
+}
+
+// The text a rename edits in another file: its open buffer, else the disk.
+function liveTextOf(fsPath) {
+  const open = (vscode.workspace.textDocuments || []).find((d) => d.fileName && fileKey(d.fileName) === fileKey(fsPath));
+  if (open) return open.getText();
+  try { return fs.readFileSync(fsPath, "utf8"); } catch { return null; }
+}
+
+// Case follows the span, not the typist: Concepts are capitalised and
+// attributes lowercase by convention, and every link resolves
+// case-insensitively — so a span that is all lowercase today (an attribute
+// name, its alias, a lowercase reference) takes the new name lowercased, and
+// every other span takes it exactly as typed.
+const renamedAs = (old, name) => (old === old.toLowerCase() ? name.toLowerCase() : name);
+
+// The edit renaming `oldName` to `newName` over spans found by
+// workspaceRenameSpans — this file's on `doc` as it reads now, the rest on
+// each file's live text. A span that no longer says the old name is passed
+// over. Answers { edit, count }.
+function renameEdit(doc, here, files, oldName, newName) {
+  const edit = new vscode.WorkspaceEdit();
+  let count = 0;
+  const lower = oldName.toLowerCase();
+  const add = (uri, lineText, s) => {
+    const old = String(lineText || "").slice(s.startCol, s.endCol);
+    if (old.toLowerCase() !== lower) return;
+    edit.replace(uri, new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol), renamedAs(old, newName));
+    count++;
+  };
+  for (const s of here) add(doc.uri, s.line - 1 < doc.lineCount ? doc.lineAt(s.line - 1).text : "", s);
+  for (const f of files) {
+    const text = liveTextOf(f.fsPath);
+    if (text === null) continue;
+    const lines = text.split(/\r?\n/);
+    for (const s of f.spans) add(vscode.Uri.file(f.fsPath), lines[s.line - 1], s);
+  }
+  return { edit, count };
+}
+
 const renameProvider = {
   prepareRename(doc, position) {
     const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
@@ -1438,38 +1813,28 @@ const renameProvider = {
     if (!name || /[@|:()=`\\]/.test(name) || name.startsWith("-")) {
       throw new Error("a name cannot be empty, start with '-', or hold @ | : ( ) = ` \\");
     }
-    const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+    const analysis = currentAnalysis(doc) || linkAnalysis(doc);
     const registry = formulaRegistry(doc, analysis);
     const records = renameRecords(doc, analysis, registry);
     const found = renameContext(doc, position, analysis, registry, records);
     if (!found || !found.node.line) throw new Error("nothing renameable here — put the cursor on a Concept, Example or attribute name");
-    const { decl, uses } = renameSpans(doc, analysis, registry, records, found.node);
-
-    // Case follows the span, not the typist: Concepts are capitalised and
-    // attributes lowercase by convention, and every link resolves
-    // case-insensitively — so a span that is all lowercase today (an
-    // attribute name, its alias, a lowercase reference) takes the new name
-    // lowercased, and every other span takes it exactly as typed.
-    const edit = new vscode.WorkspaceEdit();
-    for (const s of [...decl, ...uses]) {
-      const old = doc.lineAt(s.line - 1).text.slice(s.startCol, s.endCol);
-      edit.replace(doc.uri, new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
-        old === old.toLowerCase() ? name.toLowerCase() : name);
-    }
-    return edit;
+    // the whole workspace: a Concept's peers in other files, and every
+    // reference to it there; other files are edited and left unsaved
+    const { here, files } = workspaceRenameSpans(doc, analysis, doc.getText(), found.node);
+    return renameEdit(doc, here, files, found.node.name, name).edit;
   },
 };
 
-// A nudge toward F2, as faint ghost text at the end of the cursor's line.
-// Standing in a declared name that is used elsewhere says how many places
-// a hand edit would strand and that F2 renames them all. Standing in a
-// usage — an attribute wearing a Concept's name, a value naming an
-// Example — is genuinely ambiguous: typing is the right move when this
-// one reference should point somewhere else, F2 when the thing itself is
-// changing name — so there the ghost text names the target and says which
-// key does which. It reuses the rename's own span collection, so the
-// count is exactly what F2 would edit; a name nothing uses shows nothing.
-// Cached per cursor-name and document version, so resting costs one walk.
+// A note in faint ghost text at the end of the cursor's line. Standing in a
+// declared name that is used elsewhere says how many uses it has: type over
+// it, and once the cursor leaves the name the extension offers to update
+// them (a name typed over). Standing in a usage — an attribute wearing a
+// Concept's name, a value naming an Example — names what it points at, and
+// that typing over it changes just this one reference. It reuses the
+// rename's own span collection for this file, so the count is what a rename
+// edits here; a name nothing uses shows nothing. Read off the analysis of
+// the text as it is now, never an older one whose lines have moved; cached
+// per cursor-name and document version, so resting costs one walk.
 let renameHintType = null; // created on activation
 let renameHintLast = null; // { key, count } for the name the cursor is in
 function renameHint(editor) {
@@ -1478,7 +1843,7 @@ function renameHint(editor) {
   const sel = editor.selections && editor.selections.length === 1 ? editor.selections[0] : null;
   const clear = () => editor.setDecorations(renameHintType, []);
   if (!sel || !sel.active) return clear();
-  const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
+  const analysis = currentAnalysis(doc) || linkAnalysis(doc);
   // a usage first, exactly as F2 reads the cursor (renameContext)
   const link = analysis.links.find((l) => !l.file && l.target.line && linkRange(l).contains(sel.active));
   const found = link ? { node: link.target, usage: true } : declarationAt(doc, sel.active, analysis);
@@ -1492,8 +1857,8 @@ function renameHint(editor) {
   const n = renameHintLast.count;
   if (!n) return clear();
   const text = found.usage
-    ? `names '${found.node.name}' — F2 renames its ${n} use${n === 1 ? "" : "s"}, typing changes just this one`
-    : `${n} use${n === 1 ? "" : "s"} elsewhere — F2 renames them all`;
+    ? `names '${found.node.name}' — typing changes just this one`
+    : `${n} use${n === 1 ? "" : "s"} elsewhere`;
   const end = doc.lineAt(sel.active.line).range.end;
   editor.setDecorations(renameHintType, [{
     range: new vscode.Range(end.line, end.character, end.line, end.character),
@@ -1589,6 +1954,14 @@ const REPO_STALE_NOTE = /^'.+?' (lists \d+ of its Examples here and the rest liv
 const codeActionProvider = {
   provideCodeActions(doc, range, context) {
     const actions = [];
+    // a name typed over whose uses still say the old one: the offer the
+    // notice made, kept on the declaration until taken, dismissed or moot
+    for (const offer of renameOffers.get(doc.uri.toString()) || []) {
+      if (offer.line !== range.start.line) continue;
+      const fix = new vscode.CodeAction(`Update ${offer.count} use${offer.count === 1 ? "" : "s"} of '${offer.oldName}' to '${offer.newName}'`, vscode.CodeActionKind.QuickFix);
+      fix.command = { command: "aot.applyTypedRename", title: fix.title, arguments: [doc.uri.toString(), offer.line] };
+      actions.push(fix);
+    }
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
       const misspelt = ACCEPT_SPELLING.exec(diagnostic.message);
@@ -1758,7 +2131,7 @@ const codeActionProvider = {
         const block = table.blockAt(doc.getText().split(/\r?\n/), at.line);
         const def = block && table.columnDefinition(block, cs.indexOf(cell));
         if (def) {
-          const title = `Define '${def.name}' for the whole column (${def.name} ==${def.source})`;
+          const title = `Define '${def.name}' for the whole column (${def.name} =${def.source})`;
           const define = new vscode.CodeAction(title, vscode.CodeActionKind.RefactorRewrite);
           define.command = { command: "aot.table.defineColumn", title };
           actions.push(define);
@@ -1881,8 +2254,16 @@ function opsToTextEdits(doc, ops) {
 const GIT_ATTRIBUTES = ["*.aot merge=aot", "aot.files/godel.tsv merge=union"];
 const verifyScript = () => path.join(__dirname, "..", "verify.js");
 const mergeDriver = () => `node "${verifyScript().split(path.sep).join("/")}" --merge %O %A %B %P`;
-let gitRun = (root, args) => require("child_process").execFileSync(
-  python.resolveExecutable("git") || "git", args, { cwd: root, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+// git is started by the absolute path PATH's own entries give it, never by
+// its bare name with a repository as the working directory — where Windows
+// would run a git.exe the repository itself planted (the README's rule for
+// python and uv). No git on PATH is an error the caller reports.
+const defaultGitRun = (root, args) => {
+  const git = python.resolveExecutable("git");
+  if (!git) throw new Error("git was not found on PATH");
+  return childProcess.execFileSync(git, args, { cwd: root, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+};
+let gitRun = defaultGitRun;
 
 async function setUpGitMerge() {
   const editor = vscode.window.activeTextEditor;
@@ -2001,6 +2382,56 @@ async function reconcileAcrossFiles() {
     : "AOT: every shared Concept is already in step", 5000);
 }
 
+// AOT: Upgrade Files to 1.13 Syntax — every .aot in the workspace written for
+// 1.12, respelled (src/upgrade.js): a literal '=' in a value doubled rather
+// than escaped `\=`, a definition `=` rather than `==`. Nothing a file means
+// changes, and a file already in the 1.13 spelling is left alone. Each file's
+// edits are its own, one undo apiece; a file with no unsaved edits of yours
+// is saved after, one with them is left for you to save.
+async function upgradeWorkspaceSyntax() {
+  if (!(vscode.workspace.workspaceFolders || []).length) {
+    vscode.window.showInformationMessage("AOT: upgrading the files needs an open workspace.");
+    return 0;
+  }
+  buildWorkspaceIndex();
+  let changed = 0;
+  for (const entry of [...workspaceIndex.values()]) {
+    if (entry.text === undefined) continue;
+    let doc;
+    try { doc = await vscode.workspace.openTextDocument(entry.fsPath); } catch { continue; }
+    const edits = upgradeEdits(doc.getText(), path.basename(entry.fsPath).replace(/\.[^.]*$/, ""));
+    if (!edits.length) continue;
+    const wasDirty = doc.isDirty;
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(doc.uri, edits.map((e) => vscode.TextEdit.replace(new vscode.Range(e.line, e.from, e.line, e.to), e.text)));
+    if (await vscode.workspace.applyEdit(edit)) {
+      if (!wasDirty) await doc.save();
+      changed++;
+    }
+  }
+  vscode.window.setStatusBarMessage(changed
+    ? `AOT: ${changed} file${changed === 1 ? "" : "s"} upgraded to the 1.13 spelling`
+    : "AOT: every file already uses the 1.13 spelling", 5000);
+  return changed;
+}
+
+// Asked once per workspace, when 1.13 first meets files written for 1.12: the
+// command does the work, and saying no is remembered too.
+async function offerSyntaxUpgrade() {
+  const memo = pyMemento();
+  const KEY = "aot.upgrade.1.13.asked";
+  if (memo.get(KEY, false) || !(vscode.workspace.workspaceFolders || []).length) return;
+  buildWorkspaceIndex();
+  const old = [...workspaceIndex.values()].filter((e) => e.text !== undefined
+    && upgradeEdits(e.text, path.basename(e.fsPath).replace(/\.[^.]*$/, "")).length);
+  if (!old.length) return;
+  await memo.update(KEY, true);
+  const answer = await vscode.window.showInformationMessage(
+    `AOT 1.13 doubles a literal '=' in a value (it was '\\='), and writes an attribute's definition with '=' (it was '=='). ${old.length} .aot file${old.length === 1 ? "" : "s"} here still use${old.length === 1 ? "s" : ""} the older spelling.`,
+    "Upgrade Them", "Not Now");
+  if (answer === "Upgrade Them") await upgradeWorkspaceSyntax();
+}
+
 // AOT: Set Value Everywhere — the lightbulb on a value two files disagree
 // about. One name means one thing, so once you say which value is right it
 // is written to every file that names the attribute on that Concept.
@@ -2023,9 +2454,12 @@ async function setValueEverywhere(conceptName, attr, value) {
       if (!hit || hit.cell || (hit.value != null && String(hit.value) === String(value))) continue;
       const raw = doc.lineAt(hit.line - 1).text;
       const colon = raw.indexOf(":");
+      // the value as read, written the way the file holds it: an '=' in it
+      // must never open a derivation where it lands
+      const written = table.writtenValue(value);
       edits.push(vscode.TextEdit.replace(
         doc.lineAt(hit.line - 1).range,
-        colon === -1 ? `${raw.trimEnd()}: ${value}` : `${raw.slice(0, colon + 1)} ${value}`));
+        colon === -1 ? `${raw.trimEnd()}: ${written}` : `${raw.slice(0, colon + 1)} ${written}`));
     }
     if (!edits.length) continue;
     const edit = new vscode.WorkspaceEdit();
@@ -3381,9 +3815,10 @@ async function checkConstraints(editor, session, allow) {
     failedBounds.add(key);
     tally.errors++;
     if (p.clause.parked) return onValue(p.check, message, vscode.DiagnosticSeverity.Error);
-    findings.push({ line: p.check.a.line - 1, needle: p.clause.op + p.clause.formula, message, severity: vscode.DiagnosticSeverity.Error });
+    // found on its line as written: `=` where the writer wrote one, though it means `==`
+    findings.push({ line: p.check.a.line - 1, needle: (p.clause.opText || p.clause.op) + p.clause.formula, message, severity: vscode.DiagnosticSeverity.Error });
   };
-  const said = (p) => `'${p.check.a.name} ${p.clause.op}${p.clause.formula}'`;
+  const said = (p) => `'${p.check.a.name} ${p.clause.opText || p.clause.op}${p.clause.formula}'`;
   const maxInline = pyConfig().get("python.maxInlineText", 120);
   let next = lines;
   const counted = new Set();
@@ -3399,7 +3834,9 @@ async function checkConstraints(editor, session, allow) {
       try { out = python.resultOf({ kind: check.host.kind, value: check.value, address: "@constraint" }, r.define, maxInline); }
       catch (e) { onBound(p, `Python: the bound ${said(p)} — ${e.message}`); continue; }
       if (out.file || out.grid) { onBound(p, `Python: ${said(p)} defines a value too large for a line — a bound computes one value`); continue; }
-      if (out.text !== check.value) {
+      // the result as written (escaped) against the value as read: compared
+      // the same way, or an escaped value would count as changed every run
+      if (table.readValue(out.text) !== check.value) {
         next = python.writeValue(next, check.host, out.text);
         tally.defined++;
       }
@@ -3427,14 +3864,17 @@ function checkFindings(doc) {
       start = raw.indexOf(f.needle);
       length = f.needle.length;
     } else if (f.cell !== null) {
+      // the value as written (escapes and all) is what stands on the line,
+      // the value as read is what the finding names
       const cell = table.cells(raw)[f.cell];
-      if (cell && table.splitCell(cell.text).value === f.text) { start = cell.col; length = Math.max(1, f.text.length); }
+      const written = cell ? table.splitCell(cell.text).value : "";
+      if (cell && table.readValue(written) === f.text) { start = cell.col; length = Math.max(1, written.length); }
     } else {
       const d = python.valueDerivation(raw);
       const colon = raw.indexOf(":");
       const at = d ? d.valueStart : colon === -1 ? -1 : colon + 1 + (raw.slice(colon + 1).length - raw.slice(colon + 1).trimStart().length);
       const value = d ? d.value : raw.slice(at).trim();
-      if (at !== -1 && value === f.text) { start = at; length = Math.max(1, f.text.length); }
+      if (at !== -1 && table.readValue(value) === f.text) { start = at; length = Math.max(1, value.length); }
     }
     if (start === -1) continue;
     const d = new vscode.Diagnostic(new vscode.Range(f.line, start, f.line, start + length), f.message, f.severity);
@@ -4236,19 +4676,26 @@ async function toggleTableForm(editor) {
   }
   const edit = derive.flipForm(lines, concept, rootName);
   if (!edit) {
-    return vscode.window.showWarningMessage(
-      `AOT: '${concept.name}' has no Examples to flip — a table and a list of '- ' Examples are the same rows written two ways.`);
+    return vscode.window.showWarningMessage(`AOT: '${concept.name}' has no line of its own to flip.`);
   }
-  // the whole document is rewritten so the re-align that follows computes
-  // the formulas where they have landed: a cell reading the Concept's
-  // line-form default only resolves once the grid is in the file
+  // the idea the cursor is on — a cell, a value, an Example, a column — so
+  // it stays on that idea in the other form, whatever line it moves to
+  const idea = derive.ideaAt(lines, tree.nodes, concept, editor.selection.active);
+  // the whole document is rewritten, every table in it re-aligned; it
+  // computes nothing — a flip is a re-spelling, not a recalculation
   const next = lines.slice();
   next.splice(edit.from, edit.to - edit.from + 1, ...edit.block);
   await rewriteDocument(editor, next);
-  // the cursor lands on the Concept's first line in its new form — the
-  // header of the fresh grid, or the first line the grid became
-  const at = Math.min(edit.from, editor.document.lineCount - 1);
-  const character = editor.document.lineAt(at).firstNonWhitespaceCharacterIndex;
+  // read back as it now stands, re-aligning included — a table above that
+  // the re-align redrew may have moved every line under it
+  let landed = null;
+  try {
+    const text = editor.document.getText();
+    const after = lint(text, rootName);
+    landed = derive.positionOf(text.split(/\r?\n/), after.root, after.nodes, idea, edit.from);
+  } catch { /* the Concept's first line, below */ }
+  const at = landed ? landed.line : Math.min(edit.from, editor.document.lineCount - 1);
+  const character = landed ? landed.character : editor.document.lineAt(at).firstNonWhitespaceCharacterIndex;
   editor.selection = new vscode.Selection(at, character, at, character);
   editor.revealRange(new vscode.Range(at, character, at, character));
   vscode.window.setStatusBarMessage(
@@ -4335,28 +4782,82 @@ async function renameConcept(from, to) {
 }
 
 // --- the CSV mirror -----------------------------------------------------------
-// Every table lives twice: as the pipe grid in the .aot and as a CSV named
-// after its parent Concept in a sibling 'tables.<file>' folder. Saving the
-// .aot rewrites the CSVs; editing a CSV folds the grid back into the .aot
-// table (or inserts one under the Concept) and saves it. Both directions
-// write only when the content genuinely differs, which is what stops the
-// two mirrors from chasing each other. Saving also migrates the legacy
-// '<file>.tables' folder to the new name and deletes any CSV whose Concept
-// no longer has a table.
+// Every Concept with Examples lives twice: in its .aot, and as a CSV named
+// after it in the repository's 'aot.files'. The two are kept in step both
+// ways by a three-way merge (csvsync.js): each cell is judged against the
+// text the two last agreed on — the baseline, remembered per CSV — so the
+// side that changed it is the side that is right, an emptied cell empties,
+// a dropped row is asked about, and only a cell both changed apart is a
+// conflict, which the later save wins and which is said. Every sync point
+// runs the same comparison: a .aot save, a CSV edit, the catch-up when the
+// editor starts, and AOT: Sync CSVs Now (the only one, in manual mode).
+// Both directions write only when the content genuinely differs, which is
+// what stops the two from chasing each other. Saving also migrates the
+// legacy per-file folders and archives a CSV no Concept speaks for.
 
 const syncEnabled = () => vscode.workspace.getConfiguration("aot").get("tableCsvSync", true);
-const lastWritten = new Map(); // csv path -> the content this extension wrote
+// auto: every sync point; manual: AOT: Sync CSVs Now alone
+const syncManual = () => vscode.workspace.getConfiguration("aot").get("tableCsvSyncMode", "auto") === "manual";
 
 const csvName = (name) => name.replace(/[\\/:*?"<>|]/g, "-") + ".csv";
 
-// Two CSV texts hold the same data when they differ only in line endings.
-// The mirror writes LF on every platform, but a CSV is exactly the file a
-// user opens in something else — Excel and Notepad write CRLF back on
-// Windows, and git hands out CRLF wherever these are committed with
-// 'text=auto'. Compare the bytes and that round trip looks like an edit: the
-// watcher folds a grid that never changed, and the next save rewrites the
-// file, for a diff nobody made.
-const sameCsvText = (a, b) => String(a).replace(/\r\n/g, "\n") === String(b).replace(/\r\n/g, "\n");
+// Two CSV texts hold the same data when they differ only in line endings or
+// a byte-order mark. The mirror writes LF on every platform, but a CSV is
+// exactly the file a user opens in something else — Excel and Notepad write
+// CRLF back on Windows (Excel's 'CSV UTF-8' a BOM too), and git hands out
+// CRLF wherever these are committed with 'text=auto'. Compare the bytes and
+// that round trip looks like an edit: the watcher folds a grid that never
+// changed, and the next save rewrites the file, for a diff nobody made.
+const csvTextOf = (t) => String(t).replace(/^﻿/, "").replace(/\r\n/g, "\n");
+const sameCsvText = (a, b) => csvTextOf(a) === csvTextOf(b);
+
+// What each CSV and its .aot files last agreed on — csvsync's baseline — as
+// the texts, newest first, the last CSV_BASELINES of them: a program that
+// held an older copy merges against the one it descends from. Kept in the
+// extension's own storage, per machine and never in the repository, once
+// activate() has a place for it; in memory until then, and in the tests.
+// Only a write that landed or a fold that took the CSV in advances it, so a
+// write Excel's lock refused leaves the old one standing, which is right.
+const CSV_BASELINES = 8;
+const memoryBaselines = () => {
+  const m = new Map();
+  return { get: (k) => m.get(k) || [], set: (k, list) => m.set(k, list), drop: (k) => m.delete(k) };
+};
+const diskBaselines = (dir) => {
+  const fileOf = (k) => path.join(dir, crypto.createHash("sha1").update(k).digest("hex") + ".json");
+  return {
+    get: (k) => { try { return JSON.parse(fs.readFileSync(fileOf(k), "utf8")).baselines || []; } catch { return []; } },
+    set: (k, list) => {
+      try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(fileOf(k), JSON.stringify({ csv: k, baselines: list })); } catch { /* the next sync tries again */ }
+    },
+    drop: (k) => { try { fs.unlinkSync(fileOf(k)); } catch { /* none kept */ } },
+  };
+};
+let baselineStore = memoryBaselines();
+const baselinesOf = (csvPath) => baselineStore.get(fileKey(csvPath));
+function rememberBaseline(csvPath, text) {
+  const norm = csvTextOf(text);
+  const list = baselinesOf(csvPath).filter((b) => b.text !== norm);
+  list.unshift({ text: norm, at: Date.now() });
+  baselineStore.set(fileKey(csvPath), list.slice(0, CSV_BASELINES));
+}
+const forgetBaselines = (csvPath) => baselineStore.drop(fileKey(csvPath));
+function moveBaselines(from, to) {
+  const list = baselinesOf(from);
+  if (!list.length) return;
+  baselineStore.set(fileKey(to), list);
+  forgetBaselines(from);
+}
+// A CSV whose edits are already in a .aot buffer that is not saved yet —
+// the CSV cannot be written from a buffer with unsaved edits, and a merge of
+// what it already took in would only ask again. In memory: it means
+// something only until that buffer is saved. Never a baseline, which is
+// what both copies agreed on; this one they do not, yet.
+const takenIn = new Map(); // csv path (fileKey) -> the CSV's text
+// a CSV saying exactly what the two once agreed on, or what a buffer has
+// taken in already, carries no edit of its own
+const agreedOn = (csvPath, text) => baselinesOf(csvPath).some((b) => sameCsvText(b.text, text))
+  || takenIn.get(fileKey(csvPath)) === csvTextOf(text);
 
 // The workspace root a document belongs to (or its own folder, standalone).
 function workspaceRoot(doc) {
@@ -4453,25 +4954,25 @@ function mirrorFacts(fsPath, text) {
   }
 }
 
-// The same, cached against the file's mtime and size — the guard parkCache
-// already uses for the formula store. Every save asks what every .aot in the
-// repo speaks for, and every hand edit of a CSV asks which file owns it;
-// without this both re-read and re-lint the whole repository each time.
-// A file open in the editor is read from its live text instead, so it is
+// The same, cached against the file's text — every save asks what every .aot
+// in the repo speaks for, and every hand edit of a CSV asks which file owns
+// it; without this both re-lint the whole repository each time. Reading a
+// file is cheap beside linting it, and the text is the one test that cannot
+// be fooled: a file rewritten within one tick of the clock to the same size
+// (`100` becoming `110`, by a pull or a script) keeps its mtime and size. A
+// file open in the editor is read from its live text instead, so it is
 // computed fresh and never cached here.
-const mirrorCache = new Map(); // fsPath -> { mtimeMs, size, refs, grids, fallback }
+const mirrorCache = new Map(); // fsPath -> { text, refs, grids, fallback }
 
 function mirrorFactsOf(fsPath, currentDoc) {
   if (currentDoc && fileKey(fsPath) === fileKey(currentDoc.fileName)) {
     return mirrorFacts(fsPath, currentDoc.getText());
   }
-  let stat;
-  try { stat = fs.statSync(fsPath); } catch { mirrorCache.delete(fsPath); return null; }
-  const hit = mirrorCache.get(fsPath);
-  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit;
   let text;
-  try { text = fs.readFileSync(fsPath, "utf8"); } catch { return null; }
-  const entry = { mtimeMs: stat.mtimeMs, size: stat.size, ...mirrorFacts(fsPath, text) };
+  try { text = fs.readFileSync(fsPath, "utf8"); } catch { mirrorCache.delete(fsPath); return null; }
+  const hit = mirrorCache.get(fsPath);
+  if (hit && hit.text === text) return hit;
+  const entry = { text, ...mirrorFacts(fsPath, text) };
   mirrorCache.set(fsPath, entry);
   return entry;
 }
@@ -4510,14 +5011,6 @@ function ownerIndex(root) {
   return index;
 }
 
-// The .aot files that own a Concept named `name` with Examples in its
-// scope. `index` is an ownerIndex already built for this root; without one
-// a fresh index is built for this lookup alone.
-function findOwningAots(root, name, index) {
-  const entries = (index || ownerIndex(root)).get(name.toLowerCase()) || [];
-  return entries.map((e) => e.file);
-}
-
 // Fold a document's pre-1.3 per-file folders (`tables.<file>` and
 // `<file>.tables`) into the shared aot.files, then remove them. A CSV whose
 // name is already present is left (the fresh write below is authoritative).
@@ -4533,17 +5026,14 @@ function migrateLegacyDirs(doc, dir) {
       fs.mkdirSync(dir, { recursive: true });
       for (const entry of fs.readdirSync(legacy)) {
         const from = path.join(legacy, entry), to = path.join(dir, entry);
-        if (/\.csv$/i.test(entry) && !fs.existsSync(to)) fs.copyFileSync(from, to);
+        if (/\.csv$/i.test(entry) && !fs.existsSync(to)) {
+          fs.copyFileSync(from, to);
+          moveBaselines(from, to); // what it agreed on travels with it
+        }
         fs.unlinkSync(from);
       }
       fs.rmdirSync(legacy);
     } catch { continue; } // a held lock loses this round; the next save retries
-    for (const [file, content] of [...lastWritten]) {
-      if (file.startsWith(legacy + path.sep)) {
-        lastWritten.delete(file);
-        lastWritten.set(path.join(dir, path.basename(file)), content);
-      }
-    }
   }
 }
 
@@ -4579,8 +5069,7 @@ function migrateStrayAotFiles(doc, dir) {
         fs.copyFileSync(from, to); // a sub-folder throws, and is left alone
         fs.unlinkSync(from);
       } catch { continue; } // a held lock loses this round; the next save retries
-      const written = lastWritten.get(from);
-      if (written !== undefined) { lastWritten.delete(from); lastWritten.set(to, written); }
+      moveBaselines(from, to);
     }
     try { fs.rmdirSync(stray); } catch { /* what could not move stays, folder and all */ }
   }
@@ -4597,104 +5086,301 @@ function cleanupOrphans(dir, expected) {
     if (expected.has(entry.toLowerCase())) continue;
     const from = path.join(dir, entry), to = path.join(dir, "_" + entry);
     try { fs.renameSync(from, to); } catch { continue; }
-    lastWritten.delete(from);
+    forgetBaselines(from); // an archive is never synced
   }
 }
 
+// The .aot files a Concept lives in — one, or several that each spell part
+// of it — each with the grid it mirrors and its document when one is open.
+// Read as last saved, except `current` (the document being saved, its
+// mirrorFacts already read as `currentFacts`), and with `live` every open
+// document as it stands in the editor: its unsaved edits are the latest word
+// in a merge, though never written out before a save.
+function ownersFrom(index, name, { live, current, currentFacts } = {}) {
+  const out = [];
+  const low = String(name).toLowerCase();
+  for (const e of index.get(low) || []) {
+    const open = (vscode.workspace.textDocuments || []).find((d) => d.fileName && fileKey(d.fileName) === fileKey(e.file)) || null;
+    const isCurrent = current && fileKey(current.fileName) === fileKey(e.file);
+    const doc = isCurrent ? current : live ? open : null;
+    if (!doc) { out.push({ file: e.file, doc: open, grid: e.grid }); continue; }
+    const facts = isCurrent && currentFacts ? currentFacts : mirrorFacts(e.file, doc.getText());
+    const g = facts.grids.find((x) => x.name.toLowerCase() === low);
+    if (g) out.push({ file: e.file, doc: open || doc, grid: g.grid });
+  }
+  return out;
+}
+
+// Does a file's grid list the Example `row` (case aside)?
+const listsRow = (owner, row) => owner.grid.slice(1).some((r) => String(r[0]).trim().toLowerCase() === String(row).trim().toLowerCase());
+
+// Write a CSV, remembering it as what the two now agree on. Never over a CSV
+// open here with unsaved edits, and never in silence when another program
+// holds it locked (Excel does, with the workbook open): either is said, the
+// baseline stays as it was, and the next sync tries again.
+function writeCsvFile(csvPath, grid) {
+  const csv = table.toCsv(grid);
+  let onDisk = null;
+  try { onDisk = fs.readFileSync(csvPath, "utf8"); } catch { /* none yet */ }
+  if (onDisk !== null && sameCsvText(onDisk, csv)) { rememberBaseline(csvPath, onDisk); return true; }
+  const openDirty = (vscode.workspace.textDocuments || []).find(
+    (d) => d.fileName && fileKey(d.fileName) === fileKey(csvPath) && d.isDirty);
+  if (openDirty) {
+    vscode.window.showWarningMessage(`'${path.basename(csvPath)}' has unsaved edits — save or revert it, then save the .aot again to re-mirror.`);
+    return false;
+  }
+  try {
+    fs.mkdirSync(path.dirname(csvPath), { recursive: true });
+    fs.writeFileSync(csvPath, csv);
+  } catch {
+    vscode.window.showWarningMessage(`'${path.basename(csvPath)}' is open in another program — close it and save the .aot again to re-mirror.`);
+    return false;
+  }
+  rememberBaseline(csvPath, csv); // before any watcher hears the write
+  takenIn.delete(fileKey(csvPath));
+  return true;
+}
+
+// A Concept's CSV, written as its .aot files say it — once every one of them
+// is saved: a file with unsaved edits writes it on its own save.
+function writeMirror(root, name) {
+  const owners = ownersFrom(ownerIndex(root), name);
+  if (!owners.length || owners.some((o) => o.doc && o.doc.isDirty)) return false;
+  const grid = csvsync.unionGrids(owners.map((o) => o.grid));
+  return grid ? writeCsvFile(path.join(root, "aot.files", csvName(name)), grid) : false;
+}
+
+// Saving a .aot: each Concept it mirrors is written out — unless its CSV
+// says something the two never agreed on (edited with the editor closed, or
+// by a program whose save no watcher heard), which is merged first rather
+// than overwritten.
 function syncAotToCsv(doc) {
-  if (doc.languageId !== "aot" || !syncEnabled()) return;
+  if (doc.languageId !== "aot" || !syncEnabled() || syncManual()) return;
   if (!/\.aot$/i.test(doc.fileName)) return;
   const dir = aotFilesDir(doc);
-  watchAotRoot(path.dirname(dir));
+  const root = path.dirname(dir);
+  watchAotRoot(root);
   migrateLegacyDirs(doc, dir);
   migrateStrayAotFiles(doc, dir);
-  if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(aotRoot(doc), doc));
-  const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
-  // One union CSV per Concept: every Example in the Concept's scope (a
-  // table under an '- Example' files under the first Concept up the tree),
-  // columns the union of every attribute, blank where a row is silent.
-  // Every Concept with Examples mirrors — written as a table, line form,
-  // or both, one idea, one CSV, whichever spelling holds it.
-  const found = [];
-  try {
-    const { root, nodes } = lint(doc.getText(), rootName);
-    const taken = new Set();
-    for (const g of derive.mirrorGrids(root, nodes)) {
-      if (!g.rows.length) continue;
-      const file = csvName(g.name);
-      if (taken.has(file.toLowerCase())) continue;
-      taken.add(file.toLowerCase());
-      found.push({ name: g.name, grid: [g.header, ...g.rows] });
+  if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(root, doc));
+  // every Concept with Examples in its scope — a table, line form, or both,
+  // one idea, one CSV — read once for the whole save
+  const facts = mirrorFacts(doc.fileName, doc.getText());
+  const names = [...new Map(facts.grids.map((g) => [csvName(g.name).toLowerCase(), g.name])).values()];
+  if (!names.length) return;
+  const index = ownerIndex(root);
+  for (const name of names) {
+    const csvPath = path.join(dir, csvName(name));
+    // a Concept several files spell is mirrored whole, every file's rows —
+    // the file being saved among them, whatever the index has read of it
+    const owners = ownersFrom(index, name, { current: doc, currentFacts: facts });
+    if (!owners.some((o) => fileKey(o.file) === fileKey(doc.fileName))) {
+      const own = facts.grids.find((g) => g.name.toLowerCase() === name.toLowerCase());
+      if (own) owners.unshift({ file: doc.fileName, doc, grid: own.grid });
     }
-  } catch { /* an unparseable document mirrors nothing this save */ }
-  if (!found.length) return;
-  fs.mkdirSync(dir, { recursive: true });
-  for (const t of found) {
-    const file = path.join(dir, csvName(t.name));
-    const csv = table.toCsv(t.grid);
-    // an identical file still counts as ours: remembering it is what lets
-    // the fold-back watcher tell our own write echoing back from a genuine
-    // hand edit, for a CSV this save happened not to have to touch
-    if (fs.existsSync(file) && sameCsvText(fs.readFileSync(file, "utf8"), csv)) {
-      lastWritten.set(file, csv);
+    const grid = csvsync.unionGrids(owners.map((o) => o.grid));
+    if (!grid) continue;
+    let onDisk = null;
+    try { onDisk = fs.readFileSync(csvPath, "utf8"); } catch { /* none yet */ }
+    if (onDisk === null || sameCsvText(onDisk, table.toCsv(grid)) || agreedOn(csvPath, onDisk)) {
+      writeCsvFile(csvPath, grid);
       continue;
     }
-    // never clobber a CSV the user has open with unsaved edits
-    const openDirty = (vscode.workspace.textDocuments || []).find(
-      (d) => d.fileName && fileKey(d.fileName) === fileKey(file) && d.isDirty);
-    if (openDirty) {
-      vscode.window.showWarningMessage(`'${path.basename(file)}' has unsaved edits — save or revert it, then save the .aot again to re-mirror.`);
-      continue;
-    }
-    // Excel holds a lock on the workbook it has open, so the write fails
-    // rather than the file being wrong. Say so and leave the CSV alone: the
-    // next save re-mirrors, and nothing in the .aot has been lost.
-    lastWritten.set(file, csv);
-    try {
-      fs.writeFileSync(file, csv);
-    } catch {
-      lastWritten.delete(file);
-      vscode.window.showWarningMessage(`'${path.basename(file)}' is open in another program — close it and save the .aot again to re-mirror.`);
-    }
+    settleSoon(root, name, { trigger: "save" });
   }
 }
 
-// Fold a union CSV back into the Concept's scope: rows merge by Example
-// name wherever the Example lives — a table row updates within its own
-// columns, a line-form Example attribute by attribute, a fresh name lands
-// in the Concept's own shape (derive.updateScope). The edits apply
-// bottom-up so no earlier insert shifts the lines a later one measured.
-async function foldCsvIntoScope(doc, lines, rootName, name, grid) {
-  let parsed;
-  try { parsed = lint(doc.getText(), rootName); } catch { return false; }
-  const low = name.toLowerCase();
-  const concept = [parsed.root, ...parsed.nodes].find((n) =>
-    n && n.kind === KIND.CONCEPT && n.name.toLowerCase() === low);
-  if (!concept) return false;
-  const ops = derive.updateScope(lines, parsed.root, parsed.nodes, concept, grid[0], grid.slice(1), rootName);
-  if (!ops.length) return false;
-  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const edit = new vscode.WorkspaceEdit();
-  const lineOf = (op) => (op.type === "replace" ? op.line : op.type === "block" ? op.from + 1 : op.afterLine);
-  for (const op of [...ops].sort((a, b) => lineOf(b) - lineOf(a))) {
-    if (op.type === "block") {
-      const range = new vscode.Range(op.from, 0, op.to, doc.lineAt(op.to).text.length);
-      edit.replace(doc.uri, range, op.block.join(eol));
-    } else if (op.type === "replace") {
-      edit.replace(doc.uri, doc.lineAt(op.line - 1).range, op.text);
-    } else if (op.afterLine >= doc.lineCount) {
-      const last = doc.lineCount - 1;
-      edit.replace(doc.uri, doc.lineAt(last).range, doc.lineAt(last).text + eol + op.text);
-    } else {
-      edit.insert(doc.uri, new vscode.Position(op.afterLine, 0), op.text + eol);
-    }
+// One settle at a time per CSV: a save and the watcher hearing the write it
+// causes must never merge the same cells at once.
+const settling = new Map(); // csv path -> the settle in flight
+function settleSoon(root, name, opts) {
+  const k = fileKey(path.join(root, "aot.files", csvName(name)));
+  const next = (settling.get(k) || Promise.resolve()).then(() => settleCsv(root, name, opts)).catch(() => false);
+  settling.set(k, next);
+  next.then(() => { if (settling.get(k) === next) settling.delete(k); });
+  return next;
+}
+
+// The CSV as the repository's last commit holds it: the baseline a CSV has
+// before this machine ever synced it — a fresh clone, an upgrade. null
+// outside a repository, for a file never committed, and without git.
+let csvAtHead = (root, csvPath) => {
+  const top = repoRootOf(root);
+  if (!top) return null;
+  const rel = path.relative(top, csvPath).split(path.sep).join("/");
+  try { return gitRun(top, ["show", `HEAD:${rel}`]); } catch { return null; }
+};
+
+// Whether the CSV was saved after every .aot it mirrors: the side a conflict
+// goes to. A document with unsaved edits counts as now — they are the latest
+// word, whoever saves them.
+function csvIsNewer(csvPath, owners) {
+  let csvTime;
+  try { csvTime = fs.statSync(csvPath).mtimeMs; } catch { return false; }
+  for (const o of owners) {
+    if (o.doc && o.doc.isDirty) return false;
+    try { if (fs.statSync(o.file).mtimeMs >= csvTime) return false; } catch { /* gone */ }
   }
+  return true;
+}
+
+// One CSV settled both ways (csvsync.threeWay): what the CSV changed since
+// the two last agreed folds into the .aot files that list the rows, what
+// they changed is written back, a cell both changed apart goes to the later
+// save and is said, and a row the CSV dropped is asked about. `trigger` is
+// what asked — "save", "csv" (the watcher), "catchup" (the editor starting
+// up, or Sync CSVs Now) — which matters only when nothing is known to judge
+// by: then a save is the .aot's word, as a save always was, and anything
+// else the CSV's where it says something, as the CSV always was. Answers
+// whether a .aot changed.
+async function settleCsv(root, name, opts = {}) {
+  const csvPath = path.join(root, "aot.files", csvName(name));
+  const owners = ownersFrom(ownerIndex(root), name, { live: true });
+  if (!owners.length) return false;
+  const aot = csvsync.unionGrids(owners.map((o) => o.grid));
+  const raw = await readCsvSettled(csvPath);
+  if (raw === null) { writeMirror(root, name); return false; }
+  if (sameCsvText(raw, table.toCsv(aot))) { rememberBaseline(csvPath, raw); return false; }
+  // its edits are in a buffer already: written out once that is saved
+  if (takenIn.get(fileKey(csvPath)) === csvTextOf(raw)) { writeMirror(root, name); return false; }
+  const csv = table.fromCsv(raw);
+  if (!csv.length) return false;
+  const known = baselinesOf(csvPath);
+  let base = null;
+  if (known.length) {
+    const grids = known.map((b) => table.fromCsv(b.text));
+    base = grids[Math.max(0, csvsync.closestBaseline(grids, csv))];
+  } else {
+    const committed = csvAtHead(root, csvPath);
+    if (committed !== null && committed !== undefined) base = table.fromCsv(committed);
+  }
+  if (!base && opts.trigger === "save") { writeMirror(root, name); return false; }
+  const plan = csvsync.threeWay(base, csv, aot, { csvNewer: csvIsNewer(csvPath, owners) });
+  const changed = await applyFold(name, owners, plan);
+  if (plan.conflicts.length) reportConflicts(root, name, plan.conflicts, owners);
+  if (plan.deletions.length) askDeletions(root, name, plan.deletions);
+  // written back as the .aot files now have it — and when it cannot be yet
+  // (a buffer with unsaved edits, a locked file), the CSV is remembered as
+  // heard, so the next save writes it rather than asking again
+  if (!writeMirror(root, name)) takenIn.set(fileKey(csvPath), csvTextOf(raw));
+  return changed;
+}
+
+// A plan's folds and erasures, each row into the files that list it — a new
+// row into the first. One edit, one undo, per file; a file with no unsaved
+// edits is saved after, one with them is left for its writer to save, so a
+// fold never saves somebody's work in progress. Answers whether any changed.
+async function applyFold(name, owners, plan) {
+  if (!plan.fold && !plan.erase.length) return false;
+  const header = plan.fold ? plan.fold[0] : [name];
+  const rows = plan.fold ? plan.fold.slice(1) : [];
+  let changed = false;
+  for (let i = 0; i < owners.length; i++) {
+    const o = owners[i];
+    const mine = rows.filter((r) => listsRow(o, r[0]) || (i === 0 && !owners.some((x) => listsRow(x, r[0]))));
+    const erase = plan.erase.filter((e) => listsRow(o, e.row));
+    if (!mine.length && !erase.length) continue;
+    let doc;
+    try { doc = o.doc || await vscode.workspace.openTextDocument(o.file); } catch { continue; }
+    let parsed;
+    try { parsed = lint(doc.getText(), docRootName(doc)); } catch { continue; }
+    const low = String(name).toLowerCase();
+    const concept = [parsed.root, ...parsed.nodes].find((n) => n && n.kind === KIND.CONCEPT && n.name.toLowerCase() === low);
+    if (!concept) continue;
+    const ops = derive.updateScope(doc.getText().split(/\r?\n/), parsed.root, parsed.nodes, concept, header, mine, docRootName(doc), { erase });
+    if (await applyOpsToDoc(doc, ops, `folded '${csvName(name)}' into`)) changed = true;
+  }
+  return changed;
+}
+
+// Ops (derive's shape) onto a document as one edit; saved after unless it
+// held unsaved edits already. Answers whether anything was applied.
+async function applyOpsToDoc(doc, ops, what) {
+  if (!ops.length) return false;
+  const wasDirty = !!doc.isDirty;
   const beforeText = doc.getText();
+  const edit = new vscode.WorkspaceEdit();
+  edit.set(doc.uri, opsToTextEdits(doc, ops));
   await vscode.workspace.applyEdit(edit);
   markBroughtIn(doc, beforeText); // a CSV is written by whoever edited it
-  const saved = await doc.save(); // the save re-mirrors, converging both copies
-  if (!saved) vscode.window.showWarningMessage(`AOT: folded '${name}.csv' into ${path.basename(doc.fileName)}, but could not save it.`);
+  if (!wasDirty) {
+    const saved = await doc.save();
+    if (saved === false) vscode.window.showWarningMessage(`AOT: ${what} ${path.basename(doc.fileName)}, but could not save it.`);
+  }
   return true;
+}
+
+// One notice for every cell both sides changed apart since they last agreed:
+// which value stayed, and the one button that takes the other side's
+// instead — one edit, one undo.
+function reportConflicts(root, name, conflicts, owners) {
+  const csvFile = csvName(name);
+  const aotFile = owners.length === 1 ? path.basename(owners[0].file) : `the ${owners.length} .aot files`;
+  const shown = (v) => (v === "" ? "nothing" : v);
+  const said = (c) => (c.col === null
+    ? (c.winner === "aot" ? `kept '${c.row}' (${csvFile} removed it, ${aotFile} had changed it)`
+      : `brought '${c.row}' back (${aotFile} removed it, ${csvFile} changed it after)`)
+    : c.winner === "aot" ? `${c.row} · ${c.col}: kept ${shown(c.aot)} from ${aotFile} (${csvFile} said ${shown(c.csv)})`
+      : `${c.row} · ${c.col}: took ${shown(c.csv)} from ${csvFile} (${aotFile} said ${shown(c.aot)})`);
+  const list = conflicts.slice(0, 3).map(said).join("; ") + (conflicts.length > 3 ? `; and ${conflicts.length - 3} more` : "");
+  const cells = conflicts.filter((c) => c.col !== null);
+  const aotWon = cells.filter((c) => c.winner === "aot"), csvWon = cells.filter((c) => c.winner === "csv");
+  const useCsv = `Use ${csvFile}'s Values`, useAot = `Use ${owners.length === 1 ? path.basename(owners[0].file) : "the .aot"}'s Values`;
+  const buttons = [...(aotWon.length ? [useCsv] : []), ...(csvWon.length ? [useAot] : [])];
+  return Promise.resolve(vscode.window.showWarningMessage(
+    `AOT: ${csvFile} and ${aotFile} both changed ${conflicts.length === 1 ? "one thing" : `${conflicts.length} things`} since they last agreed, and the later save won — ${list}.`,
+    ...buttons)).then((answer) => {
+    if (answer === useCsv) return takeValues(root, name, aotWon.map((c) => ({ row: c.row, col: c.col, value: c.csv })));
+    if (answer === useAot) return takeValues(root, name, csvWon.map((c) => ({ row: c.row, col: c.col, value: c.aot })));
+    return undefined;
+  });
+}
+
+// Write `values` ([{ row, col, value }]) into the .aot files and the CSV
+// after them: a conflict's other side, taken.
+async function takeValues(root, name, values) {
+  const owners = ownersFrom(ownerIndex(root), name, { live: true });
+  const plan = csvsync.foldOf(csvsync.unionGrids(owners.map((o) => o.grid)), values);
+  const changed = await applyFold(name, owners, plan);
+  writeMirror(root, name);
+  return changed;
+}
+
+// The rows a CSV dropped that the .aot never changed since the two agreed:
+// never deleted in silence. Delete takes them out of the files that list
+// them, a row's sub-rows too when the CSV dropped those as well; Keep leaves
+// them, and the CSV has them back.
+function askDeletions(root, name, names) {
+  const csvFile = csvName(name);
+  const owners = ownersFrom(ownerIndex(root), name);
+  const files = [...new Set(owners.filter((o) => names.some((n) => listsRow(o, n))).map((o) => path.basename(o.file)))];
+  if (!files.length) return Promise.resolve();
+  const list = names.slice(0, 5).map((n) => `'${n}'`).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
+  const del = `Delete from ${files.join(", ")}`;
+  return Promise.resolve(vscode.window.showWarningMessage(
+    `AOT: ${csvFile} no longer lists ${list} — delete ${names.length === 1 ? "it" : "them"} from ${files.join(", ")} too?`,
+    del, "Keep")).then((answer) => (answer === del ? deleteRows(root, name, names) : undefined));
+}
+
+async function deleteRows(root, name, names) {
+  const kept = [];
+  for (const o of ownersFrom(ownerIndex(root), name, { live: true })) {
+    if (!names.some((n) => listsRow(o, n))) continue;
+    let doc;
+    try { doc = o.doc || await vscode.workspace.openTextDocument(o.file); } catch { continue; }
+    let parsed;
+    try { parsed = lint(doc.getText(), docRootName(doc)); } catch { continue; }
+    const low = String(name).toLowerCase();
+    const concept = [parsed.root, ...parsed.nodes].find((n) => n && n.kind === KIND.CONCEPT && n.name.toLowerCase() === low);
+    if (!concept) continue;
+    const { ops, kept: stay } = derive.deleteExamples(doc.getText().split(/\r?\n/), parsed.root, parsed.nodes, concept, names);
+    kept.push(...stay);
+    await applyOpsToDoc(doc, ops, `deleted rows of '${csvName(name)}' from`);
+  }
+  if (kept.length) {
+    vscode.window.showInformationMessage(`AOT: kept ${kept.map((n) => `'${n}'`).join(", ")} — ${kept.length === 1 ? "a row under it is" : "rows under them are"} still in ${csvName(name)}.`);
+  }
+  writeMirror(root, name);
 }
 
 // Excel does not write a CSV in place: it writes a temp file and renames it
@@ -4713,34 +5399,16 @@ async function readCsvSettled(csvPath) {
   }
 }
 
-// `index` is an ownerIndex already built for the repo — the whole-folder
-// import passes one so a hundred CSVs cost a single scan; a lone watcher
-// event omits it and gets a fresh lookup. Answers whether the .aot changed.
-async function syncCsvIntoAot(uri, index) {
-  if (!syncEnabled()) return false;
+// A CSV in an 'aot.files' changed on disk: settled against the .aot files
+// that own its Concept. Our own write echoing back says what the two agree
+// on already, and settles nothing. Answers whether a .aot changed.
+async function syncCsvIntoAot(uri) {
+  if (!syncEnabled() || syncManual()) return false;
   const csvPath = uri.fsPath;
   const dir = path.dirname(csvPath);
   if (path.basename(dir) !== "aot.files") return false;
   if (path.basename(csvPath).startsWith("_")) return false; // an archived orphan, not synced
-  const csv = await readCsvSettled(csvPath);
-  if (csv === null) return false;
-  // our own write echoing back is not an edit — and a CSV we never wrote
-  // cannot be one either, so only a remembered write is compared
-  const written = lastWritten.get(csvPath);
-  if (written !== undefined && sameCsvText(written, csv)) return false;
-  const name = path.basename(csvPath).replace(/\.csv$/i, "");
-  const owners = findOwningAots(path.dirname(dir), name, index);
-  if (!owners.length) return false;
-  if (owners.length > 1) {
-    vscode.window.showWarningMessage(`'${name}.csv' matches a Concept in ${owners.length} files; folding into '${path.basename(owners[0])}'.`);
-  }
-  const aotPath = owners[0];
-  const grid = table.fromCsv(csv);
-  if (!grid.length) return false;
-  const doc = await vscode.workspace.openTextDocument(aotPath);
-  const rootName = path.basename(aotPath).replace(/\.[^.]*$/, "");
-  const lines = doc.getText().split(/\r?\n/);
-  return foldCsvIntoScope(doc, lines, rootName, name, grid);
+  return settleSoon(path.dirname(dir), path.basename(csvPath).replace(/\.csv$/i, ""), { trigger: "csv" });
 }
 
 // One save from Excel is several events — the temp file's rename shows up
@@ -4766,43 +5434,42 @@ function onCsvFsEvent(uri) {
   return entry.promise;
 }
 
-// Fold every hand-edited CSV in a repo's aot.files back into the .aot that
-// owns it. The watcher only hears an edit made while the editor is running,
-// so a CSV changed in Excel with the window closed would otherwise be
-// overwritten, unread, by the next save of its .aot. Catching the folder up
-// once on activation closes that window: the CSV is the later word, and the
-// same rails hold as ever — a blank cell says nothing rather than erasing,
-// and a value carrying a formula is left to its formula.
+// Settle every CSV in a repository's aot.files with the .aot files that own
+// it. The watcher only hears an edit made while the editor is running, so a
+// CSV changed in Excel with the window closed — or a .aot changed by a pull —
+// would otherwise wait for the next save to be found. Catching the folder up
+// once on activation closes that window, and an unchanged folder costs
+// nothing. AOT: Sync CSVs Now (`manual`) does the same by hand, and writes
+// the CSV of every Concept that has none yet besides — the only sync there
+// is in manual mode. Answers how many CSVs changed a .aot.
 async function importCsvFolder(root, opts) {
-  if (!syncEnabled()) return 0;
+  const manual = !!(opts && opts.manual);
+  if (!syncEnabled() || (syncManual() && !manual)) return 0;
   const dir = path.join(root, "aot.files");
-  let entries;
-  try { entries = fs.readdirSync(dir); } catch { return 0; } // no folder, nothing to catch up
   const index = ownerIndex(root);
-  let folded = 0;
+  const names = new Map(); // lowercased -> the name a CSV is written under
+  let entries = [];
+  try { entries = fs.readdirSync(dir); } catch { /* no folder yet */ }
   for (const entry of entries) {
     if (!/\.csv$/i.test(entry) || entry.startsWith("_")) continue;
-    const csvPath = path.join(dir, entry);
-    const owners = index.get(entry.replace(/\.csv$/i, "").toLowerCase());
-    if (!owners || !owners.length) continue; // an orphan; the next save archives it
-    let csv; try { csv = fs.readFileSync(csvPath, "utf8"); } catch { continue; }
-    // a CSV saying exactly what its .aot would write has not drifted, so
-    // an ordinary launch does no work at all — and remembering the text
-    // arms the echo guard for the very files edited by hand
-    const mirrored = table.toCsv(owners[0].grid);
-    if (sameCsvText(csv, mirrored)) { lastWritten.set(csvPath, mirrored); continue; }
-    // one at a time, never in parallel: two CSVs can fold into one .aot,
-    // and each fold opens, edits and saves that document
-    if (await syncCsvIntoAot(vscode.Uri.file(csvPath), index)) folded++;
+    const name = entry.replace(/\.csv$/i, "");
+    if (index.has(name.toLowerCase())) names.set(name.toLowerCase(), name); // an orphan waits for a save to archive it
   }
+  if (manual) {
+    for (const [low, owners] of index) if (!names.has(low)) names.set(low, String(owners[0].grid[0][0]));
+  }
+  let folded = 0;
+  // one at a time, never in parallel: two CSVs can fold into one .aot, and
+  // each fold edits and saves that document
+  for (const name of names.values()) if (await settleSoon(root, name, { trigger: "catchup" })) folded++;
   if (folded && !(opts && opts.silent)) {
-    vscode.window.setStatusBarMessage(`AOT: folded ${folded} edited CSV file${folded === 1 ? "" : "s"}`, 4000);
+    vscode.window.setStatusBarMessage(`AOT: ${folded} CSV file${folded === 1 ? "" : "s"} folded into the .aot`, 4000);
   }
   return folded;
 }
 
 // Every repository root the CSV watchers cover, so the catch-up reaches
-// exactly the folders the live fold does — the workspace folders, and the
+// exactly the folders the live sync does — the workspace folders, and the
 // repo root above a folder opened by one of its subfolders.
 async function importAllCsvFolders(opts) {
   const roots = new Map();
@@ -4811,10 +5478,10 @@ async function importAllCsvFolders(opts) {
     roots.set(fileKey(root), root);
   }
   let folded = 0;
-  for (const root of roots.values()) folded += await importCsvFolder(root, { silent: true });
+  for (const root of roots.values()) folded += await importCsvFolder(root, { ...opts, silent: true });
   if (!(opts && opts.silent)) {
     vscode.window.setStatusBarMessage(
-      folded ? `AOT: folded ${folded} edited CSV file${folded === 1 ? "" : "s"}` : "AOT: every CSV already matches its .aot", 4000);
+      folded ? `AOT: ${folded} CSV file${folded === 1 ? "" : "s"} folded into the .aot` : "AOT: every CSV is in step with its .aot", 4000);
   }
   return folded;
 }
@@ -4838,7 +5505,27 @@ const semanticProvider = {
   provideDocumentSemanticTokens(doc) {
     const { root, nodes } = parsedDoc(doc);
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
+    const docLines = doc.getText().split(/\r?\n/);
+    // a value as it stands on its line — escapes and all — which is what the
+    // token must cover, though the model reads it shorter
+    const writtenLength = (node) => {
+      const raw = docLines[node.line - 1] || "";
+      const cell = table.cells(raw).find((c) => c.col === node.valueCol);
+      // a data cell holds its value whole; a header default's value starts
+      // after its colon and runs to the cell's divider
+      const text = cell ? cell.text : raw.slice(node.valueCol).split("|")[0].trim();
+      return table.splitCell(text).value.length || node.value.length;
+    };
     for (const node of nodes) {
+      // a table's parent column is headed as an attribute is, and each cell
+      // under it names a row — an Example, coloured as one
+      for (const col of node.parentColumns || []) {
+        builder.push(col.line - 1, col.nameCol, table.PARENT_TERM.length, ATTR_TOKEN);
+        if (col.alias && col.aliasCol !== undefined) builder.push(col.line - 1, col.aliasCol, col.alias.length, ATTR_TOKEN);
+      }
+      if (node.kind === KIND.INDIVIDUAL && node.parentCell) {
+        builder.push(node.line - 1, node.parentCell.col, node.parentCell.text.length, EXAMPLE_TOKEN);
+      }
       if (node.kind === KIND.ATTRIBUTE && node.cell) {
         builder.push(node.line - 1, node.nameCol, node.name.length, ATTR_TOKEN);
         if (node.alias && node.aliasCol !== undefined) {
@@ -4847,7 +5534,14 @@ const semanticProvider = {
       } else if (node.kind === KIND.INDIVIDUAL && node.nameCol !== undefined && node.name) {
         builder.push(node.line - 1, node.nameCol, node.name.length, EXAMPLE_TOKEN);
       } else if (node.kind === KIND.DEFAULT && node.cell && node.value) {
-        builder.push(node.line - 1, node.valueCol, node.value.length, VALUE_TOKEN);
+        builder.push(node.line - 1, node.valueCol, writtenLength(node), VALUE_TOKEN);
+      } else if (node.kind === KIND.DEFAULT && node.header) {
+        // a header cell stating its column's default: the attribute, then its value
+        builder.push(node.line - 1, node.nameCol, node.name.length, ATTR_TOKEN);
+        if (node.alias && node.aliasCol !== undefined) {
+          builder.push(node.line - 1, node.aliasCol, node.alias.length, ATTR_TOKEN);
+        }
+        if (node.value) builder.push(node.line - 1, node.valueCol, writtenLength(node), VALUE_TOKEN);
       }
     }
     // everything from an operator to its end is Python — a derivation on a
@@ -4855,7 +5549,6 @@ const semanticProvider = {
     // colour, so code reads apart from the data at a glance. A Concept's own
     // derivation is painted here too: the grammar cannot tell it from the
     // Concept's name.
-    const docLines = doc.getText().split(/\r?\n/);
     for (const f of codeSpans(docLines, root, nodes, docRootName(doc))) {
       builder.push(f.line - 1, f.startCol, f.endCol - f.startCol, PYTHON_TOKEN);
     }
@@ -4877,7 +5570,12 @@ function runTableOp(editor, op) {
   const block = table.blockAt(lines, pos.line);
   if (!block) return;
   const cursorRow = pos.line - block.start;
-  const col = table.colAt(lines[pos.line], pos.character);
+  // A table a 1.12 file nested by indent is rewritten with its parent
+  // column before any key acts on it — the first key pressed in it is its
+  // migration — and a column index past the one added moves with it.
+  const added = table.flatten(block);
+  const shifted = (c) => (added !== -1 && c >= added ? c + 1 : c);
+  const col = shifted(table.colAt(lines[pos.line], pos.character));
   // A selection travels as cells — its two ends' rows (clamped into the
   // block) and columns — for the operations that act on a range, the fills;
   // every other operation takes the cursor's cell and ignores it.
@@ -4885,7 +5583,7 @@ function runTableOp(editor, op) {
   const span = sel.isEmpty ? undefined : {
     anchor: {
       row: Math.max(0, Math.min(sel.anchor.line - block.start, block.rows.length - 1)),
-      col: table.colAt(lines[sel.anchor.line] || "", sel.anchor.character),
+      col: shifted(table.colAt(lines[sel.anchor.line] || "", sel.anchor.character)),
     },
     active: { row: cursorRow, col },
   };
@@ -5318,9 +6016,20 @@ const symbolProvider = {
     catch { return []; }
     const { root, nodes } = analysis;
     if (!root) return [];
+    // A table never nests its rows by place (1.13): a row may stand anywhere
+    // in its grid, above the row it sits under or below it, so a row's
+    // symbol could not contain its sub-rows' — and a symbol's range must
+    // contain its children's. A grid's rows are listed flat under its
+    // header, in the order they are written, as the table reads; the tree
+    // is the parent column's to show. Everything else nests as written.
+    const isRow = (n) => n.kind === KIND.INDIVIDUAL && n.nameCol !== undefined;
+    const subRows = (n) => n.children.filter(isRow).flatMap((c) => [c, ...subRows(c)]);
     const lastLine = (node) => {
       let last = node.line || 0;
-      for (const c of node.children) last = Math.max(last, lastLine(c));
+      for (const c of node.children) {
+        if (isRow(node) && isRow(c)) continue; // a sub-row is listed beside it
+        last = Math.max(last, lastLine(c), ...(isRow(c) && !isRow(node) ? subRows(c).map(lastLine) : []));
+      }
       return last;
     };
     const clamp = (line) => Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
@@ -5366,7 +6075,15 @@ const symbolProvider = {
       const out = [];
       let open = null; // the header symbol currently collecting a grid's rows
       const own = node.line ? node.line - 1 : -1;
+      // a row's sub-rows stand beside it, under the table, in written order
+      const kids = [];
       for (const child of node.children) {
+        if (isRow(node) && isRow(child)) continue;
+        kids.push(child);
+        if (isRow(child) && !isRow(node)) kids.push(...subRows(child));
+      }
+      if (kids.some(isRow)) kids.sort((a, b) => (a.line || 0) - (b.line || 0));
+      for (const child of kids) {
         const built = build(child);
         for (const symbol of built ? [built] : childrenOf(child)) {
           const at = symbol.range.start.line;
@@ -5521,6 +6238,10 @@ async function maybeScaffold(event) {
 }
 
 function activate(context) {
+  // what each CSV and its .aot last agreed on, kept per machine in the
+  // extension's own storage — the workspace's, else the global one
+  const store = context.storageUri || context.globalStorageUri;
+  if (store && store.fsPath) baselineStore = diskBaselines(path.join(store.fsPath, "csv-sync"));
   const diagnostics = vscode.languages.createDiagnosticCollection("aot");
   // A crosslink is a *state* (navigable) layered on a token that already has
   // its own *type* colour from the grammar. So we add only an underline and
@@ -5588,32 +6309,56 @@ function activate(context) {
     }
   };
 
-  // the lone-sub warnings' short grace (see hold.js and refresh)
-  const releaseHold = (doc) => {
+  // an edit burst's findings (see hold.js and refresh): released when the
+  // cursor leaves what is being edited, on save, and when another editor
+  // takes over — what waited publishes then
+  releaseHold = (doc) => {
     const state = holdState.get(doc.uri.toString());
     if (!state) return;
-    clearTimeout(state.timer);
     holdState.delete(doc.uri.toString());
-    refresh(diagnostics, decorationTypes, doc); // the held warnings publish
+    refresh(diagnostics, decorationTypes, doc);
+    updateHoldStatus();
   };
   const trackEdits = (event) => {
     const doc = event.document;
     if (doc.languageId !== "aot" || !event.contentChanges.length) return;
+    // a burst is the writer's, in the editor being written in: an edit made
+    // to a document no one is typing in (a CSV folded in, a peer reconciled)
+    // has no cursor to leave its family, and holds nothing
+    const active = vscode.window.activeTextEditor;
+    if (!active || active.document !== doc) return;
     const key = doc.uri.toString();
     let state = holdState.get(key);
     if (!state) {
-      // the burst begins: snapshot what was already published, so a
-      // lone-child warning already on screen keeps showing (no flicker)
+      // the burst begins: what is on screen now keeps showing
       state = {
-        baseline: new Set((diagnostics.get(doc.uri) || []).map((d) => d.message)),
-        timer: null,
+        baseline: new Set((diagnostics.get(doc.uri) || []).map(hold.keyOf)),
+        edited: new Set(), lastLine: 0, family: null, held: [],
       };
       holdState.set(key, state);
     }
-    clearTimeout(state.timer);
-    // a breath past the last keystroke: the sibling either exists by now
-    // (no warning) or the writer has genuinely paused
-    state.timer = setTimeout(() => releaseHold(doc), LONE_GRACE_MS);
+    // bottom up, so each change's lines are still the ones it names
+    const changes = [...event.contentChanges].sort((a, b) => b.range.start.line - a.range.start.line);
+    for (const c of changes) {
+      const start = c.range.start.line, end = c.range.end.line;
+      const written = String(c.text).split(/\r\n|\r|\n/);
+      const added = written.length;
+      // Enter at the end of a line (auto-indent and all) writes the lines
+      // after it, and leaves that line — a parent's, typically — as it was:
+      // the text's last line then stands alone on its line, nothing after it
+      const atEnd = start === end && c.range.start.character === c.range.end.character && added > 1
+        && written[0].trim() === "" && start + added - 1 < doc.lineCount
+        && doc.lineAt(start + added - 1).text === written[added - 1];
+      state.edited = hold.shiftLines(state.edited, { start, end, added, from: atEnd ? start + 1 : start });
+      // the family's lines move with the text, as the edited ones do
+      const delta = added - (end - start + 1);
+      if (state.family && start + 1 <= state.family.to) {
+        state.family.to += delta;
+        if (start + 1 < state.family.from) state.family.from += delta;
+      }
+    }
+    const first = event.contentChanges[0];
+    state.lastLine = first.range.start.line + String(first.text).split(/\r\n|\r|\n/).length - 1;
   };
 
   relintAll = () => vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
@@ -5621,16 +6366,18 @@ function activate(context) {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((doc) => refresh(diagnostics, decorationTypes, doc)),
     vscode.workspace.onDidChangeTextDocument((event) => {
+      trackTypedRename(event); // a declared name typed over is a rename in progress
       maybeScaffold(event); // a first '|' on an empty line grows a skeleton
-      trackEdits(event); // arms the lone-sub warnings' grace timer
+      trackEdits(event); // a burst's new findings elsewhere wait (hold.js)
       refreshSoon(event.document);
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => {
       clearTimeout(timers.get(doc.uri.toString()));
       timers.delete(doc.uri.toString());
-      const held = holdState.get(doc.uri.toString());
-      if (held) clearTimeout(held.timer);
       holdState.delete(doc.uri.toString());
+      textBefore.delete(doc.uri.toString());
+      typedRenames.delete(doc.uri.toString());
+      renameOffers.delete(doc.uri.toString());
       diagnostics.delete(doc.uri);
       analysisByDoc.delete(doc.uri.toString());
       parsedByDoc.delete(doc.uri.toString());
@@ -5681,16 +6428,19 @@ function activate(context) {
           links.push(link);
         }
         // every `file.aot:12` in a maintained `...` line opens that file at
-        // that Concept, so a split extension is one click from the rest of it
+        // that Concept, so a split extension is one click from the rest of
+        // it — at the line the Concept stands on now, which a peer edited
+        // since the note was written may have moved
         const analysis = analysisByDoc.get(doc.uri.toString());
         if (analysis) {
           for (const s of repo.noteSpans(doc.getText().split(/\r?\n/), analysis.root, analysis.nodes)) {
             const target = peerPathFor(doc, s.file);
             if (!target) continue;
+            const line = conceptLineIn(target, s.concept) || s.target;
             const link = new vscode.DocumentLink(
               new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
-              vscode.Uri.file(target).with({ fragment: `L${s.target}` }));
-            link.tooltip = `${s.file} line ${s.target}`;
+              vscode.Uri.file(target).with({ fragment: `L${line}` }));
+            link.tooltip = `${s.file} line ${line}`;
             links.push(link);
           }
         }
@@ -5715,7 +6465,9 @@ function activate(context) {
     vscode.commands.registerCommand("aot.reconcileAcrossFiles", reconcileAcrossFiles),
     // a root may be named (the tests do, and a script may): without one the
     // command catches up every repository the watchers cover
-    vscode.commands.registerCommand("aot.importCsvFiles", (root) => (root ? importCsvFolder(root, {}) : importAllCsvFolders())),
+    // AOT: Sync CSVs Now — both directions, by hand; in manual mode the only sync
+    vscode.commands.registerCommand("aot.importCsvFiles", (root) => (root ? importCsvFolder(root, { manual: true }) : importAllCsvFolders({ manual: true }))),
+    vscode.commands.registerCommand("aot.upgradeSyntax", () => upgradeWorkspaceSyntax()),
     vscode.commands.registerCommand("aot.setValueEverywhere", setValueEverywhere),
     // the Quick Fix that brings a cited file into the repo's own file store
     vscode.commands.registerCommand("aot.copyFileIntoRepo", copyFileIntoRepo),
@@ -5758,30 +6510,24 @@ function activate(context) {
     ...Object.entries(tableOps).map(([id, op]) =>
       vscode.commands.registerTextEditorCommand(id, (editor) => {
         // Tab travels the cells from wherever in a row it is pressed, the
-        // leading spaces included. It used to re-indent instead when the
-        // cursor stood at the head of a name cell (nesting that row under
-        // the row above) or in a table's own indent (moving the whole
-        // table): so the one key a table is driven with sometimes moved the
-        // data rather than the cursor, and did nothing at all where the
-        // move was impossible — a first row has no sibling to nest under —
-        // which is a dead key in the middle of a table.
+        // leading spaces included, and in a table it never indents — not
+        // even with lines selected. A table nests through its `parent
+        // (thing)` column (Nest Row Under the Row Above writes it), so there
+        // is no indent there for a key to mean; a whole table is re-filed
+        // under another parent with VS Code's own Ctrl+] / Ctrl+[.
         //
-        // Lines SELECTED are the indent edit, here as everywhere else in
-        // the editor. A row's depth IS its leading spaces, so that is still
-        // how a row nests under the row above it and how a whole table is
-        // re-filed under another parent; the Command Palette carries both
-        // row moves by name as well, sub-Examples travelling along.
+        // In line form, lines SELECTED are still the indent edit, as
+        // everywhere else in the editor: there the indent IS the nesting.
         const dir = id === "aot.table.nextCell" ? 1 : id === "aot.table.prevCell" ? -1 : 0;
-        if (dir && !editor.selection.isSingleLine) {
+        const line = editor.selection.active.line;
+        const onRow = line < editor.document.lineCount && table.isRowText(editor.document.lineAt(line).text);
+        if (dir && !onRow && !editor.selection.isSingleLine) {
           return vscode.commands.executeCommand(
             dir > 0 ? "editor.action.indentLines" : "editor.action.outdentLines");
         }
         // a table row takes the table's operation; anywhere else the same key
         // works on the Concept's Examples written as lines
-        const line = editor.selection.active.line;
-        if (line < editor.document.lineCount && table.isRowText(editor.document.lineAt(line).text)) {
-          return runTableOp(editor, op);
-        }
+        if (onRow) return runTableOp(editor, op);
         return runLineOp(editor, id);
       })),
     // the spreadsheet's movement keys, which move the cursor and edit nothing;
@@ -5814,10 +6560,39 @@ function activate(context) {
       updateCellStatus();
       const doc = event && event.textEditor && event.textEditor.document;
       if (!doc || doc.languageId !== "aot") return;
+      // leaving what is being edited ends the burst: what waited shows
+      const state = holdState.get(doc.uri.toString());
+      if (state && state.family) {
+        const line = event.textEditor.selection.active.line + 1;
+        if (line < state.family.from || line > state.family.to) releaseHold(doc);
+      }
+      // leaving a name being typed over: the rename is done
+      const typing = typedRenames.get(doc.uri.toString());
+      if (typing) {
+        const at = event.textEditor.selection.active;
+        if (at.line !== typing.line || at.character < typing.start || at.character > typing.start + typing.length) closeTypedRename(doc);
+      }
       // standing in a used name shows the F2 nudge; leaving it clears it
       renameHint(event.textEditor);
     }),
-    vscode.window.onDidChangeActiveTextEditor(updateTableContext),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      updateTableContext();
+      // another editor taking over ends every other document's burst, and
+      // any name being typed over there
+      for (const d of vscode.workspace.textDocuments || []) {
+        if (editor && editor.document === d) continue;
+        if (holdState.has(d.uri.toString())) releaseHold(d);
+        if (typedRenames.has(d.uri.toString())) closeTypedRename(d);
+      }
+      updateHoldStatus();
+    }),
+    // the status item's click: what waits, shown now
+    vscode.commands.registerCommand("aot.showHeldFindings", () => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) releaseHold(editor.document);
+    }),
+    // a name typed over: its uses updated, from the notice or the lightbulb
+    vscode.commands.registerCommand("aot.applyTypedRename", (key, line) => applyTypedRename(key, line)),
     // saving persists true numbering and agreement with the rest of the
     // repo: the renumber and reconcile edits ride the save itself, so the
     // file on disk carries sequential `N. ` Examples and whatever a shared
@@ -5828,6 +6603,10 @@ function activate(context) {
       // be allowed if that was
       if (/\.py$/i.test(doc.fileName || "")) pyWillSave(doc);
       if (doc.languageId !== "aot") return;
+      // a name being typed over is done once the file is saved; the save's
+      // own edits (a renumber, a reconcile) are no typing
+      closeTypedRename(doc);
+      savingDocs.add(doc.uri.toString());
       // the Python written here since the last save is the writer's own —
       // taken now, before this save's own edits (a reconcile) land
       aotWillSave(doc);
@@ -5861,6 +6640,7 @@ function activate(context) {
         return;
       }
       releaseHold(doc);
+      savingDocs.delete(doc.uri.toString());
       if (doc.languageId === "aot" && doc.fileName) {
         reindexAot(doc.fileName, doc.getText());
         refreshPeers(doc.fileName);
@@ -5942,6 +6722,10 @@ function activate(context) {
   // folder up once, in the background: an unchanged folder does nothing.
   importAllCsvFolders({ silent: true });
 
+  // files written for 1.12 spell a literal '=' and a definition the old way:
+  // asked about once per workspace, never in the way of anything else
+  offerSyntaxUpgrade().catch(() => { /* the command is still there */ });
+
   // a merge driver set up by an older copy of this extension, pointed here
   try { repairGitMerge(); } catch { /* left as it was */ }
 
@@ -5963,6 +6747,10 @@ function activate(context) {
   // the cell address, for when the header row and the name column have both
   // scrolled out of sight
   if (vscode.window.createStatusBarItem) {
+    // what waits while you write, and the click that shows it now
+    holdStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+    holdStatus.command = "aot.showHeldFindings";
+    context.subscriptions.push(holdStatus);
     cellStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     context.subscriptions.push(cellStatus);
   }
@@ -6004,7 +6792,11 @@ const _test = {
   combinedRunNote,
   leftAloneMessage,
   // git, for the merge-driver setup: the tests record the calls instead
-  setGit: (fn) => { gitRun = fn || ((root, args) => childProcess.execFileSync(python.resolveExecutable("git") || "git", args, { cwd: root, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })); },
+  setGit: (fn) => { gitRun = fn || defaultGitRun; },
+  // what a CSV and its .aot last agreed on, newest first
+  csvBaselines: (csvPath) => baselinesOf(csvPath).map((b) => b.text),
+  // the status item that counts what waits while you write
+  holdStatus: () => holdStatus,
   repairGitMerge,
 };
 

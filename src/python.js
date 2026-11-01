@@ -449,7 +449,7 @@ function lineResolver(host, registry, index) {
     ? { kind: KIND.DEFAULT, name: "", parent: host.kind === "concept" ? host.node.parent : host.gen.parent, children: [] }
     : host.node;
   const ctx = derive.makeCtx(anchor, (n) => n.value || "", registry);
-  const owner = anchor.parent && anchor.parent.kind === KIND.INDIVIDUAL ? anchor.parent.parent : null;
+  const owner = anchor.parent && anchor.parent.kind === KIND.INDIVIDUAL ? derive.kindAbove(anchor.parent) : null;
   // the attribute node a local name reads — the host's own owner first, then
   // the Concept whose default an Example inherits
   const nodeFor = (id) => {
@@ -971,20 +971,24 @@ const formatNumber = (n, old) => table.formatValue(n, old || "");
 // A value holding ` =os.system(…)` would read as a derivation on the next
 // run, and a column named `n >=evil()` as a constraint's bound, each written
 // by this editor's own run and so never asked about. So a written value's
-// `=` that would open a derivation is escaped, `\=` (the language's own
-// escape, which a reader never sees), and a name that would read as a bound
-// or a derivation has its operators swapped for their full-width forms.
+// `=` that would open a derivation is escaped by doubling it, `==` (the
+// language's own escape, table.writtenValue, which a reader never sees), and
+// a name that would read as a bound or a derivation has its operators
+// swapped for their full-width forms.
 //
 // A credential. What is written into the file is committed and pushed, and
 // mirrored into aot.files; a private key or an access token read into a
 // derivation — by accident or by design — would go with it. A result that
 // looks like one is refused, and says why.
 
-const inertValue = (s) => String(s).replace(/(^|\s)=(?!=)/g, "$1\\=");
+const inertValue = (s) => table.writtenValue(s);
 function inertName(s) {
   const t = String(s);
   const code = table.splitConstraint(t).eq !== -1 || table.splitCell(t).eq !== -1;
-  return code ? t.replace(/[<>=]/g, (c) => ({ "<": "＜", ">": "＞", "=": "＝" })[c]) : t;
+  const plain = code ? t.replace(/[<>=]/g, (c) => ({ "<": "＜", ">": "＞", "=": "＝" })[c]) : t;
+  // a colon would state a default in a header cell, and before a row's
+  // first pipe make the line a value: a name keeps it full-width instead
+  return plain.replace(/:/g, "：");
 }
 
 const SECRETS = [

@@ -300,6 +300,20 @@ a	parcels	1973
 a	part	1979
 a	stop	1987
 a	van	1993
+a	3	1997
+a	human	1999
+a	logo	2003
+a	missing	2011
+a	parent	2017
+a	size =4	2027
+a	size =math.prod	2029
+a	vat =@price*0.2	2039
+a	10	2053
+a	count	2063
+a	hue	2069
+a	philosopher	2081
+a	tax: =@price*2	2083
+a	warmth	2087
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -333,6 +347,9 @@ v	amount	4	18,060
 v	amount	5	20,700
 v	amount	6	300
 v	amount	7	45
+v	amount	8	12
+v	amount	9	4
+v	amount	10	900
 v	area	2	constraints
 v	area	3	editor
 v	area	4	every derivation is Python
@@ -351,6 +368,14 @@ v	area	16	tables
 v	area	17	what comes back
 v	area	18	where it stands
 v	area	19	wsl
+v	area	20	csv
+v	area	21	defaults
+v	area	22	flip
+v	area	23	hold
+v	area	24	links
+v	area	25	notes
+v	area	26	rename
+v	area	27	syntax
 v	attribute	2	"version"
 v	attribute	3	value
 v	attribute one	2	0
@@ -425,6 +450,9 @@ v	because	48	there is one language behind the equals sign, and it runs only when
 v	because	49	two rows would share the name a, so the numbers stay and so does the column
 v	because	50	unescaped, a space then an equals sign starts a derivation
 v	because	51	what a string holds is characters, never code
+v	because	52	a space then one equals sign starts a derivation, so a literal one is doubled; a run of them reads one shorter (a === b reads a == b)
+v	because	53	an == whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
+v	because	54	on an attribute '=' says what every value of it is (1.12 wrote '=='); the case is escaped here, its equals sign doubled, so this file still verifies
 v	begin	2	(
 v	begin	3	...
 v	beneficiary	2	Aristotle
@@ -514,9 +542,15 @@ v	case	77	the end of any Python derivation's line
 v	case	78	the first run, and the first after the sidecar changes anywhere but in this editor
 v	case	79	time.sleep(60) after an equals sign
 v	case	80	typing, Tab, Format Document, a save, a CSV arriving
+v	case	81	... ==load()
+v	case	82	Run Command: code ==x
+v	case	83	Sales ==
+v	case	84	a == b
+v	case	85	rows ==f()
 v	change log entry	2	1.3.0
 v	characters	2	lowercase
 v	chart	2	aot.files/primitive graph.chart.Example.png
+v	chart	3	./chart.png
 v	city	2	Athens
 v	city	3	Old
 v	city	4	Durban
@@ -536,6 +570,7 @@ v	course	3	last
 v	course	4	main
 v	currency	2	EUR
 v	currency	3	ZAR
+v	currency	4	USD
 v	date precision	2	no date
 v	days	2	92
 v	days	3	93
@@ -696,6 +731,27 @@ v	expected	132	youngest reads 10, the age of Child One read through the Family C
 v	expected	133	a Courier Run table appears directly under it at the top level with rows 1 and 2; the Depot table above the line is filled where it stands with Durban; the inlay says 2 Concepts
 v	expected	134	both bare lines leave the file whole and the tables they wrote stay; aot.files gets release 1.12.formulas; the second press puts each bare line back above the table that stood beneath it
 v	expected	135	a Spare Part table appears under it; Fleet keeps its own derivation's row; the line's inlay is a tick ending 'Fleet' left to its own derivation, and a yellow warning on the line says Fleet is returned from two places — nothing red, and the line is not run again with the failures
+v	expected	136	a definition, not an error: once run, every value of rows is what f() returns; one whose Python does not read as an expression (rows == some words) is an error that says so
+v	expected	137	the value reads a == b, with one equals sign
+v	expected	138	Bolt reads 6 here; Nut reads 8, and one notice names the cell, says which side won, and offers Use release 1.13.aot's Values
+v	expected	139	Colour becomes the header Colour then hue then shade divided by pipes, and back to its three lines
+v	expected	140	EUR is underlined dotted and links to the Currency line as its default; the completion offers EUR first; Rent, saying nothing, reads EUR
+v	expected	141	Lantern is renamed in both files, the peer left unsaved for review
+v	expected	142	Starter reads 1 from the header default; the CSV has no row for Basic, which is the default and not an Example
+v	expected	143	a notice asks Delete from release 1.13.aot or Keep; Keep leaves Screw here and puts it back in the CSV
+v	expected	144	a notice says Socrates is now Sokrates and that 1 use still says Socrates, offering to update it; the same offer is on the lightbulb of the Sokrates line
+v	expected	145	both times the cursor stands inside 900, in its cell and then on its value line
+v	expected	146	it lands on Machine
+v	expected	147	nesting writes Clamp into the parent cell of Shelf; lifting writes Bench, the parent of Clamp
+v	expected	148	no squiggle on Power Tool while typing; the status bar says 1 waiting, leave Power Tool to see it; leaving shows the lone sub-Concept warning
+v	expected	149	nothing syncs until Ctrl+K Y, which runs both ways
+v	expected	150	only Washer and Screw reorder, the divider stays between the groups and is redrawn to the column widths
+v	expected	151	the cursor moves to the next cell; no line is indented; Ctrl+] still indents the selection, as VS Code always does
+v	expected	152	the first hover lists the two Examples written in the peer, the second that file's Examples; Ctrl+click opens the peer at Lantern
+v	expected	153	the hover names the row Bench and Ctrl+click lands on it; after the sort Vice and Clamp still name Bench, and the Outline still lists them under Workshop
+v	expected	154	the note reads a
+v	expected	155	the table carries a divider under the header and one between Spring and Summer; flipped back, the blank lines are where they were
+v	expected	156	the warning says the tree belongs in a parent column; after Tab the table carries a parent (orchard old) column naming Apple for Sapling and Seedling, and the warning is gone
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot
@@ -740,6 +796,24 @@ v	fixture	30	the whole file, after A12
 v	fixture	31	the youngest line of Python Probe
 v	fixture	32	this file in git
 v	fixture	33	this file, opened from WSL with Remote WSL
+v	fixture	34	Colour below
+v	fixture	35	Currency and Payment below
+v	fixture	36	Hand Tool below
+v	fixture	37	Lantern in release 1.12.aot and release 1.12 peer.aot
+v	fixture	38	Machine below
+v	fixture	39	Orchard Old below
+v	fixture	40	Payment below
+v	fixture	41	Philosopher and Lecture below
+v	fixture	42	Plan below
+v	fixture	43	Quote below
+v	fixture	44	Season below
+v	fixture	45	Stock below
+v	fixture	46	Stock below, and aot.files/Stock.csv after a save
+v	fixture	47	Workshop below
+v	fixture	48	aot.files/Stock.csv
+v	fixture	49	the Shelf row of Workshop
+v	fixture	50	the line under Lantern in release 1.12.aot saying 2 more in release 1.12 peer.aot
+v	fixture	51	the setting aot.tableCsvSyncMode
 v	flag	2	Yes
 v	format	2	plain text
 v	from the ledger	2	12
@@ -754,6 +828,10 @@ v	green	2	2
 v	has lock	2	no
 v	has lock	3	yes
 v	heat	2	high
+v	heat	3	1200
+v	heat	4	1300
+v	heat	5	600
+v	heat	6	900
 v	height	2	20
 v	height	3	25
 v	height	4	280
@@ -799,6 +877,7 @@ v	is tangible	2	no
 v	is worker pool count known	2	no
 v	keyword	2	>= > < <= ==
 v	keyword	3	or
+v	keyword	4	>= > < <= ===
 v	label	2	ab
 v	language id	2	aot
 v	language name	2	alphabet of thought
@@ -851,6 +930,7 @@ v	note	4	name the other table first, the Concept, Example or Attribute it sits u
 v	note	5	no Example named reads the value the Concept states on its own line, the default its Examples inherit; only a Concept has one, a table is rows and nothing else
 v	note	6	references are name-only, positional numbers were removed in 1.6; a digits lead names an Example, never a column
 v	note	7	the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
+v	note	8	a == b means equal
 v	numeric base	2	10
 v	offset scaling magnitude	2	0
 v	on	2	Yes
@@ -890,6 +970,7 @@ v	price	5	15
 v	price	6	2
 v	price	7	50
 v	price	8	80
+v	price	9	5
 v	processing rule	2	Dedicated
 v	qty	2	2
 v	qty	3	4
@@ -897,6 +978,7 @@ v	racks	2	2
 v	reach	2	tables and line values
 v	readme file	2	README.md
 v	reads as	2	a = b
+v	reads as	3	a == b
 v	recognise	2	all lowercase
 v	recognise	3	colon separated value
 v	recognise	4	first letter is capitalised
@@ -1044,6 +1126,25 @@ v	try	30	run AOT Set Up Git Merge for aot Files, then follow the walkthrough in 
 v	try	31	save this file
 v	try	32	save this file, then run node verify.js on this file with the godel flag for Flute twice, adding an attribute to Boat between the runs
 v	try	33	turn on aot.python.enabled, answer Run when asked, then Ctrl+Enter on the family count line of Python Probe
+v	try	34	Ctrl+click Machine inside the alias of Hand Tool
+v	try	35	F2 on Lantern in release 1.12.aot and type Lamp
+v	try	36	change Socrates to Sokrates on its line, then move the cursor to another line
+v	try	37	delete the Screw row from the CSV and save it
+v	try	38	hover 2 more, hover the file name, then Ctrl+click the file name
+v	try	39	hover Bench in the parent cell of the Vice row, then Ctrl+click it; then put the cursor in a name cell and run Sort Rows by Column at Cursor
+v	try	40	hover EUR on the currency line of Lunch; type a new currency value under Rent and open the completion
+v	try	41	hover the empty seats cell of Starter, and look at the Plan CSV after a save
+v	try	42	hover the note value of Q1, and look at the colours of vat and its definition
+v	try	43	in the CSV change Bolt to 6 and save it; then in this file change Nut to 4, and in the CSV change Nut to 8, saving the CSV last
+v	try	44	on Shelf run AOT Table Nest Row Under the Row Above, then AOT Table Lift Row Out of Its Parent Row
+v	try	45	put the cursor inside 900 and press Ctrl+Alt+T, then press it again
+v	try	46	put the cursor on Colour and press Ctrl+Alt+T twice
+v	try	47	put the cursor on Screw and run Sort Rows by Column at Cursor; then Format Document
+v	try	48	put the cursor on Season and press Ctrl+Alt+T twice
+v	try	49	read the warning on Sapling, then press Tab in the height cell of Apple
+v	try	50	select the Vice and Clamp rows and press Tab
+v	try	51	set it to manual, edit the CSV, save this file, then press Ctrl+K Y
+v	try	52	under Power Tool type a line Drill one level deeper, watch the status bar, then move the cursor up to Machine
 v	turns	2	WIDGET into widget
 v	turns	3	a packed value into its fields
 v	turns	4	a part into its position, or zero when it is absent
@@ -1067,6 +1168,10 @@ v	vat	5	16
 v	volume	2	1.7
 v	waiting for	2	external instrument
 v	weight	2	
+v	weight	3	15
+v	weight	4	2
+v	weight	5	40
+v	weight	6	9
 v	what type of extension do you want to create	2	New Language Support
 v	wheels	2	4
 v	when no	2	0
@@ -1075,6 +1180,7 @@ v	width	2	2
 v	width	3	3
 v	write off method	2	not applicable
 v	written	2	a = b
+v	written	3	a == b
 v	youngest	2	
 v	youngest	3	10
 v	parcels	2	12
@@ -1084,3 +1190,28 @@ v	stop	2	North
 v	stop	3	South
 v	van	2	V0
 v	van	3	V1
+v	human	2	Socrates
+v	logo	2	https://example.com/logo.png
+v	missing	2	./nope.png
+v	parent	2	Apple Tree
+v	parent	3	Pear Tree
+v	parent	4	Top
+v	parent	5	Bench
+v	parent	6	Hot
+v	parent	7	Mid
+v	parent	8	Nobody
+v	size =4	2	4
+v	size =4	3	5
+v	size =math.prod	2	6
+v	size =math.prod	3	9
+v	vat =@price*0.2	2	10
+v	vat =@price*0.2	3	20
+v	10	2	40
+v	count	2	1
+v	count	3	3
+v	count	4	5
+v	count	5	9
+v	philosopher	2	Socrates
+v	warmth	2	100
+v	warmth	3	150
+v	warmth	4	200

@@ -33,10 +33,11 @@
 // is trailing whitespace, and what is left when that goes is the pipe.
 //
 // The HEADER is the first row, and that is all it takes to be one. Before
-// 1.12 a '---+---' rule under it said so; the rule said nothing the order
-// did not, drew a line no reader needed, and is now dropped wherever one is
-// found. Columns line up without it, since every cell is padded to its
-// column and every column padded to its widest cell.
+// 1.12 a '---+---' rule under it said so; standing first says it now, and a
+// rule says something else since 1.13 — it is a divider (below) — so one
+// left under a header from then is kept, drawn as the divider it now reads
+// as. Columns line up without one, since every cell is padded to its column
+// and every column padded to its widest cell.
 //
 // A data row's first cell is the Example's name; an empty cell leaves that
 // attribute unasserted. With no border to hold it open, an empty NAME cell
@@ -46,19 +47,25 @@
 // row — unless a colon stands before it, which makes the line a
 // 'name: value' line with a pipe in its value (isRowText).
 //
-// A row may nest under the row above it. The depth is written as leading
-// spaces in front of the name — which, the border being gone, is the line's
-// own indent, four spaces to the level, exactly as the rest of the language
-// writes depth:
+// A row never nests by its indent. A sub-Example names the row it sits
+// under in the table's `parent (thing)` column — the column named parent
+// whose (alias) is the table's own Concept, so by the alias rule every cell
+// in it names one of the table's rows:
 //
-//     Otter     |size
-//     Ollie     |5             <- an Example of Otter
-//         Pup   |1             <- a sub-Example of Ollie
+//     Otter|parent (otter)|size
+//     Ollie|              |5      <- an Example of Otter
+//     Pup  |Ollie         |1      <- a sub-Example of Ollie
 //
-// The depth never travels as text: cells() trims the name and reports its
-// true column, and the block carries the depth as a number on the row, so
-// crosslinks, formulas, the CSV mirror and the Gödel numbers all read the
-// bare name exactly as they always did.
+// It is the column the CSV mirror has always carried the tree in, so the
+// table, its spreadsheet and a DataFrame of it are one shape, and a row can
+// stand anywhere: sorted, moved, parent below child. A table from 1.12
+// wrote the same tree as leading spaces in front of the name. blockAt still
+// reads those as a depth on the row, and flatten rewrites them as the column
+// the first time the table is drawn — Format Document, or any table key.
+//
+// A DIVIDER — dashes between the pipes, `-----|----` — groups the rows, as a
+// blank line groups an outline's lines (the flip turns one into the other).
+// It holds no cells, says nothing to the model, and every key steps over it.
 
 // Four spaces to the level, the same INDENT linter.js declares — one number
 // under two names, because linter.js requires this file and not the other
@@ -67,13 +74,12 @@ const INDENT = 4;
 
 const { readsAsExpression } = require("./pyshape");
 
-// A rule row — '---+---' — is layout left over from before 1.12, when it
-// was what marked the row above it as the header. Being first is what marks
-// the header now, so a rule states nothing: it is still recognised, so an
-// older file goes on parsing, and it is dropped the moment the table is
-// drawn again. Dashes, pluses, colons, pipes and spaces with at least two
-// characters and one dash; two is the floor because a lone '-' is an
-// Example whose name is still being typed, and the rule must not steal it.
+// A divider row — '----|----' — groups a table's rows. Read loosely, so a
+// '---+---' rule from before 1.12 (when it marked the row above it as the
+// header) reads as one too, and is drawn as one the next time the table is:
+// dashes, pluses, colons, pipes and spaces with at least two characters and
+// one dash. Two is the floor because a lone '-' is an Example whose name is
+// still being typed, and the divider must not steal it.
 const isSeparator = (text) => /^[\s\-+:|]*$/.test(text) && text.includes("-") && text.trim().length > 1;
 
 // A line is a table row when it carries a '|': the divider between two
@@ -95,6 +101,12 @@ const isSeparator = (text) => /^[\s\-+:|]*$/.test(text) && text.includes("-") &&
 // open at the pipe (a bracket, a string), so the pipe is the Python's. A
 // colon inside a derivation (`=rows()[:1]`) is the Python's too: only one
 // standing before the '=' makes a `name: value` line.
+//
+// A capitalised line is a Concept, and a Concept's colon states its default
+// (`Currency: EUR`) — which a table writes in its first header cell,
+// `Currency: EUR|symbol`. So behind a capitalised name the colon makes no
+// value line, and the pipe divides; a literal pipe in a Concept's default
+// is written `¦`, as it is in every cell.
 const isRowText = (text) => {
   const t = String(text).trim();
   if (!t) return false;
@@ -103,7 +115,8 @@ const isRowText = (text) => {
   if (!ds.length) return false;
   const head = t.slice(0, ds[0]);
   const d = splitCell(head);
-  return !(d.eq > 0 ? head.slice(0, d.eq) : head).includes(":");
+  const term = d.eq > 0 ? head.slice(0, d.eq) : head;
+  return !term.includes(":") || /^[A-Z]/.test(term.trim());
 };
 
 // Where a row's dividers stand. Every pipe divides — except inside the
@@ -244,25 +257,44 @@ function cells(line) {
 }
 
 // The table block around one line: the unbroken run of rows around it.
-// Rows carry their cell texts and their depth — the name's own indent, in
-// levels, measured from the block's — while separator rows carry neither,
-// only the columns' alignment. null when the line is not a row.
+// Rows carry their cell texts — and, in a table written before 1.13, their
+// depth: the name's own indent, in levels past the block's, which flatten
+// turns into the parent column — while divider rows carry neither. null
+// when the line is not a row.
 //
 // The run is bounded by what is not a row: a blank line, or any line
-// carrying no pipe. The block's own indent is its SHALLOWEST row's, since
-// a nested row is written deeper than the table it belongs to — which is
-// why two standalone tables need a blank line between them, exactly as the
-// header of the second would otherwise read as more rows of the first.
+// carrying no pipe. The block's own indent is its header's, and a row
+// SHALLOWER than the header opens a table of its own, exactly as the linter
+// reads one — which is why two standalone tables need a blank line between
+// them, as the header of the second would otherwise read as more rows of
+// the first. A row whose name cell is empty stands at its table's depth,
+// whatever its leading spaces: they are its empty cell.
 function blockAt(lines, lineIdx) {
   const isRow = (i) => i >= 0 && i < lines.length && isRowText(lines[i]);
   if (!isRow(lineIdx)) return null;
   const indentOf = (i) => lines[i].match(/^ */)[0];
+  // a line's own indent, or null for one that has none to give: a divider,
+  // or a row still waiting for its name
+  const leadOf = (i) => (isSeparator(lines[i].trim()) || !(cells(lines[i])[0] || {}).text ? null : indentOf(i).length);
   let start = lineIdx, end = lineIdx;
   while (isRow(start - 1)) start--;
   while (isRow(end + 1)) end++;
-  let indent = indentOf(start);
-  for (let i = start + 1; i <= end; i++) {
-    if (indentOf(i).length < indent.length) indent = indentOf(i);
+  let head = null;
+  for (let i = start; i <= end; i++) {
+    const lead = leadOf(i);
+    if (lead === null) continue;
+    if (head === null) { head = lead; continue; }
+    if (lead >= head) continue;
+    // a shallower row is the next table's header
+    if (i > lineIdx) { end = i - 1; break; }
+    start = i;
+    head = lead;
+  }
+  let indent = head === null ? indentOf(start) : " ".repeat(head);
+  if (head === null) {
+    for (let i = start + 1; i <= end; i++) {
+      if (indentOf(i).length < indent.length) indent = indentOf(i);
+    }
   }
   // A table written in the pre-1.12 bordered form — every row of it opening
   // and closing with a '|' — is read without those borders, so drawing the
@@ -280,17 +312,17 @@ function blockAt(lines, lineIdx) {
   const unborder = (list) => (bordered ? list.slice(1, -1) : list);
   const rows = [];
   for (let i = start; i <= end; i++) {
-    // a leftover rule is kept in the block so every row still answers to its
-    // own line, and dropped when the block is drawn
+    // a divider is kept in the block, so every row still answers to its own
+    // line, and drawn again to the columns' widths
     const sep = isSeparator(lines[i].trim());
     if (sep) {
       rows.push({ sep, cells: [] });
       continue;
     }
     const row = unborder(cells(lines[i]));
-    // the name's leading spaces are the row's place in the tree: past the
-    // table's own indent, or — in a bordered table being migrated — the
-    // spaces the old border held them behind
+    // a 1.12 table's tree: the name's leading spaces past the table's own
+    // indent, or — in a bordered table being migrated — the spaces the old
+    // border held them behind. flatten writes it as the parent column.
     const lead = row.length ? row[0].indent - (bordered ? 0 : indent.length) : 0;
     rows.push({
       sep,
@@ -301,14 +333,159 @@ function blockAt(lines, lineIdx) {
   return { start, end, indent, rows };
 }
 
-// Does any row of the block sit under another? A flat table is drawn
-// exactly as it always was; only a nesting one changes how its name column
-// is measured and aligned.
+// Does any row of the block still nest by its indent, as a table did before
+// 1.13? Only such a block has anything for flatten to do.
 const nests = (block) => block.rows.some((r) => !r.sep && r.depth);
 
-// The name cell as it is drawn: the row's depth in leading spaces, then the
-// name. Every other cell draws itself.
-const nameCell = (row) => " ".repeat((row.depth || 0) * INDENT) + (row.cells[0] || "");
+// A header cell's term and its (alias): its default, bounds and derivation
+// set aside. The first cell names the Concept, so a colon there opens the
+// Concept's default; in any other cell only defaultColon's does.
+function headerTerm(cell, first) {
+  let text = String(cell || "").trim();
+  if (first) {
+    const d = lineDerivation(text);
+    if (d) text = d.head;
+    const colon = text.indexOf(":");
+    if (colon !== -1) text = text.slice(0, colon).trim();
+  } else {
+    const colon = defaultColon(text);
+    text = colon !== -1 ? text.slice(0, colon).trim() : splitConstraint(text).value;
+  }
+  let alias = null;
+  if (text.endsWith(")") && text.includes("(")) {
+    const open = text.lastIndexOf("(");
+    alias = text.slice(open + 1, -1).trim() || null;
+    text = text.slice(0, open).trim();
+  }
+  return { name: text, alias };
+}
+
+// The column a table nests its rows through: `parent (thing)`, named
+// parent, its (alias) the table's own Concept — any name the Concept answers
+// to (`owners`: its name, its alias), numbering and case aside. By the alias
+// rule the column is typed by the table's own Concept, which is what makes
+// each of its cells name one of the table's rows. A `parent` column with no
+// alias, or one naming another Concept, is an attribute like any other.
+const PARENT_TERM = "parent";
+function isParentColumn(name, alias, owners) {
+  if (!alias || String(name || "").trim().toLowerCase() !== PARENT_TERM) return false;
+  const key = numberless(alias).trim().toLowerCase();
+  return owners.some((n) => n && numberless(n).trim().toLowerCase() === key);
+}
+
+// Where a header's parent column stands, or -1.
+function parentColumnOf(header) {
+  const cells = header || [];
+  if (!cells.length) return -1;
+  const own = headerTerm(cells[0], true);
+  return cells.findIndex((cell, k) => {
+    if (k === 0) return false;
+    const t = headerTerm(cell, false);
+    return isParentColumn(t.name, t.alias, [own.name, own.alias]);
+  });
+}
+
+// The parent column's header cell for a table: `parent (otter)` under
+// `Otter|…` — the Concept's name lowercased, as an attribute's alias is
+// written, its numbering left off.
+const parentHeader = (header) => `${PARENT_TERM} (${numberless(headerTerm((header || [])[0], true).name).trim().toLowerCase()})`;
+
+// Each data row's parent row, as the linter files it (linter.refile): the
+// row index (into block.rows) its parent cell names — the nearest row above
+// of that name, numbering and case aside, else the first below, never
+// itself — or -1 for a row of the Concept itself, an empty cell, or a name
+// no row carries. A circle of parents files none of its rows. A Map from
+// row index.
+function parentsOf(block) {
+  const out = new Map();
+  const head = headerIndex(block);
+  if (head === -1) return out;
+  const col = parentColumnOf(block.rows[head].cells);
+  const data = [];
+  block.rows.forEach((r, i) => { if (i > head && !r.sep) data.push(i); });
+  const keyOf = (text) => numberless(text).trim().toLowerCase();
+  for (const i of data) out.set(i, -1);
+  if (col === -1) return out;
+  data.forEach((i, at) => {
+    const key = keyOf(block.rows[i].cells[col] || "");
+    if (!key) return;
+    let found = -1;
+    for (let j = at - 1; j >= 0 && found === -1; j--) if (keyOf(block.rows[data[j]].cells[0] || "") === key) found = data[j];
+    for (let j = at + 1; j < data.length && found === -1; j++) if (keyOf(block.rows[data[j]].cells[0] || "") === key) found = data[j];
+    out.set(i, found);
+  });
+  // a chain that comes back round has no top: none of it is filed
+  for (const i of data) {
+    const seen = new Set();
+    let p = i;
+    while (p !== -1 && !seen.has(p)) { seen.add(p); p = out.get(p); }
+    if (p === -1) continue;
+    const loop = [p];
+    for (let q = out.get(p); q !== p; q = out.get(q)) loop.push(q);
+    for (const q of loop) out.set(q, -1);
+  }
+  return out;
+}
+
+// The rows that sit under the row at `i`, at any depth (row indices).
+function branchOf(block, i) {
+  const parents = parentsOf(block);
+  const out = [];
+  for (const [r] of parents) {
+    if (r === i) continue;
+    for (let p = parents.get(r); p !== -1 && p !== undefined; p = parents.get(p)) {
+      if (p === i) { out.push(r); break; }
+    }
+  }
+  return out;
+}
+
+// A table written before 1.13 nests a row under the row above it by
+// indenting its name. A table never nests that way now: the row names its
+// parent in the `parent (thing)` column. flatten rewrites the one as the
+// other, in place — each indented row's parent (the nearest shallower row
+// above it) written into its parent cell, the column added second when the
+// table has none, every row's indent dropped. Answers the index of the
+// column it added, so a caller holding a column index can shift it, or -1.
+function flatten(block) {
+  if (!nests(block)) return -1;
+  const head = headerIndex(block);
+  if (head === -1) {
+    for (const r of block.rows) r.depth = 0;
+    return -1;
+  }
+  const header = block.rows[head];
+  const data = block.rows.filter((r, i) => i > head && !r.sep);
+  let col = parentColumnOf(header.cells);
+  let added = -1;
+  if (col === -1) {
+    // a one-column table closed its rows with a pipe, read back as an empty
+    // last column; with a column added it has pipes to divide, and needs none
+    if (header.cells.length === 2 && !String(header.cells[1]).trim()
+      && data.every((r) => !String(r.cells[1] || "").trim())) {
+      for (const r of [header, ...data]) r.cells.length = Math.min(r.cells.length, 1);
+    }
+    col = added = 1;
+    header.cells.splice(1, 0, parentHeader(header.cells));
+    for (const r of data) {
+      while (r.cells.length < 1) r.cells.push("");
+      r.cells.splice(1, 0, "");
+    }
+  }
+  data.forEach((r, k) => {
+    const depth = r.depth || 0;
+    if (!depth || String(r.cells[col] || "").trim()) return;
+    for (let j = k - 1; j >= 0; j--) {
+      if ((data[j].depth || 0) < depth) {
+        while (r.cells.length <= col) r.cells.push("");
+        r.cells[col] = data[j].cells[0] || "";
+        break;
+      }
+    }
+  });
+  for (const r of block.rows) r.depth = 0;
+  return added;
+}
 
 // A numbering prefix — `1. `, `2.3 `, `1.1.1 ` — is presentation, never
 // part of a name's identity: `trip` types by the Concept `1. Trip` exactly
@@ -336,9 +513,8 @@ function widthsOf(block) {
   block.rows.forEach((row) => {
     if (row.sep) return;
     row.cells.forEach((c, k) => {
-      // the name column must hold the deepest row's indent as well as its name
-      const w = k === 0 ? nameCell(row).length : c.length;
-      widths[k] = Math.max(widths[k] || 0, w);
+      // a 1.12 row's indent is drawn nowhere (flatten), so a name is its own width
+      widths[k] = Math.max(widths[k] || 0, c.length);
     });
   });
   // never narrower than one character: a zero-width column would leave
@@ -347,13 +523,15 @@ function widthsOf(block) {
   return widths.length ? widths : [0];
 }
 
-// Draw the block aligned: every column padded to its widest cell. No gutter
-// spaces around the pipes, and no rule row — a leftover one is dropped here,
-// which is how a pre-1.12 file loses it. One row is one line: nothing here
-// splits a cell across two.
+// Draw the block aligned: every column padded to its widest cell, no gutter
+// spaces around the pipes, and every divider drawn as dashes to its
+// columns' widths — `------|---|----`. One row is one line: nothing here
+// splits a cell across two. A 1.12 table's nesting is written as the parent
+// column first (flatten), which is how a file from then is migrated.
 function render(block) {
+  flatten(block);
   const widths = widthsOf(block);
-  const drawn = (row, k) => (k === 0 ? nameCell(row) : row.cells[k] || "");
+  const drawn = (row, k) => row.cells[k] || "";
   // The pipes divide, so a drawn row opens with its name and ends with its
   // last written cell: the padding past that is trailing whitespace, and no
   // line keeps that. A row with nothing in its name cell is padded to the
@@ -371,8 +549,15 @@ function render(block) {
   const drawRow = (parts) => (closes
     ? block.indent + parts.join("|") + "|"
     : (block.indent + parts.join("|")).replace(/\s+$/, ""));
-  return block.rows.filter((row) => !row.sep)
-    .map((row) => drawRow(widths.map((w, k) => padCell(drawn(row, k), w))));
+  // a divider is dashes the width of each column, divided where the rows
+  // are — a one-column table's closing with its pipe as its rows do (read
+  // back from the file, that pipe is an empty last column, nothing to draw)
+  const last = widths.length - 1;
+  const emptyLast = last > 0 && block.rows.every((r) => r.sep || !String(r.cells[last] || "").trim());
+  const dashed = (emptyLast ? widths.slice(0, -1) : widths).map((w) => "-".repeat(Math.max(w, 1))).join("|");
+  const rule = block.indent + dashed + (closes || emptyLast ? "|" : "");
+  return block.rows.map((row) => (row.sep ? rule
+    : drawRow(widths.map((w, k) => padCell(drawn(row, k), w)))));
 }
 
 // Where a cell's text begins on an aligned line, so a command can land the
@@ -424,8 +609,7 @@ function nextCell(block, row, col) {
   if (!block.rows[row].sep && col + 1 < numCols) return { row, col: col + 1 };
   const below = dataRow(block, row, 1);
   if (below !== -1) return { row: below, col: 0 };
-  const last = block.rows[block.rows.length - 1];
-  block.rows.push({ sep: false, cells: [], depth: last && !last.sep ? last.depth || 0 : 0 });
+  block.rows.push({ sep: false, cells: [] });
   return { row: block.rows.length - 1, col: 0 };
 }
 
@@ -464,35 +648,18 @@ function moveColumn(block, row, col, dir) {
   return { row, col: other };
 }
 
-// M-up / M-down: carry the cursor's row over the adjacent line, separator
-// or not — a data row can hop an hline, as in org.
+// M-up / M-down: carry the cursor's row over the adjacent line, divider or
+// not — a data row can hop a divider into the next group, as in org. A row
+// names its parent rather than standing under it, so it moves alone and its
+// place in the tree goes with it; the header stays first.
 function moveRow(block, row, col, dir) {
   const here = block.rows[row];
-  // a separator, or a flat table, still hops one line at a time as it did
-  if (!here || here.sep || !nests(block)) {
-    const other = row + dir;
-    if (other < 0 || other >= block.rows.length) return null;
-    [block.rows[row], block.rows[other]] = [block.rows[other], block.rows[row]];
-    return { row: other, col };
-  }
-  const span = subtreeOf(block, row);
-  const mine = block.rows.slice(row, row + span);
-  if (dir < 0) {
-    // up: over the sibling above, which carries its own children with it
-    const above = prevSibling(block, row);
-    if (above === -1) return null;
-    block.rows.splice(row, span);
-    block.rows.splice(above, 0, ...mine);
-    return { row: above, col };
-  }
-  // down: over the next sibling and everything under it
-  const next = row + span;
-  const after = block.rows[next];
-  if (!after || after.sep || (after.depth || 0) !== (here.depth || 0)) return null;
-  const theirs = subtreeOf(block, next);
-  block.rows.splice(row, span);
-  block.rows.splice(row + theirs, 0, ...mine);
-  return { row: row + theirs, col };
+  const other = row + dir;
+  if (!here || other < 0 || other >= block.rows.length) return null;
+  const head = headerIndex(block);
+  if (row === head || other === head) return null;
+  [block.rows[row], block.rows[other]] = [block.rows[other], block.rows[row]];
+  return { row: other, col };
 }
 
 // M-S-right: a new empty column where the cursor stands, pushing it right.
@@ -518,19 +685,22 @@ function deleteColumn(block, row, col) {
 
 // M-S-down: a new empty row above the cursor's.
 function insertRow(block, row, col) {
-  // the new row is a sibling of the one it pushes down, not a child of it
-  const at = block.rows[row];
-  block.rows.splice(row, 0, { sep: false, cells: [], depth: at && !at.sep ? at.depth || 0 : 0 });
+  block.rows.splice(row, 0, { sep: false, cells: [] });
   return { row, col: 0 };
 }
 
-// M-S-up: kill the cursor's row (or separator).
+// M-S-up: kill the cursor's row (or divider). A row's sub-Examples go with
+// it, wherever in the table they stand — every row whose parents lead back
+// to it — exactly as deleting a '- Parent' line takes the lines under it;
+// one Ctrl+Z brings the whole branch back.
 function deleteRow(block, row, col) {
-  // a row's sub-Examples are written inside it, so they go with it — one
-  // Ctrl+Z brings the whole branch back
-  block.rows.splice(row, subtreeOf(block, row));
+  const here = block.rows[row];
+  if (!here) return null;
+  const gone = new Set([row, ...(here.sep ? [] : branchOf(block, row))]);
+  block.rows = block.rows.filter((_, i) => !gone.has(i));
   if (!block.rows.length) return null;
-  return { row: Math.min(row, block.rows.length - 1), col };
+  const before = [...gone].filter((i) => i < row).length;
+  return { row: Math.min(row - before, block.rows.length - 1), col };
 }
 
 // C-c ^: sort the data rows around the cursor — the header standing first
@@ -548,47 +718,53 @@ function sortRows(block, row, col) {
   const key = (r) => readValue(splitCell((r.cells[col] || "").trim()).value);
   const num = (r) => parseFloat(key(r).replace(/[$,%\s]/g, ""));
   const run = block.rows.slice(a, b + 1);
-  // Sorting is per generation: siblings are ordered against each other and
-  // each carries its own children along, so a sort re-orders the tree
-  // without flattening it. A flat table is one generation, and sorts
-  // exactly as it always did.
-  const sortGeneration = (rows) => {
-    const groups = [];
-    for (let i = 0; i < rows.length;) {
-      const depth = rows[i].depth || 0;
-      let n = 1;
-      while (i + n < rows.length && (rows[i + n].depth || 0) > depth) n++;
-      groups.push({ head: rows[i], kids: rows.slice(i + 1, i + n) });
-      i += n;
-    }
-    const numeric = groups.every((g) => key(g.head) !== "" && !isNaN(num(g.head)));
-    groups.sort((x, y) => (numeric
-      ? num(x.head) - num(y.head)
-      : key(x.head).localeCompare(key(y.head))));
-    return groups.flatMap((g) => [g.head, ...sortGeneration(g.kids)]);
-  };
-  block.rows.splice(a, run.length, ...sortGeneration(run));
+  // A row names its parent rather than standing under it, so the run sorts
+  // as the flat list it is and the tree comes through whole: a child sorted
+  // above its parent still names it. Stable, so equal keys keep their order.
+  const numeric = run.every((r) => key(r) !== "" && !isNaN(num(r)));
+  const order = run.map((r, i) => ({ r, i }));
+  order.sort((x, y) => (numeric ? num(x.r) - num(y.r) : key(x.r).localeCompare(key(y.r))) || x.i - y.i);
+  block.rows.splice(a, run.length, ...order.map((o) => o.r));
   return { row, col };
 }
 
-// Tab / Shift+Tab at the very start of a name cell: file the row one level
-// deeper (under the sibling above it) or one level shallower, its own
-// children travelling with it so the branch keeps its shape.
-//
-// A row can only ever be one level under the row above it — there must be a
-// row for it to sit beneath — so demoting the first of a generation does
-// nothing, and promoting one already at the top does nothing either.
+// Nest Row Under the Row Above, and Lift Row Out: the row's place in the
+// tree, written into its parent cell. Nesting names the data row above it
+// as its parent — the column added second when the table has none, which
+// moves the cursor's column one right with it — and lifting names its
+// parent's parent instead, or nothing when its parent is the Concept's own
+// row. The row's own sub-Examples name it, so they travel along unasked.
+// Nothing happens where nothing can: the first row has no row above it, a
+// row cannot nest under a row that sits under it, and a row of the Concept
+// itself has nowhere further out to go.
 function shiftRowDepth(block, row, col, dir) {
   const here = block.rows[row];
-  if (!here || here.sep || row === 0) return null;
-  const depth = here.depth || 0;
-  if (dir > 0 && prevSibling(block, row) === -1) return null; // no row to adopt it
-  if (dir < 0 && depth === 0) return null;
-  const span = subtreeOf(block, row);
-  for (let i = row; i < row + span; i++) {
-    block.rows[i].depth = (block.rows[i].depth || 0) + dir;
+  const head = headerIndex(block);
+  if (!here || here.sep || head === -1 || row <= head) return null;
+  const parents = parentsOf(block);
+  let name, shift = 0;
+  if (dir > 0) {
+    const above = dataRow(block, row, -1);
+    if (above <= head) return null;
+    for (let p = above; p !== -1; p = parents.get(p)) if (p === row) return null;
+    name = block.rows[above].cells[0] || "";
+  } else {
+    const parent = parents.get(row);
+    if (parent === undefined || parent === -1) return null;
+    const grand = parents.get(parent);
+    name = grand === undefined || grand === -1 ? "" : block.rows[grand].cells[0] || "";
   }
-  return { row, col };
+  let at = parentColumnOf(block.rows[head].cells);
+  if (at === -1) {
+    padRows(block);
+    block.rows[head].cells.splice(1, 0, parentHeader(block.rows[head].cells));
+    for (const r of block.rows) if (!r.sep && r !== block.rows[head]) r.cells.splice(1, 0, "");
+    at = 1;
+    shift = col >= 1 ? 1 : 0;
+  }
+  while (here.cells.length <= at) here.cells.push("");
+  here.cells[at] = name;
+  return { row, col: col + shift };
 }
 
 const demoteRow = (block, row, col) => shiftRowDepth(block, row, col, 1);
@@ -623,14 +799,15 @@ function copyFormulaDown(block, row, col) {
 // A calculated column. When every data row of a column carries the same
 // derivation (or nothing yet), that derivation is not a fact about each row
 // but the definition of the column — and the language has a place for it:
-// `==` on the header cell, which a run writes into every value of the
-// column that has no derivation of its own. Moving it there leaves each cell
-// its value alone, so two formula columns side by side read as plain data.
+// `=` on the header cell, which a run writes into every value of the column
+// that has no derivation of its own. Moving it there leaves each cell its
+// value alone, so two formula columns side by side read as plain data.
 //
 // columnDefinition answers { source, name } for the column — the one source
 // its derivations share and the column's name — or null when it has none,
-// when two rows derive it differently, when the column already has a `==`,
-// or for the name column.
+// when two rows derive it differently, when the column is already defined,
+// for the name column, or when the source would not read as Python on a
+// header (it would become part of the column's name there instead).
 function columnDefinition(block, col) {
   const head = headerIndex(block);
   if (col < 1 || head === -1) return null;
@@ -648,10 +825,10 @@ function columnDefinition(block, col) {
     if (source === null) source = own;
     else if (own !== source) return null;
   }
-  return source ? { source, name: columnTerm(header) } : null;
+  return source && readsAsExpression(source) ? { source, name: columnTerm(header) } : null;
 }
 
-// The edit: the shared derivation onto the header as `==`, each cell left
+// The edit: the shared derivation onto the header as `=`, each cell left
 // holding its value. The values computed so far stay; the next run checks
 // them against the definition and fills the empty ones.
 function defineColumn(block, row, col) {
@@ -659,7 +836,7 @@ function defineColumn(block, row, col) {
   if (!def) return null;
   const head = headerIndex(block);
   padRows(block);
-  block.rows[head].cells[col] = `${block.rows[head].cells[col].trim()} ==${def.source}`;
+  block.rows[head].cells[col] = `${block.rows[head].cells[col].trim()} =${def.source}`;
   for (const r of dataRowsOf(block)) r.cells[col] = splitCell(r.cells[col] || "").value;
   return { row, col };
 }
@@ -879,10 +1056,27 @@ function fromAbove(block, row, col, part) {
 const copyFormulaFromAbove = (block, row, col) => fromAbove(block, row, col, "formula");
 const copyValueFromAbove = (block, row, col) => fromAbove(block, row, col, "value");
 
-// A header cell's column name: the attribute it declares, its trailing
-// constraint and (alias) set aside — the name a reference writes.
+// Where a header cell's default begins: the index of the colon in
+// `tax rate: 0.2` — the cell states the column's default, exactly the line
+// that would state it under the Concept — or -1 for a cell that declares.
+// Only a colon before any constraint is a default's: `when =("09:00", "17:00")`
+// keeps its colon inside its Python. A default's value is never a bound, as
+// on a line: `age: 18 >=0` is the default '18 >=0'.
+function defaultColon(cell) {
+  const text = String(cell || "");
+  const colon = text.indexOf(":");
+  if (colon === -1) return -1;
+  const con = splitConstraint(text);
+  return con.eq === -1 || colon < con.eq ? colon : -1;
+}
+
+// A header cell's column name: the attribute it declares or gives a default,
+// its default, trailing constraint and (alias) set aside — the name a
+// reference writes.
 function columnTerm(cell) {
-  let name = splitConstraint(cell || "").value;
+  const text = String(cell || "");
+  const colon = defaultColon(text);
+  let name = colon !== -1 ? text.slice(0, colon).trim() : splitConstraint(text).value;
   if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
   return name;
 }
@@ -916,15 +1110,28 @@ function fromRegion(lines) {
 // when the derivations run. Nothing here evaluates either: this is the
 // grammar that finds them in the text.
 
-// A value may hold a literal '=' by escaping it: `note: a \= b` is the
-// value 'a = b', not a derivation of 'a'. splitCell needs no rule for it —
-// the character before an escaped '=' is the backslash, never a space, so
-// the scan below already walks past it — which leaves exactly one step:
-// take the backslash off when a value is read *as data* (the model, the
-// evaluator, a sort key) and leave it on in the text, which is what every
-// rewrite path copies verbatim. readValue is that step; call it wherever a
-// value becomes meaning rather than characters.
-const readValue = (text) => String(text).replace(/\\=/g, "=");
+// A value may hold a literal '=' by doubling it: `note: a == b` is the value
+// 'a = b', not a derivation of 'a'. Only an '=' standing where a derivation
+// could open needs it — at the start of the value or after a space — and
+// there any run of them is read one shorter, so `a === b` is 'a == b' and
+// `==x` is '=x'; an '=' inside a word (`a=b`) never opened anything and is
+// always itself. splitCell needs no rule for it: a run of two or more never
+// opens a derivation, which leaves exactly one step — shorten the runs when
+// a value is read *as data* (the model, the evaluator, a sort key) and leave
+// them in the text, which is what every rewrite path copies verbatim.
+// readValue is that step; call it wherever a value becomes meaning rather
+// than characters. `\=`, the escape before 1.13, still reads as '='.
+const readValue = (text) => String(text)
+  .replace(/\\=/g, "=")
+  .replace(/(^|\s)(={2,})/g, (m, lead, run) => lead + run.slice(1));
+
+// readValue's inverse: a value as the file must write it so that it reads
+// back as itself — every run of '=' at its start or after a space one
+// longer, so none of them can open a derivation. What Python returns, what a
+// CSV brings and every fact a quick fix moves is written through here: data
+// never becomes code.
+const writtenValue = (value) => String(value == null ? "" : value)
+  .replace(/(^|\s)(=+)/g, (m, lead, run) => lead + run + "=");
 
 // Split a cell (or line-form value) into its value and its '=' derivation:
 // eq is the index of the '=' (the cell's start, or following a space), -1
@@ -944,18 +1151,25 @@ function splitCell(text) {
   return { value: text, eq: -1, op: null };
 }
 
-// The constraint operators an attribute declaration may carry.
-const CONSTRAINT_OPS = ["==", "<=", ">=", "<", ">"]; // longest first
+// The constraint operators an attribute declaration may carry. `=` defines:
+// one value it computes is what every value of the attribute is, a
+// collection the values it may take — what `==` said before 1.13, and still
+// says, read as the same operator. Longest first, so `==`, `<=` and `>=` are
+// never read as an `=` with something in front of it.
+const CONSTRAINT_OPS = ["==", "<=", ">=", "=", "<", ">"];
+// the operator a clause means: `=` and the older `==` are one equality
+const meaningOf = (op) => (op === "=" ? "==" : op);
 
 // Split an attribute declaration into its term and its constraints —
-// comparison bounds such as `age >=18`, `cap <=@price*1.5`, or several
-// chained on the one declaration: `age >=18 <=65` bounds the attribute
-// both ways. Returns { value (the term), eq (index the first clause
-// starts, -1 for none), op, formula (the first bound, for the callers
-// that only name the clause), constraints: [{ op, formula, eq }] }. A
-// bound is Python, and only believed when its right side reads as an
-// expression (pyshape.js), so a prose term such as 'speed > none noted'
-// stays a plain name.
+// comparison bounds such as `age >=18`, `cap <=@price*1.5`, a definition
+// `vat =@price*0.2`, or several chained on the one declaration:
+// `age >=18 <=65` bounds the attribute both ways. Returns { value (the
+// term), eq (index the first clause starts, -1 for none), op, formula (the
+// first bound, for the callers that only name the clause), constraints:
+// [{ op, opText, formula, eq }] } — `op` the operator meant (an equality is
+// always "=="), `opText` the one written. A bound is Python, and only
+// believed when its right side reads as an expression (pyshape.js), so a
+// prose term such as 'speed > none noted' stays a plain name.
 function splitConstraint(text) {
   if (!text) return { value: text || "", eq: -1, op: null, formula: "", constraints: [] };
   for (let i = 0; i < text.length; i++) {
@@ -1019,7 +1233,7 @@ function chainOf(text, from) {
       if (boundary) return null; // every bound must read as an expression
       continue;                  // an operator inside the bound, not a new one
     }
-    constraints.push({ op, formula: seg, eq: opAt });
+    constraints.push({ op: meaningOf(op), opText: op, formula: seg, eq: opAt });
     if (boundary) return constraints;
     opAt = j;
     op = next;
@@ -1075,42 +1289,6 @@ function formatValue(v, old) {
 }
 
 // The data rows of a table block: everything under the header.
-// The extent of the row at `i`: itself and every row below it that sits
-// deeper — its sub-Examples, and theirs. A separator ends the run, as does
-// any row back at its own depth or shallower. Returns the count, so a row
-// with no children is 1.
-//
-// Every operation that moves a row moves this instead: a parent that left
-// its children behind would re-file them under whatever row it left them
-// beside, which is not an edit anyone asked for.
-function subtreeOf(block, i) {
-  const start = block.rows[i];
-  if (!start || start.sep) return 1;
-  const depth = start.depth || 0;
-  let n = 1;
-  while (i + n < block.rows.length) {
-    const r = block.rows[i + n];
-    if (r.sep || (r.depth || 0) <= depth) break;
-    n++;
-  }
-  return n;
-}
-
-// The row the one at `i` follows in its own generation — the nearest row
-// above it at the same depth, without crossing a shallower row or a
-// separator; -1 when it is the first of its siblings.
-function prevSibling(block, i) {
-  const depth = block.rows[i].depth || 0;
-  for (let j = i - 1; j > 0; j--) {
-    const r = block.rows[j];
-    if (r.sep) return -1;
-    const d = r.depth || 0;
-    if (d < depth) return -1;
-    if (d === depth) return j;
-  }
-  return -1;
-}
-
 function dataRowsOf(block) {
   return block.rows.filter((r) => !r.sep).slice(1);
 }
@@ -1125,7 +1303,8 @@ function headerNameCands(header) {
   const cands = [];
   (header || []).forEach((cell, k) => {
     if (k === 0) return;
-    let name = splitConstraint(cell).value, alias = null;
+    const colon = defaultColon(cell);
+    let name = colon !== -1 ? String(cell).slice(0, colon).trim() : splitConstraint(cell).value, alias = null;
     if (name.endsWith(")") && name.includes("(")) {
       const open = name.lastIndexOf("(");
       alias = name.slice(open + 1, -1).trim() || null;
@@ -1198,8 +1377,7 @@ function tableCtx(rows, row, header, registry, outer) {
   const outerCol = (c) => {
     if (typeof c === "string") return c;
     if (!outer) return null;
-    let name = splitConstraint((header || [])[c - 1] || "").value;
-    if (name.endsWith(")") && name.includes("(")) name = name.slice(0, name.lastIndexOf("(")).trim();
+    const name = columnTerm((header || [])[c - 1] || "");
     const m = name ? outer.matchColumn(name) : null;
     return m && m.length === name.length ? m.id : null;
   };
@@ -1208,12 +1386,20 @@ function tableCtx(rows, row, header, registry, outer) {
     const m = outer && name ? outer.matchRow(name) : null;
     return m && m.length === name.length ? m.id : null;
   };
+  // the parent's stated default for a column, else the default of the
+  // Concept that types it (`Currency: EUR` for a `currency` column) — what an
+  // Example silent on the attribute reads
+  const inheritedOf = (key) => {
+    const own = outer.self ? outer.self(key) : undefined;
+    if (own !== undefined) return own;
+    return outer.typeDefault ? outer.typeDefault(key) : undefined;
+  };
   // read through the parent: the Example's own value, else the parent's
   // stated default, else empty
   const throughOuter = (key, exampleName) => {
     const at = outerRowOf(exampleName);
     if (at !== null) return outer.cellAt(key, at);
-    const own = outer.self ? outer.self(key) : undefined;
+    const own = inheritedOf(key);
     return own === undefined ? "" : own;
   };
   // a grid cell, an empty one inheriting the parent's default (exactly what
@@ -1222,7 +1408,7 @@ function tableCtx(rows, row, header, registry, outer) {
     const v = raw(r, c);
     if (String(v).trim() !== "" || !outer) return v;
     const key = outerCol(c);
-    const own = key !== null && outer.self ? outer.self(key) : undefined;
+    const own = key !== null ? inheritedOf(key) : undefined;
     return own === undefined ? v : own;
   };
   return {
@@ -1335,16 +1521,27 @@ const cleanName = (t) => {
   return term.replace(/^[-|]\s+/, "").split(":")[0].replace(/\([^)]*\)\s*$/, "").trim();
 };
 
-// Every complete table in the text (header + separator + rows): its parent
+// Every complete table in the text (a header and its rows): its parent
 // name — the nearest shallower line, or the root name — with its grid and
-// location. Assumed lone headers are skipped: they are still being typed.
-function tablesOf(lines, rootName) {
+// location. A lone header is skipped, as one still being typed, unless
+// `headerOnly` asks for it: the table of a Concept with no Examples yet is
+// one, and the flip writes it back as the Concept's lines.
+//
+// The grid is the table as it reads since 1.13: a 1.12 table's indented rows
+// come out flattened into the parent column (flatten), so every reader sees
+// one shape, and a writer that draws the grid back migrates the table.
+// `parentCol` is that column's index in the header (-1 for none), and
+// `breaks` the data-row indices a divider stands before (rows.length for
+// one after the last row).
+function tablesOf(lines, rootName, { headerOnly = false } = {}) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    const block = blockAt(lines, i);
-    if (!block) continue;
-    i = block.end;
-    if (headerIndex(block) === -1 || !dataRowsOf(block).length) continue;
+    const read = blockAt(lines, i);
+    if (!read) continue;
+    i = read.end;
+    if (headerIndex(read) === -1 || (!headerOnly && !dataRowsOf(read).length)) continue;
+    const block = { ...read, rows: read.rows.map((r) => ({ ...r, cells: r.cells.slice() })) };
+    flatten(block);
     // the table names the Concept it describes in its first header cell
     // (1.9); an older table (a 'name' label, or a cell that reads as no
     // Concept) still takes its name from the nearest shallower line.
@@ -1365,19 +1562,23 @@ function tablesOf(lines, rootName) {
       }
     }
     if (!name) continue;
-    // each row is pinned to its own line
-    const physIdx = new Map(block.rows.map((r, idx) => [r, idx]));
     const head = headerIndex(block);
     const header = block.rows[head].cells;
-    // each data row with its 1-based line and its depth in the table's tree
-    const rows = [], rowLines = [], rowDepths = [];
+    // each data row with its 1-based line — every row is pinned to its own
+    const rows = [], rowLines = [], breaks = [];
     block.rows.forEach((r, j) => {
-      if (j <= head || r.sep) return;
+      if (j <= head) return;
+      if (r.sep) {
+        if (breaks[breaks.length - 1] !== rows.length) breaks.push(rows.length);
+        return;
+      }
       rows.push(header.map((_, k) => r.cells[k] || ""));
-      rowLines.push(block.start + physIdx.get(r) + 1);
-      rowDepths.push(r.depth || 0);
+      rowLines.push(block.start + j + 1);
     });
-    out.push({ name, nameLine, start: block.start, end: block.end, indent: block.indent, header, rows, rowLines, rowDepths });
+    out.push({
+      name, nameLine, start: block.start, end: block.end, indent: block.indent,
+      header, rows, rowLines, breaks, parentCol: parentColumnOf(header),
+    });
   }
   return out;
 }
@@ -1435,8 +1636,10 @@ function fromCsv(text) {
 // Concept's existing table block, or insert one directly beneath the
 // Concept when it has none yet. Returns { changed, from, to, block } —
 // lines from..to (inclusive) become the block; to < from is a pure insert
-// before `from`. null when no line defines the named Concept.
-function updateTable(lines, name, header, rows, rootName, registry) {
+// before `from`. null when no line defines the named Concept. The block's
+// dividers are kept before the same data rows, unless `breaks` (data-row
+// indices, as tablesOf hands them out) says where they go.
+function updateTable(lines, name, header, rows, rootName, registry, breaks) {
   const low = name.toLowerCase();
   let from, to, indent;
   // 1) a table the Concept names in its own first header cell (1.9) —
@@ -1484,20 +1687,36 @@ function updateTable(lines, name, header, rows, rootName, registry) {
         const found = blockAt(lines, i);
         from = found.start;
         to = found.end;
+        selfBlock = found;
         break;
       }
     }
   }
-  const tableBlock = {
-    indent,
-    rows: [
-      { sep: false, cells: header },
-      ...rows.map((cells) => ({ sep: false, cells })),
-    ],
-  };
-  const block = render(tableBlock);
+  // the table's dividers stay where they stood, before the same data rows
+  // — a grid from a CSV has no way to say where they were
+  const keep = new Set(breaks || (selfBlock ? breaksOf(selfBlock) : []));
+  const body = [];
+  rows.forEach((cells, k) => {
+    if (keep.has(k)) body.push({ sep: true, cells: [] });
+    body.push({ sep: false, cells });
+  });
+  if (rows.length && keep.has(rows.length)) body.push({ sep: true, cells: [] });
+  const block = render({ indent, rows: [{ sep: false, cells: header }, ...body] });
   const changed = lines.slice(from, to + 1).join("\n") !== block.join("\n");
   return { changed, from, to, block };
+}
+
+// The data-row indices a block's dividers stand before (tablesOf's breaks).
+function breaksOf(block) {
+  const out = [];
+  const head = headerIndex(block);
+  let n = 0;
+  block.rows.forEach((r, j) => {
+    if (j <= head) return;
+    if (!r.sep) { n++; return; }
+    if (out[out.length - 1] !== n) out.push(n);
+  });
+  return out;
 }
 
 // Re-align every table in the text so the pipes line up. A table is an
@@ -1532,15 +1751,16 @@ module.exports = {
   cells, dividers, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross, columnDefinition, defineColumn,
-  subtreeOf, prevSibling, demoteRow, promoteRow,
+  demoteRow, promoteRow, flatten, nests, parentsOf, branchOf, breaksOf,
+  headerTerm, isParentColumn, parentColumnOf, parentHeader, PARENT_TERM,
   copyCell, moveCell, copyRow, copyColumn,
   jumpCell, cornerCell, fill, fillDown, fillRight, copyFormulaFromAbove, copyValueFromAbove,
-  columnTerm,
+  columnTerm, defaultColon,
   padCell, headerIndex,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
   splitCell, splitConstraint, formatValue,
   longestMatch, numericValue, tableCtx,
-  readValue,
+  readValue, writtenValue,
   valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
   mergeRegistries, enclosingScope,
   numberless, lineDerivation,

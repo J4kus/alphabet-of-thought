@@ -343,6 +343,30 @@ const JAKUS = {
   check("a hand-written Map yields no spans",
     repo.noteSpans(["... still to do"], ...Object.values(
       (({ root: r, nodes: n }) => ({ root: r, nodes: n }))(lint("... still to do", "x")))).length === 0);
+  // a file name may hold spaces — the README's own `bank recon.aot:14`
+  const spaced = aot("Team", "    Jakus", "        - One", "        ... 6 more in bank recon.aot:14, monthly close.aot:3, vat.aot:2, …");
+  const p = lint(spaced, "close");
+  const s2 = repo.noteSpans(spaced.split(/\r?\n/), p.root, p.nodes);
+  const raw = spaced.split(/\r?\n/)[3];
+  check("noteSpans: a file name with spaces is one span, and the trailing … is none",
+    s2.map((s) => `${raw.slice(s.startCol, s.endCol)}>${s.file}:${s.target}`).join("|")
+    === "bank recon.aot:14>bank recon.aot:14|monthly close.aot:3>monthly close.aot:3|vat.aot:2>vat.aot:2");
+  check("noteSpans: each span names the Concept the note is under, to be found where it stands now",
+    s2.every((s) => s.concept === "Jakus"));
+  const parts = repo.noteParts(raw);
+  check("noteParts: `N more` is a span of its own, carrying N",
+    parts.count.n === 6 && raw.slice(parts.count.startCol, parts.count.endCol) === "6 more");
+}
+
+// the count is the Examples elsewhere and not here, each once: an Example
+// two peers both list is one more, not two
+{
+  const shared = reconciled({
+    "close.aot": aot("Team", "    Jakus", "        - One"),
+    "bank.aot": aot("Team", "    Jakus", "        - Two"),
+    "payroll.aot": aot("Team", "    Jakus", "        - Two", "        - Three"),
+  }, "close.aot").text.split("\n").find((l) => l.includes("..."));
+  check("noteFor: an Example two peers list counts once", shared === "        ... 2 more in bank.aot:2, payroll.aot:2");
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +420,20 @@ const JAKUS = {
     found.warnings.some((w) => w.line === 4 && /no other file lists 'Person' any more/.test(w.message)));
   const quiet = repo.findings("a.aot", repo.occurrences(entries), { autoReconcile: true });
   check("stale note: not warned about when a save will remove it", !quiet.warnings.length);
+}
+
+// a value holding a literal '=' crosses files as itself: written back with
+// its '=' doubled, never as the derivation a bare '=' would open
+{
+  const files = {
+    "a.aot": aot("Rule", "    note", "    - First"),
+    "b.aot": aot("Rule", "    note: a == b", "    Rule|tag", "    Second|x == y"),
+  };
+  const { text } = reconciled(files, "a.aot");
+  const back = lint(text, "a");
+  const note = back.nodes.find((n) => n.name === "note" && n.kind === 1);
+  check("reconcile: a peer's value holding a literal '=' is written in escaped, and reads as itself",
+    /    note: a == b/.test(text) && note && note.value === "a = b" && note.formula === undefined);
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

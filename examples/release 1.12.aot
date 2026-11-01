@@ -174,13 +174,13 @@ Family
             age: 12
     - Other
         age: 7
-Orchard       |height
-Apple Tree    |300
-    Sapling A |40
-    Sapling B |35
-Pear Tree     |280
-    Seedling A|20
-    Seedling B|25
+Orchard   |parent (orchard)|height
+Apple Tree|                |300
+Sapling A |Apple Tree      |40
+Sapling B |Apple Tree      |35
+Pear Tree |                |280
+Seedling A|Pear Tree       |20
+Seedling B|Pear Tree       |25
 
 Python Probe
     family count: 4 =len(@Family)
@@ -194,7 +194,7 @@ INV-3  |80   |16 =@price*0.2|79 =@price-1
 Pipe Probe|label|length
 P1        |ab   |3 =len("a|b")
 
-Squad|size ==4
+Squad|size =4
 Red  |5 =2+3
 Blue |4
 Green|4

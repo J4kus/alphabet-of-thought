@@ -31,7 +31,7 @@
 
 const path = require("path");
 const { KIND, INDENT } = require("./linter");
-const { numberless, tablesOf, updateTable } = require("./table");
+const { numberless, tablesOf, updateTable, writtenValue } = require("./table");
 const { lastLineOf, headerColName } = require("./derive");
 
 // The maintained `...` line, told from anything you wrote by its own shape.
@@ -152,37 +152,62 @@ function unionExamples(all) {
 // and the one form every editor makes clickable.
 function noteFor(occ, peers) {
   const here = new Set(examplesOf(occ.node).map((e) => fold(e.name)));
+  // N is how many Examples live elsewhere and not here — each once, however
+  // many peers list it
+  const elsewhere = new Set();
   const carrying = [];
   for (const p of peers) {
     const extra = examplesOf(p.node).filter((e) => !here.has(fold(e.name)));
+    for (const e of extra) elsewhere.add(fold(e.name));
     if (extra.length) carrying.push({ peer: p, count: extra.length });
   }
   if (!carrying.length) return null;
   carrying.sort((a, b) => path.basename(a.peer.file).localeCompare(path.basename(b.peer.file)));
-  const total = carrying.reduce((sum, c) => sum + c.count, 0);
   const shown = carrying.slice(0, MAX_FILES)
     .map((c) => `${path.basename(c.peer.file)}:${c.peer.node.line}`);
-  return `${total} more in ${shown.join(", ")}${carrying.length > MAX_FILES ? ", …" : ""}`;
+  return `${elsewhere.size} more in ${shown.join(", ")}${carrying.length > MAX_FILES ? ", …" : ""}`;
+}
+
+// A maintained `...` line read back into its parts, with the columns the
+// editor shows them at: { count: { startCol, endCol, n }, files: [{
+// startCol, endCol, file, target }] } — `N more` and each `name.aot:12`.
+// The files are what follows `more in`, split on `, `, so a name may hold
+// spaces (`bank recon.aot:14`); the trailing `…` is no file. null for a line
+// that is no maintained note.
+function noteParts(raw) {
+  const text = String(raw || "");
+  const at = text.indexOf("...");
+  if (at === -1) return null;
+  const body = at + 3 + (text.slice(at + 3).length - text.slice(at + 3).trimStart().length);
+  const m = /^(\d+) more in /.exec(text.slice(body));
+  if (!m) return null;
+  const count = { startCol: body, endCol: body + m[1].length + " more".length, n: Number(m[1]) };
+  const files = [];
+  let from = body + m[0].length;
+  for (const part of text.slice(from).split(", ")) {
+    const lead = part.length - part.trimStart().length;
+    const item = part.trim();
+    const colon = item.lastIndexOf(":");
+    if (colon > 0 && /\.aot$/i.test(item.slice(0, colon)) && /^\d+$/.test(item.slice(colon + 1))) {
+      files.push({ startCol: from + lead, endCol: from + lead + item.length, file: item.slice(0, colon), target: Number(item.slice(colon + 1)) });
+    }
+    from += part.length + 2;
+  }
+  return { count, files };
 }
 
 // The `file:line` spans inside this file's maintained `...` lines, so the
-// DocumentLinkProvider can make each one open that file at that line.
-// Returns [{ line, startCol, endCol, file, target }], 1-based lines.
+// DocumentLinkProvider can make each one open that file at that Concept.
+// Returns [{ line, startCol, endCol, file, target, concept }], 1-based lines
+// — `target` the line written, `concept` the name to find there now.
 function noteSpans(lines, root, nodes) {
   const out = [];
   for (const node of nodes) {
     if (node.kind !== KIND.MAP || !NOTE_RE.test(node.name)) continue;
-    const raw = lines[node.line - 1] || "";
-    // every `name.aot:12` in the line, taken from the raw text so the columns
-    // are the ones the editor will highlight
-    for (const m of raw.matchAll(/([^\s,]+\.aot):(\d+)/g)) {
-      out.push({
-        line: node.line,
-        startCol: m.index,
-        endCol: m.index + m[0].length,
-        file: m[1],
-        target: Number(m[2]),
-      });
+    const parts = noteParts(lines[node.line - 1]);
+    if (!parts) continue;
+    for (const f of parts.files) {
+      out.push({ line: node.line, ...f, concept: node.parent ? node.parent.name : "" });
     }
   }
   return out;
@@ -290,19 +315,21 @@ function findings(file, all, opts) {
 
 // One child of a peer as lines for this file: the raw subtree re-indented so
 // aliases, constraints and formulas survive verbatim, or synthesised when the
-// node came from a table row and has no line of its own.
+// node came from a table row and has no line of its own — its values written
+// back as the file holds them (writtenValue), so an `=` a value holds never
+// opens a derivation where it lands.
 function subtreeLines(node, peerLines, indent, childIndent) {
   if (node.cell || !peerLines) {
     if (node.kind === KIND.INDIVIDUAL) {
       const out = [indent + `- ${node.name}`];
       for (const c of node.children) {
         if (c.kind === KIND.DEFAULT && c.value != null && String(c.value) !== "") {
-          out.push(childIndent + `${c.name}: ${c.value}`);
+          out.push(childIndent + `${c.name}: ${writtenValue(c.value)}`);
         }
       }
       return out;
     }
-    const value = node.kind === KIND.DEFAULT && node.value != null ? `: ${node.value}` : "";
+    const value = node.kind === KIND.DEFAULT && node.value != null ? `: ${writtenValue(node.value)}` : "";
     return [indent + node.name + (node.alias ? ` (${node.alias})` : "") + value];
   }
   const src = peerLines.slice(node.line - 1, lastLineOf(node));
@@ -353,7 +380,7 @@ function reconcileOps(lines, occ, peers, rootName, registry) {
         if (!bare || !own.has(key) || ours.cell) continue;
         taken.add(key);
         const raw = lines[ours.line - 1] || "";
-        ops.push({ type: "replace", line: ours.line, text: `${raw.trimEnd()}: ${theirs.value}` });
+        ops.push({ type: "replace", line: ours.line, text: `${raw.trimEnd()}: ${writtenValue(theirs.value)}` });
         continue;
       }
       taken.add(key);
@@ -384,7 +411,7 @@ function reconcileOps(lines, occ, peers, rootName, registry) {
         have.set(key, attr);
         if (ours.cell) {
           const at = rowFill.get(fold(ours.name)) || new Map();
-          at.set(key, attr.value == null ? "" : String(attr.value));
+          at.set(key, attr.value == null ? "" : writtenValue(attr.value));
           rowFill.set(fold(ours.name), at);
           if (grid && !grid.header.some((h) => headerColName(h).toLowerCase() === key)) {
             if (!columns.some((c) => c.key === key)) columns.push({ key, node: attr });
@@ -517,6 +544,6 @@ function applyOps(lines, ops) {
 module.exports = {
   occurrences, peersOf, unionExamples, findings,
   reconcileOps, reconcileFile, applyOps,
-  noteFor, noteSpans, maintainedNotes, declared, effective, genusOf,
+  noteFor, noteSpans, noteParts, maintainedNotes, declared, effective, genusOf,
   NOTE_RE,
 };

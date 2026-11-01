@@ -81,6 +81,25 @@ const columnName = (cell) => columnTerm(cell || "");
 // A stored entry that is a constraint rather than a derivation.
 const isConstraintEntry = (formula) => /^(==|<=|>=|<|>)/.test(String(formula || "").trim());
 
+// A constraint chain spelled two ways. A declaration writes its definition
+// `=` (`vat =@price*0.2`); the store writes it `==`, as every stored bound has
+// been since the store began, so a stored definition never reads as a value's
+// derivation filed at the same `@Concept@attr`. Respelled clause by clause —
+// the text between them exactly as it was — and a chain that does not read as
+// one is left as it stands.
+function respell(chain, from, to) {
+  const con = splitConstraint("_ " + chain);
+  let out = chain;
+  for (const c of [...con.constraints].reverse()) {
+    if (c.opText !== from) continue;
+    const at = c.eq - 2;
+    out = out.slice(0, at) + to + out.slice(at + from.length);
+  }
+  return out;
+}
+const storedChain = (chain) => respell(chain, "=", "==");
+const writtenChain = (chain) => respell(chain, "==", "=");
+
 // Every addressable data cell of every grid: address -> { line, col }.
 //
 // Grids are read from the text rather than from the tree because a cell
@@ -335,7 +354,7 @@ function park(lines, nodes, rootName, generated) {
         if (!where) continue;
         const con = splitConstraint(texts[where.k]);
         if (con.eq === -1) continue;
-        found.push({ line, address: addressOf(node, rootName), formula: texts[where.k].slice(con.eq).trim() });
+        found.push({ line, address: addressOf(node, rootName), formula: storedChain(texts[where.k].slice(con.eq).trim()) });
         texts[where.k] = con.value;
         touched = true;
       }
@@ -346,7 +365,7 @@ function park(lines, nodes, rootName, generated) {
     if (!node) continue;
     const opCol = node.constraints[0].opCol;
     if (opCol === undefined || opCol >= text.length) continue;
-    found.push({ line, address: addressOf(node, rootName), formula: text.slice(opCol).trim() });
+    found.push({ line, address: addressOf(node, rootName), formula: storedChain(text.slice(opCol).trim()) });
     out[at] = text.slice(0, opCol).trimEnd();
   }
 
@@ -474,13 +493,13 @@ function unpark(lines, nodes, rootName, parked) {
       for (const { node, formula, address } of group) {
         const where = node.cell ? declSpan(text, node) : null;
         if (!where) { missing.push(address); continue; }
-        texts[where.k] = `${texts[where.k]} ${formula}`;
+        texts[where.k] = `${texts[where.k]} ${writtenChain(formula)}`;
         touched = true;
       }
       if (touched) out[at] = renderRow(text, texts);
       continue;
     }
-    out[at] = [text.trimEnd(), ...group.map((g) => g.formula)].join(" ");
+    out[at] = [text.trimEnd(), ...group.map((g) => writtenChain(g.formula))].join(" ");
   }
   for (const [line, formula] of conceptLines) {
     const at = line - 1;

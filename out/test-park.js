@@ -122,8 +122,8 @@ const parsed = (lines, rootName) => {
     out.lines[5] === "        note: a \\= b");
   const after = parsed(out.lines);
   const back = unpark(out.lines, after.nodes, "Sheet", out.parked);
-  check("unpark: the bounds come home exactly as they were written",
-    back.lines.join("\n") === lines.join("\n") && back.missing.length === 0);
+  check("unpark: the bounds come home as they were written — the older '==' in today's spelling, '='",
+    back.lines.join("\n") === lines.map((l, i) => (i === 2 ? "    status =or(`draft`,`sent`)" : l)).join("\n") && back.missing.length === 0);
   const held = parkedConstraints(after.nodes, "Sheet", out.parked);
   const age = [...held.keys()].find((n) => n.name === "age");
   check("parkedConstraints: a parked chain is handed back to its declaration",
@@ -139,27 +139,32 @@ const parsed = (lines, rootName) => {
 }
 {
   // a constrained grid column: the header cell sheds its bound, and the
-  // derivations under it are addressed by the column's bare name
+  // derivations under it are addressed by the column's bare name. The
+  // column's definition is written '=' and stored '==' — the store's own
+  // spelling, so it can never read as the derivation of a value filed at
+  // the same address — and comes home as '='.
   const lines = [
-    "Invoice|price|vat ==@price*0.2|qty >=1",
-    "INV-1  |100  |20 =@price/5    |2",
+    "Invoice|price|vat =@price*0.2|qty >=1",
+    "INV-1  |100  |20 =@price/5   |2",
   ];
   const { nodes } = parsed(lines);
   const out = park(lines, nodes, "Sheet");
   check("park: a header cell sheds its constraint, the column keeps its name",
     out.lines[0].split("|").map((c) => c.trim()).join("|") === "Invoice|price|vat|qty");
-  check("park: a cell's derivation is addressed by the column's bare name",
+  check("park: a cell's derivation is addressed by the column's bare name; the column's definition is stored '=='",
     out.parked.some((p) => p.address === "@Invoice@vat@INV-1" && p.formula === "=@price/5")
     && out.parked.some((p) => p.address === "@Invoice@vat" && p.formula === "==@price*0.2")
     && out.parked.some((p) => p.address === "@Invoice@qty" && p.formula === ">=1"));
   const back = unpark(out.lines, parsed(out.lines).nodes, "Sheet", out.parked);
   const norm = (ls) => ls.map((l) => l.split("|").map((c) => c.trim()).join("|")).join("\n");
-  check("unpark: the header's constraints and the cell's derivation all come home",
+  check("unpark: the header's constraints and the cell's derivation all come home, the definition as '='",
     norm(back.lines) === norm(lines) && back.missing.length === 0);
   // a store written before constraints parked addressed the cell by the
-  // column's name WITH its constraint; it still comes home
-  const legacy = unpark(lines.map((l, i) => (i === 1 ? "INV-1|100|20|2" : l)),
-    parsed(lines).nodes, "Sheet", [{ address: "@Invoice@vat ==@price*0.2@INV-1", formula: "=@price/5" }]);
+  // column's name WITH its constraint — written the older way, `==`, as
+  // every header was then; it still comes home
+  const legacyLines = ["Invoice|price|vat ==@price*0.2|qty >=1", "INV-1|100|20|2"];
+  const legacy = unpark(legacyLines,
+    parsed(legacyLines).nodes, "Sheet", [{ address: "@Invoice@vat ==@price*0.2@INV-1", formula: "=@price/5" }]);
   check("unpark: a legacy address carrying the column's constraint still resolves",
     legacy.missing.length === 0 && legacy.lines[1].includes("20 =@price/5"));
 }

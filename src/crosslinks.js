@@ -40,7 +40,17 @@
 // (link decorations + go-to-definition).
 
 const { KIND } = require("./linter");
-const { valueType, numberless } = require("./table"); // a leaf module; no cycle
+const { valueType, numberless, splitCell } = require("./table"); // a leaf module; no cycle
+
+// How many characters a value takes on its line — escapes and all, so a
+// doubled `==` counts twice — from `start`, where the value begins. A
+// table cell ends at its divider (a literal pipe in a cell is `¦`); a
+// line-form value runs to its derivation or its end.
+function writtenLength(raw, start, node) {
+  let text = raw.slice(start);
+  if (node.cell) text = text.split("|")[0];
+  return splitCell(text.trim()).value.length || node.value.length;
+}
 
 // Start offset of every word in a name, so a matched trailing run of
 // words maps back to the exact characters on the line.
@@ -57,6 +67,33 @@ function words(name) {
   const out = [];
   const re = /\S+/g;
   for (let m; (m = re.exec(name)); ) out.push({ start: m.index, end: m.index + m[0].length });
+  return out;
+}
+
+// Each longest, non-overlapping run of words in `text` — a Concept's name, or
+// its alias — that names another Concept (or another Concept's alias, which
+// resolves as its name does), scanned left to right: { start, end, span,
+// target }. The whole text is never a run: it names `node` itself, or is an
+// alias whose whole match is a link of its own. Navigation only — it makes
+// no dependency, and no kind of one Concept another's.
+function containedConcepts(text, node, concepts) {
+  const out = [];
+  const ws = words(text);
+  for (let i = 0; i < ws.length; ) {
+    let matched = false;
+    for (let j = ws.length - 1; j >= i; j--) {
+      if (i === 0 && j === ws.length - 1) continue;
+      const span = text.slice(ws[i].start, ws[j].end);
+      const target = concepts.get(span.toLowerCase());
+      if (target && target !== node) {
+        out.push({ start: ws[i].start, end: ws[j].end, span, target });
+        i = j + 1;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) i++;
+  }
   return out;
 }
 
@@ -102,6 +139,35 @@ function conceptType(node, concepts) {
     if (target && target !== node) return target;
   }
   return null;
+}
+
+// The default an attribute takes from the Concept that types it: `Currency:
+// EUR` is what a `currency` reads wherever nothing values it — its own
+// Example, the Concept above, the kinds above that. { concept, value }, or
+// null when the type states no default (or nothing types the attribute).
+function typeDefault(node, concepts) {
+  const type = conceptType(node, concepts);
+  return type && type.value != null && String(type.value) !== "" ? { concept: type, value: type.value } : null;
+}
+
+// The same, for a node alone: the file's Concepts found from its root once
+// and kept, for the walks that hold a node but no index — a formula's
+// context, a Concept's scope, the CSV mirror. A type written in another
+// file is not followed here: a default holds in the file that states it.
+const conceptsByRoot = new WeakMap();
+function typeDefaultOf(node) {
+  if (!node) return null;
+  let root = node;
+  while (root.parent) root = root.parent;
+  let concepts = conceptsByRoot.get(root);
+  if (!concepts) {
+    const all = [];
+    const walk = (n) => { for (const c of n.children || []) { all.push(c); walk(c); } };
+    walk(root);
+    concepts = index(root, all).concepts;
+    conceptsByRoot.set(root, concepts);
+  }
+  return typeDefault(node, concepts);
 }
 
 // Whether an Example is one of a Concept's own — an Example *of the Concept*,
@@ -245,6 +311,8 @@ function unlistedValues(text, root, nodes, external) {
     if (TRUTH_VALUES.has(node.value.trim().toLowerCase())) continue;
     const type = conceptType(node, concepts);
     if (!type) continue;
+    // the type's default is a value it vouches for, Example or not
+    if (type.value && String(type.value).toLowerCase() === node.value.trim().toLowerCase()) continue;
     const listed = listedExamples(type);
     if (!listed.length) continue;
     const kinds = new Set(listed.map((c) => valueType(c.name)));
@@ -266,7 +334,7 @@ function unlistedValues(text, root, nodes, external) {
     out.push({
       line: node.line,
       startCol,
-      endCol: startCol + node.value.length,
+      endCol: startCol + writtenLength(raw, startCol, node),
       value: node.value,
       concept: type,
       message: `'${node.value}' is not an Example of Concept '${type.name}' — its Examples are ${shown}`,
@@ -345,6 +413,33 @@ function resolve(text, root, nodes, external) {
     const raw = lines[node.line - 1] || "";
     const nameStart = raw.length - raw.trimStart().length;
 
+    // A table's parent column (1.13): its (alias) names the table's own
+    // Concept — which is what makes every cell under it name one of the
+    // table's rows — and each row's cell links the row it names, as a value
+    // links the Example it names. A cell naming no row links nothing; the
+    // linter says why.
+    for (const col of node.parentColumns || []) {
+      if (!col.alias || col.aliasCol === undefined) continue;
+      links.push({
+        connection: "attribute-is-a-Concept",
+        line: col.line,
+        startCol: col.aliasCol,
+        endCol: col.aliasCol + col.alias.length,
+        text: col.alias,
+        target: node,
+      });
+    }
+    if (node.kind === KIND.INDIVIDUAL && node.parentCell && node.parentCell.row) {
+      links.push({
+        connection: "parent-is-a-Example",
+        line: node.line,
+        startCol: node.parentCell.col,
+        endCol: node.parentCell.col + node.parentCell.text.length,
+        text: node.parentCell.text,
+        target: node.parentCell.row,
+      });
+    }
+
     // A table cell's Attribute Value carries its column's attribute name,
     // but that name is written on the header line, not here — the header's
     // own ATTRIBUTE node links it, so the name link is skipped for cells.
@@ -402,45 +497,35 @@ function resolve(text, root, nodes, external) {
       // a Concept named in a table's first header cell (1.9) knows its exact
       // offset; a line-form Concept starts at the first non-space character
       const cbase = node.nameCol !== undefined ? node.nameCol : nameStart;
-      // each longest, non-overlapping run of words that names another
-      // Concept becomes its own link, scanned left to right
-      const ws = words(node.name);
-      for (let i = 0; i < ws.length; ) {
-        let matched = false;
-        for (let j = ws.length - 1; j >= i; j--) {
-          if (i === 0 && j === ws.length - 1) continue; // the whole name is the node itself
-          const span = node.name.slice(ws[i].start, ws[j].end);
-          const target = concepts.get(span.toLowerCase());
-          if (target && target !== node) {
-            links.push({
-              connection: "concept-contains-Concept",
-              line: node.line,
-              startCol: cbase + ws[i].start,
-              endCol: cbase + ws[j].end,
-              text: span,
-              target,
-            });
-            i = j + 1;
-            matched = true;
-            break;
-          }
+      const contains = (text, base) => {
+        for (const run of containedConcepts(text, node, concepts)) {
+          links.push({
+            connection: "concept-contains-Concept",
+            line: node.line,
+            startCol: base + run.start,
+            endCol: base + run.end,
+            text: run.span,
+            target: run.target,
+          });
         }
-        if (!matched) i++;
-      }
-      // a parenthetical alias that names another Concept links whole, with
-      // the underline inside the parentheses, exactly as an attribute's
-      // alias does: `Auto (Car)` links its `Car` to the `Car` Concept
+      };
+      contains(node.name, cbase);
       if (node.alias) {
+        // a table header cell recorded its alias offset at parse time
+        let aliasStart = node.aliasCol;
+        if (aliasStart === undefined) {
+          const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
+          const open = region.lastIndexOf("(");
+          const inner = region.slice(open + 1);
+          aliasStart = open + 1 + (inner.length - inner.trimStart().length);
+        }
+        // a parenthetical alias that names another Concept links whole, with
+        // the underline inside the parentheses, exactly as an attribute's
+        // alias does: `Auto (Car)` links its `Car` to the `Car` Concept (and
+        // is a duplicated identity the linter reports). Otherwise its own
+        // words link as a name's do: `Human (Natural Person)` links `Person`.
         const target = concepts.get(node.alias.toLowerCase());
         if (target && target !== node) {
-          // a table header cell recorded its alias offset at parse time
-          let aliasStart = node.aliasCol;
-          if (aliasStart === undefined) {
-            const region = raw.slice(0, raw.indexOf(":") === -1 ? raw.length : raw.indexOf(":"));
-            const open = region.lastIndexOf("(");
-            const inner = region.slice(open + 1);
-            aliasStart = open + 1 + (inner.length - inner.trimStart().length);
-          }
           links.push({
             connection: "alias-is-a-Concept",
             line: node.line,
@@ -449,7 +534,7 @@ function resolve(text, root, nodes, external) {
             text: node.alias,
             target,
           });
-        }
+        } else contains(node.alias, aliasStart);
       }
     }
 
@@ -463,7 +548,12 @@ function resolve(text, root, nodes, external) {
       // `maximum number of elements` — is never picked: an attribute's listed
       // Examples are its own frame's vocabulary, not a Concept's.
       const target = valueTarget(node, concepts, individualsByName);
-      if (target) {
+      // a value that is no Example of the type but is the type's default —
+      // `currency: EUR` beside `Currency: EUR` — names that default, and
+      // links to the line that states it, as a value (dotted)
+      const byDefault = target ? null : typeDefault(node, concepts);
+      const toDefault = byDefault && String(byDefault.value).toLowerCase() === node.value.toLowerCase() ? byDefault.concept : null;
+      if (target || toDefault) {
         // a table cell knows its exact offset; a 'name: value' line finds
         // its value after the colon
         let valueStart = node.valueCol;
@@ -473,12 +563,13 @@ function resolve(text, root, nodes, external) {
           valueStart = colon + 1 + (after.length - after.trimStart().length);
         }
         links.push({
-          connection: "default-is-a-Example",
+          connection: target ? "default-is-a-Example" : "value-is-a-default",
           line: node.line,
           startCol: valueStart,
-          endCol: valueStart + node.value.length,
+          endCol: valueStart + writtenLength(raw, valueStart, node),
           text: node.value,
-          target,
+          target: target || toDefault,
+          ...(target ? {} : { asValue: true }),
         });
       }
     }
@@ -520,5 +611,5 @@ function resolve(text, root, nodes, external) {
 module.exports = {
   resolve, index, externalIndex, conceptType, wordStarts, instantiates,
   exampleOfConcept, individualsIndex, valueTarget, listedTarget, owningConcept,
-  unlistedValues, listedExamples,
+  unlistedValues, listedExamples, typeDefault, typeDefaultOf,
 };

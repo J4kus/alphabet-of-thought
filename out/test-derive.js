@@ -5,7 +5,7 @@
 //
 // Plain Node script, no framework — run with: node out/test-derive.js
 const { lint, KIND } = require("../src/linter");
-const { derivationSpans, constraintOf, definitionOf, copyToSiblings, conceptRegistry, addExample, updateExamples, mirrorGrids, updateScope, renumberExamples, renumberConcepts, flipForm, gridOfConcept } = require("../src/derive");
+const { derivationSpans, constraintOf, definitionOf, copyToSiblings, conceptRegistry, addExample, updateExamples, mirrorGrids, updateScope, renumberExamples, renumberConcepts, flipForm, gridOfConcept, conceptScope, makeCtx } = require("../src/derive");
 
 let failures = 0;
 function check(name, ok) {
@@ -54,22 +54,26 @@ const parsed = (text) => {
     "Case",
     "    - Pipe",
     "        case: Flags \\=a() | b()",
+    "    - Doubled",
+    "        case: c == d === e",
     "    Case|note",
     "    Row |a \\= b",
   );
   const { root, nodes, lines } = parsed(text);
   const grid = mirrorGrids(root, nodes).find((g) => g.name === "Case");
   const concept = nodes.find((n) => n.name === "Case");
+  check("mirror: a CSV holds the values as read — the doubled escape and the older one alike",
+    grid.rows.some((r) => r.includes("c = d == e")) && grid.rows.some((r) => r.includes("a = b")));
   const same = updateScope(lines, root, nodes, concept, grid.header, grid.rows, "Sheet");
-  check("fold: the mirror's own CSV folds back as no change — an escaped '=' and a pipe survive the round trip",
+  check("fold: the mirror's own CSV folds back as no change — an escaped '=', either spelling, and a pipe survive the round trip",
     same.length === 0);
   const csvHeader = ["Case", "case", "note"];
   const edited = [["Pipe", "x =__import__('os').getpid()", ""], ["Row", "", "y =boom()"], ["Fresh", "", "=evil()"]];
   const ops = updateScope(lines, root, nodes, concept, csvHeader, edited, "Sheet");
   const written = ops.map((o) => o.text || (o.block || []).join("\n")).join("\n");
   check("fold: a value a CSV brings is escaped, never a derivation — in line form, in a table cell, and on a fresh row",
-    /case: x \\=__import__\('os'\)\.getpid\(\)/.test(written) && /Row {2}\|y \\=boom\(\)/.test(written) && /Fresh\|\\=evil\(\)/.test(written)
-    && !/(^|[^\\])=(__import__|boom|evil)/.test(written));
+    /case: x ==__import__\('os'\)\.getpid\(\)/.test(written) && /Row {2}\|y ==boom\(\)/.test(written) && /Fresh\|==evil\(\)/.test(written)
+    && !/(^|\s|\|)=(__import__|boom|evil)/.test(written));
 }
 
 // ---------------------------------------------------------------------------
@@ -162,12 +166,59 @@ const parsed = (text) => {
     ];
     const ops = updateScope(l2, r2, n2, thing, edited[0], edited.slice(1), "Sheet");
     const block = ops.find((o) => o.type === "block");
-    check("mirror: folding back keeps the tree and applies the edit",
+    // a 1.12 table nested by indent comes back with the parent column (1.13)
+    check("mirror: folding back keeps the tree and applies the edit, in the parent column",
       block && block.block.join("\n") === aot(
-        "Thing          |age",
-        "Parent         |",
-        "    Child 1    |11",
-        "        Child 2|12",
+        "Thing  |parent (thing)|age",
+        "Parent |              |",
+        "Child 1|Parent        |11",
+        "Child 2|Child 1       |12",
+      ));
+    // a flat table nesting for the first time gains the column, second
+    const flat = aot("Thing  |age", "Parent |", "Child 1|10");
+    const p3 = parsed(flat);
+    const thing3 = p3.nodes.find((n) => n.kind === KIND.CONCEPT && n.name === "Thing");
+    const ops3 = updateScope(p3.lines, p3.root, p3.nodes, thing3, ["Thing", "parent", "age"],
+      [["Parent", "", ""], ["Child 1", "Parent", "10"], ["Child 2", "Parent", "4"]], "Sheet");
+    const block3 = ops3.find((o) => o.type === "block");
+    check("mirror: a CSV nesting a flat table's rows adds its parent column, new rows filed by it",
+      block3 && block3.block.join("\n") === aot(
+        "Thing  |parent (thing)|age",
+        "Parent |              |",
+        "Child 1|Parent        |10",
+        "Child 2|Parent        |4",
+      ));
+    // a CSV row the spreadsheet moved back to the top empties its parent cell
+    const p4 = parsed(block3.block.join("\n"));
+    const thing4 = p4.nodes.find((n) => n.kind === KIND.CONCEPT && n.name === "Thing");
+    const ops4 = updateScope(p4.lines, p4.root, p4.nodes, thing4, ["Thing", "parent", "age"],
+      [["Parent", "", ""], ["Child 1", "", "10"], ["Child 2", "Parent", "4"]], "Sheet");
+    const block4 = ops4.find((o) => o.type === "block");
+    check("mirror: a row the CSV files at the top has its parent cell emptied",
+      block4 && block4.block[2] === "Child 1|              |10");
+  }
+  // a nested '- ' Example is found where it is written, never appended again
+  // at the top with a literal 'parent:' line
+  {
+    const text = aot(
+      "Thing",
+      "    - Parent",
+      "        - Child 1",
+      "            age: 10",
+    );
+    const p = parsed(text);
+    const thing = p.nodes.find((n) => n.kind === KIND.CONCEPT && n.name === "Thing");
+    const ops = updateScope(p.lines, p.root, p.nodes, thing, ["Thing", "parent", "age"],
+      [["Parent", "", ""], ["Child 1", "Parent", "11"], ["Child 2", "Parent", "3"]], "Sheet");
+    const out = require("../src/repo").applyOps(p.lines, ops).join("\n");
+    check("mirror: folding into nested line-form Examples updates them where they stand, and files a new one under its parent",
+      out === aot(
+        "Thing",
+        "    - Parent",
+        "        - Child 1",
+        "            age: 11",
+        "        - Child 2",
+        "            age: 3",
       ));
   }
 
@@ -523,11 +574,19 @@ const parsed = (text) => {
   );
   const mixedTable = flip(mixed, "Order");
   const mixedLines = mixedTable.text.split("\n");
-  check("flipForm: a Concept with a default or a Map keeps its own line and files the grid under it",
-    mixedLines[0] === "Order" && mixedLines[1] === "    tax rate: 0.2"
-    && mixedLines[2] === "    ... more to come" && mixedLines[3].startsWith("    Order|price|vat"));
-  check("flipForm: the flip never recomputes — a cell reading a line-form default keeps its value",
-    mixedTable.text.includes("Acme |100  |20 =@price*@tax rate"));
+  check("flipForm: a Concept with a Map keeps its own line and files the grid under it — its default rides in the header",
+    mixedLines[0] === "Order" && mixedLines[1] === "    ... more to come"
+    && mixedLines[2].startsWith("    Order|tax rate: 0.2|price|vat"));
+  check("flipForm: the flip never recomputes — a cell reading the Concept's default keeps its value",
+    /Acme \| +\|100 +\|20 =@price\*@tax rate/.test(mixedTable.text));
+  const defaultsOnly = aot("Order", "    tax rate: 0.2", "    price", "    - Acme", "        price: 100");
+  const standalone = flip(defaultsOnly, "Order");
+  check("flipForm: a Concept whose only extra is a default flips to one standalone table, the default in the header",
+    standalone.text.split("\n")[0] === "Order|tax rate: 0.2|price" && flip(standalone.text, "Order").text === defaultsOnly);
+  const typed = aot("Currency: EUR", "    symbol", "    - USD", "        symbol: $");
+  const typedTable = flip(typed, "Currency");
+  check("flipForm: a Concept's own default moves into the first header cell, and back",
+    typedTable.text.split("\n")[0] === "Currency: EUR|symbol" && flip(typedTable.text, "Currency").text === typed);
   check("flipForm: an attribute the Concept declares beside the grid is not declared twice on the way back",
     flip(mixedTable.text, "Order").text.split("\n").filter((l) => /^ *tax rate/.test(l)).length === 1);
 
@@ -546,9 +605,9 @@ const parsed = (text) => {
     nested.text.includes("        Landmark") && nested.text.includes("            - Palace")
     && nested.text.includes("Athens|Athenians"));
 
-  // A sub-Example IS a row — one indented inside its name cell — so a nested
-  // list and a nested grid are the same idea in two spellings, and the flip
-  // between them loses nothing in either direction.
+  // A sub-Example IS a row — one naming its parent row in the `parent
+  // (thing)` column — so a nested list and a nested grid are the same idea
+  // in two spellings, and the flip between them loses nothing either way.
   const nestedLines = aot(
     "Thing",
     "    age",
@@ -562,18 +621,48 @@ const parsed = (text) => {
     "            age: 7",
   );
   const nestedGrid = flip(nestedLines, "Thing");
-  check("flipForm: a nested list flips to a grid whose rows keep their depth",
+  check("flipForm: a nested list flips to a flat grid, each sub-Example naming its parent in the column second",
     nestedGrid.form === "table"
-    && nestedGrid.text.split("\n").map((l) => l.trimEnd()).join("\n") === aot(
-      "Thing       |age",
-      "Parent      |",
-      "    Child 1 |10",
-      "    Child 2 |12",
-      "Other Parent|",
-      "    Child 3 |7",
+    && nestedGrid.text === aot(
+      "Thing       |parent (thing)|age",
+      "Parent      |              |",
+      "Child 1     |Parent        |10",
+      "Child 2     |Parent        |12",
+      "Other Parent|              |",
+      "Child 3     |Other Parent  |7",
     ));
   check("flipForm: and back again, exactly as it was written",
     flip(nestedGrid.text, "Thing").text === nestedLines);
+  check("flipForm: a row whose parent is written below it is still filed under it on the way back",
+    flip(aot("Thing  |parent (thing)|age", "Child 1|Parent        |10", "Parent |              |"), "Thing").text
+    === aot("Thing", "    age", "    - Parent", "        - Child 1", "            age: 10"));
+
+  // a blank line above an Example is a divider above its row, and back
+  const spaced = aot(
+    "Thing",
+    "    age",
+    "",
+    "    - A",
+    "        age: 1",
+    "",
+    "    - B",
+    "        age: 2",
+  );
+  const spacedGrid = flip(spaced, "Thing");
+  check("flipForm: blank lines between Examples become dividers, one under the header for the first",
+    spacedGrid.text === aot("Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"));
+  check("flipForm: and the dividers come back as the blank lines they were",
+    flip(spacedGrid.text, "Thing").text === spaced);
+
+  // the grid must not run into a table written straight after the Concept
+  const swallowed = flip(aot("Person", "    - Ann", "        age: 3", "Dog|legs", "Rex|4"), "Person");
+  check("flipForm: a table right after the Concept is kept apart from the grid by a blank line",
+    swallowed.text === aot("Person|age", "Ann   |3", "", "Dog|legs", "Rex|4")
+    && lint(swallowed.text, "Sheet").nodes.filter((n) => n.kind === KIND.CONCEPT).map((n) => n.name).join(",") === "Person,Dog");
+
+  // a row with no name keeps its values on the way out of the grid
+  check("flipForm: a row with an empty name cell comes back as a '- ' waiting for its name, values and all",
+    flip(aot("Thing|age", "A    |1", "     |2"), "Thing").text === aot("Thing", "    age", "    - A", "        age: 1", "    - ", "        age: 2"));
   check("flipForm: a sub-Example's own attribute still becomes a column",
     flip(aot(
       "Thing",
@@ -582,8 +671,13 @@ const parsed = (text) => {
       "            nickname: Kid",
     ), "Thing").text.includes("nickname"));
 
-  check("flipForm: a Concept with no Examples has nothing to flip",
-    flip(aot("Colour", "    hue"), "Colour") === null);
+  // a Concept with no Examples is a header and nothing more, and back
+  const headerOnly = flip(aot("Colour", "    hue"), "Colour");
+  check("flipForm: a Concept with no Examples flips to its header alone",
+    headerOnly && headerOnly.form === "table" && headerOnly.text === "Colour|hue");
+  check("flipForm: and a header with no rows flips back to the Concept's lines",
+    flip("Colour|hue", "Colour").text === aot("Colour", "    hue")
+    && flip("Colour", "Colour").text === "Colour|" && flip("Colour|", "Colour").text === "Colour");
 
   // an (alias) crosslinks to a Concept; it is not a second name for the
   // attribute, so attributes sharing one must stay separate columns
@@ -626,6 +720,87 @@ const parsed = (text) => {
 }
 
 // ---------------------------------------------------------------------------
+// ideaAt / positionOf: the cursor stays on its idea across a flip
+// ---------------------------------------------------------------------------
+{
+  const { ideaAt, positionOf } = require("../src/derive");
+  // flip the Concept at `pos` and say where the cursor's idea now stands
+  const across = (text, name, pos) => {
+    const p = parsed(text);
+    const concept = p.nodes.find((n) => n.kind === KIND.CONCEPT && n.name === name);
+    const idea = ideaAt(p.lines, p.nodes, concept, pos);
+    const edit = flipForm(p.lines, concept, "Sheet");
+    const out = p.lines.slice();
+    out.splice(edit.from, edit.to - edit.from + 1, ...edit.block);
+    const q = parsed(out.join("\n"));
+    const at = positionOf(q.lines, q.root, q.nodes, idea, edit.from);
+    return { lines: q.lines, at, text: at ? q.lines[at.line].slice(at.character) : null };
+  };
+  const lineForm = aot(
+    "Invoice: EUR",
+    "    tax rate: 0.2",
+    "    price",
+    "    - Acme",
+    "        price: 110",
+    "        - Acme Sub",
+    "            price: 5",
+    "    - Bolt",
+  );
+  const value = across(lineForm, "Invoice", { line: 4, character: 17 }); // the '0' of 110
+  check("ideaAt/positionOf: a value line's cursor lands inside the same value in its cell, as far in",
+    value.at && value.lines[value.at.line].startsWith("Acme ") && value.text === "0");
+  const sub = across(lineForm, "Invoice", { line: 5, character: 12 }); // the 'm' of 'Acme Sub'
+  check("ideaAt/positionOf: an Example's line lands on its row's name, the same character in",
+    sub.at && sub.text.startsWith("me Sub") && sub.at.character === 2);
+  const decl = across(lineForm, "Invoice", { line: 1, character: 6 }); // in 'tax rate'
+  check("ideaAt/positionOf: a declaration lands on its header cell",
+    decl.at && decl.at.line === 0 && decl.text.startsWith("x rate: 0.2"));
+  const own = across(lineForm, "Invoice", { line: 0, character: 10 }); // in the default 'EUR'
+  check("ideaAt/positionOf: the Concept's default lands in the header's first cell, on the default",
+    own.at && own.at.line === 0 && own.text.startsWith("UR|"));
+
+  const grid = aot(
+    "Invoice: EUR|parent (invoice)|tax rate: 0.2|price",
+    "Acme        |                |             |110",
+    "Acme Sub    |Acme            |             |5",
+    "Bolt        |                |             |",
+  );
+  const cellBack = across(grid, "Invoice", { line: 2, character: 44 }); // Acme Sub's price, '5'
+  check("ideaAt/positionOf: a cell lands on its value line, as far in",
+    cellBack.at && cellBack.lines[cellBack.at.line].trim() === "price: 5" && cellBack.text === "5");
+  const emptyBack = across(grid, "Invoice", { line: 3, character: 46 }); // Bolt's empty price
+  check("ideaAt/positionOf: an empty cell lands on its Example's name in line form, where it writes no line",
+    emptyBack.at && emptyBack.text === "Bolt");
+  const parentCell = across(grid, "Invoice", { line: 2, character: 15 }); // Acme Sub's parent cell
+  check("ideaAt/positionOf: the parent cell lands on the Example it files",
+    parentCell.at && parentCell.text === "Acme Sub");
+  // and an empty cell comes back to itself when the table comes back
+  const there = across(aot("Thing", "    age", "    size", "    - A", "        size: 2"), "Thing", { line: 3, character: 6 });
+  const p2 = parsed(there.lines.join("\n"));
+  const thing2 = p2.nodes.find((n) => n.name === "Thing");
+  const idea2 = ideaAt(p2.lines, p2.nodes, thing2, { line: 1, character: 6 }); // A's empty age cell
+  const edit2 = flipForm(p2.lines, thing2, "Sheet");
+  const mid = p2.lines.slice();
+  mid.splice(edit2.from, edit2.to - edit2.from + 1, ...edit2.block);
+  const p3 = parsed(mid.join("\n"));
+  const thing3 = p3.nodes.find((n) => n.name === "Thing");
+  const idea3 = ideaAt(p3.lines, p3.nodes, thing3, positionOf(p3.lines, p3.root, p3.nodes, idea2, edit2.from));
+  const edit3 = flipForm(p3.lines, thing3, "Sheet");
+  const fin = p3.lines.slice();
+  fin.splice(edit3.from, edit3.to - edit3.from + 1, ...edit3.block);
+  const p4 = parsed(fin.join("\n"));
+  const at4 = positionOf(p4.lines, p4.root, p4.nodes, { ...idea2 }, edit3.from);
+  check("ideaAt/positionOf: an empty cell is that cell again when the table comes back",
+    there.lines[0] === "Thing|age|size" && idea2.part === "cell" && idea2.column === "age"
+    && at4 && at4.line === 1 && at4.character === "Thing|".length && idea3 !== null);
+  check("ideaAt/positionOf: a cursor outside the Concept has no idea to keep",
+    (() => {
+      const p = parsed(aot("Other", "    - X", "Thing", "    - A"));
+      return ideaAt(p.lines, p.nodes, p.nodes.find((n) => n.name === "Thing"), { line: 1, character: 6 }) === null;
+    })());
+}
+
+// ---------------------------------------------------------------------------
 // hoistOps: a fact every child states, written once on the parent
 // ---------------------------------------------------------------------------
 {
@@ -663,14 +838,130 @@ const parsed = (text) => {
   const top = run(["Car", "    wheels: 4", "Van", "    wheels: 4"], 0, "wheels", "4");
   check("hoistOps: at the file's own level the fact opens the file, unindented",
     top && top.join("\n") === ["wheels: 4", "Car", "Van"].join("\n") && quiet(top));
-  const family = ["Family", "    - Parent", "        - Child One", "            age: 10", "        - Child Two", "            age: 10"];
-  check("hoistOps: under an Example, onto the Example",
-    run(family, 2, "age", "10").join("\n") === ["Family", "    - Parent", "        age: 10", "        - Child One", "        - Child Two"].join("\n"));
-  const nested = ["Payment|currency|amount", "P1     |EUR     |10", "    P1a|EUR     |5", "P2     |EUR     |20", "P3     |EUR     |30"];
+  // a part inherits nothing from its whole: what every sub-Example states is
+  // no fact about the Example above, so it is never offered for lifting there
+  const family = ["Family", "    - Parent", "        - Child One", "            age: 10", "        - Child Two", "            age: 10",
+    "        - Child Three", "            age: 10"];
+  const fam = lint(family.join("\n"), "Zoo");
+  check("hoists: a value every sub-Example states stays theirs — an Example lends nothing, so nothing moves onto it",
+    !hoists(fam.root, fam.nodes).some((h) => h.parent.name === "Parent"));
+  // a fact moved up keeps its '=' as written: the model's value is written
+  // back the way the file must hold it, never as a derivation
+  const escaped = run(["Box", "    - A", "        note: a == b", "    - B", "        note: a == b", "    - C", "        note: a == b"], 1, "note", "a = b");
+  const reread = escaped && lint(escaped.join("\n"), "Zoo").nodes.find((n) => n.name === "note" && n.parent.name === "Box");
+  check("hoistOps: a fact holding a literal '=' lands escaped, and reads as itself",
+    escaped && escaped[1] === "    note: a == b" && reread && reread.value === "a = b" && reread.formula === undefined);
+  const nested = ["Payment|parent (payment)|currency|amount", "P1     |                |EUR     |10", "P1a    |P1              |EUR     |5",
+    "P2     |                |EUR     |20", "P3     |                |EUR     |30"];
+  const liftedGrid = ["Payment", "    currency: EUR", "    Payment|parent (payment)|amount", "    P1     |                |10",
+    "    P1a    |P1              |5", "    P2     |                |20", "    P3     |                |30"].join("\n");
   check("hoistOps: a table with rows under rows keeps them under, the column gone",
-    run(nested, 1, "currency", "EUR").join("\n") === ["Payment", "    currency: EUR", "    Payment|amount", "    P1     |10", "        P1a|5", "    P2     |20", "    P3     |30"].join("\n"));
+    run(nested, 1, "currency", "EUR").join("\n") === liftedGrid);
+  check("hoistOps: a 1.12 table nested by indent comes out the same, in the parent column",
+    run(["Payment|currency|amount", "P1     |EUR     |10", "    P1a|EUR     |5", "P2     |EUR     |20", "P3     |EUR     |30"], 1, "currency", "EUR").join("\n") === liftedGrid);
   check("hoistOps: nothing to do where the parent is gone, or there is no default to keep just",
     run(vehicles, 99, "wheels", "4") === null && run(["Car", "    wheels", "    - Mini", "        wheels: 4"], 1, "wheels", "", "bare") === null);
+}
+
+// 1.13: a Concept's default (`Currency: EUR`) is what an attribute typed by
+// it reads where nothing values it — read the same way by the mirror, a
+// Concept's scope, a line-form reference, the links and the Gödel number —
+// and a header cell may state a column's default
+{
+  const { resolve, unlistedValues } = require("../src/crosslinks");
+  const godel = require("../src/godel");
+  const lines = [
+    "Currency: EUR",
+    "    - USD",
+    "    - GBP",
+    "Order",
+    "    currency",
+    "    total",
+    "    - Acme",
+    "        total: =@currency",
+    "    - Bolt",
+    "        currency: EUR",
+    "    - Kite",
+    "        currency: GBP",
+  ];
+  const { root, nodes } = lint(lines.join("\n"), "Shop");
+  const order = nodes.find((n) => n.name === "Order");
+  const grid = mirrorGrids(root, nodes).find((g) => g.name === "Order");
+  const col = grid.header.indexOf("currency");
+  check("type default: the CSV mirror writes it for an Example silent on the attribute, and an Example's own value wins",
+    grid.rows.find((r) => r[0] === "Acme")[col] === "EUR" && grid.rows.find((r) => r[0] === "Kite")[col] === "GBP");
+  const scope = conceptScope(order);
+  check("type default: a Concept's scope (what @Order reads) reads it too",
+    scope.cellAt("currency", 0) === "EUR" && scope.typeDefault("currency") === "EUR");
+  const acmeTotal = nodes.find((n) => n.name === "total" && n.parent.name === "Acme");
+  check("type default: a line-form reference to the attribute reads it",
+    makeCtx(acmeTotal, (n) => n.value || "").cell("currency") === "EUR");
+  const links = resolve(lines.join("\n"), root, nodes);
+  const toDefault = links.find((l) => l.line === 10 && l.connection === "value-is-a-default");
+  check("type default: a value naming the default links to the Concept that states it, as a value",
+    toDefault && toDefault.target.name === "Currency" && toDefault.asValue === true);
+  check("type default: the default is never hinted as a missing Example",
+    !unlistedValues(lines.join("\n"), root, nodes).some((h) => h.value === "EUR"));
+  const t = godel.buildGodel(root, nodes);
+  const acme = nodes.find((n) => n.name === "Acme");
+  const p = godel.profile(root, nodes, acme, t);
+  const slot = p.slots.find((s) => s.attr === "currency");
+  check("type default: the Gödel number carries it, and the hover says whose default it is",
+    slot && slot.value === "EUR" && slot.typeDefault === true && slot.from.name === "Currency" && !slot.own);
+  check("type default: no rule lifts a value read from a type's default",
+    !godel.hoists(root, nodes).some((h) => h.attr === "currency"));
+
+  const header = lint(["Order|price|tax rate: 0.2", "Acme |100  |", "Bolt |50   |0.1"].join("\n"), "Shop");
+  const hgrid = mirrorGrids(header.root, header.nodes).find((g) => g.name === "Order");
+  const tcol = hgrid.header.indexOf("tax rate");
+  check("header default: an empty cell inherits the column's default the header states; a cell's own value wins",
+    tcol > 0 && hgrid.rows.find((r) => r[0] === "Acme")[tcol] === "0.2" && hgrid.rows.find((r) => r[0] === "Bolt")[tcol] === "0.1");
+}
+
+// a link covers the value as written: an escaped '=' is two characters on
+// the line though the model reads it as one
+{
+  const { resolve } = require("../src/crosslinks");
+  const lines = ["Rule", "    - x = y", "Check", "    rule", "    - First", "        rule: x == y", "    Check|rule", "    Second|x == y"];
+  const { root, nodes } = lint(lines.join("\n"), "Zoo");
+  const links = resolve(lines.join("\n"), root, nodes).filter((l) => l.connection === "default-is-a-Example");
+  const span = (l) => lines[l.line - 1].slice(l.startCol, l.endCol);
+  check("links: a value holding a literal '=' links across its whole written text, in line form and in a cell",
+    links.length === 2 && links.every((l) => span(l) === "x == y"));
+}
+
+// the parent column links: each cell to the row it names, the column's
+// (alias) to the table's own Concept — what Ctrl+click, hover and a rename
+// follow
+{
+  const { resolve } = require("../src/crosslinks");
+  const lines = ["Thing  |parent (thing)|age", "Child 1|Parent        |10", "Parent |              |", "Stray  |Nobody        |"];
+  const { root, nodes } = lint(lines.join("\n"), "Zoo");
+  const links = resolve(lines.join("\n"), root, nodes);
+  const span = (l) => lines[l.line - 1].slice(l.startCol, l.endCol);
+  const cell = links.find((l) => l.connection === "parent-is-a-Example");
+  check("links: a parent cell links the row it names — written below it here",
+    cell && cell.line === 2 && span(cell) === "Parent" && cell.target.line === 3
+    && links.filter((l) => l.connection === "parent-is-a-Example").length === 1);
+  const alias = links.find((l) => l.connection === "attribute-is-a-Concept" && l.line === 1);
+  check("links: the parent column's (alias) links the table's own Concept",
+    alias && span(alias) === "thing" && alias.target.name === "Thing");
+}
+
+// a Concept's alias links the Concepts its words name, as its name does
+{
+  const { resolve } = require("../src/crosslinks");
+  const lines = ["Person", "Legal Entity (Company)", "Human (Natural Person)", "Firm (Legal Company Body)", "Auto (Car)", "Car"];
+  const { root, nodes } = lint(lines.join("\n"), "Zoo");
+  const links = resolve(lines.join("\n"), root, nodes);
+  const span = (l) => lines[l.line - 1].slice(l.startCol, l.endCol);
+  const on = (line) => links.filter((l) => l.line === line).map((l) => `${l.connection}:${span(l)}->${l.target.name}`);
+  check("links: a word of an alias naming another Concept links to it",
+    on(3).join(",") === "concept-contains-Concept:Person->Person");
+  check("links: a word of an alias naming another Concept's alias links to that Concept",
+    on(4).join(",") === "concept-contains-Concept:Company->Legal Entity");
+  check("links: an alias that is wholly another Concept's name still links whole, once",
+    on(5).join(",") === "alias-is-a-Concept:Car->Car");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

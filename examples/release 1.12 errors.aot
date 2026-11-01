@@ -7,10 +7,10 @@ Error Probe
             - root row
             - Leaf
         - Side
-Nested Probe|age
-Top         |
-    Top     |3
-    Bottom  |4
+Nested Probe|parent (nested probe)|age
+Top         |                     |
+Bottom      |Top                  |4
+Top         |Top                  |3
 
 =
 ==("a", "b")

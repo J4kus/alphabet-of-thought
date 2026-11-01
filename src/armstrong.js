@@ -89,8 +89,8 @@ function containedConcepts(concept, concepts) {
 // { holds, label, lineOf, objects }: holds is [{ x, y, support }] for every
 // X -> Y that the Examples bear out under the guards above.
 function inferFDs(root, nodes) {
-  const { attrPrime, naming } = godel.buildGodel(root, nodes);
-  const objects = nodes.filter((n) => n.kind === INDIVIDUAL && n.godel !== undefined);
+  const { attrPrime, naming, primeKey } = godel.buildGodel(root, nodes);
+  const objects = nodes.filter((n) => n.kind === INDIVIDUAL && n.gvec);
   const label = (k) => naming.get(k) || k;
 
   // a readable defining line per attribute key (first declaration)
@@ -104,16 +104,19 @@ function inferFDs(root, nodes) {
   }
 
   // per attribute, the Examples that give it a value and the value code each
-  // carries (exponent >= 2 means "valued")
-  const valuedOn = new Map(); // attrKey -> Map(object -> code)
-  for (const [aKey, p] of attrPrime) {
-    const m = new Map();
-    for (const o of objects) {
-      const e = godel.valuation(o.godel, p);
-      if (e >= 2n) m.set(o, e);
+  // carries (exponent >= 2 means "valued") — read off each Example's own
+  // factorisation, then laid out in the attributes' order
+  const byKey = new Map(); // attrKey -> Map(object -> code)
+  for (const o of objects) {
+    for (let i = 0; i < o.gvec.p.length; i++) {
+      if (o.gvec.e[i] < 2) continue;
+      const aKey = primeKey.get(o.gvec.p[i]);
+      if (!byKey.has(aKey)) byKey.set(aKey, new Map());
+      byKey.get(aKey).set(o, o.gvec.e[i]);
     }
-    if (m.size) valuedOn.set(aKey, m);
   }
+  const valuedOn = new Map();
+  for (const aKey of attrPrime.keys()) if (byKey.has(aKey)) valuedOn.set(aKey, byKey.get(aKey));
   const valuedAttrs = [...valuedOn.keys()];
 
   const holds = [];

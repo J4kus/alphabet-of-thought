@@ -560,36 +560,60 @@ class _Api:
         self.root = None      # its root Concept (the file name)
         self.files = None     # aot.files, a Path
 
-    def _find(self, name):
+    def _path(self, name):
+        """The nodes from the root down to the Concept named `name`, or None."""
         want = _norm(re.sub(r"^\d+\.(\d+(\.\d+)*)?\s+", "", str(name)))
 
-        def walk(node):
+        def walk(node, trail):
+            trail = trail + [node]
             if node.get("kind") == "Concept" and _norm(node.get("name", "")) == want:
-                return node
+                return trail
             for c in node.get("children", []):
-                hit = walk(c)
+                hit = walk(c, trail)
                 if hit:
                     return hit
             return None
-        return walk(self.tree) if self.tree else None
+        return walk(self.tree, []) if self.tree else None
+
+    def _find(self, name):
+        trail = self._path(name)
+        return trail[-1] if trail else None
 
     def concept(self, name):
         """The Concept named `name`, as a dict: {line, kind, name, value, alias, children}."""
         return self._find(name)
 
     def examples(self, name):
-        """A Concept's Examples, each a dict of its attributes (typed)."""
-        node = self._find(name)
-        if node is None:
+        """A Concept's Examples, each a dict of its attributes (typed): its own
+        values, and on an attribute it is silent on, the default its Concept
+        (or a Concept above that, the nearest first) states — as `@Concept`
+        frames read them. An Example above lends nothing: a part inherits
+        nothing from its whole."""
+        trail = self._path(name)
+        if trail is None:
             raise KeyError(f"there is no Concept '{name}' in {self.root}")
+        node = trail[-1]
+        defaults = {}  # lowercased name -> (name as written, value)
+        for kind in reversed(trail):
+            if kind.get("kind") == "Example":
+                continue
+            for a in kind.get("children", []):
+                key = str(a.get("name", "")).lower()
+                if a.get("kind") == "Default Value" and key not in defaults:
+                    defaults[key] = (a.get("name"), a.get("value"))
         out = []
         for c in node.get("children", []):
             if c.get("kind") != "Example":
                 continue
             rec = {"name": c.get("name")}
+            said = set()  # a bare attribute names no value, so the default still holds
             for a in c.get("children", []):
                 if a.get("kind") == "Default Value":
+                    said.add(str(a.get("name", "")).lower())
                     rec[a.get("name")] = _typed(a.get("value"))
+            for key, (written, value) in defaults.items():
+                if key not in said:
+                    rec[written] = _typed(value)
             out.append(rec)
         return out
 

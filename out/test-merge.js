@@ -172,12 +172,18 @@ const GRID = aot("Order|price|qty", "A    |10   |1", "B    |20   |2");
   const filled = merge(short, short.replace("A    |10   |1", "A    |11   |1"), short.replace("B    |20", "B    |20   |7"), "Zoo");
   check("merge: a row written short of the header gains the cell the other side filled",
     filled.clean && filled.text === aot("Order|price|qty", "A    |11   |1", "B    |20   |7"));
-  // a rule line under the header is dropped when the table is drawn again,
-  // as every table edit in the editor drops it
+  // a divider under the header stays where it stands, as every table edit
+  // in the editor keeps it (1.13)
   const ruled = aot("Order|price|qty", "-----|-----|---", "A    |10   |1", "B    |20   |2");
-  const unruled = merge(ruled, ruled.replace("A    |10   |1", "A    |11   |1"), ruled.replace("B    |20   |2", "B    |20   |9"), "Zoo");
-  check("merge: a table with a rule line merges cell by cell, drawn as the editor draws it",
-    unruled.clean && unruled.text === aot("Order|price|qty", "A    |11   |1", "B    |20   |9"));
+  const kept = merge(ruled, ruled.replace("A    |10   |1", "A    |11   |1"), ruled.replace("B    |20   |2", "B    |20   |9"), "Zoo");
+  check("merge: a table with a divider merges cell by cell, the divider kept",
+    kept.clean && kept.text === aot("Order|price|qty", "-----|-----|---", "A    |11   |1", "B    |20   |9"));
+  // a row removed on one side takes the rows naming it as their parent
+  const tree = aot("Order|parent (order)|price", "A    |              |10", "A1   |A             |1", "B    |              |20");
+  const pruned = merge(tree, tree.replace("B    |              |20", "B    |              |21"),
+    aot("Order|parent (order)|price", "B    |              |20"), "Zoo");
+  check("merge: a row removed on one side goes with the rows naming it, the other side's edit kept",
+    pruned.clean && pruned.text === aot("Order|parent (order)|price", "B    |              |21"));
 }
 
 // --- attribute lines, and nodes removed on one side ---------------------------

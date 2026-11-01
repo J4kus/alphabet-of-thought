@@ -24,7 +24,7 @@
             note: the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
     Constraint
         - Comparison Bound
-            keyword: >= > < <= ==
+            keyword: >= > < <= ===
             example: age >=0
         - Listed Value
             keyword: or
@@ -54,8 +54,8 @@
     Escape
         - Literal Equals
             escapes: the equals sign
-            written: a \= b
-            reads as: a \= b
+            written: a == b
+            reads as: a == b
 
 - Working Demonstration
     Sales Ledger|price        |qty >=1|total

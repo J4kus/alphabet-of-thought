@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.12.2",
+  "version": "1.13.1",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -39,7 +39,7 @@
     }
   },
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js && node out/test-csvsync.js"
   },
   "contributes": {
     "configurationDefaults": {
@@ -75,7 +75,20 @@
         "aot.tableCsvSync": {
           "type": "boolean",
           "default": true,
-          "description": "Mirror every table to a CSV named after its parent Concept in a single 'aot.files' folder at the workspace root (shared by every .aot in the repo), and fold edits made to those CSVs back into the matching table. A CSV whose Concept no table anywhere still has is archived with a '_' prefix, never deleted; legacy 'tables.<file>' / '<file>.tables' folders are folded in automatically."
+          "description": "Mirror every Concept with Examples to a CSV named after it in a single 'aot.files' folder at the repository root (shared by every .aot in the repo), and keep the two in step both ways: each cell is merged against what the two last agreed on, so whichever side changed it is the one that counts, an emptied cell empties, a dropped row is asked about, and a cell both sides changed goes to the later save (and is said). A CSV whose Concept no file speaks for any more is archived with a '_' prefix, never deleted."
+        },
+        "aot.tableCsvSyncMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "enumDescriptions": [
+            "Sync on every .aot save, every CSV edit, and when the editor starts.",
+            "Sync only on AOT: Sync CSVs Now (Ctrl+K Y)."
+          ],
+          "default": "auto",
+          "description": "When the CSV mirror syncs. Either way the sync is the same three-way merge; manual only chooses the moment."
         },
         "aot.spellingHints": {
           "type": "boolean",
@@ -534,7 +547,18 @@
       },
       {
         "command": "aot.importCsvFiles",
-        "title": "Import Edited CSVs into their .aot Files",
+        "title": "Sync CSVs Now",
+        "category": "AOT"
+      },
+      {
+        "command": "aot.showHeldFindings",
+        "title": "Show Findings Waiting While You Write",
+        "category": "AOT",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.upgradeSyntax",
+        "title": "Upgrade Files to 1.13 Syntax",
         "category": "AOT"
       },
       {
@@ -868,6 +892,11 @@
         "command": "aot.toggleTableForm",
         "key": "ctrl+k t",
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot"
+      },
+      {
+        "command": "aot.importCsvFiles",
+        "key": "ctrl+k y",
+        "when": "editorLangId == aot || resourceExtname == .csv"
       }
     ],
     "menus": {

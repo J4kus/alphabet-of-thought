@@ -107,13 +107,21 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   check("parse: Apple nests under Thing at depth 1", apple.parent === thing && apple.depth === 1);
   check("parse: colour nests under Apple at depth 2", node(root, nodes, "colour").parent === apple);
 
-  // inline Example: a capitalised line with a colon materialises one Example
+  // a Concept's default: a capitalised line with a colon states it, and it
+  // is no Example — no child, no row, no member of the Concept's extension
   {
     const report = makeReport();
     const p = parse(aot("Run Command: code ."), "Root", report);
     const rc = node(p.root, p.nodes, "Run Command");
-    const ex = rc.children.find((c) => c.kind === INDIVIDUAL);
-    check("parse: 'Concept: value' materialises an inline Example child", ex && ex.name === "code ." && ex.kind === INDIVIDUAL);
+    check("parse: 'Concept: value' states the Concept's default, and materialises no Example",
+      rc && rc.value === "code ." && !rc.children.some((c) => c.kind === INDIVIDUAL) && !p.nodes.some((n) => n.kind === INDIVIDUAL));
+    const derived = makeReport();
+    parse(aot("Run Command: code =x"), "Root", derived);
+    const escaped = makeReport();
+    const pe = parse(aot("Run Command: code ==x"), "Root", escaped);
+    check("parse: a Concept's default is stated, not derived — an '=' opening one is an error; a doubled one is the text",
+      derived.errors.some((e) => /derives the Concept's default/.test(e.message))
+      && !escaped.errors.length && node(pe.root, pe.nodes, "Run Command").value === "code =x");
   }
 
   // tab character
@@ -431,9 +439,9 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   check("align: rows are padded to the widest cell",
     edits.some((e) => e.text === "    name |size")
     && edits.some((e) => e.text === "    Ollie|5"));
-  check("align: a leftover rule is drawn away with the rest",
+  check("align: a leftover rule is redrawn as the divider it now is",
     align(aot("Otter", "    name|size", "    ----+----", "    Ollie|5"))
-      .some((e) => e.text === "    name |size" + String.fromCharCode(10) + "    Ollie|5"));
+      .some((e) => e.line === 3 && e.text === "    -----|----"));
   check("align: an already aligned table needs no edits",
     align(aot("Otter", "    name |size", "    Ollie|5")).length === 0);
   // no attributes, no pair of cells to divide: there the pipe closes the row,
@@ -858,6 +866,120 @@ check("verify: a well-formed tree yields no errors",
   check("lint: recursion (an attribute of one's own kind) raises nothing",
     !recursive.errors.some((e) => /dependency/.test(e.message))
       && !recursive.warnings.some((w) => /dependency/.test(w.message)));
+}
+
+// 1.13: '=' defines on a declaration — a header cell or a bare line — as '=='
+// did, and '==' still reads the same; a literal '=' in a value is doubled
+{
+  const header = lint(aot("Invoice|price|vat =@price*0.2", "A      |100  |20"), "Book");
+  const vat = header.nodes.find((n) => n.name === "vat" && n.cell && n.kind === 3);
+  check("lint: '=' on a header cell is the column's definition, not part of its name",
+    header.errors.length === 0 && vat && vat.constraints && vat.constraints[0].op === "==" && vat.constraints[0].formula === "@price*0.2");
+  const legacy = lint(aot("Invoice|price|vat ==@price*0.2", "A      |100  |20"), "Book");
+  const old = legacy.nodes.find((n) => n.name === "vat" && n.cell && n.kind === 3);
+  check("lint: the older '==' reads as the same definition", old && old.constraints[0].op === "==" && old.constraints[0].opText === "==");
+  const values = lint(aot("Note", "    - A", "        text: a == b", "        older: a \\= b"), "Book");
+  check("lint: a doubled '=' in a value reads as one, and the older escape still reads",
+    values.errors.length === 0
+    && values.nodes.find((n) => n.name === "text").value === "a = b" && values.nodes.find((n) => n.name === "text").formula === undefined
+    && values.nodes.find((n) => n.name === "older").value === "a = b");
+
+  const { upgradeText } = require("../src/upgrade");
+  const old112 = aot(
+    "Invoice",
+    "    status ==(\"draft\", \"sent\")",
+    "    Invoice|price|vat ==@price*0.2",
+    "    A      |100  |20",
+    "    - B",
+    "        note: a \\= b",
+    "        rule: x == y",
+    "        check: 1 =1 if @a == 2 else 0",
+  );
+  const up = upgradeText(old112, "Book");
+  check("upgrade: a 1.12 file is respelled — '\\=' doubled, a literal '==' one longer, '==' definitions '='",
+    up.includes("    status =(\"draft\", \"sent\")") && up.includes("|vat =@price*0.2")
+    && up.includes("note: a == b") && up.includes("rule: x === y"));
+  check("upgrade: a derivation's own Python is never touched", up.includes("check: 1 =1 if @a == 2 else 0"));
+  // what each line meant under 1.12: 'note' the value 'a = b', 'rule' the
+  // value 'x == y' (a run of '=' was literal then), 'vat' and 'status'
+  // definitions — and read now, the upgraded file means the same
+  const now = lint(up, "Book");
+  const valueOf = (name) => (now.nodes.find((n) => n.name === name && n.kind === 1) || {}).value;
+  check("upgrade: the respelled file says what the 1.12 file said",
+    now.errors.length === 0 && valueOf("note") === "a = b" && valueOf("rule") === "x == y"
+    && now.nodes.filter((n) => n.kind === 3 && n.constraints && n.constraints[0].op === "==").length === 2);
+  check("upgrade: running it twice changes nothing", upgradeText(up, "Book") === up);
+  const fresh = aot("Note", "    - A", "        text: a == b");
+  check("upgrade: a file showing no sign of the old spelling is left exactly as it is",
+    upgradeText(fresh, "Book") === fresh);
+  // a table nested by indent is 1.12 wherever it stands: it is drawn with
+  // its parent column, its cells respelled as they go, and no other table is
+  // touched
+  const nested112 = aot(
+    "Thing      |note",
+    "Parent     |a \\= b",
+    "    Child  |",
+    "",
+    "Other|x",
+    "A    |1",
+  );
+  const flatUp = upgradeText(nested112, "Book");
+  check("upgrade: a table nested by indent gains its parent column, its values respelled with it",
+    flatUp === aot(
+      "Thing |parent (thing)|note",
+      "Parent|              |a == b",
+      "Child |Parent        |",
+      "",
+      "Other|x",
+      "A    |1",
+    ));
+  check("upgrade: the parent column files the rows where the indent did",
+    (() => {
+      const kids = (text) => lint(text, "Book").nodes.filter((n) => n.kind === 0).map((n) => `${n.name}<${n.parent.name}`).join(",");
+      return kids(flatUp) === kids(nested112) && lint(flatUp, "Book").warnings.every((w) => !/nests by its indent/.test(w.message));
+    })());
+  check("upgrade: and a second run finds nothing", upgradeText(flatUp, "Book") === flatUp);
+}
+
+// --- the parent column (1.13): a table nests through it, never by indent -------
+{
+  const parentsOf = (text) => {
+    const r = lint(text, "Zoo");
+    return { r, of: (name) => { const n = r.nodes.find((x) => x.kind === 0 && x.name === name); return n && n.parent.name; } };
+  };
+  const ok = parentsOf(aot("Thing  |parent (thing)|age", "Parent |              |", "Child 1|Parent        |10", "Child 2|parent        |12"));
+  check("parent column: a row is filed under the row its cell names, case aside",
+    ok.of("Child 1") === "Parent" && ok.of("Child 2") === "Parent" && ok.of("Parent") === "Thing" && ok.r.errors.length === 0);
+  check("parent column: it is structure, not an attribute — no node, no value",
+    !ok.r.nodes.some((n) => n.name === "parent") && ok.r.nodes.find((n) => n.name === "Thing").parentColumns.length === 1);
+  const fwd = parentsOf(aot("Thing  |parent (thing)", "Child 1|Parent", "Parent |"));
+  check("parent column: a parent written below its child is still its parent",
+    fwd.of("Child 1") === "Parent" && fwd.r.errors.length === 0);
+  const same = parentsOf(aot("Thing|parent (thing)", "X    |", "X    |X"));
+  check("parent column: a child named like its parent is filed under it, and meets the whole-and-part rule",
+    same.r.nodes.filter((n) => n.kind === 0)[1].parent === same.r.nodes.filter((n) => n.kind === 0)[0]
+    && same.r.errors.some((e) => /same name as the Example it sits under/.test(e.message)));
+  const bad = parentsOf(aot("Thing|parent (thing)", "A    |Nobody", "B    |B", "C    |D", "D    |C"));
+  check("parent column: a name no row carries, a row naming itself and a circle are errors, each row left a row of the Concept",
+    bad.r.errors.some((e) => e.line === 2 && /no row of this table is called 'Nobody'/.test(e.message) && e.startCol === 6 && e.endCol === 12)
+    && bad.r.errors.some((e) => e.line === 3 && /names itself as its parent/.test(e.message))
+    && bad.r.errors.filter((e) => /go round in a circle/.test(e.message)).length === 2
+    && ["A", "B", "C", "D"].every((n) => bad.of(n) === "Thing"));
+  const alias = parentsOf(aot("1. Thing (stuff)|parent (stuff)", "A               |", "B               |A"));
+  check("parent column: its (alias) may be any name the Concept answers to, numbering aside", alias.of("B") === "A");
+  const plain = parentsOf(aot("Person|parent (person)|age", "Ann   |              |40", "Bob   |Ann           |9", "", "Dog|parent (person)", "Rex|Ann"));
+  check("parent column: a 'parent' typed by another Concept is an attribute like any other",
+    plain.of("Rex") === "Dog" && plain.r.nodes.some((n) => n.kind === 1 && n.name === "parent" && n.value === "Ann"));
+  const noDefault = lint(aot("Thing|parent (thing): X", "A    |"), "Zoo");
+  check("parent column: it takes no default, and says so", noDefault.errors.some((e) => /gives the parent column a default/.test(e.message)));
+  const legacy = lint(aot("Thing     |age", "Parent    |", "    Child |1", "    Child2|2"), "Zoo");
+  check("parent column: a 1.12 table nested by indent still nests, once warned about",
+    legacy.nodes.find((n) => n.name === "Child").parent.name === "Parent"
+    && legacy.warnings.filter((w) => /nests by its indent/.test(w.message)).length === 1);
+  const chi = lint(aot("Thing  |parent (thing)", "Child 1|Parent", "Parent |"), "Zoo");
+  const child = chi.nodes.find((n) => n.name === "Child 1"), parent = chi.nodes.find((n) => n.name === "Parent");
+  check("parent column: a child written above its parent is still numbered under it (chi divisible)",
+    child.chi % parent.chi === 0n);
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

@@ -11,10 +11,11 @@ const {
   splitCell, splitConstraint, formatValue, tableCtx,
   valueType, copyFormulaDown, copyFormulaAcross, referenceNames,
   copyCell, moveCell, copyRow, copyColumn, headerIndex,
-  subtreeOf, prevSibling, demoteRow, promoteRow,
-  mergeRegistries, readValue,
+  demoteRow, promoteRow, flatten,
+  mergeRegistries, readValue, writtenValue,
   isRowText, jumpCell, cornerCell, fillDown, fillRight,
   copyFormulaFromAbove, copyValueFromAbove, columnTerm,
+  columnDefinition, defineColumn,
 } = require("../src/table");
 const { lint } = require("../src/linter");
 const { conceptRegistry } = require("../src/derive");
@@ -32,12 +33,13 @@ function check(name, ok) {
   if (!ok) failures++;
 }
 
-// --- an Example hierarchy: rows nested inside their name cell -----------------
-// A row indented under the row above it is that row's sub-Example. The depth
-// rides on the block as a number, never as text, so every reader that trims a
-// cell sees the bare name exactly as it always did.
+// --- an Example hierarchy: rows naming the row they sit under ------------------
+// A table never nests by indentation (1.13): a sub-Example names its parent
+// row in the `parent (thing)` column. A table from 1.12 nested by indent, and
+// blockAt still reads that as a depth on the row — flatten writes it as the
+// column, which is what every draw does first.
 {
-  const nested = [
+  const legacy = [
     "Thing       |age",
     "Parent      |",
     "    Child 1 |10",
@@ -45,74 +47,135 @@ function check(name, ok) {
     "Other Parent|",
     "    Child 3 |7",
   ];
-  const b = blockAt(nested, 0);
-  check("nesting: blockAt reads each row's depth from its name cell",
+  const nested = [
+    "Thing       |parent (thing)|age",
+    "Parent      |              |",
+    "Child 1     |Parent        |10",
+    "Child 2     |Parent        |12",
+    "Other Parent|              |",
+    "Child 3     |Other Parent  |7",
+  ];
+  const b = blockAt(legacy, 0);
+  check("nesting: blockAt still reads a 1.12 table's depth from its name cell",
     b.rows.map((r) => r.depth).join(",") === "0,0,1,1,0,1");
   check("nesting: the name stays trimmed, so every reader sees it unchanged",
     b.rows[2].cells[0] === "Child 1" && b.rows[4].cells[0] === "Other Parent");
-  check("nesting: the name column is measured with the deepest row's indent",
-    widthsOf(b)[0] === "Other Parent".length);
-  check("nesting: a nested table re-renders byte for byte",
+  check("nesting: a 1.12 nested table is drawn with the parent column, second",
+    render(blockAt(legacy, 0)).join("\n") === nested.join("\n"));
+  check("nesting: the table drawn so re-renders byte for byte",
     render(blockAt(nested, 0)).join("\n") === nested.join("\n"));
-  check("nesting: tablesOf hands each row's depth out with it",
-    tablesOf(nested, "Zoo")[0].rowDepths.join(",") === "0,1,1,0,1");
+  check("nesting: flatten answers the column it added, and has nothing to do twice",
+    (() => { const x = blockAt(legacy, 0); return flatten(x) === 1 && flatten(x) === -1 && flatten(blockAt(nested, 0)) === -1; })());
+  check("nesting: tablesOf hands out the flattened grid and where its parent column is",
+    (() => { const t = tablesOf(legacy, "Zoo")[0]; return t.parentCol === 1 && t.header[1] === "parent (thing)" && t.rows[1][1] === "Parent" && t.rows[3][1] === ""; })());
+  check("nesting: a one-column 1.12 table drops its closing pipe once it has a column to divide",
+    render(blockAt(["Org Structure|", "Department A |", "    Team 1   |"], 0)).join("\n")
+    === ["Org Structure|parent (org structure)", "Department A |", "Team 1       |Department A"].join("\n"));
+
+  // the two spellings are one tree
+  const treeOf = (lines) => {
+    const { root } = lint(lines.join("\n"), "Zoo");
+    const walk = (n) => n.children.filter((c) => c.kind === 0).map((c) => `${c.name}(${walk(c)})`).join(" ");
+    return walk(root.children[0]);
+  };
+  check("nesting: the linter reads the parent column and the 1.12 indent as one tree",
+    treeOf(nested) === "Parent(Child 1() Child 2()) Other Parent(Child 3())" && treeOf(legacy) === treeOf(nested));
+  check("nesting: a parent written below its child is still its parent",
+    treeOf(["Thing  |parent (thing)", "Child 1|Parent", "Parent |"]) === "Parent(Child 1())");
 
   const flat = ["Otter |size", "Ollie |5", "Pebble|3"];
-  check("nesting: a flat table is unchanged — every row is depth 0",
+  check("nesting: a flat table is unchanged",
     blockAt(flat, 0).rows.every((r) => !r.depth)
     && render(blockAt(flat, 0)).join("\n") === flat.join("\n"));
 
-  // every operation that moves a row moves the branch under it
-  const op = (fn, row, col) => {
-    const block = blockAt(nested, 0);
+  const op = (fn, row, col, lines) => {
+    const block = blockAt(lines || nested, 0);
     return fn(block, row, col === undefined ? 0 : col) ? render(block) : null;
   };
   check("nesting: deleting a row takes its sub-Examples with it",
-    op(deleteRow, 1).join("\n") === ["Thing       |age", "Other Parent|", "    Child 3 |7"].join("\n"));
-  check("nesting: moving a row down hops the whole next branch, not one line",
-    op((x, r, c) => moveRow(x, r, c, 1), 1).join("\n")
-    === ["Thing       |age", "Other Parent|", "    Child 3 |7",
-         "Parent      |", "    Child 1 |10", "    Child 2 |12"].join("\n"));
-  check("nesting: moving a row up carries its own children over the sibling above",
-    op((x, r, c) => moveRow(x, r, c, -1), 4).join("\n")
-    === ["Thing       |age", "Other Parent|", "    Child 3 |7",
-         "Parent      |", "    Child 1 |10", "    Child 2 |12"].join("\n"));
-  check("nesting: a new row joins the generation it is typed into",
-    op(insertRow, 3)[3] === "            |");
+    op(deleteRow, 1).join("\n") === ["Thing       |parent (thing)|age", "Other Parent|              |", "Child 3     |Other Parent  |7"].join("\n"));
+  check("nesting: deleting a parent written below its child takes the child too",
+    op(deleteRow, 2, 0, ["T|parent (t)", "C|P", "P|", "Q|"]).join("\n") === ["T|parent (t)", "Q|"].join("\n"));
+  check("nesting: a row moves alone, its place in the tree going with it",
+    op((x, r, c) => moveRow(x, r, c, 1), 2).join("\n")
+    === ["Thing       |parent (thing)|age", "Parent      |              |", "Child 2     |Parent        |12",
+      "Child 1     |Parent        |10", "Other Parent|              |", "Child 3     |Other Parent  |7"].join("\n"));
+  check("nesting: no row moves over the header", op((x, r, c) => moveRow(x, r, c, -1), 1) === null);
+  check("nesting: a new row is the Concept's own until it names a parent",
+    op(insertRow, 3)[3] === "            |              |");
 
-  // Tab and Shift+Tab at the head of a name cell
-  check("nesting: promoting a row lifts it out of its parent",
-    op(promoteRow, 3).join("\n").includes("\nChild 2     |12"));
-  check("nesting: demoting a row files it under the sibling above",
-    op(demoteRow, 3).join("\n").includes("        Child 2|12"));
-  check("nesting: the first row of a generation has no sibling to nest under",
-    op(demoteRow, 2) === null && op(promoteRow, 1) === null);
-  check("nesting: demoting carries the row's own children along",
+  // Nest Row Under the Row Above, Lift Row Out: the parent cell, written
+  check("nesting: lifting a row out of its parent empties its parent cell",
+    op(promoteRow, 3).join("\n").includes("\nChild 2     |              |12"));
+  check("nesting: nesting a row names the row above it",
+    op(demoteRow, 3).join("\n").includes("\nChild 2     |Child 1       |12"));
+  check("nesting: the first row has no row above it, and a row of the Concept nowhere further out",
+    op(demoteRow, 1) === null && op(promoteRow, 1) === null);
+  check("nesting: lifting names the parent's own parent",
+    op(promoteRow, 3, 0, ["T|parent (t)", "A|", "B|A", "C|B"]).join("\n") === ["T|parent (t)", "A|", "B|A", "C|A"].join("\n"));
+  check("nesting: a row never nests under a row that sits under it",
+    op(demoteRow, 2, 0, ["T|parent (t)", "B|A", "A|"]) === null);
+  check("nesting: nesting in a table with no parent column adds it second, and the cursor's column moves with it",
     (() => {
-      const block = blockAt(["T    |a", "P    |", "    C1|1", "    C2|2", "        D|3"], 0);
-      demoteRow(block, 3, 0);
-      return block.rows[3].depth === 2 && block.rows[4].depth === 3;
+      const block = blockAt(flat, 0);
+      const at = demoteRow(block, 2, 1);
+      return at && at.col === 2 && render(block).join("\n")
+        === ["Otter |parent (otter)|size", "Ollie |              |5", "Pebble|Ollie         |3"].join("\n");
     })());
 
-  // sorting orders siblings against each other, never across generations
-  const unsorted = ["Thing   |age", "Zeta    |3", "    Yak |9", "    Ant |1", "Alpha   |5", "    Owl |2"];
+  // sorting orders the rows as the flat list they are
+  const unsorted = ["Thing|parent (thing)|age", "Zeta |              |3", "Yak  |Zeta          |9",
+    "Ant  |Zeta          |1", "Alpha|              |5", "Owl  |Alpha         |2"];
   const sorted = (col) => {
     const block = blockAt(unsorted, 0);
     sortRows(block, 1, col);
-    return render(block);
+    return render(block).map((l) => l.split("|")[0].trim()).slice(1).join(",");
   };
-  check("nesting: sorting orders each generation and keeps every branch whole",
-    sorted(0).join("\n") === ["Thing  |age", "Alpha  |5", "    Owl|2",
-      "Zeta   |3", "    Ant|1", "    Yak|9"].join("\n"));
-  check("nesting: sorting by a value column sorts the parents by their own cell",
-    sorted(1).join("\n") === ["Thing  |age", "Zeta   |3", "    Ant|1",
-      "    Yak|9", "Alpha  |5", "    Owl|2"].join("\n"));
+  check("nesting: sorting orders every row, each keeping the parent it names",
+    sorted(0) === "Alpha,Ant,Owl,Yak,Zeta" && treeOf(unsorted) === "Zeta(Yak() Ant()) Alpha(Owl())");
+  check("nesting: sorting by a value column sorts by each row's own cell", sorted(2) === "Ant,Owl,Zeta,Alpha,Yak");
   check("nesting: a flat table sorts exactly as it always did",
     (() => {
       const block = blockAt(["Thing|age", "Zeta |3", "Alpha|5", "Mid  |1"], 0);
       sortRows(block, 1, 0);
       return render(block).join("\n") === ["Thing|age", "Alpha|5", "Mid  |1", "Zeta |3"].join("\n");
     })());
+}
+
+// --- dividers: '-----|----' groups the rows ------------------------------------
+{
+  check("dividers: a divider is kept, drawn to its columns' widths — a 1.12 rule among them",
+    render(blockAt(["Thing|age", "---+---", "A|1", "------|-", "B|2"], 0)).join("\n")
+    === ["Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"].join("\n"));
+  check("dividers: a one-column table's divider closes with its pipe, as its rows do",
+    render(blockAt(["Org|", "-|", "A  |"], 0)).join("\n") === ["Org|", "---|", "A  |"].join("\n"));
+  check("dividers: the linter reads past one without ending the table",
+    lint(["Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"].join("\n"), "Zoo").nodes
+      .filter((n) => n.kind === 0 && n.parent.name === "Thing").map((n) => n.name).join(",") === "A,B");
+  const grouped = ["Thing|age", "Zeta |3", "Alpha|5", "-----|---", "Mid  |1", "Beta |2"];
+  check("dividers: a sort stays within the group the cursor stands in",
+    (() => { const x = blockAt(grouped, 0); sortRows(x, 1, 0); return render(x).join("\n") === ["Thing|age", "Alpha|5", "Zeta |3", "-----|---", "Mid  |1", "Beta |2"].join("\n"); })());
+  check("dividers: Tab steps over a divider to the next row",
+    (() => { const x = blockAt(grouped, 0); const t = nextCell(x, 2, 1); return t.row === 4 && t.col === 0; })());
+  check("dividers: deleting a divider takes only the divider",
+    (() => { const x = blockAt(grouped, 0); deleteRow(x, 3, 0); return render(x).length === 5 && !render(x).some((l) => l.startsWith("-")); })());
+  check("dividers: tablesOf says which rows a divider stands before",
+    tablesOf(["Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"], "Zoo")[0].breaks.join(",") === "0,1");
+  check("dividers: updateTable keeps them before the same rows",
+    (() => {
+      const lines = ["Thing|age", "A    |1", "-----|---", "B    |2"];
+      const u = updateTable(lines, "Thing", ["Thing", "age"], [["A", "1"], ["B", "2"], ["C", "3"]], "Zoo");
+      return u.block.join("\n") === ["Thing|age", "A    |1", "-----|---", "B    |2", "C    |3"].join("\n");
+    })());
+}
+
+// --- blockAt agrees with the linter on where a table ends -----------------------
+{
+  const lines = ["    Thing|age", "    A    |1", "Other|x", "B    |2"];
+  const first = blockAt(lines, 1), second = blockAt(lines, 2);
+  check("blockAt: a row shallower than the header opens a table of its own, as the linter reads it",
+    first.start === 0 && first.end === 1 && first.indent === "    "
+    && second.start === 2 && second.end === 3 && second.indent === "");
 }
 
 // --- what Excel hands back ---------------------------------------------------
@@ -164,10 +227,10 @@ const fresh = () => blockAt(doc, 2);
   check("blockAt: the header is the row that stands first", headerIndex(block) === 0);
   check("blockAt: reads the cells", block.rows[1].cells.join(",") === "Ollie,5,brown");
   check("blockAt: a non-pipe line is no block", blockAt(doc, 0) === null && blockAt(doc, 4) === null);
-  // a leftover rule from before 1.12 is carried in the block and drawn away
+  // a rule from before 1.12 is read as the divider it now is, and drawn as one
   const ruled = blockAt(["name|size", "----+----", "Ollie|5"], 0);
-  check("blockAt: a leftover rule is kept as layout and never drawn",
-    ruled.rows[1].sep === true && render(ruled).join("/") === "name |size/Ollie|5");
+  check("blockAt: a leftover rule is kept, and drawn as a divider",
+    ruled.rows[1].sep === true && render(ruled).join("/") === "name |size/-----|----/Ollie|5");
   check("blockAt: a row with an empty name cell is a row like any other",
     blockAt(doc, 5).start === 5 && blockAt(doc, 5).end === 5
     && blockAt(doc, 5).rows[0].cells.join(",") === ",gegeg");
@@ -182,14 +245,16 @@ const fresh = () => blockAt(doc, 2);
     render(ragged)[2] === "     |3   |grey");
 
   // a table written in the pre-1.12 bordered form reads without its borders,
-  // so drawing it again is what migrates the file
+  // so drawing it again is what migrates the file — its nesting into the
+  // parent column with it, and its rule into a divider
   const old = ["    |Otter |size|", "    |------+----|", "    |Ollie |5   |", "    |    Pup|1  |"];
   const legacy = blockAt(old, 0);
   check("blockAt: a bordered table is read without its borders",
     legacy.rows[0].cells.join(",") === "Otter,size" && legacy.rows[2].cells.join(",") === "Ollie,5"
     && legacy.rows[3].depth === 1);
   check("render: re-drawing a bordered table migrates it",
-    render(legacy).join("|") === ["    Otter  |size", "    Ollie  |5", "        Pup|1"].join("|"));
+    render(legacy).join("\n") === ["    Otter|parent (otter)|size", "    -----|--------------|----",
+      "    Ollie|              |5", "    Pup  |Ollie         |1"].join("\n"));
 
   check("widthsOf: widest cell per column", widthsOf(block).join(",") === "6,4,6");
   check("render: redraws aligned (no gutters)", render(block)[1] === "    Ollie |5   |brown");
@@ -377,6 +442,51 @@ const fresh = () => blockAt(doc, 2);
     readValue("a \\= b") === "a = b" && readValue("plain") === "plain"
     && readValue("4") === "4");
 
+  // 1.13: a literal '=' is doubled — a run of '=' at the start or after a
+  // space reads one shorter; one inside a word is itself
+  check("readValue: a doubled '=' after a space, or at the start, reads as one; a longer run one shorter",
+    readValue("a == b") === "a = b" && readValue("a === b") === "a == b" && readValue("==x") === "=x"
+    && readValue("a==b") === "a==b" && readValue("x == y == z") === "x = y = z");
+  check("splitCell: a doubled '=' never opens a derivation; a lone one after it still does",
+    splitCell("a == b").eq === -1 && splitCell("==x").eq === -1
+    && splitCell("a == b =f()").eq === 7 && splitCell("a == b =f()").value === "a == b");
+  check("writtenValue: what reads back as itself — every run of '=' a derivation could open on, one longer",
+    writtenValue("a = b") === "a == b" && writtenValue("=evil()") === "==evil()" && writtenValue("a == b") === "a === b"
+    && writtenValue("a=b") === "a=b" && writtenValue("") === "" && writtenValue(null) === "");
+  check("writtenValue and readValue are inverses, and nothing written opens a derivation",
+    ["a = b", "=x", "x ==y", "p = q = r", "a=b", "  =lead", "none", "= = ="].every((v) =>
+      readValue(writtenValue(v)) === v && splitCell(writtenValue(v)).eq === -1));
+
+  // 1.13: '=' on a declaration defines, exactly as '==' did, which still reads
+  check("splitConstraint: '=' on a declaration is the definition, meaning '==', written as typed",
+    (() => {
+      const c = splitConstraint("vat =@price*0.2");
+      return c.value === "vat" && c.constraints.length === 1 && c.constraints[0].op === "=="
+        && c.constraints[0].opText === "=" && c.constraints[0].formula === "@price*0.2";
+    })());
+  check("splitConstraint: the older '==' is the same operator, and keeps its spelling",
+    (() => {
+      const c = splitConstraint("status ==(\"draft\", \"sent\")");
+      return c.constraints[0].op === "==" && c.constraints[0].opText === "==";
+    })());
+  check("splitConstraint: '=' never reads out of '>=' or '<=', and chains with them",
+    (() => {
+      const c = splitConstraint("vat =@price*0.2 >=0 <=@price");
+      return c.constraints.map((k) => k.opText).join(" ") === "= >= <=" && splitConstraint("age >=18").constraints[0].op === ">=";
+    })());
+  check("splitConstraint: prose after '=' is no definition",
+    splitConstraint("note = some words").eq === -1 && splitConstraint("a=b").eq === -1);
+  {
+    const block = blockAt(["Invoice|price|vat", "A      |100  |=@price*0.2", "B      |50   |=@price*0.2"], 0);
+    const def = columnDefinition(block, 2);
+    defineColumn(block, 1, 2);
+    check("defineColumn: the shared derivation moves onto the header as '='",
+      def && def.source === "@price*0.2" && block.rows[0].cells[2] === "vat =@price*0.2");
+    const prose = blockAt(["Note|text", "A   |=two words", "B   |=two words"], 0);
+    check("columnDefinition: a source that would not read as Python on a header is not offered",
+      columnDefinition(prose, 1) === null);
+  }
+
   check("formatValue: keeps the $ and thousands commas of the old value",
     formatValue(1500, "$1,000") === "$1,500" && formatValue(20, "") === "20" && formatValue(1.256, "") === "1.26");
   // every computed number carries thousands separators, whatever the old
@@ -442,8 +552,8 @@ const fresh = () => blockAt(doc, 2);
 }
 
 // ---------------------------------------------------------------------------
-// no rule, no alignment: every column is drawn left, and a leftover rule
-// (colons and all) is layout the next draw takes out
+// no alignment: every column is drawn left, and a leftover rule's colons
+// (org's alignment marks) are gone from the divider it is drawn as
 // ---------------------------------------------------------------------------
 {
   const written = [
@@ -455,9 +565,9 @@ const fresh = () => blockAt(doc, 2);
   const b = blockAt(written, 0);
   const drawn = render(b);
   check("no alignment: every column is padded on its right, whatever the old rule said",
-    drawn[1] === "1      |1   |1    |1");
-  check("no rule: the leftover is dropped, so the drawn table is header and rows",
-    drawn.length === 3 && drawn[0] === "default|left|right|centre");
+    drawn[2] === "1      |1   |1    |1");
+  check("no alignment: the rule is a divider of dashes alone",
+    drawn.length === 4 && drawn[0] === "default|left|right|centre" && drawn[1] === "-------|----|-----|------");
 
   // the formatter must not churn: drawing an aligned table again changes
   // nothing, or every save would rewrite the file
@@ -469,7 +579,7 @@ const fresh = () => blockAt(doc, 2);
 
   // and the model cannot tell: every reader trims its cells
   check("alignment: the padding is presentation — the cells read the same",
-    cells(drawn[1]).map((c) => c.text).join(",") === "1,1,1,1");
+    cells(drawn[2]).map((c) => c.text).join(",") === "1,1,1,1");
 }
 
 // ---------------------------------------------------------------------------
@@ -483,20 +593,18 @@ const fresh = () => blockAt(doc, 2);
   const tree = [
     "Org Structure|",
     "Department A|",
-    "    Team 1|",
-    "        Alice|",
-    "        Charlie|",
+    "Team 1|",
+    "Alice|",
+    "Charlie|",
   ];
   const b = blockAt(tree, 0);
   check("one column: the closing pipe reads as the empty last cell it looks like",
     cells("Alice|").map((c) => c.text).join(",") === "Alice," && b.rows[3].cells[0] === "Alice");
-  check("one column: every row keeps its depth",
-    b.rows.map((r) => r.depth).join(",") === "0,0,1,2,2");
   const drawn = render(b);
   check("one column: every row is drawn closed, so the table stays a table",
     drawn.every((l) => l.endsWith("|")) && blockAt(drawn, 0).rows.length === 5);
-  check("one column: the closing pipes line up past the deepest name",
-    drawn[0] === "Org Structure  |" && drawn[4] === "        Charlie|");
+  check("one column: the closing pipes line up past the longest name",
+    drawn[0] === "Org Structure|" && drawn[4] === "Charlie      |");
   check("one column: drawing it again changes nothing",
     render(blockAt(drawn, 0)).join("\n") === drawn.join("\n"));
 
@@ -658,12 +766,12 @@ const fresh = () => blockAt(doc, 2);
   check("align: still pads, redraws, and reports 1-based lines",
     edits.length === 2 && edits[0].line === 2 && edits[0].text === "    name |size"
     && edits[1].text === "    Ollie|5");
-  // a table carrying a leftover rule loses a line, so its block is rewritten whole
+  // a table carrying a leftover rule keeps it, drawn as the divider it now is
   const ruled = ["Otter", "    name|size", "    ----+----", "    Ollie|5"].join("\n");
   const ruledEdits = align(ruled);
-  check("align: a leftover rule is drawn away, the block rewritten whole",
-    ruledEdits.length === 1 && ruledEdits[0].line === 2 && ruledEdits[0].to === 4
-    && ruledEdits[0].text === "    name |size\n    Ollie|5");
+  check("align: a leftover rule is redrawn as a divider, line for line",
+    ruledEdits.length === 2 && ruledEdits[0].line === 2 && ruledEdits[0].text === "    name |size"
+    && ruledEdits[1].line === 3 && ruledEdits[1].text === "    -----|----");
 }
 
 // ---------------------------------------------------------------------------
@@ -710,7 +818,9 @@ const fresh = () => blockAt(doc, 2);
 // ---------------------------------------------------------------------------
 {
   check("isRowText: 'name: value' with a pipe in the value is not a row",
-    !isRowText("    rule: a | b") && !isRowText("- Ann: x|y") && !isRowText("Reload: Ctrl+K|T"));
+    !isRowText("    rule: a | b") && !isRowText("- Ann: x|y"));
+  check("isRowText: behind a capitalised name the colon states the Concept's default, and the pipe divides — a header",
+    isRowText("Reload: Ctrl+K|T") && isRowText("    Currency (Money): EUR|symbol"));
   check("isRowText: rows keep their colons after the first divider",
     isRowText("Otter|size") && isRowText("|12:30") && isRowText("Ollie|http://x.org|5"));
   check("isRowText: a leftover rule with alignment colons is still a row",
@@ -746,7 +856,7 @@ const fresh = () => blockAt(doc, 2);
 
 // ---------------------------------------------------------------------------
 // a calculated column: one derivation shared by every row moves to the
-// header as `==`, and each cell keeps its value alone
+// header as `=`, and each cell keeps its value alone
 // ---------------------------------------------------------------------------
 {
   const { columnDefinition, defineColumn } = require("../src/table");
@@ -757,8 +867,8 @@ const fresh = () => blockAt(doc, 2);
   check("define column: offered when every row derives the column alike (empty cells allowed)",
     def && def.source === "@price*0.2" && def.name === "vat" && columnDefinition(b, 3).source === "@price-1");
   defineColumn(b, 1, 2);
-  check("define column: the derivation moves to the header as ==, each cell keeps its value",
-    rowsOf(b) === "Invoice|price|vat ==@price*0.2|net / A|100|20|=@price-1 / B|50|| / C|10||=@price-1");
+  check("define column: the derivation moves to the header as =, each cell keeps its value",
+    rowsOf(b) === "Invoice|price|vat =@price*0.2|net / A|100|20|=@price-1 / B|50|| / C|10||=@price-1");
   check("define column: not once the header defines it already", columnDefinition(b, 2) === null);
   check("define column: not when two rows derive it differently, or a row typed its own value",
     columnDefinition(grid("T|a|b", "x|1 =f()|", "y|2 =g()|"), 1) === null
@@ -771,7 +881,7 @@ const fresh = () => blockAt(doc, 2);
   const other = grid("T|a >=0|b", "x|=f()|1", "y|=f()|2");
   defineColumn(other, 1, 1);
   check("define column: a header's own bound stays, the definition chained after it",
-    other.rows[0].cells[1] === "a >=0 ==f()" && other.rows[1].cells[1] === "" && other.rows[2].cells[2] === "2");
+    other.rows[0].cells[1] === "a >=0 =f()" && other.rows[1].cells[1] === "" && other.rows[2].cells[2] === "2");
 }
 
 // ---------------------------------------------------------------------------

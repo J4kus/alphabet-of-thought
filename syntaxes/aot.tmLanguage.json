@@ -4,10 +4,11 @@
     "fileTypes": ["aot"],
 	"patterns": [
 		{
-            "comment": "table row: any line carrying a divider with no colon before it, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. A colon before the first pipe makes a 'name: value' line whose value holds the pipe, which the line rules below colour. The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
-            "begin": "^(?=[^|:=]*(?:\\s=(?!=)[^|]*)?\\|)",
+            "comment": "table row: any line carrying a divider with no colon before it, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. A colon before the first pipe makes a 'name: value' line whose value holds the pipe, which the line rules below colour — unless the line is capitalised: 'Currency: EUR|symbol' is a table's header, its first cell the Concept and the default it states. An '=' inside a word ('a=b') is a letter of the cell; only a space-preceded one opens Python (a Concept's derivation in the first header cell). The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
+            "begin": "^(?=(?:(?:[^|:=]|(?<!\\s)=)*(?:\\s=(?!=)[^|]*)?|\\s*[A-Z](?:[^|:=]|(?<!\\s)=)*:[^|]*)\\|)",
             "end": "$",
             "patterns": [
+                { "comment": "a header whose first cell states the Concept's default: 'Currency: EUR|symbol'", "match": "^(\\s*[A-Z](?:[^|:(=]|(?<!\\s)=)*?)\\s*(\\([^)|]*\\))?\\s*(:)([^|]*)", "captures": { "1": { "name": "entity.name.type.concept.aot" }, "2": { "name": "entity.other.attribute-name.alias.aot" }, "3": { "name": "string.unquoted.value.aot" }, "4": { "name": "string.unquoted.value.aot" } } },
                 { "comment": "a table whose Python wrote it: the Concept and its derivation in the first header cell", "match": "^(\\s*[^|=\\s][^|=]*?)(\\s=(?!=)[^|]*)", "captures": { "1": { "name": "entity.name.type.concept.aot" }, "2": { "name": "meta.embedded.inline.python.aot" } } },
                 { "match": "[|+]|(?<![^\\s|+])-+(?![^\\s|+])", "name": "punctuation.definition.table.aot" },
                 { "match": "`[^`]*`", "name": "markup.inline.raw.literal.aot" },
@@ -17,7 +18,7 @@
             ]
         },
         {
-            "comment": "table rule: the '---+---' line an older file (before 1.12) drew under its header. It marks nothing now — the header is the row that stands first — and the next re-draw takes it out; until then every symbol is chrome, one quiet colour. Two symbols at least, so a lone '-' stays the Example whose name is still being typed. Punctuation, not comment: comment scopes render italic in most themes, and an italic pipe tilts",
+            "comment": "table divider: dashes between a table's pipes ('-----|---') group its rows, as a blank line groups an outline's lines — and the '---+---' rule an older file (before 1.12) drew under its header reads as one, redrawn so on the next re-align. A divider with a pipe is claimed by the row rule above, whose dash runs are this same chrome; this catches one with none ('---+---'). Every symbol one quiet colour. Two symbols at least, so a lone '-' stays the Example whose name is still being typed. Punctuation, not comment: comment scopes render italic in most themes, and an italic pipe tilts",
             "name": "punctuation.definition.table.aot",
             "match": "^[ \\t]*(?=[ \\t\\-+:|]*$)(?=.*-)[-+:|]{2,}[-+:|\\s]*$"
         },
@@ -37,9 +38,13 @@
             "match": "\\b[a-z]\\w*\\b"
         },
         {
-            "comment": "value: the data after a colon",
+            "comment": "value: the data after a colon. A run of '=' at its start or after a space is the escape for a literal '=' ('a == b' reads 'a = b'), shown as one; a lone space-preceded '=' opens the value's derivation, which the extension's semantic tokens paint as Python over this",
             "name": "string.unquoted.value.aot",
-            "match": ":.*$"
+            "begin": ":",
+            "end": "$",
+            "patterns": [
+                { "match": "(?:(?<=:)|(?<=\\s))={2,}", "name": "constant.character.escape.aot" }
+            ]
         },
         {
             "comment": "example: a named instance / individual",

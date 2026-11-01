@@ -49,10 +49,11 @@ function check(name, ok) {
     "    Sales =df[df.a | df.b][:10]",
     "        Sales|month  |units",
     "        Q1   |2026-01|1,204",
-    "    Run Command: code =x",
+    "    Run Command: code ==x",
     "    Plain",
     "    rows =f()",
     "    Empty =",
+    "    note = some words",
   ].join("\n");
   const r = lint(text, "t");
   const sales = r.nodes.find((n) => n.kind === KIND.CONCEPT && n.name === "Sales");
@@ -63,12 +64,19 @@ function check(name, ok) {
   check("Concept line: the merge-form grid under it fills the same Concept",
     sales && sales.children.some((c) => c.kind === KIND.INDIVIDUAL && c.name === "Q1"));
   const run = r.nodes.find((n) => n.name === "Run Command");
-  check("Concept line: an inline Example's text keeps its '=' (a colon stands first)",
-    run && run.formula === undefined && run.children.some((c) => c.name === "code =x"));
+  check("Concept line: a Concept's default is its text, a doubled '=' one literal '=' — no derivation, no Example",
+    run && run.formula === undefined && run.value === "code =x" && !run.children.length);
+  const derivedDefault = lint("Run Command: code =x", "t").errors;
+  check("Concept line: an '=' opening a derivation on a Concept's default is an error — a default is stated",
+    derivedDefault.some((e) => /derives the Concept's default/.test(e.message)));
   check("Concept line: a plain Concept is untouched", r.nodes.some((n) => n.name === "Plain" && n.formula === undefined));
-  const onAttr = r.errors.find((e) => e.line === 7);
-  check("a derivation on a bare attribute is an error that says to add a colon",
-    onAttr && /add a colon/.test(onAttr.message) && /rows: =f\(\)/.test(onAttr.message));
+  const rows = r.nodes.find((n) => n.kind === KIND.ATTRIBUTE && n.name === "rows");
+  check("'=' on a bare attribute defines it: no error, one equality the attribute's every value is held to",
+    !r.errors.some((e) => e.line === 7) && rows && rows.constraints && rows.constraints.length === 1
+    && rows.constraints[0].op === "==" && rows.constraints[0].opText === "=" && rows.constraints[0].formula === "f()");
+  const onAttr = r.errors.find((e) => e.line === 9);
+  check("a definition that does not read as Python is an error that says so, and how to make it a value's derivation",
+    onAttr && /does not read as Python/.test(onAttr.message) && /add a colon/.test(onAttr.message) && /note: =some words/.test(onAttr.message));
   const empty = r.errors.find((e) => e.line === 8);
   check("an empty Concept derivation is an error", empty && /nothing after '='/.test(empty.message));
   check("table.cleanName: a Concept line files under its name alone", table.cleanName("Sales =by_month(@raw)") === "Sales");
@@ -526,15 +534,15 @@ function check(name, ok) {
 {
   const v = (text) => python.resultOf({ kind: "value", value: "", address: "@t@x" }, { kind: "text", text }, 120).text;
   const written = v("x =__import__('os').system('boom')");
-  check("inert: a written value's '=' never opens a derivation — it is escaped as the language escapes one",
-    written === "x \\=__import__('os').system('boom')" && table.splitCell(written).eq === -1 && table.readValue(written) === "x =__import__('os').system('boom')");
-  check("inert: a value opening with '=' is escaped too; '==' and a=b were never derivations",
-    v("=evil()") === "\\=evil()" && v("a ==b") === "a ==b" && v("a=b") === "a=b");
+  check("inert: a written value's '=' never opens a derivation — it is escaped as the language escapes one, doubled",
+    written === "x ==__import__('os').system('boom')" && table.splitCell(written).eq === -1 && table.readValue(written) === "x =__import__('os').system('boom')");
+  check("inert: a value opening with '=' is escaped too; a literal '==' gains one more so it reads back as itself; a=b was never a derivation",
+    v("=evil()") === "==evil()" && v("a ==b") === "a ===b" && table.readValue(v("a ==b")) === "a ==b" && v("a=b") === "a=b");
   const g = python.gridOf({ kind: "frame", columns: ["n >=__import__('os').getpid()", "plain", "x =f()"], rows: [["1", "=boom()", 2, "k"]] }, "T");
   check("inert: a column that would read as a bound or a derivation has its operators made full-width",
     g.header[1] === "n ＞＝__import__('os').getpid()" && g.header[2] === "plain" && g.header[3] === "x ＝f()"
     && table.splitConstraint(g.header[1]).eq === -1);
-  check("inert: a cell Python wrote can never be a derivation", g.rows[0][1] === "\\=boom()");
+  check("inert: a cell Python wrote can never be a derivation", g.rows[0][1] === "==boom()");
   check("inert: prose with an operator in it is no code, and is left alone", python.inertName("speed > none noted") === "speed > none noted");
   const secret = (text) => { try { v(text); return null; } catch (e) { return e.message; } };
   check("secrets: a private key is refused, and says why",
