@@ -313,11 +313,11 @@ function suggest(root, nodes) {
     }
     for (const group of byIntent.values()) {
       const names = group.map((c) => `'${c.name}'`).join(" and ");
-      const move = group.length === 1 ? `move it under ${names}` : `move it under one of them`;
+      const move = group.length === 1 ? `move it under ${names}` : `move it under one of ${names}`;
       const differentia = group.length === 1 ? `give ${names} a differentia` : `give them a differentia`;
       findings.push({
         line: g.line,
-        message: `drift: '- ${g.name}' carries every attribute the Examples of ${names} share, yet it is filed under '${g.parent.name}' — either ${move}, or ${differentia} that genuinely excludes it`,
+        message: `drift: ${move}, or ${differentia} that genuinely excludes it — '- ${g.name}' carries every attribute the Examples of ${names} share, yet it is filed under '${g.parent.name}'`,
       });
     }
   }
@@ -336,7 +336,7 @@ function suggest(root, nodes) {
         if (setKey(infos.get(subs[i]).intent) === setKey(infos.get(subs[j]).intent)) {
           findings.push({
             line: subs[j].line,
-            message: `exhaustion: '${subs[i].name}' and '${subs[j].name}' under '${p.name}' read as different kinds, but their Examples carry identical attributes — give each a differentia the other lacks, or merge them`,
+            message: `exhaustion: give each a differentia the other lacks, or merge them — '${subs[i].name}' and '${subs[j].name}' under '${p.name}' read as different kinds, but their Examples carry identical attributes`,
           });
         }
       }
@@ -349,7 +349,7 @@ function suggest(root, nodes) {
       const who = leftovers.map((g) => `'- ${g.name}' (line ${g.line})`).join(", ");
       findings.push({
         line: Math.max(p.line, 1),
-        message: `exhaustion: '${p.name}' divides into { ${subs.map((s) => s.name).join(", ")} }, but only ${covered} of its ${pInfo.extent.length} Examples match a sub-Concept by attributes — ${who} match${leftovers.length === 1 ? "es" : ""} none: the division misses a kind, or the Example lacks the attributes of its kind`,
+        message: `exhaustion: add the kind the division misses, or give the Example the attributes of its kind — '${p.name}' divides into { ${subs.map((s) => s.name).join(", ")} }, but only ${covered} of its ${pInfo.extent.length} Examples match a sub-Concept by attributes: ${who} match${leftovers.length === 1 ? "es" : ""} none`,
       });
     }
   }

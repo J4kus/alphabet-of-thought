@@ -278,10 +278,10 @@ function message(self, other, why) {
   const cause = why === "vocabulary"
     ? `'${self.name}' and '${other.name}'${at} are two words for one idea`
     : `'${self.name}' and '${other.name}'${at} are one word with two endings`;
-  return `${cause} — one idea takes one name, so a reader cannot tell whether these are the same thing `
-    + `written twice or two things that happen to sound alike; rename one to the other, or write `
-    + `'${self.name} (${other.name})' to say they are the same idea. If they are genuinely different, `
-    + `the lightbulb records that and stops asking.`;
+  return `rename one to the other, or write '${self.name} (${other.name})' to say they are the same idea; `
+    + `if they are genuinely different, the lightbulb records that and stops asking — ${cause}, and one idea `
+    + `takes one name, so a reader cannot tell whether these are the same thing written twice or two things `
+    + `that happen to sound alike`;
 }
 
 module.exports = { findings, pairKey, words, vocabularyKey, sameStem, stemMatch, GROUPS, MIN_STEM };

@@ -376,7 +376,7 @@ const aot = (...lines) => lines.join("\n");
     check("verify.js: no arguments says how, and exits 2", usage.status === 2 && /^usage: node verify\.js/.test(usage.stderr));
     const plain = node("shop.aot");
     check("verify.js: a value every child sets is a warning on a file that verifies",
-      plain.status === 0 && /shop\.aot:\d+: warning: every child of 'Boat' sets 'hull: wood'/.test(plain.stdout) && /V = 0: true/.test(plain.stdout));
+      plain.status === 0 && /shop\.aot:\d+: warning: write 'hull: wood' once under 'Boat' and drop it from each child — every child of 'Boat' sets it/.test(plain.stdout) && /V = 0: true/.test(plain.stdout));
 
     // numbered alone, each file gives its attributes its own primes: one
     // content, two numbers. The registry makes it one number everywhere.
@@ -398,8 +398,8 @@ const aot = (...lines) => lines.join("\n");
     fs.rmSync(path.join(dir, "broken.aot"));
     check("verify.js --workspace: two names for one content in two files are warned of, from both sides, and fail nothing",
       ws.status === 0 && /Concept 'Lantern' is written in 2 places/.test(ws.stdout)
-      && /shop\.aot:5  warning: 'Toaster' and 'Grill' \(depot\.aot:5\) carry exactly the same attributes and values/.test(ws.stdout)
-      && /depot\.aot:5  warning: 'Grill' and 'Toaster' \(shop\.aot:5\)/.test(ws.stdout));
+      && /shop\.aot:5  warning: rename one to the other.* — 'Toaster' and 'Grill' \(depot\.aot:5\) carry exactly the same attributes and values/.test(ws.stdout)
+      && /depot\.aot:5  warning: rename one to the other.* — 'Grill' and 'Toaster' \(shop\.aot:5\)/.test(ws.stdout));
     check("verify.js --workspace: a file with errors is left out of the comparison", !/Heater/.test(ws.stdout));
 
     const rec = node("--workspace", ".", "--reconcile");

@@ -511,7 +511,7 @@ const listed = [
   const james = at("James");
   const jamesOk = james && james.line === 12 && james.concept.name === "Person"
     && james.startCol === text.split("\n")[11].indexOf("James")
-    && /is not an Example of Concept 'Person' — its Examples are Socrates/.test(james.message);
+    && /^add it as an Example of 'Person', or use one already listed — 'James' is not an Example of Concept 'Person': its Examples are Socrates/.test(james.message);
   const fiveOk = at("5") && at("5").concept.name === "Integer"
     && /its Examples are 1, 35/.test(at("5").message);
   console.log(jamesOk && fiveOk && found.length === 2
@@ -1678,7 +1678,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   vscode.workspace._aotCreated({ fsPath: bPath });
   const docA = makeDoc(aPath, aText);
   vscode.workspace._open(docA);
-  const twin = (published.get(docA.uri.toString()) || []).find((d) => /^'Hound' and 'Mutt' \(Pound\.aot:1\) carry exactly the same attributes and values/.test(d.message));
+  const twin = (published.get(docA.uri.toString()) || []).find((d) => /^rename one to the other.* — 'Hound' and 'Mutt' \(Pound\.aot:1\) carry exactly the same attributes and values/.test(d.message));
   const twinFixes = twin ? codeActionsProvider.provideCodeActions(docA, twin.range, { diagnostics: [twin] }) : [];
   console.log(twin && twin.severity === vscode.DiagnosticSeverity.Warning
     && (twin.relatedInformation || []).some((r) => /Pound\.aot/.test(r.location.uri.toString()))
@@ -1702,7 +1702,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   fs.writeFileSync(vPath, vText);
   const docV = makeDoc(vPath, vText);
   vscode.workspace._open(docV);
-  const hoistD = (published.get(docV.uri.toString()) || []).find((d) => /^every child of 'Vehicle' sets 'wheels: 4'/.test(d.message));
+  const hoistD = (published.get(docV.uri.toString()) || []).find((d) => /^write 'wheels: 4' once under 'Vehicle' and drop it from each child — every child of 'Vehicle' sets it/.test(d.message));
   const moveUp = hoistD && codeActionsProvider.provideCodeActions(docV, hoistD.range, { diagnostics: [hoistD] })
     .find((f) => f.command && f.command.command === "aot.hoistValue");
   console.log(hoistD && hoistD.severity === vscode.DiagnosticSeverity.Warning
@@ -1714,7 +1714,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
   fs.writeFileSync(dPath, dText);
   const docD = makeDoc(dPath, dText);
   vscode.workspace._open(docD);
-  const deadD = (published.get(docD.uri.toString()) || []).find((d) => /^'Drink' sets 'temperature: cold' but every child overrides it/.test(d.message));
+  const deadD = (published.get(docD.uri.toString()) || []).find((d) => /^keep just 'temperature', or drop the line — 'Drink' sets 'temperature: cold' but every child overrides it/.test(d.message));
   const keepJust = deadD && codeActionsProvider.provideCodeActions(docD, deadD.range, { diagnostics: [deadD] })
     .find((f) => f.command && f.command.command === "aot.hoistValue");
   console.log(deadD && keepJust && keepJust.title === "Keep just 'temperature'" && !keepJust.isPreferred
@@ -1722,7 +1722,7 @@ if (process.platform === "win32" || process.platform === "darwin") {
     ? "PASS (hoists: a default no child keeps warns, with 'keep just the attribute' on the lightbulb)"
     : "UNEXPECTED dead default " + JSON.stringify({ diags: (published.get(docD.uri.toString()) || []).map((d) => d.message), fix: keepJust && keepJust.title }));
   // a squiggle the document no longer bears out, or another tool's, offers nothing
-  const ghost = { source: "aot", message: "every child of 'Ghost' sets 'x: 1' (lines 2, 4) — …", range: new vscode.Range(0, 0, 0, 5) };
+  const ghost = { source: "aot", message: "write 'x: 1' once under 'Ghost' and drop it from each child — every child of 'Ghost' sets it (lines 2, 4), …", range: new vscode.Range(0, 0, 0, 5) };
   const foreign = Object.assign({}, hoistD, { source: "other" });
   console.log(!codeActionsProvider.provideCodeActions(docV, ghost.range, { diagnostics: [ghost, foreign] })
     .some((f) => f.command && f.command.command === "aot.hoistValue")
@@ -2000,6 +2000,52 @@ async function hoistAndReconcile() {
     ? "PASS (synonyms: the dismissal is stored order-free and case-free)"
     : "UNEXPECTED distinctConcepts " + JSON.stringify(configStore.distinctConcepts));
   delete configStore.distinctConcepts;
+}
+
+// 7d1) the lightbulbs on the repo-wide findings and on an unlisted value read
+// their names back out of the message, so a reworded finding must not take the
+// fix off the bulb. Driven by the messages the checks really produce.
+{
+  const repo = require("../src/repo");
+  const { unlistedValues } = require("../src/crosslinks");
+  const build = (files) => Object.entries(files).map(([file, text]) => {
+    const rootName = file.replace(/\.[^.]*$/, "");
+    return { file, text, rootName, ...lint(text, rootName) };
+  });
+  const said = (files, autoReconcile) => {
+    const f = repo.findings("a.aot", repo.occurrences(build(files)), { autoReconcile });
+    return [...f.errors, ...f.warnings][0].message;
+  };
+  const doc = makeDoc("c:\\repo\\Lightbulb.aot", "Pet\n    colour: red");
+  const range = new vscode.Range(0, 0, 0, 3);
+  const bulb = (message) => codeActionsProvider.provideCodeActions(doc, range, { diagnostics: [{ source: "aot", message, range }] })
+    .filter((f) => f.command && f.diagnostics);
+
+  const clash = bulb(said({ "a.aot": "Pet\n    colour: red", "b.aot": "Pet\n    colour: blue" }, true));
+  console.log(clash.map((f) => f.title).join("|") === "Set 'colour' to 'red' everywhere|Set 'colour' to 'blue' everywhere"
+    && JSON.stringify(clash[1].command.arguments) === JSON.stringify(["Pet", "colour", "blue"])
+    ? "PASS (repo lightbulb: one attribute with two values offers each value, everywhere)"
+    : "UNEXPECTED repo value clash " + JSON.stringify(clash.map((f) => f.title)));
+
+  const genus = bulb(said({ "a.aot": "Animal\n    Pet\n        age", "b.aot": "Thing\n    Pet\n        age" }, true));
+  console.log(genus.length === 1 && /^Qualify this 'Pet'/.test(genus[0].title)
+    ? "PASS (repo lightbulb: one Concept under two kinds offers to qualify it)"
+    : "UNEXPECTED repo genus clash " + JSON.stringify(genus.map((f) => f.title)));
+
+  const reconciles = (actions) => actions.length === 1 && actions[0].command.command === "aot.reconcileAcrossFiles";
+  const gone = bulb(said({ "a.aot": "Person\n    - Ann\n    ... 1 more in b.aot:1", "b.aot": "Dog" }, false));
+  const stale = bulb(said({ "a.aot": "Person\n    - Ann", "b.aot": "Person\n    - Bob" }, false));
+  console.log(reconciles(gone) && reconciles(stale)
+    ? "PASS (repo lightbulb: a '...' note gone stale, either way, offers to reconcile)"
+    : "UNEXPECTED repo stale note " + JSON.stringify([gone.map((f) => f.title), stale.map((f) => f.title)]));
+
+  const text = "Person\n    - Socrates\nClub\n    person: James";
+  const r = lint(text, "Lightbulb");
+  const add = bulb(unlistedValues(text, r.root, r.nodes)[0].message);
+  console.log(add.length === 1 && add[0].title === "Add 'James' as an Example of 'Person'"
+    && JSON.stringify(add[0].command.arguments) === JSON.stringify(["James", "Person"])
+    ? "PASS (lightbulb: an unlisted value offers to add itself as an Example of its Concept)"
+    : "UNEXPECTED unlisted lightbulb " + JSON.stringify(add.map((f) => f.title)));
 }
 
 // 7d2) an Example's name is part of what it is: two ledger rows carrying
@@ -3404,7 +3450,7 @@ setTimeout(async () => {
     // off by default: nothing runs, nothing starts, and the note says so
     vscode.workspace._open(f.doc);
     const infoFirst = pyFindings(f.doc).filter((d) => d.severity === vscode.DiagnosticSeverity.Information);
-    console.log(infoFirst.length === 8 && infoFirst.every((d) => /^not run yet — Ctrl\+Enter runs it \(aot\.python\.enabled is off\)$/.test(d.message))
+    console.log(infoFirst.length === 8 && infoFirst.every((d) => /^press Ctrl\+Enter to run it — not run yet \(aot\.python\.enabled is off\)$/.test(d.message))
       && infoFirst.every((d) => d.source === "aot-python")
       ? "PASS (python: a derivation that has never run is noted as such, in a collection of its own)"
       : "UNEXPECTED python notes " + JSON.stringify(pyFindings(f.doc).map((d) => d.message)));
@@ -3736,8 +3782,8 @@ setTimeout(async () => {
     const W = vscode.DiagnosticSeverity.Warning;
     console.log(checkedRun.broken === 2 && checkedRun.defined === 2
       && c.lines()[8] === "        grade: 6" && c.lines()[13] === "        grade: 2,408"
-      && cf().some((d) => d.range.a[0] === 10 && d.severity === W && /^'15' breaks 'age >=18' — it is not >= 18$/.test(d.message))
-      && cf().some((d) => d.range.a[0] === 6 && d.severity === W && /^'void' breaks 'status =\("draft", "sent"\)' — it is not one of 'draft', 'sent'$/.test(d.message))
+      && cf().some((d) => d.range.a[0] === 10 && d.severity === W && /^change the value, or the bound — '15' breaks 'age >=18': it is not >= 18$/.test(d.message))
+      && cf().some((d) => d.range.a[0] === 6 && d.severity === W && /^change the value, or the bound — 'void' breaks 'status =\("draft", "sent"\)': it is not one of 'draft', 'sent'$/.test(d.message))
       && cf().filter((d) => d.severity === W).length === 2
       ? "PASS (constraints: Ctrl+Enter checks every bound, warns a breach on its value, and fills what a '==' defines)"
       : "UNEXPECTED constraint run " + JSON.stringify({ checkedRun, lines: c.lines(), findings: cf().map((d) => [d.range.a, d.message]) }));
@@ -4028,12 +4074,12 @@ setTimeout(async () => {
         && twoHint && /^✓ 1 Concept · 1 row · 2 ms · \d\d:\d\d · 'Gen Own' left to its own derivation$/.test(twoHint.label)
         && /left alone: Gen Own — its own derivation writes its rows/.test(twoHint.tooltip)
         && twoFindings.length === 1 && twoFindings[0].severity === vscode.DiagnosticSeverity.Warning
-        && twoFindings[0].message === "this line returns 'Gen Own', which has a derivation of its own — that one writes its rows, and this line leaves it alone; return it from one place only"
+        && twoFindings[0].message === "return it from one place only — this line returns 'Gen Own', which has a derivation of its own: that one writes its rows, and this line leaves it alone"
         && !pyFindings(g.doc).some((d) => /Python failed/.test(d.message))
         ? "PASS (python: a Concept with its own derivation is left to it — the bare line writes the rest, succeeds, and warns that two places return it)"
         : "UNEXPECTED bare = conflict " + JSON.stringify({ G, hint: twoHint && [twoHint.label, twoHint.tooltip], findings: pyFindings(g.doc).map((d) => [d.severity, d.message]) }));
       console.log(ext._test.leftAloneMessage(["Fleet", "Depot", "Yard"])
-        === "this line returns 'Fleet', 'Depot' and 'Yard', which have derivations of their own — those write their rows, and this line leaves them alone; return each from one place only"
+        === "return each from one place only — this line returns 'Fleet', 'Depot' and 'Yard', which have derivations of their own: those write their rows, and this line leaves them alone"
         ? "PASS (python: several Concepts left to their own derivations are named in one warning)"
         : "UNEXPECTED left-alone wording " + JSON.stringify(ext._test.leftAloneMessage(["Fleet", "Depot", "Yard"])));
 

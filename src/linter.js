@@ -37,6 +37,9 @@ const TYPE_NAME = ["Example", "Default Value", "Concept", "attribute", "Map"];
 // [{ file?, line, startCol?, endCol?, message }] — the finding's partner
 // locations (the other half of a duplicate), which the editor renders as
 // clickable related information.
+//
+// A message says how to fix the finding first, then why it is a finding:
+// `<fix> — <why>`. A rule's label (`drift:`) may stand ahead of the fix.
 function makeReport() {
   const errors = [], warnings = [];
   return {
@@ -156,7 +159,7 @@ function parse(text, rootName, report) {
       return;
     }
     if (content.includes("\t")) {
-      report.error(line, "tab character in the indentation — AOT indents with spaces only, four per level; replace the tab with spaces");
+      report.error(line, "replace the tab in the indentation with spaces — AOT indents with spaces only, four per level");
       content = content.replace(/\t/g, " ".repeat(INDENT));
     }
     const spaces = content.length - content.replace(/^ +/, "").length;
@@ -170,13 +173,13 @@ function parse(text, rootName, report) {
     const padded = rowText && (!((tableCells(content)[0] || {}).text)
       || (!!table && Math.floor(spaces / INDENT) >= table.depth));
     if (!padded && spaces % INDENT) {
-      report.error(line, `indent of ${spaces} spaces is not a whole number of levels — each level of nesting is exactly ${INDENT} spaces, so add or remove spaces to reach a multiple of ${INDENT} (${spaces} mod ${INDENT} = ${spaces % INDENT}, expected 0)`);
+      report.error(line, `add or remove spaces to reach a multiple of ${INDENT} — an indent of ${spaces} spaces is not a whole number of levels, and each level of nesting is exactly ${INDENT} spaces (${spaces} mod ${INDENT} = ${spaces % INDENT}, expected 0)`);
     }
     let depth = !padded ? Math.floor(spaces / INDENT)
       : table ? table.depth
       : Math.min(Math.floor(spaces / INDENT), prevDepth + 1);
     if (!padded && depth - prevDepth > 1) {
-      report.error(line, `depth jump ${prevDepth} -> ${depth}: this line is ${depth - prevDepth} levels deeper than the line above, but a child sits exactly one level under its parent — there is no line at depth ${depth - 1} to be its parent; indent it to depth ${prevDepth + 1}`);
+      report.error(line, `indent this line to depth ${prevDepth + 1} — depth jump ${prevDepth} -> ${depth}: it is ${depth - prevDepth} levels deeper than the line above, but a child sits exactly one level under its parent, and there is no line at depth ${depth - 1} to be its parent`);
       depth = prevDepth + 1;
     }
     let trimmed = content.trim();
@@ -208,7 +211,7 @@ function parse(text, rootName, report) {
     if (/^=(?!=)/.test(trimmed)) {
       const formula = trimmed.slice(1).trim();
       if (!formula) {
-        report.error(line, "'=' stands alone — a derivation on a line of its own is the Python that writes Concepts; write the expression, or remove the line",
+        report.error(line, "write the expression, or remove the line — '=' stands alone, and a derivation on a line of its own is the Python that writes Concepts",
           { startCol: spaces, endCol: spaces + trimmed.length });
       }
       generators.push({
@@ -218,14 +221,14 @@ function parse(text, rootName, report) {
       return;
     }
     if (trimmed.startsWith("==")) {
-      report.error(line, `'${trimmed}' is a bound with no attribute — a bound holds the values of the attribute it is written on; put the attribute's name in front of it, as in 'status =("draft", "sent")'`,
+      report.error(line, `put the attribute's name in front of '${trimmed}', as in 'status =("draft", "sent")' — it is a bound with no attribute, and a bound holds the values of the attribute it is written on`,
         { startCol: spaces, endCol: spaces + trimmed.length });
       return;
     }
     // a dash Example needs its space ('- '); rows carry no gutter
     // spaces, so a cell may start right after its '|'
     if (!isRow && marker === "-" && !trimmed.startsWith("- ")) {
-      report.error(line, `'${trimmed}' has 0 spaces after '-', expected 1 — an Example begins with a dash then a space ('- '); add the missing space`);
+      report.error(line, `add the missing space after the '-' — '${trimmed}' has 0 spaces after '-', expected 1, and an Example begins with a dash then a space ('- ')`);
       trimmed = "- " + trimmed.slice(1);
     }
     if (isRow) {
@@ -269,10 +272,10 @@ function parse(text, rootName, report) {
             const split = splitCell(written);
             cDefaultCol = row[0].col + colon + 1 + (after.length - after.trimStart().length);
             if (!written) {
-              report.error(line, `'${cName}' has 0 characters after ':', expected the Concept's default — write it, or drop the colon`,
+              report.error(line, `write the Concept's default, or drop the colon — '${cName}' has 0 characters after ':', expected the Concept's default`,
                 { startCol: row[0].col, endCol: row[0].col + row[0].text.length });
             } else if (split.eq !== -1) {
-              report.error(line, `'${cName}' derives the Concept's default — a default is stated, not derived; write the value, or double a literal '=' (==)`,
+              report.error(line, `write the value, or double a literal '=' (==) — '${cName}' derives the Concept's default, and a default is stated, not derived`,
                 { startCol: cDefaultCol + split.eq, endCol: cDefaultCol + written.length });
             }
             cDefault = written ? readValue(split.eq !== -1 ? split.value : written) || null : null;
@@ -290,14 +293,14 @@ function parse(text, rootName, report) {
           && numberless(cName).toLowerCase() === numberless(parent.name).toLowerCase();
         let owner = parent;
         if (!cName) {
-          report.error(line, "the table's first header cell is empty, expected the Concept the table describes — the first cell names the Concept whose Examples the rows are; write its name",
+          report.error(line, "write the Concept's name in the table's first header cell — it is empty, expected the Concept the table describes: the first cell names the Concept whose Examples the rows are",
             row.length ? { startCol: row[0].col, endCol: row[0].col + Math.max(row[0].text.length, 1) } : undefined);
         } else if (sameAsParent) {
           owner = parent; // the table fills in the line it is filed under
           // its default with it — one Concept, one default
           if (cDefault !== null) {
             if (parent.value && String(parent.value).toLowerCase() !== String(cDefault).toLowerCase()) {
-              report.error(line, `'${cName}' states two defaults — '${parent.value}' on its line (line ${parent.line}) and '${cDefault}' in its table's header; keep one`,
+              report.error(line, `keep one default for '${cName}' — it states two defaults: '${parent.value}' on its line (line ${parent.line}) and '${cDefault}' in its table's header`,
                 { startCol: row[0].col, endCol: row[0].col + row[0].text.length, related: [{ line: parent.line, message: `'${cName}' says '${parent.value}' here` }] });
             } else if (!parent.value) {
               parent.value = cDefault;
@@ -308,7 +311,7 @@ function parse(text, rootName, report) {
           // (a 'name: value' line whose value holds a pipe never reaches
           // here: the colon before its first pipe keeps it a line —
           // table.isRowText)
-          report.error(line, `the first header cell '${cName}' is lowercase — it names the Concept the table describes (the old 'name' label was dropped in 1.9); write the Concept's name there, capitalised`,
+          report.error(line, `write the Concept's name in the first header cell, capitalised — the first header cell '${cName}' is lowercase, and it names the Concept the table describes (the old 'name' label was dropped in 1.9)`,
             { startCol: row[0].col, endCol: row[0].col + row[0].text.length });
         } else {
           const concept = {
@@ -326,7 +329,7 @@ function parse(text, rootName, report) {
           owner.formulaCol = headDerivation.col;
           owner.formulaEnd = headDerivation.end;
           if (!headDerivation.formula) {
-            report.error(line, `'${cName} =' has nothing after '=' — a derivation on a Concept is the Python that writes its table; write the expression, or remove the '='`,
+            report.error(line, `write the expression, or remove the '=' — '${cName} =' has nothing after '=', and a derivation on a Concept is the Python that writes its table`,
               { startCol: headDerivation.col, endCol: headDerivation.end });
           }
         }
@@ -337,7 +340,7 @@ function parse(text, rootName, report) {
         const owners = [owner.name, owner.alias];
         const structural = (cell, alias, aliasCol) => {
           if (table.attrs.some((a) => a && a.structural)) {
-            report.error(line, `a second '${cell.text}' column — a table names each row's parent in one column; remove this one`,
+            report.error(line, `remove this column — it is a second '${cell.text}' column, and a table names each row's parent in one column`,
               { startCol: cell.col, endCol: cell.col + cell.text.length });
             table.attrs.push(null);
             return;
@@ -368,20 +371,20 @@ function parse(text, rootName, report) {
             }
             if (!dName) { table.attrs.push(null); continue; }
             if (isParentColumn(dName, dAlias, owners)) {
-              report.error(line, `'${cell.text}' gives the parent column a default — the column names the row each row sits under, so a row naming none is a row of '${owner.name}' itself; drop the ':' and what follows it`,
+              report.error(line, `drop the ':' and what follows it — '${cell.text}' gives the parent column a default, but the column names the row each row sits under, so a row naming none is a row of '${owner.name}' itself`,
                 { startCol: cell.col + colon, endCol: cell.col + cell.text.length });
               structural(cell, dAlias, dAliasCol);
               continue;
             }
             if (dName[0] >= "A" && dName[0] <= "Z") {
-              report.error(line, `column '${dName}' is capitalised — a table column names an attribute of '${owner.name}', and attributes are lowercase; lowercase it`,
+              report.error(line, `lowercase column '${dName}' — it is capitalised, but a table column names an attribute of '${owner.name}', and attributes are lowercase`,
                 { startCol: cell.col, endCol: cell.col + cell.text.length });
             }
             if (!written) {
-              report.error(line, `'${cell.text}' has 0 characters after ':', expected the column's default — write it, or drop the colon to leave '${dName}' a plain column`,
+              report.error(line, `write the column's default, or drop the colon to leave '${dName}' a plain column — '${cell.text}' has 0 characters after ':', expected the column's default`,
                 { startCol: cell.col, endCol: cell.col + cell.text.length });
             } else if (split.eq !== -1) {
-              report.error(line, `'${cell.text}' derives the column's default — a default in a header is stated, not derived; write the value, or put the derivation on the Concept's own line ('${dName}: =…')`,
+              report.error(line, `write the value, or put the derivation on the Concept's own line ('${dName}: =…') — '${cell.text}' derives the column's default, and a default in a header is stated, not derived`,
                 { startCol: valueCol + split.eq, endCol: valueCol + written.length });
             }
             const def = {
@@ -418,14 +421,14 @@ function parse(text, rootName, report) {
           }
           if (isParentColumn(name, alias, owners)) {
             if (constraints) {
-              report.error(line, `'${cell.text}' bounds the parent column — the column names the row each row sits under, and holds nothing to bound or define; drop the '${constraints[0].opText}' and what follows it`,
+              report.error(line, `drop the '${constraints[0].opText}' and what follows it — '${cell.text}' bounds the parent column, but the column names the row each row sits under, and holds nothing to bound or define`,
                 { startCol: constraints[0].opCol, endCol: cell.col + cell.text.length });
             }
             structural(cell, alias, aliasCol);
             continue;
           }
           if (name[0] >= "A" && name[0] <= "Z") {
-            report.error(line, `column '${name}' is capitalised — a table column names an attribute of '${owner.name}', and attributes are lowercase; lowercase it`,
+            report.error(line, `lowercase column '${name}' — it is capitalised, but a table column names an attribute of '${owner.name}', and attributes are lowercase`,
               { startCol: cell.col, endCol: cell.col + cell.text.length });
           }
           const attr = {
@@ -447,13 +450,13 @@ function parse(text, rootName, report) {
         // data row: one Example named by the first cell, one Attribute
         // Value per further cell — an empty cell asserts nothing
         if (!row[0].text) {
-          report.error(line, "table row has an empty first cell, expected the Example's name — the first column names the Example the row describes",
+          report.error(line, "write the Example's name in the row's first cell — the table row has an empty first cell, and the first column names the Example the row describes",
             { startCol: row[0].col, endCol: row[0].col + 1 });
         }
         if (row.length - 1 > table.attrs.length) {
           const first = row[table.attrs.length + 1];
           const lastCell = row[row.length - 1];
-          report.error(line, `table row has ${row.length} cells but the header names ${table.attrs.length + 1} columns — remove the extra cells, or add columns to the header`,
+          report.error(line, `remove the extra cells, or add columns to the header — the table row has ${row.length} cells but the header names ${table.attrs.length + 1} columns`,
             { startCol: first.col, endCol: lastCell.col + Math.max(lastCell.text.length, 1) });
         }
         // A table never nests by indentation: a row that sits under another
@@ -535,15 +538,15 @@ function parse(text, rootName, report) {
     const { kind, name, value, alias } = classify(trimmed);
     if (derivation && kind !== CONCEPT) {
       report.error(line, derivation.formula
-        ? `'${name} =${derivation.formula}' does not read as Python, so it defines nothing — on an attribute, '=' defines every value it takes ('${name} =@price*0.2'); write the definition as Python, or add a colon to make it the value's own derivation: '${name}: =${derivation.formula}'`
-        : `'${name} =' has nothing after '=' — on an attribute, '=' defines every value it takes; write the definition, or remove the '='`,
+        ? `write the definition as Python, or add a colon to make it the value's own derivation: '${name}: =${derivation.formula}' — '${name} =${derivation.formula}' does not read as Python, so it defines nothing; on an attribute, '=' defines every value it takes ('${name} =@price*0.2')`
+        : `write the definition, or remove the '=' — '${name} =' has nothing after '=', and on an attribute, '=' defines every value it takes`,
         { startCol: derivation.col, endCol: derivation.end });
     } else if (derivation && !derivation.formula) {
-      report.error(line, `'${name} =' has nothing after '=' — a derivation on a Concept is the Python that writes its table; write the expression, or remove the '='`,
+      report.error(line, `write the expression, or remove the '=' — '${name} =' has nothing after '=', and a derivation on a Concept is the Python that writes its table`,
         { startCol: derivation.col, endCol: derivation.end });
     }
     if (value === "") {
-      report.error(line, `'${name}:' has 0 characters after ':', expected a value — a colon assigns a value (as in 'colour: red'); add the value, or drop the colon to leave '${name}' as a bare attribute`);
+      report.error(line, `add the value, or drop the colon to leave '${name}' as a bare attribute — '${name}:' has 0 characters after ':', expected a value, and a colon assigns a value (as in 'colour: red')`);
     }
     const parent = tableMap ? table.owner : stack[Math.min(depth, stack.length - 1)];
     const node = { line, depth, kind, name, value, alias: alias || null, parent, children: [] };
@@ -578,7 +581,7 @@ function parse(text, rootName, report) {
       const split = splitCell(value);
       if (split.eq !== -1) {
         const at = raw.indexOf(value, raw.indexOf(":") + 1);
-        report.error(line, `'${name}: ${value}' derives the Concept's default — a default is stated, not derived; write the value, or double a literal '=' (==)`,
+        report.error(line, `write the value, or double a literal '=' (==) — '${name}: ${value}' derives the Concept's default, and a default is stated, not derived`,
           at === -1 ? undefined : { startCol: at + split.eq, endCol: at + value.length });
       }
       node.value = readValue(split.eq !== -1 ? split.value : value);
@@ -618,8 +621,8 @@ function refile(table, report) {
     for (let j = i + 1; j < rows.length && !target; j++) if (keyOf(rows[j].name) === key) target = rows[j];
     if (target) { want.set(row, target); return; }
     report.error(row.line, keyOf(row.name) === key
-      ? `'${row.name}' names itself as its parent — a row cannot sit under itself; name the row it sits under, or empty the cell to make it a row of '${table.owner.name}' itself`
-      : `'${row.name}' names '${cell.text}' as its parent, but no row of this table is called '${cell.text}' — a parent cell names the row this one sits under; name one of the table's rows, or empty the cell to make '${row.name}' a row of '${table.owner.name}' itself`,
+      ? `name the row it sits under, or empty the cell to make it a row of '${table.owner.name}' itself — '${row.name}' names itself as its parent, and a row cannot sit under itself`
+      : `name one of the table's rows, or empty the cell to make '${row.name}' a row of '${table.owner.name}' itself — '${row.name}' names '${cell.text}' as its parent, but no row of this table is called '${cell.text}', and a parent cell names the row this one sits under`,
     spanOf(row));
   });
   // a circle of parents has no top, so no row in it has a place in the tree
@@ -633,7 +636,7 @@ function refile(table, report) {
     const round = [...loop, p].map((r) => `'${r.name}'`).join(" → ");
     for (const r of loop) {
       cyclic.add(r);
-      report.error(r.line, `'${r.name}' sits under a row that sits under it — the parent cells go round in a circle (${round}), so none of these rows has a place in the tree; empty one of their parent cells to break it`,
+      report.error(r.line, `empty one of these parent cells to break the circle — '${r.name}' sits under a row that sits under it: the parent cells go round in a circle (${round}), so none of these rows has a place in the tree`,
         { ...spanOf(r), related: loop.filter((o) => o !== r).map((o) => ({ line: o.line, message: `'${o.name}' names '${o.parentCell.text}'` })) });
     }
   }
@@ -674,7 +677,7 @@ function verify(root, nodes, report, accepted) {
   // (names resolve case-insensitively, so the comparison folds case)
   for (const child of root.children) {
     if (child.name.toLowerCase() === root.name.toLowerCase()) {
-      report.error(child.line, `'${child.name}' repeats the file name — the file name is already the root Concept of the tree, so start with its children rather than naming it again (2 primes for the root, expected 1)`);
+      report.error(child.line, `start with the children of '${child.name}' rather than naming it again — it repeats the file name, and the file name is already the root Concept of the tree (2 primes for the root, expected 1)`);
     }
   }
 
@@ -684,7 +687,7 @@ function verify(root, nodes, report, accepted) {
     if (node.kind === MAP) {
       const content = realChildren(node);
       if (content.length) {
-        report.error(node.line, `Map '... ${node.name}' has ${content.length} non-Map children, expected 0 — a '...' Map marks what is missing or still to come, so it cannot hold real content; move those lines out from under it, or remove the '...'`);
+        report.error(node.line, `move those lines out from under it, or remove the '...' — Map '... ${node.name}' has ${content.length} non-Map children, expected 0, and a '...' Map marks what is missing or still to come, so it cannot hold real content`);
       }
     }
   }
@@ -692,7 +695,7 @@ function verify(root, nodes, report, accepted) {
   // A Concept names one kind; 'and' joins two
   for (const node of nodes) {
     if (node.kind === CONCEPT && /\band\b/i.test(node.name)) {
-      report.error(node.line, `Concept '${node.name}' contains 'and' — 'and' names two kinds at once, but a Concept must name exactly one; split it into two Concepts (2 kinds under 1 prime, expected 1)`);
+      report.error(node.line, `split '${node.name}' into two Concepts — Concept '${node.name}' contains 'and', and 'and' names two kinds at once, but a Concept must name exactly one (2 kinds under 1 prime, expected 1)`);
     }
   }
 
@@ -703,7 +706,7 @@ function verify(root, nodes, report, accepted) {
   eachDuplicate(groupBy(concepts, (n) => numberless(n.name).toLowerCase()), (dup, where, defs, others) => {
     const caseNote = new Set(defs.map((d) => numberless(d.name))).size > 1
       ? " (names differ only in case — references resolve case-insensitively, so they are one name)" : "";
-    report.error(dup.line, `Concept '${dup.name}' defined ${defs.length} times (lines ${where})${caseNote} — one name must mean one kind, but this name labels ${defs.length} different ones; give all but one a distinguishing qualifier, or merge them (${defs.length} definitions for one term, expected 1)`,
+    report.error(dup.line, `give all but one '${dup.name}' a distinguishing qualifier, or merge them — Concept '${dup.name}' defined ${defs.length} times (lines ${where})${caseNote}: one name must mean one kind, but this name labels ${defs.length} different ones (${defs.length} definitions for one term, expected 1)`,
       { related: others.map((o) => ({ line: o.line, message: `'${o.name}' also defined here` })) });
   });
 
@@ -718,16 +721,16 @@ function verify(root, nodes, report, accepted) {
   for (const node of aliased) {
     const low = node.alias.toLowerCase();
     if (low === node.name.toLowerCase()) {
-      report.error(node.line, `alias '(${node.alias})' on '${node.name}' repeats the Concept's own name — an alias is a second name, so this one renames nothing; drop it, or make it a genuinely different name`);
+      report.error(node.line, `drop the alias, or make it a genuinely different name — alias '(${node.alias})' on '${node.name}' repeats the Concept's own name, and an alias is a second name, so this one renames nothing`);
       continue;
     }
     const other = conceptByName.get(low);
     if (other && other !== node) {
-      report.error(node.line, `alias '(${node.alias})' on '${node.name}' is the name of another Concept (line ${other.line}) — an alias is a second name for the *same* idea, so this makes '${node.name}' and '${node.alias}' one duplicated identity; merge them, or if '${node.name}' is a kind of '${node.alias}' file it under '${node.alias}' instead`);
+      report.error(node.line, `merge '${node.name}' and '${node.alias}', or if '${node.name}' is a kind of '${node.alias}' file it under '${node.alias}' instead — alias '(${node.alias})' on '${node.name}' is the name of another Concept (line ${other.line}), and an alias is a second name for the *same* idea, so this makes them one duplicated identity`);
     }
   }
   eachDuplicate(groupBy(aliased, (n) => n.alias.toLowerCase()), (dup, where, group, others) => {
-    report.error(dup.line, `alias '(${dup.alias})' on '${dup.name}' is also the alias of '${others[0].name}' (lines ${where}) — an identifier must resolve to exactly one target; rename one alias`,
+    report.error(dup.line, `rename one alias — alias '(${dup.alias})' on '${dup.name}' is also the alias of '${others[0].name}' (lines ${where}), and an identifier must resolve to exactly one target`,
       { related: others.map((o) => ({ line: o.line, message: `alias '(${o.alias})' on '${o.name}'` })) });
   });
 
@@ -741,7 +744,7 @@ function verify(root, nodes, report, accepted) {
     for (const dup of group) {
       const others = group.filter((o) => o.name !== dup.name);
       if (!others.length) continue;
-      report.warn(dup.line, `Example '- ${dup.name}' differs only in case from '- ${others[0].name}' (line ${others[0].line}) — Example references resolve case-insensitively, so these are one name to every link; align the spelling`,
+      report.warn(dup.line, `align the spelling — Example '- ${dup.name}' differs only in case from '- ${others[0].name}' (line ${others[0].line}), and Example references resolve case-insensitively, so these are one name to every link`,
         { related: others.map((o) => ({ line: o.line, message: `spelled '- ${o.name}' here` })) });
     }
   }
@@ -753,7 +756,7 @@ function verify(root, nodes, report, accepted) {
     const byContent = groupBy(realChildren(node), (c) =>
       `${c.kind} ${c.name.toLowerCase()} ${String(c.value).toLowerCase()} ${(c.alias || "").toLowerCase()}`);
     eachDuplicate(byContent, (d, where, group, others) => {
-      report.error(d.line, `${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}) — two identical siblings add nothing and blur the meaning; give them different values, or keep just one`,
+      report.error(d.line, `give each '${d.name}' a different value, or keep just one — ${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}): two identical siblings add nothing and blur the meaning`,
         { related: others.map((o) => ({ line: o.line, message: `'${o.name}' repeated here` })) });
     });
   }
@@ -770,7 +773,7 @@ function verify(root, nodes, report, accepted) {
     for (let p = node.parent; p && p.kind === INDIVIDUAL; p = p.parent) {
       if (numberless(p.name).trim().toLowerCase() !== key) continue;
       const cell = node.nameCol !== undefined ? { startCol: node.nameCol, endCol: node.nameCol + node.name.length } : {};
-      report.error(node.line, `Example '- ${node.name}' has the same name as the Example it sits under ('- ${p.name}', line ${p.line}) — one name cannot be both the whole and its part; rename one`,
+      report.error(node.line, `rename one of them — Example '- ${node.name}' has the same name as the Example it sits under ('- ${p.name}', line ${p.line}), and one name cannot be both the whole and its part`,
         { ...cell, related: [{ line: p.line, message: `'- ${p.name}' is the Example it sits under` }] });
       break;
     }
@@ -805,7 +808,7 @@ function verify(root, nodes, report, accepted) {
   };
   for (const node of nodes) {
     if (node.kind === CONCEPT && looksPlural(node.name)) {
-      report.warn(node.line, `Concept '${node.name}' appears plural — a Concept names one kind, not a set of them; use the singular form (e.g. 'Person', not 'People')`);
+      report.warn(node.line, `use the singular form (e.g. 'Person', not 'People') — Concept '${node.name}' appears plural, and a Concept names one kind, not a set of them`);
     }
   }
 
@@ -815,10 +818,10 @@ function verify(root, nodes, report, accepted) {
     const actual = defs.find((c) => c.name === "actual");
     const target = defs.find((c) => c.name === "target");
     if (actual && !target) {
-      report.warn(actual.line, `'${node.name}' has 'actual' without 'target' — a measurement needs both: an 'actual' is a reading with nothing to judge it against; add a 'target', or remove 'actual'`);
+      report.warn(actual.line, `add a 'target', or remove 'actual' — '${node.name}' has 'actual' without 'target', and a measurement needs both: an 'actual' is a reading with nothing to judge it against`);
     }
     if (target && !actual) {
-      report.warn(target.line, `'${node.name}' has 'target' without 'actual' — a measurement needs both: a 'target' is a goal with no reading yet to compare; add an 'actual', or remove 'target'`);
+      report.warn(target.line, `add an 'actual', or remove 'target' — '${node.name}' has 'target' without 'actual', and a measurement needs both: a 'target' is a goal with no reading yet to compare`);
     }
   }
 
@@ -835,14 +838,14 @@ function verify(root, nodes, report, accepted) {
     const kids = realChildren(node);
     const subConcepts = kids.filter((c) => c.kind === CONCEPT).length;
     if (subConcepts > 8) {
-      report.warn(node.line, `'${node.name}' has ${subConcepts} sub-Concepts, more than the eight a reader can take in at a glance — gather related ones under an in-between kind (Examples and attributes may be any number)`);
+      report.warn(node.line, `gather related sub-Concepts under an in-between kind — '${node.name}' has ${subConcepts} sub-Concepts, more than the eight a reader can take in at a glance (Examples and attributes may be any number)`);
     }
     if (node.children.some((c) => c.kind === MAP)) continue;
     if (node.kind === CONCEPT && subConcepts === 1) {
-      report.warn(node.line, `'${node.name}' has 1 sub-Concept, expected 0 or more than one — a single subtype divides nothing (the parent simply is that subtype); add a sibling subtype, or merge the two`);
+      report.warn(node.line, `add a sibling subtype, or merge the two — '${node.name}' has 1 sub-Concept, expected 0 or more than one: a single subtype divides nothing (the parent simply is that subtype)`);
     }
     if (node.kind === INDIVIDUAL && kids.filter((c) => c.kind === INDIVIDUAL).length === 1) {
-      report.warn(node.line, `'${node.name}' has 1 sub-Example, expected 0 or more than one — a single sub-Example breaks nothing down (the parent simply is that sub-Example); add another, or merge the two`);
+      report.warn(node.line, `add another sub-Example, or merge the two — '${node.name}' has 1 sub-Example, expected 0 or more than one: a single sub-Example breaks nothing down (the parent simply is that sub-Example)`);
     }
   }
 
@@ -878,7 +881,7 @@ function verify(root, nodes, report, accepted) {
     // no attributes (empty signature): the `...` is implied, differentia still to come
     const bySlots = groupBy(subConcepts, (c) => slotSignature(c) || null);
     eachDuplicate(bySlots, (c, where, group, others) => {
-      report.warn(c.line, `'${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}) — same attributes and values, so only their order tells them apart; give each a differentia (a distinguishing attribute or value), or add a '...' Map under '${node.name}' if those differences are still to come`,
+      report.warn(c.line, `give each a differentia (a distinguishing attribute or value), or add a '...' Map under '${node.name}' if those differences are still to come — '${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}): same attributes and values, so only their order tells them apart`,
         { related: others.map((o) => ({ line: o.line, message: `'${o.name}' shares the same slots` })) });
     });
   }

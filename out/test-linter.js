@@ -128,7 +128,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   {
     const report = makeReport();
     parse("Thing\n\tfoo", "Root", report);
-    check("parse: tab character is an error", hasError(report, /tab character/));
+    check("parse: tab character is an error", hasError(report, /^replace the tab in the indentation/));
   }
   // indent not a multiple of 4
   {
@@ -297,7 +297,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   {
     const r = makeReport();
     parse(aot("Otter | Size", "Ollie | 5"), "Zoo", r);
-    check("table: a capitalised column is an error", hasError(r, /column 'Size' is capitalised/));
+    check("table: a capitalised column is an error", hasError(r, /^lowercase column 'Size' — it is capitalised/));
   }
   // a header cell is an attribute term, so it carries a (alias) like one
   {
@@ -815,9 +815,9 @@ check("verify: a well-formed tree yields no errors",
   const m = lint(misfiled, "Animal");
   const mr = suggest(m.root, m.nodes);
   check("hint/FCA: drift flags Goldfish filed under Bird",
-    mr.findings.some((f) => /^drift: '- Goldfish' /.test(f.message) && f.message.includes("filed under 'Bird'")));
+    mr.findings.some((f) => /^drift: move it under .* — '- Goldfish' carries/.test(f.message) && f.message.includes("filed under 'Bird'")));
   check("hint/FCA: exhaustion flags Sponge matching no sub-Concept",
-    mr.findings.some((f) => /^exhaustion: 'Animal'/.test(f.message) && f.message.includes("- Sponge")));
+    mr.findings.some((f) => /^exhaustion: add the kind .* — 'Animal' divides/.test(f.message) && f.message.includes("- Sponge")));
 
   // fewer than two Examples: nothing to analyse
   const tiny = lint(aot("Solo", "    - Only"), "World");

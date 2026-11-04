@@ -63,6 +63,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   - The grammar colours a row whose first cell holds `a=b`.
   - git is started only by its absolute path from PATH, never by bare name inside a repository.
   - The CSV mirror's file cache is checked by content, so a file rewritten to the same size within one clock tick is read anew.
+- **A finding says how to fix it first.** Every message now reads `<fix> — <why>`, in the editor and from `verify.js`: `drift: move it under 'Fish', or give 'Fish' a differentia that genuinely excludes it — '- Goldfish' carries every attribute…`. A rule's label stays in front. A Python error passes through as Python wrote it.
 - See [docs/features-1.13.md](docs/features-1.13.md).
 
 ## [1.12.0] - 2026-09-30

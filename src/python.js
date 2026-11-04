@@ -654,7 +654,7 @@ function resolveHost(host, ctx) {
     try { hit = resolveAt(src, start); } catch (e) { errors.push(e.message); }
     if (!hit) {
       const name = (/^@[\p{L}\p{N}_ ]*/u.exec(src.slice(start)) || ["@"])[0].trim();
-      errors.push(`${name} names nothing here — no attribute, Example or Concept is called that`);
+      errors.push(`name something that exists — ${name} names nothing here: no attribute, Example or Concept is called that`);
       continue;
     }
     code += src.slice(last, start) + `_aot_ref(${targets.length})`;

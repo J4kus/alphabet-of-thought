@@ -126,7 +126,7 @@ function check(text, extraWords) {
         endCol: m.index + lead + word.length,
         // the message stays the wire contract the code actions parse; the
         // candidates are fetched by suggestionsFor when the lightbulb asks
-        message: `'${word}' is not in the dictionary — check the spelling`,
+        message: `check the spelling — '${word}' is not in the dictionary`,
       });
     }
   });

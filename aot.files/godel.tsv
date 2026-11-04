@@ -346,6 +346,10 @@ a	naming convention	2311
 a	objective attribute	2333
 a	functional element	2339
 a	parent functional element	2341
+a	driver	2347
+a	signal	2351
+a	evidence	2357
+a	portfolio	2371
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -374,6 +378,8 @@ v	actual	25	contention or malfunction of of functional understanding
 v	actual	26	inconsistent and contradictory rationales
 v	actual	27	unnatural functional decomposition
 v	actual	28	new way of thinking causes it's own problems
+v	actual	29	
+v	actual	30	many different untested results
 v	after	2	#ERR
 v	after	3	confusing time
 v	after	4	grappling with a subject
@@ -1171,6 +1177,7 @@ v	target	24	first objective and last objective logically follows parent
 v	target	25	functional rationale don't contradict itself
 v	target	26	functional rationale understanding between reader and writer
 v	target	27	function objectives and types are well remembered elements of thought
+v	target	28	a driver of results that is not noise
 v	tax rate	2	0.2
 v	team	2	Back-end
 v	team	3	Content
@@ -1368,3 +1375,5 @@ v	naming convention	2	Transitive Verb + Qualified Object
 v	naming convention	3	Qualified Object
 v	naming convention	4	input/output + entity name from graph rationale
 v	objective attribute	2	input/output + entity name from graph rationale
+v	evidence	2	strong
+v	evidence	3	weak

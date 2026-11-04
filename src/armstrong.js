@@ -225,18 +225,18 @@ function findings(root, nodes) {
       if (confidence === 0) {
         out.push({
           line: Math.max(lx, ly), kind: "covaries", confidence, incomplete,
-          message: `dependency: '${label(h.x)}' and '${label(h.y)}' covary one-to-one across the Examples (${h.support} pairs, no value repeats) — they track each other, but with no Example repeating a value this could be coincidence rather than a real equivalence; if they are meant to be the same distinction, model it once (advisory: the file still verifies)`,
+          message: `dependency: if they are meant to be the same distinction, model it once — '${label(h.x)}' and '${label(h.y)}' covary one-to-one across the Examples (${h.support} pairs, no value repeats): they track each other, but with no Example repeating a value this could be coincidence rather than a real equivalence (advisory: the file still verifies)`,
         });
       } else {
         out.push({
           line: Math.max(lx, ly), kind: "derivable", confidence, incomplete,
-          message: `dependency: '${label(h.x)}' and '${label(h.y)}' are equivalent across the Examples (${h.support} agree, ${confidence} repeated value${confidence === 1 ? "" : "s"} confirm${confidence === 1 ? "s" : ""} it, none disagree) — they record the same distinction twice, so one is redundant; keep whichever reads clearer and derive the other (advisory: the file still verifies)`,
+          message: `dependency: keep whichever reads clearer and derive the other — '${label(h.x)}' and '${label(h.y)}' are equivalent across the Examples (${h.support} agree, ${confidence} repeated value${confidence === 1 ? "" : "s"} confirm${confidence === 1 ? "s" : ""} it, none disagree): they record the same distinction twice, so one is redundant (advisory: the file still verifies)`,
         });
       }
     } else {
       out.push({
         line: ly, kind: "derivable", confidence: h.confirms, incomplete, implied: h.implied,
-        message: `dependency: '${label(h.y)}' looks derivable — across ${h.support} Examples, every one with the same '${label(h.x)}' also has the same '${label(h.y)}' (${h.confirms} repeated '${label(h.x)}' value${h.confirms === 1 ? "" : "s"} confirm${h.confirms === 1 ? "s" : ""} it), so '${label(h.x)}' determines '${label(h.y)}'; set '${label(h.y)}' once from '${label(h.x)}' instead of repeating it (advisory: the file still verifies)`,
+        message: `dependency: set '${label(h.y)}' once from '${label(h.x)}' instead of repeating it — '${label(h.y)}' looks derivable: across ${h.support} Examples, every one with the same '${label(h.x)}' also has the same '${label(h.y)}' (${h.confirms} repeated '${label(h.x)}' value${h.confirms === 1 ? "" : "s"} confirm${h.confirms === 1 ? "s" : ""} it), so '${label(h.x)}' determines '${label(h.y)}' (advisory: the file still verifies)`,
       });
     }
   }
@@ -405,7 +405,7 @@ function axioms(root, nodes) {
       const loop = chainText(from, [{ node: e.to, via: e.via }, ...back]);
       errors.push({
         line: e.line,
-        message: `dependency cycle: '${from.name}' rests on itself — ${loop} — a dependency chain must ground out, but this one leads back to where it began; the loop derives only '${from.name} -> ${from.name}' (Reflexivity, trivially true), so it asserts nothing and no member ever reaches solid ground; break it by removing or retyping one of the attributes that carry it`,
+        message: `dependency cycle: remove or retype one of the attributes that carry the loop — '${from.name}' rests on itself (${loop}): a dependency chain must ground out, but this one leads back to where it began; the loop derives only '${from.name} -> ${from.name}' (Reflexivity, trivially true), so it asserts nothing and no member ever reaches solid ground`,
       });
     }
   }
@@ -425,7 +425,7 @@ function axioms(root, nodes) {
         if (onCycle.has(e)) continue; // the cycle error already sits on this line
         warnings.push({
           line: e.line,
-          message: `redundant dependency: '${e.via}' makes '${from.name}' rest on '${to.name}' directly, but the chain ${chain} already implies that (Transitivity), so the direct declaration adds nothing; drop '${e.via}', or drop an intermediate link if the direct dependency is the one you mean`,
+          message: `redundant dependency: drop '${e.via}', or drop an intermediate link if the direct dependency is the one you mean — '${e.via}' makes '${from.name}' rest on '${to.name}' directly, but the chain ${chain} already implies that (Transitivity), so the direct declaration adds nothing`,
         });
       }
     }

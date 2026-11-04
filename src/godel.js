@@ -734,14 +734,14 @@ function clashes(root, nodes) {
           findings.push({
             line: self.line,
             kind: "content",
-            message: `clash: '${display(self)}' and '${display(other)}' carry identical attributes and values — nothing in the data tells them apart, so they are one idea written twice; give one a differentia (a distinguishing attribute or value), or merge them (G = ${factorsOf(a.gvec)})`,
+            message: `clash: give one a differentia (a distinguishing attribute or value), or merge them — '${display(self)}' and '${display(other)}' carry identical attributes and values: nothing in the data tells them apart, so they are one idea written twice (G = ${factorsOf(a.gvec)})`,
             related: [{ line: other.line, message: `clashes with '${display(other)}'` }],
           });
         } else if (a.gvec.support === b.gvec.support) {
           findings.push({
             line: self.line,
             kind: "names",
-            message: `clash: '${display(self)}' and '${display(other)}' have the same attribute names and differ only in their values — check that the values alone are meant to tell them apart (same radical)`,
+            message: `clash: check that the values alone are meant to tell them apart — '${display(self)}' and '${display(other)}' have the same attribute names and differ only in their values (same radical)`,
             related: [{ line: other.line, message: `clashes with '${display(other)}'` }],
           });
         }
@@ -1120,12 +1120,12 @@ function hoists(root, nodes) {
       if (shared) {
         const value = valueOfCode(aKey, vs[0], valueCode);
         const lines = related.map((r) => r.line).join(", ");
-        const replacing = own && !derived(own) ? ` — '${display(x)}' says '${label(aKey)}: ${own.value}', which no child keeps: write '${label(aKey)}: ${value}' there instead` : "";
+        const replacing = own && !derived(own) ? ` in place of the '${label(aKey)}: ${own.value}' it says now, which no child keeps,` : "";
         const every = kids.every((k) => k.kind === CONCEPT) ? "every kind of" : kids.every((k) => k.kind === INDIVIDUAL) ? "every Example of" : "everything under";
         out.push({
           line: own ? own.line : x.line || related[0].line, kind: "hoist", parent: x, attr: label(aKey), key: aKey, value,
           replaces: own ? own.value : null,
-          message: `every child of '${display(x)}' sets '${label(aKey)}: ${value}' (lines ${lines}) — a fact that holds for ${every} '${display(x)}' belongs to '${display(x)}': write it once under '${display(x)}' and drop it from each child${replacing} (advisory: the file still verifies)`,
+          message: `write '${label(aKey)}: ${value}' once under '${display(x)}'${replacing} and drop it from each child — every child of '${display(x)}' sets it (lines ${lines}), and a fact that holds for ${every} '${display(x)}' belongs to '${display(x)}' (advisory: the file still verifies)`,
           related,
         });
         continue;
@@ -1133,7 +1133,7 @@ function hoists(root, nodes) {
       if (own && !derived(own) && xv >= 2 && vs.every((v) => v >= 2 && v !== xv)) {
         out.push({
           line: own.line, kind: "dead", parent: x, attr: label(aKey), key: aKey, value: own.value,
-          message: `'${display(x)}' sets '${label(aKey)}: ${own.value}' but every child overrides it — a default no child keeps is never in force for anything under '${display(x)}'; keep just '${label(aKey)}', or drop the line (advisory: the file still verifies)`,
+          message: `keep just '${label(aKey)}', or drop the line — '${display(x)}' sets '${label(aKey)}: ${own.value}' but every child overrides it, and a default no child keeps is never in force for anything under '${display(x)}' (advisory: the file still verifies)`,
           related,
         });
       }
@@ -1182,7 +1182,7 @@ function twins(docs, file, opts) {
         if (dismissed.has(pairKey(a.name, b.name))) continue;
         out.push({
           line: a.line, name: a.name, other: { file: peer.file, line: b.line, name: b.name },
-          message: `'${a.name}' and '${b.name}' (${base(peer.file)}:${b.line}) carry exactly the same attributes and values — one idea takes one name; rename one to the other, or give one a differentia (a distinguishing attribute or value) if they are two ideas`,
+          message: `rename one to the other, or give one a differentia (a distinguishing attribute or value) if they are two ideas — '${a.name}' and '${b.name}' (${base(peer.file)}:${b.line}) carry exactly the same attributes and values, and one idea takes one name`,
           related: [{ file: peer.file, line: b.line, message: `'${b.name}' carries the same content here` }],
         });
       }

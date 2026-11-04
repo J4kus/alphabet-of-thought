@@ -236,9 +236,9 @@ function findings(file, all, opts) {
         if (!note) continue;
         warnings.push({
           line: note.line,
-          message: `'${occ.node.name}' keeps a '...' note saying where the rest of its Examples live, but no other file `
-            + `lists '${occ.node.name}' any more — the note is stale; run 'AOT: Reconcile Concepts Across Files', `
-            + `or turn aot.autoReconcile back on to have it removed on save`,
+          message: `run 'AOT: Reconcile Concepts Across Files', or turn aot.autoReconcile back on to have the note removed on save `
+            + `— '${occ.node.name}' keeps a '...' note saying where the rest of its Examples live, but no other file `
+            + `lists '${occ.node.name}' any more, so the note is stale`,
           related: [],
         });
       }
@@ -262,10 +262,10 @@ function findings(file, all, opts) {
           if (String(ours.value).trim().toLowerCase() === String(theirs.value).trim().toLowerCase()) continue;
           errors.push({
             line: ours.line,
-            message: `'${occ.node.name}' sets '${ours.name}' to '${ours.value}' here but '${theirs.value}' in `
-              + `${path.basename(p.file)}:${theirs.line} — one name must mean one thing, so a Concept cannot `
-              + `carry two values for one attribute; pick the one that is right and set it everywhere, or `
-              + `qualify one of the two Concepts if they are different ideas`,
+            message: `pick the value that is right and set it everywhere, or qualify one of the two Concepts `
+              + `if they are different ideas — '${occ.node.name}' sets '${ours.name}' to '${ours.value}' here but `
+              + `'${theirs.value}' in ${path.basename(p.file)}:${theirs.line}, and one name must mean one thing, `
+              + `so a Concept cannot carry two values for one attribute`,
             related: [where(p)],
           });
           break; // one report per attribute, naming the first peer that differs
@@ -280,9 +280,9 @@ function findings(file, all, opts) {
           if (!theirGenus || theirGenus === ourGenus) continue;
           errors.push({
             line: occ.node.line,
-            message: `'${occ.node.name}' is filed under '${occ.node.parent.name}' here but `
-              + `'${p.node.parent.name}' in ${path.basename(p.file)}:${p.node.line} — a Concept is one kind, `
-              + `so it cannot be a kind of two things; move one, or qualify one of the two names`,
+            message: `move one, or qualify one of the two names — '${occ.node.name}' is filed under `
+              + `'${occ.node.parent.name}' here but '${p.node.parent.name}' in ${path.basename(p.file)}:${p.node.line}, `
+              + `and a Concept is one kind, so it cannot be a kind of two things`,
             related: [where(p)],
           });
           break;
@@ -295,9 +295,9 @@ function findings(file, all, opts) {
       if (want && (!have || have.name !== want)) {
         warnings.push({
           line: have ? have.line : occ.node.line,
-          message: `'${occ.node.name}' lists ${examplesOf(occ.node).length} of its Examples here and the rest `
-            + `live elsewhere — the '...' should read '${want}'; run 'AOT: Reconcile Concepts Across Files', `
-            + `or turn aot.autoReconcile back on to have it kept true on save`,
+          message: `run 'AOT: Reconcile Concepts Across Files', or turn aot.autoReconcile back on to have the note kept true on save `
+            + `— '${occ.node.name}' lists ${examplesOf(occ.node).length} of its Examples here and the rest `
+            + `live elsewhere, so the '...' should read '${want}'`,
           related: peers.map(where),
         });
       }

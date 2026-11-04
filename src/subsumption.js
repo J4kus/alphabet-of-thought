@@ -250,7 +250,7 @@ function subsume(root, nodes) {
           for (const n of loop) cycleMembers.add(n);
           findings.push({
             line: Math.max(...loop.map((n) => n.line)),
-            message: `${loop.map((n) => `'${n.name}'`).join(" is a ")} is a '${loop[0].name}' — the definitions form a loop of mutual is-a, which no hierarchy can hold: break it by giving one a differentia the others lack`,
+            message: `give one a differentia the others lack, to break the loop — ${loop.map((n) => `'${n.name}'`).join(" is a ")} is a '${loop[0].name}': the definitions form a loop of mutual is-a, which no hierarchy can hold`,
           });
         }
       } else if (!color.get(v)) {
@@ -280,7 +280,7 @@ function subsume(root, nodes) {
       const [a, b] = groups.map((grp) => grp[0]);
       findings.push({
         line: c.line,
-        message: `'${c.name}' is a '${a.name}' and a '${b.name}', neither of which is the other — a Concept names one kind, but its facts satisfy two: place it under one and crosslink the other's attributes, or split '${c.name}'`,
+        message: `place it under one and crosslink the other's attributes, or split '${c.name}' — '${c.name}' is a '${a.name}' and a '${b.name}', neither of which is the other: a Concept names one kind, but its facts satisfy two`,
       });
       continue;
     }
@@ -289,7 +289,7 @@ function subsume(root, nodes) {
     const who = group.map((d) => `'${d.name}'`).join(" or ");
     findings.push({
       line: c.line,
-      message: `'${c.name}' declares every attribute that defines ${who}, yet it is filed under '${c.parent.name}' — by its definition '${c.name}' is a ${group.length === 1 ? group[0].name : "kind of one of them"}; file it under ${group.length === 1 ? who : "one of them"}, or give it a differentia they lack`,
+      message: `file it under ${who}, or give it a differentia they lack — '${c.name}' declares every attribute that defines ${who}, yet it is filed under '${c.parent.name}': by its definition '${c.name}' is a ${group.length === 1 ? group[0].name : "kind of one of them"}`,
     });
   }
 
@@ -307,7 +307,7 @@ function subsume(root, nodes) {
         const other = late === d ? c : d;
         findings.push({
           line: late.line,
-          message: `'${late.name}' and '${other.name}' carry the same definition — their declared attributes are identical, so the facts cannot tell the two kinds apart: give one a differentia, or merge them`,
+          message: `give one a differentia, or merge them — '${late.name}' and '${other.name}' carry the same definition: their declared attributes are identical, so the facts cannot tell the two kinds apart`,
         });
       }
     }

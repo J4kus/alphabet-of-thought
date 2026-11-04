@@ -120,7 +120,7 @@ const BASE = aot(
   const two = aot("P", "    A", "        x: 1");
   const r4 = merge(two, two + "\n    B\n        y: 2", two.replace("    A", "    B"), "Zoo");
   check("fallback: a merge that would bring an error neither side had — one name, two Concepts",
-    /^the merge would bring an error neither side had — Concept 'B' defined 2 times/.test(r4.fallback || ""));
+    /^the merge would bring an error neither side had — give all but one 'B' a distinguishing qualifier, or merge them — Concept 'B' defined 2 times/.test(r4.fallback || ""));
   // the numbers catch what the text does not: ours links Dog to Owner by an
   // attribute's name, theirs renames Owner — the link would quietly break
   const linked = aot("Owner", "    name: Ann", "Pet", "    Dog", "        sound: bark");
@@ -305,7 +305,7 @@ function commandLine() {
       lineClean.status === 0 && lineClean.text === far.replace("sound: bark", "sound: woof").replace("sound: hoot", "sound: who") && !lineClean.stderr);
     const twinBirds = three(far, far + "\n    Bird\n        sound: tweet", far.replace("    Pet", "    Pet").replace("Pet\n", "Pet\n    Bird\n        sound: chirp\n"));
     check("--merge: an error the line merge brought that neither side had is said",
-      twinBirds.status === 0 && /the merge brought an error neither side had — Concept 'Bird' defined 2 times/.test(twinBirds.stderr));
+      twinBirds.status === 0 && /the merge brought an error neither side had — give all but one 'Bird' a distinguishing qualifier, or merge them — Concept 'Bird' defined 2 times/.test(twinBirds.stderr));
     const meaning = three(BASE, BASE.replace("    Dog", "    Hound"), BASE.replace("sound: bark", "sound: woof"));
     check("--merge: where the line merge conflicts and the meaning does not, merged by meaning",
       meaning.status === 0 && meaning.text === BASE.replace("    Dog", "    Hound").replace("sound: bark", "sound: woof") && /merged by meaning/.test(meaning.stderr));

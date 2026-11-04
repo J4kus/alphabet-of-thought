@@ -52,11 +52,11 @@ const misfiled = [
   const report = suggest(root, nodes);
   check(
     "drift: '- Goldfish' shares Fish's intent but is filed under Bird",
-    report.findings.some((f) => /^drift: '- Goldfish' /.test(f.message) && f.message.includes("'Fish'") && f.message.includes("filed under 'Bird'")),
+    report.findings.some((f) => /^drift: move it under .* — '- Goldfish' carries/.test(f.message) && f.message.includes("'Fish'") && f.message.includes("filed under 'Bird'")),
   );
   check(
     "exhaustion: '- Sponge' matches no sub-Concept of Animal",
-    report.findings.some((f) => /^exhaustion: 'Animal'/.test(f.message) && f.message.includes("- Sponge")),
+    report.findings.some((f) => /^exhaustion: add the kind .* — 'Animal' divides/.test(f.message) && f.message.includes("- Sponge")),
   );
 }
 
@@ -82,12 +82,12 @@ const wetStorage = [
   check("wet-storage fixture parses clean", errors.length === 0);
   const report = suggest(root, nodes);
   check("drift: silent when the home Concept owns no explicit attribute",
-    !report.findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+    !report.findings.some((f) => /^drift: move it under .* — '- Goldfish' carries/.test(f.message)));
   const declared = wetStorage.replace("        - Goldfish", "        - Goldfish\n            sealed: yes");
   const p2 = lint(declared, "Animal");
   const report2 = suggest(p2.root, p2.nodes);
   check("drift: an attribute declared beneath the home brings the finding back",
-    report2.findings.some((f) => /^drift: '- Goldfish'/.test(f.message) && f.message.includes("'Fish'")));
+    report2.findings.some((f) => /^drift: move it under .* — '- Goldfish' carries/.test(f.message) && f.message.includes("'Fish'")));
 }
 
 // 2c) `...` on either side of the fence suppresses drift: a Map child (or
@@ -110,7 +110,7 @@ const wetStorage = [
   const p = lint(openTarget, "Animal");
   check("drift: silent when the Concept drifted toward carries '...'",
     p.errors.length === 0
-    && !suggest(p.root, p.nodes).findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+    && !suggest(p.root, p.nodes).findings.some((f) => /^drift: move it under .* — '- Goldfish' carries/.test(f.message)));
 
   const openHome = [
     "Fish",
@@ -127,13 +127,13 @@ const wetStorage = [
   const h = lint(openHome, "Animal");
   check("drift: silent when the Example's home carries '...'",
     h.errors.length === 0
-    && !suggest(h.root, h.nodes).findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+    && !suggest(h.root, h.nodes).findings.some((f) => /^drift: move it under .* — '- Goldfish' carries/.test(f.message)));
 
   const openList = openTarget.replace("    ... more kinds of fish", "    - ...");
   const l = lint(openList, "Animal");
   check("drift: the Example form '- ...' opens its Concept just as a Map does",
     l.errors.length === 0
-    && !suggest(l.root, l.nodes).findings.some((f) => /^drift: '- Goldfish'/.test(f.message)));
+    && !suggest(l.root, l.nodes).findings.some((f) => /^drift: move it under .* — '- Goldfish' carries/.test(f.message)));
 }
 
 // 3) override: an Example re-declaring an inherited default keeps

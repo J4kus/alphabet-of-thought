@@ -1940,8 +1940,8 @@ const inlayProvider = {
 // word: it joins aot.acceptedWords in the user settings, the spelling hints
 // skip it and a Concept ending in it is no longer read as plural. The word
 // is read back out of the message (both formats are this extension's own).
-const ACCEPT_SPELLING = /^'(.+)' is not in the dictionary/;
-const ACCEPT_PLURAL = /^Concept '(.+)' appears plural/;
+const ACCEPT_SPELLING = /— '(.+)' is not in the dictionary/;
+const ACCEPT_PLURAL = /— Concept '(.+?)' appears plural/;
 // A spelling hint also offers to *apply* a correction. The candidates are
 // not in the message: computing them is the expensive half of spelling
 // (spelling.js), so they are fetched for the one word the lightbulb is open
@@ -1950,25 +1950,25 @@ const ACCEPT_PLURAL = /^Concept '(.+)' appears plural/;
 // the lightbulb on an unlisted value lists it as an Example of the Concept
 // that types its attribute; both names are read back out of the message,
 // which is this extension's own (crosslinks.unlistedValues)
-const UNLISTED_VALUE = /^'(.+)' is not an Example of Concept '(.+)' —/;
+const UNLISTED_VALUE = /— '(.+)' is not an Example of Concept '(.+?)': its Examples are /;
 // the lightbulb on a synonym warning records that the two names are two
 // ideas, not one, and the pair is never raised again (src/synonyms.js)
-const SYNONYM_PAIR = /^'(.+?)' and '(.+?)' \((?:line \d+|[^)]+)\) are (?:two words for one idea|one word with two endings)/;
+const SYNONYM_PAIR = /— '(.+?)' and '(.+?)' \((?:line \d+|[^)]+)\) are (?:two words for one idea|one word with two endings)/;
 // the same two ways out for one content under two names in two files
 // (godel.twins): rename one to the other, or keep them apart
-const TWIN_PAIR = /^'(.+?)' and '(.+?)' \([^)]+\) carry exactly the same attributes and values/;
+const TWIN_PAIR = /— '(.+?)' and '(.+?)' \([^)]+\) carry exactly the same attributes and values/;
 // a value every child states belongs on the parent, and a default no child
 // keeps comes off (godel.hoists, derive.hoistOps)
-const HOIST = /^every child of '(.+?)' sets '(.+?): (.*?)' \(lines [\d, ]+\)/;
-const DEAD_DEFAULT = /^'(.+?)' sets '(.+?): (.*?)' but every child overrides it/;
+const HOIST = /^write '(.+?): .*?' once under .* — every child of '(.+?)' sets it \(lines [\d, ]+\)/;
+const DEAD_DEFAULT = /— '(.+?)' sets '(.+?): (.*?)' but every child overrides it/;
 // The repo-wide findings (src/repo.js). Everything a shared Concept can be
 // made to agree on is already agreed by the time these show — save does it —
 // so each lightbulb here offers the decision a tool may not take for you:
 // which of two values is the right one, and whether two ideas that collided
 // on a word are really the same idea at all.
-const REPO_VALUE_CLASH = /^'(.+?)' sets '(.+?)' to '(.+?)' here but '(.+?)' in /;
-const REPO_GENUS_CLASH = /^'(.+?)' is filed under '.+?' here but '.+?' in /;
-const REPO_STALE_NOTE = /^'.+?' (lists \d+ of its Examples here and the rest live elsewhere|keeps a '\.\.\.' note saying where the rest of its Examples live)/;
+const REPO_VALUE_CLASH = /— '(.+?)' sets '(.+?)' to '(.+?)' here but '(.+?)' in /;
+const REPO_GENUS_CLASH = /— '(.+?)' is filed under '.+?' here but '.+?' in /;
+const REPO_STALE_NOTE = /— '.+?' (lists \d+ of its Examples here and the rest live elsewhere|keeps a '\.\.\.' note saying where the rest of its Examples live)/;
 const codeActionProvider = {
   provideCodeActions(doc, range, context) {
     const actions = [];
@@ -2062,11 +2062,11 @@ const codeActionProvider = {
       try {
         const { root, nodes } = parsedDoc(doc);
         found = godel.hoists(root, nodes).find((h) => h.line === diagnostic.range.start.line + 1
-          && h.kind === (hoist ? "hoist" : "dead") && h.attr === (hoist || dead)[2]);
+          && h.kind === (hoist ? "hoist" : "dead") && h.attr === (hoist ? hoist[1] : dead[2]));
       } catch { /* an unparseable document offers nothing */ }
       if (!found) continue;
       const parentLine = found.parent.line;
-      const title = hoist ? `Move '${found.attr}: ${found.value}' up to '${hoist[1]}'` : `Keep just '${found.attr}'`;
+      const title = hoist ? `Move '${found.attr}: ${found.value}' up to '${hoist[2]}'` : `Keep just '${found.attr}'`;
       const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
       action.diagnostics = [diagnostic];
       action.isPreferred = !!hoist;
@@ -3801,7 +3801,7 @@ async function checkConstraints(editor, session, allow) {
       let out;
       try { out = python.resultOf({ kind: check.host.kind, value: check.value, address: "@constraint" }, r.define, maxInline); }
       catch (e) { onBound(p, `Python: the bound ${said(p)} — ${e.message}`); continue; }
-      if (out.file || out.grid) { onBound(p, `Python: ${said(p)} defines a value too large for a line — a bound computes one value`); continue; }
+      if (out.file || out.grid) { onBound(p, `Python: compute one value — ${said(p)} defines a value too large for a line, and a bound computes one value`); continue; }
       // the result as written (escaped) against the value as read: compared
       // the same way, or an escaped value would count as changed every run
       if (table.readValue(out.text) !== check.value) {
@@ -3812,7 +3812,7 @@ async function checkConstraints(editor, session, allow) {
     }
     if (check.definesOnly || r.holds) continue;
     tally.broken++;
-    onValue(check, `'${check.value}' breaks ${said(p)} — it is not ${p.clause.op === "==" ? "" : p.clause.op + " "}${r.bound}`,
+    onValue(check, `change the value, or the bound — '${check.value}' breaks ${said(p)}: it is not ${p.clause.op === "==" ? "" : p.clause.op + " "}${r.bound}`,
       vscode.DiagnosticSeverity.Warning);
   }
   if (next !== lines) await replaceDocumentLines(editor, aligned(doc, next));
@@ -3943,8 +3943,8 @@ function leftAloneMessage(names) {
   const quoted = names.map((n) => `'${n}'`);
   const list = quoted.length === 1 ? quoted[0] : `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
   return quoted.length === 1
-    ? `this line returns ${list}, which has a derivation of its own — that one writes its rows, and this line leaves it alone; return it from one place only`
-    : `this line returns ${list}, which have derivations of their own — those write their rows, and this line leaves them alone; return each from one place only`;
+    ? `return it from one place only — this line returns ${list}, which has a derivation of its own: that one writes its rows, and this line leaves it alone`
+    : `return each from one place only — this line returns ${list}, which have derivations of their own: those write their rows, and this line leaves them alone`;
 }
 
 // The Python findings for a document, into their own collection: a failed
@@ -3997,7 +3997,7 @@ function pythonFindings(doc) {
       if (!h.source) continue; // the linter already says a bare '=' is empty
       if (cyclic.has(h.address)) {
         const loop = cyclic.get(h.address);
-        out.push(mk(`Python cycle — ${[...loop, loop[0]].join(" → ")} — none of these can run first`, vscode.DiagnosticSeverity.Error));
+        out.push(mk(`remove one of these references — Python cycle (${[...loop, loop[0]].join(" → ")}): none of these can run first`, vscode.DiagnosticSeverity.Error));
         continue;
       }
       if (r.errors && r.errors.length) {
@@ -4020,13 +4020,13 @@ function pythonFindings(doc) {
       }
       const rec = records[h.address];
       if (!rec) {
-        out.push(mk(`not run yet — Ctrl+Enter runs it${off}`, vscode.DiagnosticSeverity.Information));
+        out.push(mk(`press Ctrl+Enter to run it — not run yet${off}`, vscode.DiagnosticSeverity.Information));
         continue;
       }
       const why = rec.source !== src ? "edited since it last ran"
         : rec.run !== runHashes.get(h.address) ? "something it reads changed since it last ran" : null;
       if (!why) continue;
-      out.push(mk(`Python ${why} — Ctrl+Enter runs it${off}`, vscode.DiagnosticSeverity.Information));
+      out.push(mk(`press Ctrl+Enter to run it — Python ${why}${off}`, vscode.DiagnosticSeverity.Information));
       const span = pyValueSpan(doc, h);
       if (span) dims.push({ range: span, hoverMessage: `An older result: this derivation was ${why}. Ctrl+Enter brings it up to date.` });
     }

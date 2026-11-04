@@ -337,7 +337,7 @@ function unlistedValues(text, root, nodes, external) {
       endCol: startCol + writtenLength(raw, startCol, node),
       value: node.value,
       concept: type,
-      message: `'${node.value}' is not an Example of Concept '${type.name}' — its Examples are ${shown}`,
+      message: `add it as an Example of '${type.name}', or use one already listed — '${node.value}' is not an Example of Concept '${type.name}': its Examples are ${shown}`,
     });
   }
   return out;
