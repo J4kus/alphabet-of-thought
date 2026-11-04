@@ -193,12 +193,12 @@
             - a tree, not a diagram
             - use full words, never abbreviate
             - fix all misspellings
-        Setup Primitive
-            scaffold: Primitive
+        Setup Rationale
+            scaffold: Rationale
             - Motivation
             - Network
             - Function
-            - Workflow
+            - Factor
         Code Token
             encode: Token
             - Ideas
@@ -207,7 +207,7 @@
                 Polymorphism
                 One term, one definition
         Share File
-    Write Primitive
+    Write Rationale
 
 ... To-Do
 

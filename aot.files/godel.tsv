@@ -601,7 +601,7 @@ v	case	84	a == b
 v	case	85	rows ==f()
 v	change log entry	2	1.3.0
 v	characters	2	lowercase
-v	chart	2	aot.files/primitive graph.chart.Example.png
+v	chart	2	aot.files/rationale graph.chart.Example.png
 v	chart	3	./chart.png
 v	city	2	Athens
 v	city	3	Old
@@ -1084,7 +1084,7 @@ v	role	2	financial controller
 v	rows	2	6
 v	sample category	2	Item A
 v	sample category	3	Item B
-v	scaffold	2	Primitive
+v	scaffold	2	Rationale
 v	scope name	2	source.aot
 v	score	2	3
 v	seconds precision	2	no seconds

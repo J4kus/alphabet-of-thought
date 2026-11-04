@@ -43,7 +43,7 @@ const setKey = (s) => [...s].sort().join("\0");
 // are passed over, exactly as godel.effFeatures passes them. Keys are
 // lowercased; `display` keeps the original casing for reports.
 //
-// Crosslinks deepen the columns, because the primitives define
+// Crosslinks deepen the columns, because the rationales define
 // Concepts too:
 //
 //   default-is-a-Example   a value naming an Example elsewhere

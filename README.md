@@ -8,7 +8,7 @@ If your thoughts need to be bigger than one brain can hold at a time — or you 
 
 ![A Sales.aot file in VS Code: syntax colouring, a red squiggle on an "and" Concept, a yellow squiggle on a target-less measurement, a dotted crosslink under an Example reference, and the violation total V in the status bar](docs/edit-loop.png)
 
-**Contents:** [Why Alpha](#why-alpha) · [Alpha in sixty seconds](#alpha-in-sixty-seconds) · [Quick start](#quick-start) · [Case study](#case-study-a-quarterly-business-review) · [Language reference](#language-reference) · [Incompleteness is a feature](#incompleteness-is-a-feature) · [Numbering](#numbering) · [The four primitives](#the-four-primitives) · [Starting a model](#starting-a-model) · [Tables](#tables) · [Python](#python) · [Parking the derivations](#parking-the-derivations) · [Verification: the tooling](#verification-the-tooling) · [Style rules](#style-rules) · [Design principles](#design-principles) · [Using Alpha with an LLM](#using-alpha-with-an-llm) · [Alpha in a team](#alpha-in-a-team) · [Repository layout](#repository-layout)
+**Contents:** [Why Alpha](#why-alpha) · [Alpha in sixty seconds](#alpha-in-sixty-seconds) · [Quick start](#quick-start) · [Case study](#case-study-a-quarterly-business-review) · [Language reference](#language-reference) · [Incompleteness is a feature](#incompleteness-is-a-feature) · [Numbering](#numbering) · [The four rationales](#the-four-rationales) · [Starting a model](#starting-a-model) · [Tables](#tables) · [Python](#python) · [Parking the derivations](#parking-the-derivations) · [Verification: the tooling](#verification-the-tooling) · [Style rules](#style-rules) · [Design principles](#design-principles) · [Using Alpha with an LLM](#using-alpha-with-an-llm) · [Alpha in a team](#alpha-in-a-team) · [Repository layout](#repository-layout)
 
 ## Why Alpha
 
@@ -64,7 +64,7 @@ Read it like this:
 
 1. **Install the extension.** Download the newest `alphabet-of-thought-*.vsix` — from [Releases](https://github.com/Jakus23/alphabet-of-thought/releases) or the copy at the root of this repository — and run `code --install-extension <the .vsix>`. Or build the current source in one step with `python install.py`, which packages, installs, and tells you to reload the window. (The extension is not yet on the VS Code Marketplace.) You get syntax colouring, the linter, crosslinks, and the table editor.
 2. **Create a file.** Name it after the subject: `Human.aot`, `Sales.aot`. The **file name is the root Concept** — do not repeat it as the first line; the file's top-level lines are already its children.
-3. **Pick a real subject.** Take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — and pick the matching [primitive](#the-four-primitives) as a skeleton.
+3. **Pick a real subject.** Take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — and pick the matching [rationale](#the-four-rationales) as a skeleton.
 4. **Write indented plain text using only four kinds of line** (see the [language reference](#language-reference)). Start with natural Concepts and build up from facts, or normalise an existing data structure and derive relations from it. Either way, the move is the same: generate the facts first, then branch out.
 5. **Fix squiggles until `V = 0`.** The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point. (The same check runs from the terminal: `node verify.js <file.aot>`.)
 6. **Ask an AI to explain what you wrote.** Paste the file into an LLM and ask for an explanation. You'll be amazed at what you learn about something you thought you knew. (See [Using Alpha with an LLM](#using-alpha-with-an-llm).)
@@ -75,7 +75,7 @@ Here is the artefact knowledge work produces most often — a status slide:
 
 > **Q2 Sales: Growth and Retention.** Revenue growth on track (11%). New-client pipeline healthy. Basket size up. Churn improving. Owner: Mike.
 
-Fifteen minutes of Alpha later, the same claim is `Sales.aot`, written with the [Motivation primitive](#motivation):
+Fifteen minutes of Alpha later, the same claim is `Sales.aot`, written with the [Motivation rationale](#motivation):
 
 ```aot
 - Motivation
@@ -381,43 +381,43 @@ This is a **gap in the model, not a contradiction in it**, so it hints exactly a
 - **The value must be the same kind of value its Examples are.** `maximum worker pool: 1` measures the pool; it does not name one of Role/Asset/Function, and a number never could. `age integer: 5` *is* a number among the numbers 1 and 35, so it genuinely misses.
 - **The value must not be a truth value.** `present in: False` says a fact holds; it does not nominate an Example.
 
-## The four primitives
+## The four rationales
 
-Alpha is aimed at knowledge workers — analysts, architects, anyone whose job is to think in structures. You can use it purely for your own thoughts, but Alpha ships four primitives for the four kinds of model knowledge work keeps producing anyway, usually scattered across slides and spreadsheets. They are built on Aristotle's four causes — his complete answer to *why a thing is and how it comes to be* (*Physics* II.3, 194b17–20) — combined with the *Categories*, the *Prior Analytics*, and Kipling's six serving-men. **The four causes complete every explanation**: final (motivation), material (graph), formal (function), efficient (workflow).
+Alpha is aimed at knowledge workers — analysts, architects, anyone whose job is to think in structures. You can use it purely for your own thoughts, but Alpha ships four rationales for the four kinds of model knowledge work keeps producing anyway, usually scattered across slides and spreadsheets. They are built on Aristotle's four causes — his complete answer to *why a thing is and how it comes to be* (*Physics* II.3, 194b17–20) — combined with the *Categories*, the *Prior Analytics*, and Kipling's six serving-men. **The four causes complete every explanation**: final (motivation), material (graph), formal (function), efficient (factor).
 
-| Cause | Aristotle's phrase | Native question | Primitive | Said of | Not said of |
+| Cause | Aristotle's phrase | Native question | Rationale | Said of | Not said of |
 |-------|--------------------|-----------------|-----------|---------|-------------|
 | **Final** | for the sake of which | Why, and for whom | **Motivation** | Party (Who) | Measurement (How much) |
 | **Material** | that out of which | made of What | **Graph** | Entity (Where: the boundary that fixes where the record resides in reality) | Record (What) |
 | **Formal** | the form, the arrangement of parts | What it is, How it is achieved | **Function** | Objective (How) | Class (Which) |
-| **Efficient** | the agent and the means | by Whom, in what order | **Workflow** | Worker (Agent) | Time (When) |
+| **Efficient** | the agent and the means | by Whom, in what order | **Factor** | Worker (Agent) | Time (When) |
 
-Each primitive's names are always modelled as Examples (not said of, not present in). The "Said of" column names the only Concepts allowed inside that primitive — Stakeholders, Entities, Objectives, and Worker Pools can never be Examples or Attribute Values, while measurements, records, classes, and times can only be Examples or Attribute Values.
+Each rationale's names are always modelled as Examples (not said of, not present in). The "Said of" column names the only Concepts allowed inside that rationale — Stakeholders, Entities, Objectives, and Worker Pools can never be Examples or Attribute Values, while measurements, records, classes, and times can only be Examples or Attribute Values.
 
-The primitives can — and are encouraged to — link to one another: a Motivation's measurement may name a Workflow's worker, a Graph's entity may type a Function's argument, and every such crosslink makes the model more connected and more checkable. What no primitive may do is *terminate* in another: each remains a complete tree of its own, its cause fully answered in its own terms, never reduced to a pointer into its neighbour. A complete explanation holds all four in balance — linked freely, each still standing on its own.
+The rationales can — and are encouraged to — link to one another: a Motivation's measurement may name a Factor's worker, a Graph's entity may type a Function's argument, and every such crosslink makes the model more connected and more checkable. What no rationale may do is *terminate* in another: each remains a complete tree of its own, its cause fully answered in its own terms, never reduced to a pointer into its neighbour. A complete explanation holds all four in balance — linked freely, each still standing on its own.
 
-See [`examples/thought.aot`](examples/thought.aot) for one subject — thinking itself — modelled through all four primitives.
+See [`examples/thought.aot`](examples/thought.aot) for one subject — thinking itself — modelled through all four rationales.
 
 ### The model is unbalanced until all four are used
 
-The four causes are Aristotle's *complete* answer to why a thing is: drop one and the explanation is not merely shorter, it is **lopsided**. The missing cause's work does not disappear — it is smuggled into the primitives that remain, where it reads as noise, and the model quietly starts answering a question nobody asked.
+The four causes are Aristotle's *complete* answer to why a thing is: drop one and the explanation is not merely shorter, it is **lopsided**. The missing cause's work does not disappear — it is smuggled into the rationales that remain, where it reads as noise, and the model quietly starts answering a question nobody asked.
 
-| Missing primitive | How the imbalance shows |
+| Missing rationale | How the imbalance shows |
 |---|---|
 | **Motivation** | Objectives with no *why* above them and measurements with no one who benefits. The tree grows detail nobody can prioritise, because nothing says what it is worth. |
 | **Graph** | Records masquerading as Concepts. Attributes multiply on ideas that should have been Examples of an entity, and the same fact ends up written in three places with nothing to reconcile it. |
-| **Function** | The *how* hides inside workflow steps: the order of work stands in for the arrangement of work, so you cannot tell which capability a step realises, or what would break if it were removed. |
-| **Workflow** | Everything reads as simultaneous and unowned. No agent, no order, no contention — so no bottleneck is visible and no schedule can be derived. |
+| **Function** | The *how* hides inside factor steps: the order of work stands in for the arrangement of work, so you cannot tell which capability a step realises, or what would break if it were removed. |
+| **Factor** | Everything reads as simultaneous and unowned. No agent, no order, no contention — so no bottleneck is visible and no schedule can be derived. |
 
-A file using one primitive can still reach `V = 0`. That is not a loophole: consistency is what the linter checks, and coverage is [something you declare, not something you are caught lacking](#incompleteness-is-a-feature). **Balance is the reader's check, not the linter's** — and it is the one worth making a habit. If you cannot produce all four for a subject, you do not yet understand it; the primitive you cannot write is exactly the part you have been assuming.
+A file using one rationale can still reach `V = 0`. That is not a loophole: consistency is what the linter checks, and coverage is [something you declare, not something you are caught lacking](#incompleteness-is-a-feature). **Balance is the reader's check, not the linter's** — and it is the one worth making a habit. If you cannot produce all four for a subject, you do not yet understand it; the rationale you cannot write is exactly the part you have been assuming.
 
-The counsel of perfection is not "finish all four before you write anything". It is: start where the knowledge is, and treat each primitive you have not reached yet as a `...` — a declared gap, in the model and in your understanding of the subject alike.
+The counsel of perfection is not "finish all four before you write anything". It is: start where the knowledge is, and treat each rationale you have not reached yet as a `...` — a declared gap, in the model and in your understanding of the subject alike.
 
 ### Motivation
 
 Focus: **what is measured, why, and who benefits from it.**
 
-The Motivation primitive describes what you are trying to achieve and who owns it: goals and KPIs with a beneficiary, an `actual`, a `target`, and a Red/Amber/Green `influence` rolling up the tree. This is an OKR tree or a metrics dashboard as text — exactly what a quarterly business review tries to communicate — with every measurement recording its owner.
+The Motivation rationale describes what you are trying to achieve and who owns it: goals and KPIs with a beneficiary, an `actual`, a `target`, and a Red/Amber/Green `influence` rolling up the tree. This is an OKR tree or a metrics dashboard as text — exactly what a quarterly business review tries to communicate — with every measurement recording its owner.
 
 Every measurement carries both a `target` value and an `actual` value. Alpha requires both because a measurement only means something when you can compare the actual against the target (the linter warns when either is missing).
 
@@ -425,7 +425,7 @@ Every measurement carries both a `target` value and an `actual` value. Alpha req
 
 Focus: **what the system is made of.**
 
-Data modelling: which entities exist, where records reside, and what depends on what. The Graph primitive even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database — the linter's [dependency inference](#armstrongs-axioms-dependency-inference) tells you when a column is derivable.
+Data modelling: which entities exist, where records reside, and what depends on what. The Graph rationale even encodes normalisation reasoning (Armstrong's axioms) as tree shapes, so you can use it to design a schema before touching a database — the linter's [dependency inference](#armstrongs-axioms-dependency-inference) tells you when a column is derivable.
 
 ### Function
 
@@ -454,7 +454,7 @@ The questions in a Function tree run in different directions. Ask **How** downwa
 - Test each split with the **Why**, **How**, and **Which** questions above.
 - Attributes may be attached to objectives to describe their arguments and results.
 
-### Workflow
+### Factor
 
 Focus: **who acts, in what order.**
 
@@ -469,7 +469,7 @@ There are two ways in, and they meet in the middle:
   - **Your todo list.** Each open item is an Example the model is missing; emptying the list and completing the model are the same act.
   - **Kipling's six serving-men.** *What, Why, When, How, Where, Who* ("I keep six honest serving-men; they taught me all I knew"). Six Examples to start with.
   - **Aristotle's ten categories.** Substance, quantity, quality, relation, place, time, position, having, action, being-acted-upon (*Categories* 4). The widest net for *what can be said of a thing*: each category is one more attribute to ask after.
-  - **The Alpha primitives.** Motivation, Graph, Function, Workflow. All real knowledge straddles all four; if you cannot produce them all, you do not yet fully understand the subject.
+  - **The Alpha rationales.** Motivation, Graph, Function, Factor. All real knowledge straddles all four; if you cannot produce them all, you do not yet fully understand the subject.
 
 Whichever you use, the move is the same: generate the facts first, then branch out from there.
 
@@ -1230,7 +1230,7 @@ A functional dependency `X → Y` says "fix `X` and `Y` is fixed too". Armstrong
 
 The six axioms, and what the linter does with each. **Reflexivity** (`Y ⊆ X ⊢ X → Y`) makes every `X → X` trivially true — a self-edge asserts nothing, so the graph drops it, and an attribute of a Concept's own kind stays legitimate recursion, never flagged. **Transitivity** (`X → Y, Y → Z ⊢ X → Z`) is the working axiom: it builds the closure behind `--depends`, the hover and the inlay chains; a chain that leads back to its start is a **dependency cycle** (error rule 21); a direct edge that a chain through another Concept already implies is a **redundant dependency** (warning rule 11); and over the inferred set it prunes the implied statements to a minimal cover. **Augmentation** (`X → Y ⊢ XZ → YZ`), **Union**, **Decomposition** and **Pseudotransitivity** speak of *sets* of attributes on a side; the dependencies here are single-attribute edges, so Augmentation and Pseudotransitivity have nothing to attach to, Union never arises, and Decomposition holds by construction — every right side is already atomic.
 
-**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph primitive is about). When the dependency runs both ways (`X ↔ Y`), the two attributes are the same distinction written twice. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The set is pruned to a **minimal cover**: an `X → Z` that `X → Y` and `Y → Z` already give follows by Transitivity, so it is held off the squiggle channel — `--fd` still prints it, tagged `[implied by 'x' → 'y' → 'z']` — and a member of an equivalence is never pruned. The strongest of the rest surface as opt-in warnings (rules 12–13 above; off by default via `aot.dependencyFindings`, never counted toward `V`).
+**Inferred from the Examples.** Project every Example's `G` onto an attribute's prime — its value code — and group the Examples by it. `X → Y` holds when `Y`'s code is constant within every `X`-group, across enough Examples to be more than coincidence. A column thus determined by another is **derivable**: model it once rather than restating it on every Example (the normalisation reasoning the Graph rationale is about). When the dependency runs both ways (`X ↔ Y`), the two attributes are the same distinction written twice. An antecedent that is distinct on every Example (a key) is ignored — it determines everything vacuously, with no evidence — unless its partner is a key too, a genuine bijection. The set is pruned to a **minimal cover**: an `X → Z` that `X → Y` and `Y → Z` already give follows by Transitivity, so it is held off the squiggle channel — `--fd` still prints it, tagged `[implied by 'x' → 'y' → 'z']` — and a member of an equivalence is never pruned. The strongest of the rest surface as opt-in warnings (rules 12–13 above; off by default via `aot.dependencyFindings`, never counted toward `V`).
 
 **Declared by the crosslinks.** A dependency is a Concept resting on another through an **attribute** — an attribute whose name ends in a Concept, or a **value that names another Concept's Example** (`person: Socrates` with Socrates under `Human`; the value edge matters, or linking through a value would hide the dependency it creates). A Concept that merely *contains* another in its name (`Recurring Tree`), or is *aliased* to one, is a **kind** of that Concept, not a dependency on it — those crosslinks still navigate, but they are not dependency edges. The transitive closure (Armstrong transitivity) gives what a Concept rests on directly and what it inherits through a chain — `node verify.js <file> --depends "X"` prints both, each transitive dependency with one witnessing path. In the editor the chains are visible twice over: **hovering** a Concept (or any crosslink) lists every chain in full (`Trip ─driver person→ Person ─home address→ Address — 3 Concepts`), and an **inlay hint** writes the first chain in small print at the end of each **attribute** crosslink's line (`→Person→Address`, off with `aot.chainHints`) — only an attribute typed by a Concept *depends* on it, so a Concept that merely contains or aliases another carries no arrow. The same graph is held to the axioms in the lint pass, current file only: a chain leading back to its start is a **dependency cycle** (error rule 21, counted in `V`, one error on each attribute carrying the loop), and a direct edge a chain through another Concept already implies is a **redundant dependency** (warning rule 11, on the declaring attribute).
 
@@ -1308,7 +1308,7 @@ The prose above describes the rules; a handful of files in [`examples/`](example
 
 - [`examples/lint.aot`](examples/lint.aot) plants one violation per syntactic and style rule: a tab, a six-space indent, a depth jump, an empty value, a `-nospace` Example, the file name repeated as a line, an "and" Concept, a duplicated Concept name, identical siblings, a Map that leaks content, plural Concept names, a target-less and an actual-less measurement, a ninth sub-Concept, lone subtypes, and sibling sub-Concepts told apart by position only. It ends with a `Clean` subtree that must stay squiggle-free.
 - [`examples/warning.aot`](examples/warning.aot) exercises the analytical passes: a Gödel content clash (two Examples with identical attributes and values), FCA drift (a Goldfish filed under `Fowl` while carrying `Fish`'s attributes), an exhaustion gap (a Sponge matching no sub-Concept), differentia twins, and dependency pairs with enough witnessed repeats to trip the Armstrong warnings.
-- [`examples/thought.aot`](examples/thought.aot) and [`examples/spreadsheet.aot`](examples/spreadsheet.aot) are the clean pair: real models (all four primitives; tables and the CSV mirror) that must verify at `V = 0`. Their derivations were written in the formula language before it was removed; they still verify, since the linter judges values, not derivations, but they are not Python and fail when run.
+- [`examples/thought.aot`](examples/thought.aot) and [`examples/spreadsheet.aot`](examples/spreadsheet.aot) are the clean pair: real models (all four rationales; tables and the CSV mirror) that must verify at `V = 0`. Their derivations were written in the formula language before it was removed; they still verify, since the linter judges values, not derivations, but they are not Python and fail when run.
 - [`examples/monthly close.aot`](examples/monthly%20close.aot) and [`examples/bank recon.aot`](examples/bank%20recon.aot) are the clean *repo* pair: one Concept, `Jakus`, written in two files — the same definition in both, the Examples split between them, and a maintained `...` line in each. Both must verify at `V = 0`, and `node verify.js --workspace examples --reconcile` must leave them exactly as they stand.
 
 - [`examples/godel.aot`](examples/godel.aot) and [`examples/godel twins.aot`](examples/godel%20twins.aot) verify at `V = 0` and carry the Gödel warnings on purpose: a value every child states (`Vehicle`'s `wheels: 4`, `Payment`'s `EUR` column), a default no child keeps (`Drink`), and `Kettle` / `Boiler`, one content under two names. Hover `Pet`'s kinds for their content.
@@ -1450,7 +1450,7 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`src/urls.js`](src/urls.js) | URL and file-path spans, their hover metadata, and image detection |
 | [`src/hold.js`](src/hold.js) | [Findings elsewhere wait while you write](#warnings--yellow-squiggle-in-the-problems-panel-but-not-counted-in-v): which wait, the edited lines followed through edits, and the family whose leaving ends the wait |
 | [`src/repo.js`](src/repo.js) | [Concepts across files](#concepts-across-files): the save-time reconcile and the two contradictions (error rules 22–23) |
-| [`examples/thought.aot`](examples/thought.aot), [`examples/spreadsheet.aot`](examples/spreadsheet.aot) | Worked models that verify at `V = 0` (all four primitives; tables, and derivations written in the removed formula language) |
+| [`examples/thought.aot`](examples/thought.aot), [`examples/spreadsheet.aot`](examples/spreadsheet.aot) | Worked models that verify at `V = 0` (all four rationales; tables, and derivations written in the removed formula language) |
 | [`examples/features.aot`](examples/features.aot) | A `V = 0` showcase of the 1.3 additions — `@` references, cross-cell formulas, constraints, string functions — in the formula language since removed; it verifies, but its derivations are not Python |
 | [`examples/lint.aot`](examples/lint.aot), [`examples/warning.aot`](examples/warning.aot) | The [conformance examples](#the-conformance-examples) — one planted violation per rule |
 | [`examples/numbering.aot`](examples/numbering.aot) | A file to try [Numbering](#numbering) on: save it and watch the Examples and Concepts number themselves |

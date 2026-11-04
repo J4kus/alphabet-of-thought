@@ -54,7 +54,7 @@
     total: 53,760 =@Sales@amount.sum()
     rows: 6 =len(@Person)
     revenue: 53,760 =@Sales@units.sum()*15
-    chart: aot.files/primitive graph.chart.Example.png =@Sales.plot.bar(y="units", rot=0)
+    chart: aot.files/rationale graph.chart.Example.png =@Sales.plot.bar(y="units", rot=0)
 
     Sales|month  |units|amount
     P1   |2026-01|1,000|15,000

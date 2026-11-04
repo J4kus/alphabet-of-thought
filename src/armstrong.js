@@ -9,7 +9,7 @@
 //      Examples by the exponent of X's prime and ask whether Y's exponent is
 //      constant in each group. An attribute Y determined by another X is
 //      derivable — a redundancy worth modelling once (3NF, the normalisation
-//      reasoning the README ties to the Graph primitive). X <-> Y is the same
+//      reasoning the README ties to the Graph rationale). X <-> Y is the same
 //      distinction written twice.
 //
 //   2. DECLARED dependencies (from the crosslinks). attribute-is-a-Concept
