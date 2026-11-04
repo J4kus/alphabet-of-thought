@@ -32,12 +32,8 @@
 const path = require("path");
 const { KIND, INDENT } = require("./linter");
 const { numberless, tablesOf, updateTable, writtenValue } = require("./table");
-const { lastLineOf, headerColName } = require("./derive");
+const { lastLineOf, headerColName, NOTE_RE } = require("./derive");
 
-// The maintained `...` line, told from anything you wrote by its own shape.
-// Only a Map whose note matches this is ever rewritten or removed; a
-// `... still to do` beside it is left exactly as it stands.
-const NOTE_RE = /^\d+ more in /;
 const MAX_FILES = 3; // then `, …`, and the rest of the list moves to the hover
 
 const fold = (name) => numberless(name).trim().toLowerCase();

@@ -8,11 +8,11 @@ Release Check
         fixture: Workshop below
         try: hover Bench in the parent cell of the Vice row, then Ctrl+click it; then put the cursor in a name cell and run Sort Rows by Column at Cursor
         expected: the hover names the row Bench and Ctrl+click lands on it; after the sort Vice and Clamp still name Bench, and the Outline still lists them under Workshop
-    - B02 A Table From 1.12 Migrates On The First Key
+    - B02 An Indented Row Is Only A Row
         area: tables
-        fixture: Orchard Old below
-        try: read the warning on Sapling, then press Tab in the height cell of Apple
-        expected: the warning says the tree belongs in a parent column; after Tab the table carries a parent (orchard old) column naming Apple for Sapling and Seedling, and the warning is gone
+        fixture: Grove below
+        try: indent the Sapling row by four spaces, then run Format Document
+        expected: nothing warns and nothing moves in the Outline, since the parent cell is what files Sapling under Apple; Format Document draws the row flush with the others again
     - B03 Tab Never Indents A Table
         area: tables
         fixture: Workshop below
@@ -26,7 +26,7 @@ Release Check
     - B05 Dividers Group The Rows
         area: tables
         fixture: Stock below
-        try: put the cursor on Screw and run Sort Rows by Column at Cursor; then Format Document
+        try: put the cursor on Screw and run Sort Rows by Column at Cursor; then shorten the divider to two dashes each side and run Format Document
         expected: only Washer and Screw reorder, the divider stays between the groups and is redrawn to the column widths
     - B06 The Flip Keeps The Cursor
         area: flip
@@ -47,7 +47,7 @@ Release Check
         area: defaults
         fixture: Currency and Outlay below
         try: hover the name Rent; hover EUR on the currency line of Lunch and Ctrl+click it; then under Rent type currency and a colon and press Ctrl+Space
-        expected: the hover of Rent lists currency EUR as the default of Currency; EUR under Lunch is underlined dotted and lands on the Currency line; the completion offers EUR first
+        expected: the hover of Rent lists currency EUR as the default of Currency; EUR under Lunch is underlined dotted and lands on the Currency line; the completion offers EUR
     - B10 Defaults In A Header
         area: defaults
         fixture: Plan below
@@ -57,22 +57,22 @@ Release Check
         area: syntax
         fixture: Quote below
         try: hover the name Q1, and look at the colours on the vat line of Quote and on the note line of Q1
-        expected: the hover lists the note as a = b means equal; the Python after the single equals sign of vat is coloured as code, and the doubled equals of the note as an escape
+        expected: the hover lists the note with one equals sign between a and b; the Python after the single equals sign of vat is coloured as code, and the doubled equals of the note as an escape
     - B12 The CSV Mirror Writes Back
         area: csv
         fixture: Stock below, and aot.files/Stock.csv after a save
-        try: save this file; in the CSV change Bolt to 6 and save it; then empty the count of Washer in the CSV and save it
-        expected: after each CSV save this file changes and saves itself; Bolt reads 6, and the count cell of Washer is empty
-    - B13 A Dropped Row Is Asked About
+        try: save this file; in the CSV change Bolt to 6 and save it, then back to 5 and save it; then empty the count of Washer in the CSV and save it
+        expected: after each CSV save this file changes and saves itself; Bolt reads 6, then 5 again, and the count cell of Washer is empty
+    - B13 A CSV Saved Last Overrides Unsaved Edits And Drops Rows
         area: csv
-        fixture: aot.files/Stock.csv
-        try: delete the Screw row from the CSV and save it, then choose Keep
-        expected: the CSV has Screw back at once, and a notice asks whether to delete it from release 1.13.aot too; Keep leaves Screw here
-    - B14 A Cell Both Sides Changed
+        fixture: Stock below and aot.files/Stock.csv
+        try: change Washer here and do not save; delete the Screw row from the CSV and save it
+        expected: Washer goes back to what the CSV says and Screw goes from this file, with nothing asked; this file stays unsaved until you save it
+    - B14 The File Saved Last Overrides The Other
         area: csv
         fixture: Stock below, aot.files/Stock.csv, and the setting aot.tableCsvSyncMode
-        try: set the setting to manual; change Nut to 4 here and save; change Nut to 8 in the CSV and save; press Ctrl+K Y; afterwards set the setting back to auto
-        expected: nothing syncs until Ctrl+K Y; then Nut reads 8 here, and one notice names Nut and count, says the later save won and took 8 from Stock.csv, and offers Use release 1.13.aot's Values, which puts 4 back in both
+        try: set the setting to manual; change Nut to 4 and Bolt to 7 here and save; change Nut to 8 in the CSV and save it; press Ctrl+K Y; then change Bolt to 9 in the CSV and save it, change Nut to 3 here and save, and press Ctrl+K Y; afterwards set the setting back to auto
+        expected: nothing syncs until Ctrl+K Y; the first time the CSV was saved last, so here Nut reads 8 and Bolt goes back to what the CSV says; the second time this file was saved last, so the CSV has Nut 3 and Bolt goes back to what this file says; no notice either time
     - B15 Rename By Typing
         area: rename
         fixture: Sage and Lecture below
@@ -86,7 +86,7 @@ Release Check
     - B17 Findings Wait While You Write
         area: hold
         fixture: Machine below
-        try: under Power Tool type a line Drill one level deeper, watch the status bar, then move the cursor up to Machine
+        try: under Power Tool type a line Drill one level deeper, watch the status bar, then move the cursor up to Power Tool
         expected: no squiggle on Power Tool while typing; the status bar says 1 waiting, leave Power Tool to see it; leaving shows the lone sub-Concept warning
     - B18 The Note Hovers By Part
         area: notes
@@ -95,9 +95,9 @@ Release Check
         expected: the first hover lists the two Examples written in the peer, the second that file's Examples; Ctrl+click opens the peer at Lantern
     - B19 An Alias Links By Its Words
         area: links
-        fixture: Hand Tool below
-        try: Ctrl+click Machine inside the alias of Hand Tool
-        expected: it lands on Machine
+        fixture: Hand Tool and Spare Kit below
+        try: Ctrl+click Machine inside the alias of Hand Tool, then Electric Gear inside the alias of Spare Kit
+        expected: the first lands on Machine, the second on Power Tool, whose alias those words are
     ... 32 more in release 1.12.aot:1
 Workshop|parent (workshop)|weight
 Bench   |                 |40
@@ -105,15 +105,15 @@ Vice    |Bench            |9
 Clamp   |Bench            |2
 Shelf   |                 |15
 
-Orchard Old|height|spread
-Apple      |300   |200
-    Sapling|40    |30
-    Seedling|35   |20
+Grove   |parent (grove)|height|spread
+Apple   |              |300   |200
+Sapling |Apple         |40    |30
+Seedling|Apple         |35    |20
 
 Stock |count
-Bolt  |5
-Nut   |3
 ------|-----
+Bolt  |5
+Nut   |10
 Washer|9
 Screw |1
 
@@ -124,11 +124,11 @@ Outlay
     - Rent
         cost: 900
     - Coffee
-        cost: 4
         currency: USD
+        cost: 4
     - Lunch
-        cost: 12
         currency: EUR
+        cost: 12
 Colour
     hue
     shade
@@ -140,6 +140,7 @@ Phase
 
     - Build
         length: 6
+
 Plan: Basic|price|seats: 1
 Starter    |10   |
 Team       |40   |5
@@ -159,5 +160,6 @@ Lecture
     - Ethics Talk
         sage: Socrates
 Machine
-    Power Tool
+    Power Tool (Electric Gear)
     Hand Tool (Machine Part)
+    Spare Kit (Electric Gear Box)

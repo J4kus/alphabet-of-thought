@@ -141,10 +141,7 @@ function parse(text, rootName, report) {
   // deeper shares columns — a blank line, a line carrying no pipe, or a
   // line shallower than the header ends it.
   // rows are the table's Examples in the order written, filed under the rows
-  // their parent cells name once the table is complete (refile). rowStack[d]
-  // is the last row seen at depth d: a row a 1.12 file indents one level
-  // under the row above it still nests under it, as an indented line nests
-  // under the line above it, and is warned about.
+  // their parent cells name once the table is complete (refile).
   let table = null;
   const closeTable = () => {
     if (table) refile(table, report);
@@ -163,12 +160,15 @@ function parse(text, rootName, report) {
       content = content.replace(/\t/g, " ".repeat(INDENT));
     }
     const spaces = content.length - content.replace(/^ +/, "").length;
-    // A row of an open table whose name cell is empty — one still being
-    // filled — is padded to its name column like every other row, so its leading spaces ARE that empty cell and not an
-    // indent at all. It stands at its table's depth, and the two indent
-    // laws below have nothing to say about it.
-    const padded = !isSeparator(content.trim()) && isRowText(content)
-      && !((tableCells(content)[0] || {}).text);
+    // A row of an open table stands at its table's depth, however far it is
+    // indented: a row never nests by its indent, and a parent cell says where
+    // it is filed. A row whose name cell is empty — one still being filled —
+    // is padded to its name column like every other row, so its leading spaces
+    // ARE that empty cell and not an indent at all. The two indent laws below
+    // have nothing to say about either.
+    const rowText = !isSeparator(content.trim()) && isRowText(content);
+    const padded = rowText && (!((tableCells(content)[0] || {}).text)
+      || (!!table && Math.floor(spaces / INDENT) >= table.depth));
     if (!padded && spaces % INDENT) {
       report.error(line, `indent of ${spaces} spaces is not a whole number of levels — each level of nesting is exactly ${INDENT} spaces, so add or remove spaces to reach a multiple of ${INDENT} (${spaces} mod ${INDENT} = ${spaces % INDENT}, expected 0)`);
     }
@@ -181,12 +181,11 @@ function parse(text, rootName, report) {
     }
     let trimmed = content.trim();
     // a '----|----' divider groups a table's rows, as a blank line groups an
-    // outline's: it is presentation, so it is skipped without ending the
-    // table (and a '---+---' rule left from before 1.12 is read as one)
+    // outline's: it is presentation, so it is skipped without ending the table
     if (isSeparator(trimmed)) return;
     const marker = trimmed[0];
-    // a row carries a '|' between its cells; a row deeper than the table's
-    // own line is nested inside it, so only a shallower line ends the table
+    // a row carries a '|' between its cells, and only a shallower line ends
+    // the table
     const isRow = isRowText(trimmed);
     // A '...' Map written under a table is the table's OWN — a child of the
     // Concept the table names, not of the row it happens to follow. A
@@ -243,10 +242,9 @@ function parse(text, rootName, report) {
         // filed under already bears the same name, the table fills that
         // node in rather than declaring a twin, so a Concept can carry
         // line-form defaults and '- ' Examples beside its grid.
-        table = { depth, attrs: [], rows: [], rowStack: [] };
+        table = { depth, attrs: [], rows: [] };
         // the header names the Concept the whole table describes, so it is
-        // the table's own line: its indent IS the table's, and every row
-        // written deeper than it nests inside it
+        // the table's own line: its indent IS the table's
         let cName = row.length ? row[0].text : "", cAlias = null, cAliasCol;
         // the Concept's own derivation rides in its first cell once its
         // Python has written the table — `Quarter =quarters()|units|…` —
@@ -460,33 +458,14 @@ function parse(text, rootName, report) {
         }
         // A table never nests by indentation: a row that sits under another
         // names it in the `parent (thing)` column, and is filed there once the
-        // table is complete (refile). A 1.12 file wrote the same tree as the
-        // name's indent past the table's own — a row one level deeper than
-        // the row above it its sub-Example — and that reading still holds,
-        // so no file changes meaning; the next re-draw rewrites it as the
-        // column, and the warning says so.
-        let rowDepth = depth - table.depth;
-        if (rowDepth > 0 && !table.indentWarned) {
-          table.indentWarned = true;
-          const thing = numberless(table.owner.name || "").toLowerCase();
-          report.warn(line, `row '${row[0].text}' nests by its indent — since 1.13 a table never nests that way: a sub-Example names the row it sits under in a 'parent (${thing})' column; Format Document (or any table key) rewrites the table so`,
-            { startCol: row[0].col - row[0].indent, endCol: row[0].col + Math.max(row[0].text.length, 1) });
-        }
-        if (rowDepth > table.rowStack.length) {
-          report.error(line, `row '${row[0].text}' is ${rowDepth - table.rowStack.length} ${rowDepth - table.rowStack.length === 1 ? "level" : "levels"} deeper than the row above it, but a sub-Example sits exactly one level under its parent row — there is no row at depth ${rowDepth - 1} to be its parent; indent its name cell to depth ${table.rowStack.length}`,
-            { startCol: row[0].col - row[0].indent, endCol: row[0].col + Math.max(row[0].text.length, 1) });
-          rowDepth = table.rowStack.length;
-        }
-        const rowParent = rowDepth ? table.rowStack[rowDepth - 1] : table.owner;
+        // table is complete (refile).
         const example = {
           line, depth, kind: INDIVIDUAL, name: row[0].text, value: null,
-          alias: null, parent: rowParent, children: [], nameCol: row[0].col,
+          alias: null, parent: table.owner, children: [], nameCol: row[0].col,
         };
-        rowParent.children.push(example);
+        table.owner.children.push(example);
         nodes.push(example);
         table.rows.push(example);
-        table.rowStack.length = rowDepth;
-        table.rowStack.push(example);
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
           const attr = table.attrs[c - 1];
           // the parent cell is structure: it names a row, and holds no value

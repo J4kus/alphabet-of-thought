@@ -53,19 +53,19 @@ const parsed = (text) => {
   const text = aot(
     "Case",
     "    - Pipe",
-    "        case: Flags \\=a() | b()",
+    "        case: Flags ==a() | b()",
     "    - Doubled",
     "        case: c == d === e",
     "    Case|note",
-    "    Row |a \\= b",
+    "    Row |a == b",
   );
   const { root, nodes, lines } = parsed(text);
   const grid = mirrorGrids(root, nodes).find((g) => g.name === "Case");
   const concept = nodes.find((n) => n.name === "Case");
-  check("mirror: a CSV holds the values as read — the doubled escape and the older one alike",
+  check("mirror: a CSV holds the values as read, the doubled escape read as one",
     grid.rows.some((r) => r.includes("c = d == e")) && grid.rows.some((r) => r.includes("a = b")));
   const same = updateScope(lines, root, nodes, concept, grid.header, grid.rows, "Sheet");
-  check("fold: the mirror's own CSV folds back as no change — an escaped '=', either spelling, and a pipe survive the round trip",
+  check("fold: the mirror's own CSV folds back as no change — an escaped '=' and a pipe survive the round trip",
     same.length === 0);
   const csvHeader = ["Case", "case", "note"];
   const edited = [["Pipe", "x =__import__('os').getpid()", ""], ["Row", "", "y =boom()"], ["Fresh", "", "=evil()"]];
@@ -84,7 +84,7 @@ const parsed = (text) => {
   const text = aot(
     "Order",
     "    age >=18 <=65",
-    '    status ==("draft", "sent")',
+    '    status =("draft", "sent")',
     "    - A",
     "        age: 30",
     "        vat: 2 =@price*0.2",
@@ -99,7 +99,7 @@ const parsed = (text) => {
   check("derivationSpans: each bound of a chain is its own constraint span",
     at(2).join("|") === ">=18|<=65" && spans.filter((s) => s.line === 2).every((s) => s.constraint));
   check("derivationSpans: a collection bound is one span, its inner operator no divider",
-    at(3).join("|") === '==("draft", "sent")');
+    at(3).join("|") === '=("draft", "sent")');
   check("derivationSpans: prose is no bound, so no span",
     at(8).length === 0 && at(5).length === 0);
 
@@ -146,10 +146,10 @@ const parsed = (text) => {
   // trip through a spreadsheet no longer flattens the tree
   {
     const nested = aot(
-      "Thing       |age",
-      "Parent      |",
-      "    Child 1 |10",
-      "    Child 2 |12",
+      "Thing  |parent (thing)|age",
+      "Parent |              |",
+      "Child 1|Parent        |10",
+      "Child 2|Parent        |12",
     );
     const { root: r2, nodes: n2, lines: l2 } = parsed(nested);
     const thing = [r2, ...n2].find((n) => n && n.kind === KIND.CONCEPT && n.name === "Thing");
@@ -166,7 +166,6 @@ const parsed = (text) => {
     ];
     const ops = updateScope(l2, r2, n2, thing, edited[0], edited.slice(1), "Sheet");
     const block = ops.find((o) => o.type === "block");
-    // a 1.12 table nested by indent comes back with the parent column (1.13)
     check("mirror: folding back keeps the tree and applies the edit, in the parent column",
       block && block.block.join("\n") === aot(
         "Thing  |parent (thing)|age",
@@ -579,6 +578,36 @@ const parsed = (text) => {
     && mixedLines[2].startsWith("    Order|tax rate: 0.2|price|vat"));
   check("flipForm: the flip never recomputes — a cell reading the Concept's default keeps its value",
     /Acme \| +\|100 +\|20 =@price\*@tax rate/.test(mixedTable.text));
+  // the maintained `... N more` note decides nothing: a table has a place for
+  // it, one level under its last row, where reconcile itself writes it
+  const noted = aot(
+    "- Motivation",
+    "    Jakus |role",
+    "    Do Work|",
+    "        ... 4 more in bank recon.aot:2",
+  );
+  const notedLines = flip(noted, "Jakus");
+  check("flipForm: a table's maintained note stays with the Concept on the way to lines",
+    notedLines.form === "lines" && notedLines.text === aot(
+      "- Motivation",
+      "    Jakus",
+      "        role",
+      "        - Do Work",
+      "        ... 4 more in bank recon.aot:2",
+    ));
+  const notedBack = flip(notedLines.text, "Jakus");
+  check("flipForm: and it does not force the merge form on the way back — the table returns, its note under its last row",
+    notedBack.form === "table" && notedBack.text === aot(
+      "- Motivation",
+      "    Jakus  |role",
+      "    Do Work|",
+      "        ... 4 more in bank recon.aot:2",
+    ));
+  check("flipForm: a table with a maintained note flips and flips back, whole, every time",
+    flip(flip(notedBack.text, "Jakus").text, "Jakus").text === notedBack.text);
+  const notedMap = flip(aot("Order", "    price", "    ... more to come", "    - Acme", "        price: 100", "    ... 2 more in a.aot:1"), "Order");
+  check("flipForm: a Map you wrote still keeps the merge form, and the note stays among the lines it keeps",
+    notedMap.text === aot("Order", "    ... more to come", "    ... 2 more in a.aot:1", "    Order|price", "    Acme |100"));
   const defaultsOnly = aot("Order", "    tax rate: 0.2", "    price", "    - Acme", "        price: 100");
   const standalone = flip(defaultsOnly, "Order");
   check("flipForm: a Concept whose only extra is a default flips to one standalone table, the default in the header",
@@ -857,8 +886,6 @@ const parsed = (text) => {
     "    P1a    |P1              |5", "    P2     |                |20", "    P3     |                |30"].join("\n");
   check("hoistOps: a table with rows under rows keeps them under, the column gone",
     run(nested, 1, "currency", "EUR").join("\n") === liftedGrid);
-  check("hoistOps: a 1.12 table nested by indent comes out the same, in the parent column",
-    run(["Payment|currency|amount", "P1     |EUR     |10", "    P1a|EUR     |5", "P2     |EUR     |20", "P3     |EUR     |30"], 1, "currency", "EUR").join("\n") === liftedGrid);
   check("hoistOps: nothing to do where the parent is gone, or there is no default to keep just",
     run(vehicles, 99, "wheels", "4") === null && run(["Car", "    wheels", "    - Mini", "        wheels: 4"], 1, "wheels", "", "bare") === null);
 }

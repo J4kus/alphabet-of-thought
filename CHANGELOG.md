@@ -7,32 +7,31 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [1.13.0] - 2026-11-01
 
 - **A table never nests by indentation.** A sub-Example names the row it sits under in a `parent (thing)` column — named `parent`, its `(alias)` the table's own Concept, lowercased. It is the column the CSV mirror has always carried the tree in. A parent cell names the nearest row above of that name, else the first below, so a sort can leave a parent below its child. A name no row carries, a row naming itself and a circle of parents are errors.
-  - A 1.12 table nested by indent still reads as before, with a warning; Format Document, any table key, or the upgrade command rewrites it with the column.
+  - *Breaking:* a row's indent means nothing now. A table nested by indent reads as flat rows, with no warning, and Format Document draws them flush. Pre-1.12 bordered tables read as rows with an empty name cell, which is an error.
   - `Tab` and `Shift+Tab` in a table never indent, with lines selected or not: they move between cells. A whole table is re-filed with VS Code's own `Ctrl+]` / `Ctrl+[`.
   - **Nest Row Under the Row Above** and **Lift Row Out of Its Parent Row** write the parent cell, adding the column when the table has none. Deleting a row takes the rows under it, wherever they stand.
   - Parent cells link to the row they name (Ctrl+click, hover, rename), and the Outline lists a table's rows flat under its header.
-- **Dividers.** `-----|---` between rows groups them, as a blank line groups an outline. Dividers are kept and redrawn to the columns' widths; every key steps over them, and a sort stays within its group. A `---+---` rule from before 1.12 reads as a divider now, instead of being dropped.
+- **Dividers.** `-----|---` between rows groups them, as a blank line groups an outline. Dividers are kept and redrawn to the columns' widths; every key steps over them, and a sort stays within its group. A `---+---` rule is no divider now.
 - **The flip keeps your place.** `Ctrl+Alt+T` lands the cursor on the same idea in the other form: the same value, cell, Example or column, as far into it as it was. An empty cell lands on its Example's name in line form, and comes back as that cell.
   - A Concept with no Examples flips to its header alone (`Person|age|city`).
   - Blank lines above Examples become dividers, and back.
   - A row with an empty name keeps its values on the way out.
   - The grid no longer swallows a table written straight after the Concept: a blank line keeps them apart.
-- **The CSV mirror merges three ways.** Each cell is judged against the text the `.aot` and its CSV last agreed on, a baseline kept per machine in the extension's own storage:
-  - whichever side changed a cell is the one that counts;
-  - a cell both changed apart goes to the later save, named cell by cell in one notice, with one button that takes the other side's values;
-  - an emptied cell empties;
-  - a row the CSV dropped is asked about (**Delete** / **Keep**), never deleted in silence;
-  - a row the `.aot` dropped stays dropped.
+  - A maintained `... N more in a.aot:3` note stays under the table's last row and no longer forces the merge form, so a table carrying one flips and flips back unchanged.
+- **The file saved last overrides the other.** Between a `.aot` and its CSV, the two files' save times decide, even where the other file was edited too. Nothing is merged and nothing is remembered, so a fresh clone, a moved folder and a new profile behave like anywhere else.
+  - Saved last, the `.aot` rewrites the CSV. Saved last, the CSV gives the `.aot` every cell where the two differ: an emptied cell empties, a new row arrives, and a row it no longer lists is deleted with nothing asked (a row whose sub-row it still lists stays, and a notice says so).
+  - No notice says what was overwritten. In a `.aot` open in the editor, `Ctrl+Z` brings it back.
+  - A column comes from the `.aot` alone.
 
   This fixes three ways edits were lost:
-  - a program holding a stale copy saving over newer `.aot` edits (a stale copy is merged against the baseline it descends from, so it brings only its own edits);
   - a `.aot` changed while the editor was closed being reverted;
-  - a fold saving your unsaved work (a fold into a document with unsaved edits now edits it and leaves it for you to save).
+  - a CSV older than the `.aot` overwriting it;
+  - a fold saving your unsaved work. A CSV saved last now overrides the table in an open `.aot`, unsaved edits to it included, and leaves the file for you to save. Anything else unsaved in that file stays. A CSV saying what the saved `.aot` says overrides nothing.
 
   Also:
-  - With no baseline yet (a fresh clone), the CSV as the last commit holds it is the ancestor.
+  - A `.aot` saved by another program, or a pull, rewrites the CSV as soon as the file watcher hears it.
   - A Concept written in several files mirrors their union, and each row's edit goes to the file that lists it.
-  - `aot.tableCsvSyncMode: manual` syncs only on **AOT: Sync CSVs Now** (`Ctrl+K Y`; it was *Import Edited CSVs*), which now runs both ways.
+  - `aot.tableCsvSyncMode: manual` syncs only on **AOT: Sync CSVs Now** (`Ctrl+K Y`; it was *Import Edited CSVs*), where the same rule decides.
   - A fold no longer writes an inherited value down as an Example's own, and no longer repeats a nested `- ` Example at the top with a literal `parent:` line.
 - **Rename by typing.** Type over a used name, and once the cursor leaves it the extension counts the uses still saying the old name, across the workspace (`3 uses — 2 here, 1 in bank.aot`), and offers to update them all in one edit. Other files are left unsaved for review. The offer stays on the declaration's lightbulb until it is taken, dismissed or moot, and says so when the new name already names another of its kind. Undo and redo never start one.
   - **F2 reaches the whole workspace too**: a Concept's spelling in other files, and every crosslink and `@` reference to it there.
@@ -46,8 +45,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - **`=` defines, and `==` escapes.**
   - On an attribute declaration `=` is the definition 1.12 spelled `==`: `vat =@price*0.2` on a header cell is a column calculation, and `status =("draft", "sent")` lists the allowed values.
   - In a value, a doubled `=` after a space is a literal one: `note: a == b` reads `a = b`.
-  - The older spellings still read.
-  - **AOT: Upgrade Files to 1.13 Syntax** (asked once per workspace) and `node verify.js --workspace [dir] --upgrade` rewrite a 1.12 file: `\=` becomes `==`, a literal `==` gains one more `=` so it still reads `==`, a definition's `==` becomes `=`, and a table nested by indent gains its parent column. *A 1.12 value holding a literal ` ==` changes meaning until the upgrade runs.*
+  - *Breaking:* the older spellings no longer read. `\=` is only a backslash and an `=`, and `==` on a declaration is part of its name.
   - The hoist quick fix, the reconcile and the breach checks no longer turn an escaped value into a derivation.
 - **Gödel numbers are computed as exponent vectors**, never as the integers they stand for unless one is shown. On a 2,000-row table, a hover went from 6.7 s to 0.6 ms, rules 15–16 from 3.5 s to 7 ms, and a lint from 0.9 s to 0.1 s. Primes come from a cached sieve. A hover shows a large number as `≈ 4.12 × 10^1,234 (1,235 digits)`, a clash shows its factorisation, and `verify.js --godel` adds the digit count. See [docs/godel-numbers.md](docs/godel-numbers.md).
 - **The `... N more in …` note:**

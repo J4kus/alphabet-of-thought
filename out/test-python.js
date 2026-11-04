@@ -348,9 +348,9 @@ function check(name, ok) {
     "    - B",
     "        n: 2",
     "    all: =@Flat",
-    "Grid|age",
-    "Top |30",
-    "    Sub|3",
+    "Grid|parent (grid)|age",
+    "Top |             |30",
+    "Sub |Top          |3",
     "Reader",
     "    g: =@Grid",
     "Org",
@@ -391,6 +391,121 @@ function check(name, ok) {
   const grid = res("@Reader@g").targets[0];
   check("sub-Examples: nested table rows are rows of the frame, with their parent",
     grid.header.join() === "Grid,parent,age" && grid.rows.map((row) => row.join()).join("|") === "Top,,30|Sub,Top,3");
+}
+
+// --- 6a. a cell naming no Concept reads the current one ----------------------
+{
+  const setup = (rows) => {
+    const text = rows.join("\n");
+    const lines = text.split("\n");
+    const r = lint(text, "t");
+    const hosts = python.hostsOf(r.nodes, lines, "t");
+    const registry = table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes));
+    const ctx = { lines, registry, rootName: "t", index: python.hostIndex(hosts) };
+    const resolved = (a) => python.resolveHost(hosts.find((h) => h.address === a), ctx);
+    return { r, lines, hosts, ctx, registry, res: resolved, order: () => python.orderDerivations(hosts, (a) => resolved(a).deps).order };
+  };
+
+  const est = setup([
+    "Cost Estimate  |quantum                        |amount",
+    "corrigated pvc |=@meters to cover@quantum      |",
+    "column first   |=@quantum@meters to cover      |",
+    "meters to cover|56 =@Boundary Size@meters.sum()|",
+    "wood           |40                             |7",
+    "copy           |=@wood@quantum                 |=@amount@wood",
+    "both           |=@wood@quantum+@copy@amount*2  |",
+    "whole row      |=@wood                         |",
+    "own            |3 =@own@quantum                |",
+    "typo           |=@wod@quantum                  |",
+    "",
+    "Boundary Size|meters",
+    "concrete wall|25",
+  ]);
+  const at = (row) => est.res(`@Cost Estimate@quantum@${row}`);
+  const pvc = at("corrigated pvc");
+  check("current Concept: @row@column in a cell resolves, no Concept named",
+    !pvc.errors.length && pvc.code === "_aot_ref(0)");
+  check("current Concept: a derived cell is its live result and a dependency",
+    pvc.targets[0].kind === "object" && pvc.deps.join() === "@Cost Estimate@quantum@meters to cover");
+  check("current Concept: @column@row means the same", at("column first").deps.join() === pvc.deps.join());
+  const order = est.order();
+  check("current Concept: what reads a derived cell runs after it, wherever it stands",
+    order.indexOf("@Cost Estimate@quantum@meters to cover") < order.indexOf("@Cost Estimate@quantum@corrigated pvc"));
+  check("current Concept: a typed cell reads as its value, in either order",
+    at("copy").targets[0].text === "40" && est.res("@Cost Estimate@amount@copy").targets[0].text === "7");
+  const both = at("both");
+  check("current Concept: several in one expression, each ending where its name does",
+    !both.errors.length && both.code === "_aot_ref(0)+_aot_ref(1)*2"
+    && both.targets[0].text === "40" && both.deps.join() === "@Cost Estimate@amount@copy");
+  const whole = at("whole row").targets[0];
+  check("current Concept: @row alone is the row, as a dict",
+    whole.kind === "record" && whole.name === "wood" && whole.fields.quantum === "40" && whole.fields.amount === "7");
+  const own = at("own");
+  check("current Concept: a cell naming itself reads what it holds, and is no cycle",
+    own.targets[0].text === "3" && !own.deps.length && !python.orderDerivations(est.hosts, (a) => est.res(a).deps).cycles.length);
+  check("current Concept: a name that is nothing still says so", /@wod names nothing/.test(at("typo").errors[0]));
+  const [rowRef, colRef] = pvc.names;
+  check("current Concept: a rename follows the row to its Example and the column to its header",
+    rowRef.kind === "row" && rowRef.text === "meters to cover" && rowRef.nodes[0].name === "meters to cover"
+    && colRef.kind === "column" && colRef.text === "quantum" && colRef.site.line === 1);
+
+  const named = setup([
+    "Widget",
+    "    - One",
+    "        qty: 99",
+    "",
+    "Stock |qty          |cost",
+    "Widget|3            |4",
+    "Reader|=@Widget@qty |=@Widget@cost",
+    "Whole |=@Widget     |",
+  ]);
+  const concept = named.res("@Stock@qty@Reader").targets[0];
+  check("a named Concept: a name that is a Concept and a row, reading as far both ways, stays the Concept",
+    concept.kind === "column" && concept.values.join() === "99");
+  check("a named Concept: alone, it stays the Concept's frame", named.res("@Stock@qty@Whole").targets[0].kind === "frame");
+  const local = named.res("@Stock@cost@Reader");
+  check("a named Concept: one without that column leaves it to the row",
+    !local.errors.length && local.targets[0].text === "4" && local.code === "_aot_ref(0)");
+
+  const outer = setup([
+    "Ledger",
+    "    tax: 5",
+    "    - Gamma",
+    "        qty: 9",
+    "",
+    "    Ledger|qty",
+    "    Alpha |2",
+    "    Beta  |=@Gamma@qty",
+    "    Delta |=@Alpha@tax",
+    "    Own   |=@tax",
+  ]);
+  const gamma = outer.res("@Ledger@qty@Beta");
+  check("current Concept: a line-form Example of the Concept is named as a row is",
+    gamma.targets[0].text === "9" && gamma.names[0].nodes[0].name === "Gamma");
+  const tax = outer.res("@Ledger@qty@Delta");
+  check("current Concept: a named row silent on an attribute answers the Concept's default",
+    tax.targets[0].text === "5" && tax.names[1].attrKey === "tax");
+  check("current Concept: @attribute alone is still this row's", outer.res("@Ledger@qty@Own").targets[0].text === "5");
+
+  const longest = setup([
+    "Prices    |price",
+    "price list|1",
+    "price     |5",
+    "reader    |=@price list@price",
+    "plain     |7 =@price",
+  ]);
+  const rd = longest.res("@Prices@price@reader");
+  check("longest name: a row reading further than a column is the row", !rd.errors.length && rd.code === "_aot_ref(0)" && rd.targets[0].text === "1");
+  check("longest name: a column and a row of one name, alone, is the column of this row", longest.res("@Prices@price@plain").targets[0].text === "7");
+
+  const bound = setup([
+    "Stock|qty >=@Base@qty",
+    "Base |2",
+    "Other|5",
+  ]);
+  const held = python.checkItems(python.constraintChecks(bound.r.nodes, bound.lines), bound.ctx);
+  check("current Concept: a constraint's bound names a row of its table too",
+    held.length === 2 && held.every((c) => !c.errors.length && c.item.targets[0].text === "2"));
 }
 
 // --- 6b. the repository's own Python, resolved as the runtime resolves it ---
@@ -450,8 +565,8 @@ function check(name, ok) {
   const text = [
     "Staff",
     "    age >=18 <=65",
-    '    status ==("draft", "sent")',
-    "    grade ==@level*2",
+    '    status =("draft", "sent")',
+    "    grade =@level*2",
     "    - Ann",
     "        age: 30",
     "        status: draft",
@@ -463,7 +578,7 @@ function check(name, ok) {
     "        level: 1",
     "        grade: =@level*2",
     "",
-    "    Team|lead|size ==4",
+    "    Team|lead|size =4",
     "    Red |Ann |",
     "    Blue|Bob |3",
   ].join("\n");
@@ -479,8 +594,8 @@ function check(name, ok) {
     on(17).length === 1 && on(17)[0].definesOnly && on(17)[0].value === "" && on(18).length === 1);
   // a cell with a value AND a derivation of its own is derived too, so the
   // header's definition never writes over it (the nearer word wins)
-  const own = lint(["Team|size ==4", "Red |5 =2+3", "Blue|3"].join("\n"), "t");
-  const ownChecks = python.constraintChecks(own.nodes, ["Team|size ==4", "Red |5 =2+3", "Blue|3"]);
+  const own = lint(["Team|size =4", "Red |5 =2+3", "Blue|3"].join("\n"), "t");
+  const ownChecks = python.constraintChecks(own.nodes, ["Team|size =4", "Red |5 =2+3", "Blue|3"]);
   check("checks: a cell's own derivation is marked derived, so a column definition leaves it be",
     ownChecks.find((c) => c.host.line === 2).derived === true && ownChecks.find((c) => c.host.line === 3).derived === false);
   const reg = table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes));
@@ -853,6 +968,22 @@ function realRuntime() {
       records.kind === "frame" && records.columns.join() === "name,total units" && records.rows[0].join() === "1,Q1,1204" && records.rows[1][0] === "2");
     check("runtime: a live result is read back by the next derivation",
       (await ev("len(_aot_ref(0))", [{ kind: "object", address: "@t@x" }])).value === 2);
+    {
+      // written above the cell it reads, whose saved 1 is out of date
+      const text = ["Est   |q", "pvc   |=@meters@q", "meters|1 =50+6"].join("\n");
+      const lines = text.split("\n");
+      const r = lint(text, "t");
+      const hosts = python.hostsOf(r.nodes, lines, "t");
+      const ctx = { lines, registry: table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes)), rootName: "t", index: python.hostIndex(hosts) };
+      const resolved = (a) => python.resolveHost(hosts.find((h) => h.address === a), ctx);
+      const results = {};
+      for (const address of python.orderDerivations(hosts, (a) => resolved(a).deps).order) {
+        const { code, targets } = resolved(address);
+        results[address] = (await s.request({ op: "eval", address, code, targets, host: "cell" })).result;
+      }
+      check("runtime: a cell naming a row of its own table reads the live result, never last run's value",
+        results["@Est@q@pvc"].value === 56);
+    }
     const named = await ev("aot.grid(['Q', 'n'], [['A', 1], ['B', 2]])", [], "concept");
     check("runtime: a grid Python names row by row says so, and keeps its names", named.named === true && named.rows[1][0] === "B");
 

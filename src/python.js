@@ -540,7 +540,11 @@ function lineResolver(host, registry, index) {
   };
 }
 
-// The resolver for a grid cell: the same row's columns, then any Concept.
+// The resolver for a grid cell. A reference that names no Concept reads the
+// current one: `@price` is this row's value, `@Acme` the named row, and
+// `@Acme@price` or `@price@Acme` the named row's value. A name that is a
+// Concept, reading as far as the local reading does, stays that Concept, so
+// the current Concept answers only where no other is named.
 function cellResolver(host, lines, registry, rootName, index) {
   const at0 = host.line - 1;
   const block = table.blockAt(lines, at0);
@@ -551,37 +555,76 @@ function cellResolver(host, lines, registry, rootName, index) {
   const ctx = table.tableCtx(rows, row, header, registry, outer);
   const headerLine = block.start + table.headerIndex(block) + 1;
   const headerCells = table.cells(lines[headerLine - 1] || "");
+  const columnName = (col, offset) => (typeof col.id === "number"
+    ? { offset, length: col.length, kind: "column", site: { line: headerLine, col: (headerCells[col.id - 1] || {}).col } }
+    : { offset, length: col.length, kind: "column", conceptNode: outer && outer.node, attrKey: col.id });
+  // tableCtx.matchRow answers a row of this grid, or { outerRow } for a
+  // line-form Example of the Concept; either way the Example it is, if the
+  // registry holds it
+  const inGrid = (r) => r.cells !== undefined;
+  const exampleOf = (r) => {
+    if (!outer) return undefined;
+    if (!inGrid(r)) return outer.examples[r.outerRow];
+    const name = table.splitCell(r.cells[0] || "").value;
+    const m = outer.matchRow(name);
+    return m && m.length === name.length ? outer.examples[m.id] : undefined;
+  };
+  const rowName = (r, offset, length) => ({ offset, length, kind: "row", nodes: [exampleOf(r)].filter(Boolean) });
+  // a cell a derivation holds reads its live result, which then runs first,
+  // so what reads it never sees last run's value
+  const liveCell = (line, col) => {
+    const derived = typeof col.id === "number" ? index.byCell.get(`${line}:${col.id - 1}`) : null;
+    return derived && derived !== host ? { kind: "object", address: derived.address } : null;
+  };
+  const cellOf = (col, r) => (inGrid(r) && liveCell(block.start + block.rows.indexOf(r) + 1, col))
+    || { kind: "value", text: ctx.cellAt(col.id, r) };
   return (src, at) => {
     const rest = src.slice(at + 1);
     const col = ctx.matchColumn(rest);
+    const named = ctx.matchRow(rest);
     const tab = ctx.matchTable ? ctx.matchTable(rest) : null;
     const der = derivedConcept(rest, index);
-    if (der && (!col || der.length > col.length) && (!tab || der.length > tab.length)) {
+    // how far each local reading runs: a column with the row beside it, a row
+    // with the column beside it
+    const beside = (first, match) => {
+      const end = at + 1 + first.length;
+      return src[end] === "@" ? match(src.slice(end + 1)) : null;
+    };
+    const colRow = col ? beside(col, ctx.matchRow) : null;
+    const rowCol = named ? beside(named, ctx.matchColumn) : null;
+    const colReach = col ? col.length + (colRow ? 1 + colRow.length : 0) : 0;
+    const rowReach = named ? named.length + (rowCol ? 1 + rowCol.length : 0) : 0;
+    const tabLength = tab ? tab.length : 0;
+    if (der && der.length > colReach && der.length > tabLength && der.length >= rowReach) {
       const names = [{ offset: at + 1, length: der.length, kind: "table", nodes: [der.host.node].filter(Boolean) }];
       return { length: 1 + der.length, target: liveTarget(der.host), names };
     }
-    // a Concept reading further than the column's name is the Concept (as
-    // lineResolver says)
     let tail = null;
     if (tab) {
       const scope = ctx.table(tab.id);
       tail = scope ? conceptTail(src, at + 1 + tab.length, scope, index) : null;
     }
-    const tabFurther = tail && tail.length && (!col || tab.length + tail.length > col.length);
-    if (col && !tabFurther && (!tab || col.length >= tab.length)) {
-      const end = at + 1 + col.length;
-      const names = [typeof col.id === "number"
-        ? { offset: at + 1, length: col.length, kind: "column", site: { line: headerLine, col: (headerCells[col.id - 1] || {}).col } }
-        : { offset: at + 1, length: col.length, kind: "column", conceptNode: outer && outer.node, attrKey: col.id }];
-      if (typeof col.id === "number") {
-        const derived = index.byCell.get(`${host.line}:${col.id - 1}`);
-        if (derived && derived !== host) return { length: end - at, target: { kind: "object", address: derived.address }, names };
-      }
-      return { length: end - at, target: { kind: "value", text: ctx.cell(col.id) }, names };
+    const concept = () => ({
+      length: 1 + tab.length + tail.length,
+      target: tail.target,
+      names: [{ offset: at + 1, length: tab.length, kind: "table", id: tab.id }, ...tail.names],
+    });
+    if (tail && tail.length && tab.length + tail.length >= Math.max(colReach, rowReach)) return concept();
+    if (col && colReach >= rowReach && colReach >= tabLength) {
+      const names = [columnName(col, at + 1)];
+      if (!colRow) return { length: 1 + colReach, target: liveCell(host.line, col) || { kind: "value", text: ctx.cell(col.id) }, names };
+      names.push(rowName(colRow.id, at + 2 + col.length, colRow.length));
+      return { length: 1 + colReach, target: cellOf(col, colRow.id), names };
     }
-    if (!tail) return null;
-    const names = [{ offset: at + 1, length: tab.length, kind: "table", id: tab.id }, ...tail.names];
-    return { length: 1 + tab.length + tail.length, target: tail.target, names };
+    if (named && rowReach > tabLength) {
+      const ex = exampleOf(named.id);
+      if (!rowCol && !ex) return null;
+      const names = [rowName(named.id, at + 1, named.length)];
+      if (!rowCol) return { length: 1 + rowReach, target: recordOf(ex, outer), names };
+      names.push(columnName(rowCol, at + 2 + named.length));
+      return { length: 1 + rowReach, target: cellOf(rowCol, named.id), names };
+    }
+    return tail ? concept() : null;
   };
 }
 

@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.13.2",
+  "version": "1.13.3",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -75,7 +75,7 @@
         "aot.tableCsvSync": {
           "type": "boolean",
           "default": true,
-          "description": "Mirror every Concept with Examples to a CSV named after it in a single 'aot.files' folder at the repository root (shared by every .aot in the repo), and keep the two in step both ways: each cell is merged against what the two last agreed on, so whichever side changed it is the one that counts, an emptied cell empties, a dropped row is asked about, and a cell both sides changed goes to the later save (and is said). A CSV whose Concept no file speaks for any more is archived with a '_' prefix, never deleted."
+          "description": "Mirror every Concept with Examples to a CSV named after it in a single 'aot.files' folder at the repository root (shared by every .aot in the repo), and keep the two in step both ways: the file saved last overrides the other, even where the other was edited too. A CSV saved last also overrides unsaved edits to the same table: an emptied cell empties, and a row it no longer lists is deleted. A CSV whose Concept no file speaks for any more is archived with a '_' prefix, never deleted."
         },
         "aot.tableCsvSyncMode": {
           "type": "string",
@@ -555,11 +555,6 @@
         "title": "Show Findings Waiting While You Write",
         "category": "AOT",
         "enablement": "editorLangId == aot"
-      },
-      {
-        "command": "aot.upgradeSyntax",
-        "title": "Upgrade Files to 1.13 Syntax",
-        "category": "AOT"
       },
       {
         "command": "aot.table.jumpUp",

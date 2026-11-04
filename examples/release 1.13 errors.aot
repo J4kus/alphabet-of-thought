@@ -9,8 +9,3 @@ Pot
     note = some words
 Bowl|tax: =@price*2|price
 Rim |              |5
-
-Oven Old|warmth
-Base    |100
-    Upper|200
-    Lower|150

@@ -1,27 +1,11 @@
 - Feature list
-    Reference
-        syntax
-        reach
-        note
-        - Named Column
-            syntax: @price
-            reach: tables and line values
-            note: references are name-only, positional numbers were removed in 1.6; a digits lead names an Example, never a column
-        - Cross Cell
-            syntax: @price@Alpha
-            note: either order works, @price@Alpha or @Alpha@price
-        - Cross Table
-            syntax: @Sales Ledger@total@Alpha
-            note: name the other table first, the Concept, Example or Attribute it sits under; it may live in any file in the repo
-        - Cross Concept
-            syntax: @Integer@35@is prime
-            note: a Concept written line form is referenced like a table; its Examples are the rows, its attributes the columns
-        - Concept Own Value
-            syntax: @Measurement@alias
-            note: no Example named reads the value the Concept states on its own line, the default its Examples inherit; only a Concept has one, a table is rows and nothing else
-        - Past A Local Name
-            syntax: @Person@alias@Socrates
-            note: the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
+    Reference        |syntax                   |reach                 |note
+    Named Column     |@price                   |tables and line values|references are name-only, positional numbers were removed in 1.6; a digits lead names an Example, never a column
+    Cross Cell       |@price@Alpha             |                      |either order works, @price@Alpha or @Alpha@price
+    Cross Table      |@Sales Ledger@total@Alpha|                      |name the other table first, the Concept, Example or Attribute it sits under; it may live in any file in the repo
+    Cross Concept    |@Integer@35@is prime     |                      |a Concept written line form is referenced like a table; its Examples are the rows, its attributes the columns
+    Concept Own Value|@Measurement@alias       |                      |no Example named reads the value the Concept states on its own line, the default its Examples inherit; only a Concept has one, a table is rows and nothing else
+    Past A Local Name|@Person@alias@Socrates   |                      |the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
     Constraint
         - Comparison Bound
             keyword: >= > < <= ===

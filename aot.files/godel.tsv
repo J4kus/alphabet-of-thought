@@ -814,6 +814,13 @@ v	expected	163	the hover of Starter lists seats 1 from Plan; the CSV has Starter
 v	expected	164	the table carries a divider under the header and one between Design and Build; flipped back, the blank lines are where they were
 v	expected	165	a definition, not an error: once run, every value of rows is what f() returns; one whose Python does not read as an expression (rows = some words) is an error that says so
 v	expected	166	the value reads a = b, with one equals sign
+v	expected	167	after each CSV save this file changes and saves itself; Bolt reads 6, then 5 again, and the count cell of Washer is empty
+v	expected	168	the first lands on Machine, the second on Power Tool, whose alias those words are
+v	expected	169	the hover lists the note with one equals sign between a and b; the Python after the single equals sign of vat is coloured as code, and the doubled equals of the note as an escape
+v	expected	170	the hover of Rent lists currency EUR as the default of Currency; EUR under Lunch is underlined dotted and lands on the Currency line; the completion offers EUR
+v	expected	171	Washer goes back to what the CSV says and Screw goes from this file, with nothing asked; this file stays unsaved until you save it
+v	expected	172	nothing syncs until Ctrl+K Y; the first time the CSV was saved last, so here Nut reads 8 and Bolt goes back to what the CSV says; the second time this file was saved last, so the CSV has Nut 3 and Bolt goes back to what this file says; no notice either time
+v	expected	173	nothing warns and nothing moves in the Outline, since the parent cell is what files Sapling under Apple; Format Document draws the row flush with the others again
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot
@@ -881,6 +888,9 @@ v	fixture	53	Outlay below
 v	fixture	54	Phase below
 v	fixture	55	Sage and Lecture below
 v	fixture	56	Stock below, aot.files/Stock.csv, and the setting aot.tableCsvSyncMode
+v	fixture	57	Hand Tool and Spare Kit below
+v	fixture	58	Grove below
+v	fixture	59	Stock below and aot.files/Stock.csv
 v	flag	2	Yes
 v	format	2	plain text
 v	from the ledger	2	12
@@ -1248,6 +1258,13 @@ v	try	56	hover the name Starter; then save this file and open aot.files/Plan.csv
 v	try	57	put the cursor on Phase and press Ctrl+Alt+T twice
 v	try	58	save this file; in the CSV change Bolt to 6 and save it; then empty the count of Washer in the CSV and save it
 v	try	59	set the setting to manual; change Nut to 4 here and save; change Nut to 8 in the CSV and save; press Ctrl+K Y; afterwards set the setting back to auto
+v	try	60	Ctrl+click Machine inside the alias of Hand Tool, then Electric Gear inside the alias of Spare Kit
+v	try	61	put the cursor on Screw and run Sort Rows by Column at Cursor; then shorten the divider to two dashes each side and run Format Document
+v	try	62	save this file; in the CSV change Bolt to 6 and save it, then back to 5 and save it; then empty the count of Washer in the CSV and save it
+v	try	63	under Power Tool type a line Drill one level deeper, watch the status bar, then move the cursor up to Power Tool
+v	try	64	change Washer here and do not save; delete the Screw row from the CSV and save it
+v	try	65	indent the Sapling row by four spaces, then run Format Document
+v	try	66	set the setting to manual; change Nut to 4 and Bolt to 7 here and save; change Nut to 8 in the CSV and save it; press Ctrl+K Y; then change Bolt to 9 in the CSV and save it, change Nut to 3 here and save, and press Ctrl+K Y; afterwards set the setting back to auto
 v	turns	2	WIDGET into widget
 v	turns	3	a packed value into its fields
 v	turns	4	a part into its position, or zero when it is absent
@@ -1315,6 +1332,10 @@ v	count	2	1
 v	count	3	3
 v	count	4	5
 v	count	5	9
+v	count	6	6
+v	count	7	4
+v	count	8	20
+v	count	9	10
 v	philosopher	2	Socrates
 v	warmth	2	100
 v	warmth	3	150

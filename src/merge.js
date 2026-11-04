@@ -78,13 +78,10 @@ const isRowNode = (d, n) => n.kind === KIND.INDIVIDUAL && n.nameCol !== undefine
 // The Concept a standalone table names in its first header cell.
 const isHeaderNode = (d, n) => n.kind === KIND.CONCEPT && n.cell && table.isRowText(d.lines[n.line - 1] || "");
 
-// A row's table, read as 1.13 reads it — a 1.12 table's indented rows
-// flattened into its parent column — so a cell's index here is its index in
-// the table the merge draws.
+// A row's table: a cell's index here is its index in the table the merge draws.
 function rowOf(d, n) {
   const block = table.blockAt(d.lines, n.line - 1);
   if (!block) return null;
-  table.flatten(block);
   const head = table.headerIndex(block);
   return { block, r: n.line - 1 - block.start, header: head === -1 ? [] : block.rows[head].cells };
 }
@@ -181,7 +178,6 @@ function applyChanges(ch, target, toTarget, side) {
   const tableEdit = (line0) => {
     const block = table.blockAt(target.lines, line0);
     if (!block) return null;
-    table.flatten(block); // indexed as rowOf indexes it
     if (!tables.has(block.start)) {
       tables.set(block.start, { block, drop: new Set(), cells: new Map(), after: new Map(), before: [] });
     }

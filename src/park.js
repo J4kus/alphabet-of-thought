@@ -41,7 +41,7 @@
 
 const { KIND } = require("./linter");
 const {
-  cells, dividers, blockAt, isRowText, splitCell, splitConstraint, columnTerm, cleanName, numberless,
+  cells, dividers, blockAt, isRowText, splitCell, splitConstraint, STORED_OPS, columnTerm, cleanName, numberless,
   lineDerivation,
 } = require("./table");
 
@@ -87,8 +87,8 @@ const isConstraintEntry = (formula) => /^(==|<=|>=|<|>)/.test(String(formula || 
 // derivation filed at the same `@Concept@attr`. Respelled clause by clause —
 // the text between them exactly as it was — and a chain that does not read as
 // one is left as it stands.
-function respell(chain, from, to) {
-  const con = splitConstraint("_ " + chain);
+function respell(chain, from, to, ops) {
+  const con = splitConstraint("_ " + chain, ops);
   let out = chain;
   for (const c of [...con.constraints].reverse()) {
     if (c.opText !== from) continue;
@@ -98,7 +98,7 @@ function respell(chain, from, to) {
   return out;
 }
 const storedChain = (chain) => respell(chain, "=", "==");
-const writtenChain = (chain) => respell(chain, "==", "=");
+const writtenChain = (chain) => respell(chain, "==", "=", STORED_OPS);
 
 // Every addressable data cell of every grid: address -> { line, col }.
 //
@@ -107,11 +107,7 @@ const writtenChain = (chain) => respell(chain, "==", "=");
 // and those are exactly the cells worth parking. The row's Example *is* a
 // node, though, so the Example path (and the Concept above it) still comes
 // from the tree, which is what gets a table filed under an Example right.
-//
-// `legacy` also answers the addresses a store written before constraints
-// parked may hold — a constrained column's name with its constraint still
-// on it — so such a store still comes home.
-function cellIndex(lines, nodes, rootName, legacy) {
+function cellIndex(lines, nodes, rootName) {
   const index = new Map();
   const exampleAt = new Map();
   for (const node of nodes) {
@@ -137,11 +133,6 @@ function cellIndex(lines, nodes, rootName, legacy) {
           const attr = columnName(header[c]);
           if (!attr) continue;
           index.set(join(concept, attr, examples), { line, col: c });
-          const old = cleanName(header[c] || "");
-          if (legacy && old && old !== attr) {
-            const key = join(concept, old, examples);
-            if (!index.has(key)) index.set(key, { line, col: c });
-          }
         }
       }
     }
@@ -417,7 +408,7 @@ function park(lines, nodes, rootName, generated) {
 function unpark(lines, nodes, rootName, parked) {
   const out = lines.slice();
   const missing = [];
-  const index = cellIndex(lines, nodes, rootName, true);
+  const index = cellIndex(lines, nodes, rootName);
   // resolve every address first — a grid cell by the grid, a line-form value
   // by its node — then rewrite line by line, so a row carrying two of them is
   // rebuilt once. A constraint goes back on its declaration, after the term:
@@ -594,7 +585,7 @@ function ownedRows(lines, concept) {
 // written on — and says so (constraint: true).
 function parkedSpans(lines, nodes, rootName, parked) {
   const out = [];
-  const index = cellIndex(lines, nodes, rootName, true);
+  const index = cellIndex(lines, nodes, rootName);
   for (const entry of parked || []) {
     // a bare `=` line wrote whole tables: every row of each is marked
     if (isGeneratorAddress(entry.address)) {
@@ -699,7 +690,7 @@ function parkedConstraints(nodes, rootName, parked) {
     if (!isConstraintEntry(entry.formula)) continue;
     const decl = declAt(nodes, rootName, entry.address);
     if (!decl) continue;
-    const chain = splitConstraint("_ " + entry.formula).constraints
+    const chain = splitConstraint("_ " + entry.formula, STORED_OPS).constraints
       .map((c) => ({ op: c.op, formula: c.formula }));
     if (chain.length) out.set(decl, (out.get(decl) || []).concat(chain));
   }

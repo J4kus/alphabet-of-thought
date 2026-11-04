@@ -1,8 +1,9 @@
-// Unit tests for the CSV mirror's three-way merge (src/csvsync.js) and the
-// edits it drives (derive.updateScope's erasures, derive.deleteExamples).
+// Unit tests for the CSV mirror's one rule (src/csvsync.js): what the .aot takes
+// when the CSV is the file saved last, and the edits that drives
+// (derive.updateScope's erasures, derive.deleteExamples).
 //
 // Plain Node script, no framework — run with: node out/test-csvsync.js
-const { threeWay, unionGrids, closestBaseline, distance } = require("../src/csvsync");
+const { csvOverrides, unionGrids } = require("../src/csvsync");
 const { lint, KIND } = require("../src/linter");
 const { updateScope, deleteExamples, mirrorGrids } = require("../src/derive");
 const { applyOps } = require("../src/repo");
@@ -14,99 +15,68 @@ function check(name, ok) {
 }
 
 const grid = (...rows) => rows.map((r) => r.split(","));
-const B = grid("Order,price,qty", "Acme,100,1", "Bolt,50,2");
+const A = grid("Order,price,qty", "Acme,100,1", "Bolt,50,2");
+const over = (csv, aot = A) => csvOverrides(csv, aot);
 
-// --- the truth table, cell by cell ------------------------------------------
+// --- the CSV saved last overrides, cell by cell ---------------------------------
 {
-  // the .aot changed a cell, the CSV did not: the .aot's — nothing to fold
-  const p1 = threeWay(B, B, grid("Order,price,qty", "Acme,110,1", "Bolt,50,2"));
-  check("threeWay: the .aot changed a cell the CSV did not — nothing folds, the CSV is the one rewritten",
-    !p1.fold && !p1.erase.length && !p1.conflicts.length && !p1.deletions.length);
-  // the CSV changed a cell, the .aot did not: the CSV's
-  const p2 = threeWay(B, grid("Order,price,qty", "Acme,120,1", "Bolt,50,2"), B);
-  check("threeWay: the CSV changed a cell the .aot did not — that cell folds, and nothing else",
-    p2.fold && p2.fold.length === 2 && p2.fold[1].join(",") === "Acme,120," && !p2.conflicts.length);
-  // both changed it the same way
-  const p3 = threeWay(B, grid("Order,price,qty", "Acme,120,1", "Bolt,50,2"), grid("Order,price,qty", "Acme,120,1", "Bolt,50,2"));
-  check("threeWay: both changed a cell the same way — nothing to do",
-    !p3.fold && !p3.conflicts.length);
-  // both changed it, apart: the later save wins, and it is said
-  const C4 = grid("Order,price,qty", "Acme,120,1", "Bolt,50,2");
-  const A4 = grid("Order,price,qty", "Acme,110,1", "Bolt,50,2");
-  const aotWins = threeWay(B, C4, A4, { csvNewer: false });
-  const csvWins = threeWay(B, C4, A4, { csvNewer: true });
-  check("threeWay: changed two ways, the .aot saved later — the .aot's value stays, the conflict named",
-    !aotWins.fold && aotWins.conflicts.length === 1
-    && JSON.stringify(aotWins.conflicts[0]) === JSON.stringify({ row: "Acme", col: "price", aot: "110", csv: "120", winner: "aot" }));
-  check("threeWay: changed two ways, the CSV saved later — the CSV's value folds, the conflict named",
-    csvWins.fold && csvWins.fold[1].join(",") === "Acme,120," && csvWins.conflicts[0].winner === "csv");
-  // a CSV agreeing with its baseline has nothing to say
-  check("threeWay: a CSV still saying what both last agreed on folds nothing, whatever the .aot did",
-    !threeWay(B, B, grid("Order,price,qty", "Acme,999,9")).fold);
+  const one = over(grid("Order,price,qty", "Acme,120,1", "Bolt,50,2"));
+  check("csvOverrides: a cell the CSV says differently folds, and nothing else",
+    one.fold && one.fold.length === 2 && one.fold[1].join(",") === "Acme,120," && !one.erase.length && !one.deletions.length);
+  const all = over(grid("Order,price,qty", "Acme,120,9", "Bolt,60,2"));
+  check("csvOverrides: every cell it says differently folds — there is no merging, and no side kept",
+    all.fold.length === 3 && all.fold[1].join(",") === "Acme,120,9" && all.fold[2].join(",") === "Bolt,60,");
+  check("csvOverrides: a CSV saying what the .aot says has nothing to fold", (() => {
+    const p = over(A);
+    return !p.fold && !p.erase.length && !p.deletions.length;
+  })());
+  // the .aot edited a cell since they agreed; the CSV saved after, still saying
+  // the old value: the .aot's edit goes, which is what the rule asks
+  const oldValue = over(grid("Order,price,qty", "Acme,100,1", "Bolt,50,2"), grid("Order,price,qty", "Acme,110,1", "Bolt,50,2"));
+  check("csvOverrides: the CSV wins even where the .aot was edited too, and even where the CSV says an older value",
+    oldValue.fold && oldValue.fold[1].join(",") === "Acme,100,");
 }
 
-// --- what a CSV could not say before: an empty cell, a row gone ---------------
+// --- what else a CSV can say: an empty cell, a new row, a row gone ----------------
 {
-  const emptied = threeWay(B, grid("Order,price,qty", "Acme,,1", "Bolt,50,2"), B);
-  check("threeWay: a value the CSV emptied is erased, not ignored",
+  const emptied = over(grid("Order,price,qty", "Acme,,1", "Bolt,50,2"));
+  check("csvOverrides: a value the CSV emptied is erased",
     !emptied.fold && emptied.erase.length === 1 && emptied.erase[0].row === "Acme" && emptied.erase[0].col === "price");
-  const dropped = threeWay(B, grid("Order,price,qty", "Acme,100,1"), B);
-  check("threeWay: a row the CSV dropped, unchanged in the .aot, is a deletion to ask about",
+  const dropped = over(grid("Order,price,qty", "Acme,100,1"));
+  check("csvOverrides: a row the CSV lacks is a deletion",
     dropped.deletions.join(",") === "Bolt" && !dropped.fold);
-  const droppedChanged = threeWay(B, grid("Order,price,qty", "Acme,100,1"), grid("Order,price,qty", "Acme,100,1", "Bolt,55,2"));
-  check("threeWay: a row the CSV dropped that the .aot has changed since is kept, the conflict named",
-    !droppedChanged.deletions.length && droppedChanged.conflicts.length === 1 && droppedChanged.conflicts[0].col === null
-    && droppedChanged.conflicts[0].winner === "aot");
-  const aotDropped = threeWay(B, B, grid("Order,price,qty", "Acme,100,1"));
-  check("threeWay: a row the .aot dropped stays dropped while the CSV did not touch it",
-    !aotDropped.fold && !aotDropped.conflicts.length);
-  const revived = threeWay(B, grid("Order,price,qty", "Acme,100,1", "Bolt,60,2"), grid("Order,price,qty", "Acme,100,1"), { csvNewer: true });
-  check("threeWay: a row the .aot dropped but the CSV changed after comes back, said",
-    revived.fold && revived.fold[1].join(",") === "Bolt,60,2" && revived.conflicts[0].col === null && revived.conflicts[0].winner === "csv");
-  const fresh = threeWay(B, grid("Order,price,qty", "Acme,100,1", "Bolt,50,2", "Cog,7,"), B);
-  check("threeWay: a new row in the CSV folds in whole",
+  const fresh = over(grid("Order,price,qty", "Acme,100,1", "Bolt,50,2", "Cog,7,"));
+  check("csvOverrides: a new row in the CSV folds in whole",
     fresh.fold && fresh.fold.length === 2 && fresh.fold[1].join(",") === "Cog,7,");
-  const column = threeWay(B, grid("Order,price,qty,colour", "Acme,100,1,red", "Bolt,50,2,"), B);
-  check("threeWay: a column the CSV added is not read — columns come from the .aot",
+  const column = over(grid("Order,price,qty,colour", "Acme,100,1,red", "Bolt,50,2,"));
+  check("csvOverrides: a column the CSV added is not read — columns come from the .aot",
     !column.fold);
+  const narrow = over(grid("Order,price", "Acme,100", "Bolt,50"));
+  check("csvOverrides: a column the CSV does not have says nothing",
+    !narrow.fold && !narrow.erase.length);
 }
 
 // --- the parent column ------------------------------------------------------------
 {
   const P = grid("Thing,parent,age", "Parent,,40", "Kid,Parent,3");
-  const moved = threeWay(P, grid("Thing,parent,age", "Parent,,40", "Kid,,3"), P);
-  check("threeWay: a parent cell the CSV emptied moves the row to the top — a fold of '', not an erase",
+  const moved = over(grid("Thing,parent,age", "Parent,,40", "Kid,,3"), P);
+  check("csvOverrides: a parent cell the CSV emptied moves the row to the top — a fold of '', not an erase",
     moved.fold && moved.fold[1].join(",") === "Kid,," && !moved.erase.length);
-  const aged = threeWay(P, grid("Thing,parent,age", "Parent,,40", "Kid,Parent,4"), P);
-  check("threeWay: a row folded for another cell keeps its parent cell as the .aot has it",
+  const aged = over(grid("Thing,parent,age", "Parent,,40", "Kid,Parent,4"), P);
+  check("csvOverrides: a row folded for another cell keeps its parent cell as the .aot has it",
     aged.fold && aged.fold[1].join(",") === "Kid,Parent,4");
 }
 
-// --- no baseline: the rule before 1.13 -----------------------------------------
+// --- unsaved edits: no save, so they are overridden like anything else --------
 {
-  const C = grid("Order,price,qty", "Acme,120,", "Bolt,50,2");
-  const p = threeWay(null, C, B);
-  check("threeWay: with no baseline, what the CSV says where it says something folds; a blank says nothing",
-    p.fold && p.fold.length === 2 && p.fold[1].join(",") === "Acme,120," && !p.erase.length && !p.deletions.length);
-  check("threeWay: with no baseline, a row the CSV lacks is never a deletion",
-    !threeWay(null, grid("Order,price,qty", "Acme,100,1"), B).deletions.length);
-}
-
-// --- a stale copy is merged against its own ancestor ------------------------------
-{
-  // the two agreed on B1, then on B2 (the .aot raised Bolt's price and the
-  // CSV was rewritten); a program still holding B1 saves it back with one
-  // edit of its own
-  const B1 = B;
-  const B2 = grid("Order,price,qty", "Acme,100,1", "Bolt,55,2");
-  const stale = grid("Order,price,qty", "Acme,100,3", "Bolt,50,2");
-  const at = closestBaseline([B2, B1], stale);
-  check("closestBaseline: a stale save descends from the older baseline", at === 1);
-  check("closestBaseline: a tie goes to the newer", closestBaseline([B2, B2], B2) === 0);
-  const p = threeWay([B2, B1][at], stale, B2);
-  check("threeWay: merged against its own ancestor, a stale copy brings only its own edit, never the reversal of the .aot's",
-    p.fold && p.fold.length === 2 && p.fold[1].join(",") === "Acme,,3" && !p.conflicts.length && !p.erase.length);
-  check("distance: counts the cells two grids hold differently", distance(B1, B2) === 1 && distance(B1, B1) === 0);
+  const typed = grid("Order,price,qty", "Acme,100,5", "Bolt,50,2", "Cog,7,1"); // Acme's qty and a whole row, unsaved
+  const plan = over(grid("Order,price,qty", "Acme,100,1", "Bolt,60,2"), typed);
+  check("csvOverrides: a cell the CSV did not change still takes its word over an unsaved edit",
+    plan.fold && plan.fold.find((r) => r[0] === "Acme").join(",") === "Acme,,1");
+  check("csvOverrides: and a row an unsaved edit added goes too", plan.deletions.join(",") === "Cog");
+  const gone = over(grid("Order,price,qty", "Acme,100,1", "Bolt,50,2"), grid("Order,price,qty", "Acme,100,1"));
+  check("csvOverrides: a row an unsaved edit deleted comes back",
+    gone.fold && gone.fold[1].join(",") === "Bolt,50,2");
 }
 
 // --- one Concept in several files ---------------------------------------------------

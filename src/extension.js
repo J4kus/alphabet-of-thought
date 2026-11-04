@@ -31,7 +31,6 @@ const hold = require("./hold");
 const lineform = require("./lineform");
 const python = require("./python");
 const uvenv = require("./uvenv");
-const { upgradeEdits } = require("./upgrade");
 const csvsync = require("./csvsync");
 
 const DEBOUNCE_MS = 300;
@@ -720,12 +719,14 @@ const MAX_USAGES = 8;
 function appendUsages(md, doc, analysis, node) {
   const usages = analysis.usagesOf ? analysis.usagesOf.get(node) || [] : [];
   if (!usages.length) return false;
+  // a line once, though its name and its value may both link here
+  const lines = [...new Set(usages.map((link) => link.line))];
   md.appendMarkdown(`\n**used at**\n\n`);
-  for (const link of usages.slice(0, MAX_USAGES)) {
-    const at = Math.min(Math.max(link.line - 1, 0), doc.lineCount - 1);
-    md.appendMarkdown(`- line ${link.line}: \`${doc.lineAt(at).text.trim()}\`\n`);
+  for (const line of lines.slice(0, MAX_USAGES)) {
+    const at = Math.min(Math.max(line - 1, 0), doc.lineCount - 1);
+    md.appendMarkdown(`- line ${line}: \`${doc.lineAt(at).text.trim()}\`\n`);
   }
-  if (usages.length > MAX_USAGES) md.appendMarkdown(`- +${usages.length - MAX_USAGES} more\n`);
+  if (lines.length > MAX_USAGES) md.appendMarkdown(`- +${lines.length - MAX_USAGES} more\n`);
   return true;
 }
 
@@ -1177,12 +1178,16 @@ function appendContent(md, doc, analysis, node) {
     const tables = godelPooled(doc, analysis.root, analysis.nodes);
     profile = godel.profile(analysis.root, analysis.nodes, node, tables);
   } catch { return false; }
-  if (!profile || (!profile.slots.length && !profile.nearest)) return false;
+  // nothing carried, and a sibling carrying nothing either, is no content to
+  // call identical
+  if (!profile || (!profile.slots.length && (!profile.nearest || profile.nearest.dist === 0))) return false;
   const name = (n) => (n.kind === KIND.INDIVIDUAL ? `- ${n.name}` : n.name);
   // how long G is comes from its logarithm: the integer is made only when it
-  // is short enough to read, and a longer one is given to three figures
-  const whole = !profile.slots.length ? ""
-    : profile.digits <= 30 ? ` = ${profile.number}`
+  // is short enough to read, and a longer one is given to three figures. A
+  // lone prime is already the integer.
+  const plain = profile.digits <= 30 ? String(profile.number) : null;
+  const whole = !profile.slots.length || plain === profile.factors ? ""
+    : plain ? ` = ${plain}`
       : ` ≈ ${godel.approx(profile.vec)} (${profile.digits.toLocaleString("en-US")} digits)`;
   if (md.value.trim()) md.appendMarkdown("\n\n---\n\n");
   md.appendMarkdown(`**Content** — G = ${profile.factors}${whole}\n\n`);
@@ -2380,56 +2385,6 @@ async function reconcileAcrossFiles() {
   vscode.window.setStatusBarMessage(changed
     ? `AOT: reconciled ${changed} file${changed === 1 ? "" : "s"} across the repo`
     : "AOT: every shared Concept is already in step", 5000);
-}
-
-// AOT: Upgrade Files to 1.13 Syntax — every .aot in the workspace written for
-// 1.12, respelled (src/upgrade.js): a literal '=' in a value doubled rather
-// than escaped `\=`, a definition `=` rather than `==`. Nothing a file means
-// changes, and a file already in the 1.13 spelling is left alone. Each file's
-// edits are its own, one undo apiece; a file with no unsaved edits of yours
-// is saved after, one with them is left for you to save.
-async function upgradeWorkspaceSyntax() {
-  if (!(vscode.workspace.workspaceFolders || []).length) {
-    vscode.window.showInformationMessage("AOT: upgrading the files needs an open workspace.");
-    return 0;
-  }
-  buildWorkspaceIndex();
-  let changed = 0;
-  for (const entry of [...workspaceIndex.values()]) {
-    if (entry.text === undefined) continue;
-    let doc;
-    try { doc = await vscode.workspace.openTextDocument(entry.fsPath); } catch { continue; }
-    const edits = upgradeEdits(doc.getText(), path.basename(entry.fsPath).replace(/\.[^.]*$/, ""));
-    if (!edits.length) continue;
-    const wasDirty = doc.isDirty;
-    const edit = new vscode.WorkspaceEdit();
-    edit.set(doc.uri, edits.map((e) => vscode.TextEdit.replace(new vscode.Range(e.line, e.from, e.line, e.to), e.text)));
-    if (await vscode.workspace.applyEdit(edit)) {
-      if (!wasDirty) await doc.save();
-      changed++;
-    }
-  }
-  vscode.window.setStatusBarMessage(changed
-    ? `AOT: ${changed} file${changed === 1 ? "" : "s"} upgraded to the 1.13 spelling`
-    : "AOT: every file already uses the 1.13 spelling", 5000);
-  return changed;
-}
-
-// Asked once per workspace, when 1.13 first meets files written for 1.12: the
-// command does the work, and saying no is remembered too.
-async function offerSyntaxUpgrade() {
-  const memo = pyMemento();
-  const KEY = "aot.upgrade.1.13.asked";
-  if (memo.get(KEY, false) || !(vscode.workspace.workspaceFolders || []).length) return;
-  buildWorkspaceIndex();
-  const old = [...workspaceIndex.values()].filter((e) => e.text !== undefined
-    && upgradeEdits(e.text, path.basename(e.fsPath).replace(/\.[^.]*$/, "")).length);
-  if (!old.length) return;
-  await memo.update(KEY, true);
-  const answer = await vscode.window.showInformationMessage(
-    `AOT 1.13 doubles a literal '=' in a value (it was '\\='), and writes an attribute's definition with '=' (it was '=='). ${old.length} .aot file${old.length === 1 ? "" : "s"} here still use${old.length === 1 ? "s" : ""} the older spelling.`,
-    "Upgrade Them", "Not Now");
-  if (answer === "Upgrade Them") await upgradeWorkspaceSyntax();
 }
 
 // AOT: Set Value Everywhere — the lightbulb on a value two files disagree
@@ -4783,17 +4738,14 @@ async function renameConcept(from, to) {
 
 // --- the CSV mirror -----------------------------------------------------------
 // Every Concept with Examples lives twice: in its .aot, and as a CSV named
-// after it in the repository's 'aot.files'. The two are kept in step both
-// ways by a three-way merge (csvsync.js): each cell is judged against the
-// text the two last agreed on — the baseline, remembered per CSV — so the
-// side that changed it is the side that is right, an emptied cell empties,
-// a dropped row is asked about, and only a cell both changed apart is a
-// conflict, which the later save wins and which is said. Every sync point
-// runs the same comparison: a .aot save, a CSV edit, the catch-up when the
-// editor starts, and AOT: Sync CSVs Now (the only one, in manual mode).
-// Both directions write only when the content genuinely differs, which is
-// what stops the two from chasing each other. Saving also migrates the
-// legacy per-file folders and archives a CSV no Concept speaks for.
+// after it in the repository's 'aot.files'. One rule keeps the two in step:
+// the file saved last overrides the other (csvsync.js), even where the other
+// was edited too. Their save times decide, so nothing needs remembering. Every
+// sync point applies it: a .aot save, a .aot saved by another program, a CSV
+// edit, the catch-up when the editor starts, and AOT: Sync CSVs Now (the only
+// one, in manual mode). Both directions write only when the content genuinely
+// differs, which is what stops the two from chasing each other. Saving also
+// archives a CSV no Concept speaks for.
 
 const syncEnabled = () => vscode.workspace.getConfiguration("aot").get("tableCsvSync", true);
 // auto: every sync point; manual: AOT: Sync CSVs Now alone
@@ -4810,54 +4762,6 @@ const csvName = (name) => name.replace(/[\\/:*?"<>|]/g, "-") + ".csv";
 // changed, and the next save rewrites the file, for a diff nobody made.
 const csvTextOf = (t) => String(t).replace(/^﻿/, "").replace(/\r\n/g, "\n");
 const sameCsvText = (a, b) => csvTextOf(a) === csvTextOf(b);
-
-// What each CSV and its .aot files last agreed on — csvsync's baseline — as
-// the texts, newest first, the last CSV_BASELINES of them: a program that
-// held an older copy merges against the one it descends from. Kept in the
-// extension's own storage, per machine and never in the repository, once
-// activate() has a place for it; in memory until then, and in the tests.
-// Only a write that landed or a fold that took the CSV in advances it, so a
-// write Excel's lock refused leaves the old one standing, which is right.
-const CSV_BASELINES = 8;
-const memoryBaselines = () => {
-  const m = new Map();
-  return { get: (k) => m.get(k) || [], set: (k, list) => m.set(k, list), drop: (k) => m.delete(k) };
-};
-const diskBaselines = (dir) => {
-  const fileOf = (k) => path.join(dir, crypto.createHash("sha1").update(k).digest("hex") + ".json");
-  return {
-    get: (k) => { try { return JSON.parse(fs.readFileSync(fileOf(k), "utf8")).baselines || []; } catch { return []; } },
-    set: (k, list) => {
-      try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(fileOf(k), JSON.stringify({ csv: k, baselines: list })); } catch { /* the next sync tries again */ }
-    },
-    drop: (k) => { try { fs.unlinkSync(fileOf(k)); } catch { /* none kept */ } },
-  };
-};
-let baselineStore = memoryBaselines();
-const baselinesOf = (csvPath) => baselineStore.get(fileKey(csvPath));
-function rememberBaseline(csvPath, text) {
-  const norm = csvTextOf(text);
-  const list = baselinesOf(csvPath).filter((b) => b.text !== norm);
-  list.unshift({ text: norm, at: Date.now() });
-  baselineStore.set(fileKey(csvPath), list.slice(0, CSV_BASELINES));
-}
-const forgetBaselines = (csvPath) => baselineStore.drop(fileKey(csvPath));
-function moveBaselines(from, to) {
-  const list = baselinesOf(from);
-  if (!list.length) return;
-  baselineStore.set(fileKey(to), list);
-  forgetBaselines(from);
-}
-// A CSV whose edits are already in a .aot buffer that is not saved yet —
-// the CSV cannot be written from a buffer with unsaved edits, and a merge of
-// what it already took in would only ask again. In memory: it means
-// something only until that buffer is saved. Never a baseline, which is
-// what both copies agreed on; this one they do not, yet.
-const takenIn = new Map(); // csv path (fileKey) -> the CSV's text
-// a CSV saying exactly what the two once agreed on, or what a buffer has
-// taken in already, carries no edit of its own
-const agreedOn = (csvPath, text) => baselinesOf(csvPath).some((b) => sameCsvText(b.text, text))
-  || takenIn.get(fileKey(csvPath)) === csvTextOf(text);
 
 // The workspace root a document belongs to (or its own folder, standalone).
 function workspaceRoot(doc) {
@@ -4912,7 +4816,7 @@ function scanAotFiles(root) {
     for (const e of entries) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) {
-        if (!skip.has(e.name) && !e.name.endsWith(".tables") && !e.name.startsWith("tables.")) walk(p);
+        if (!skip.has(e.name)) walk(p);
       } else if (e.isFile() && /\.aot$/i.test(e.name)) out.push(p);
     }
   };
@@ -5011,70 +4915,6 @@ function ownerIndex(root) {
   return index;
 }
 
-// Fold a document's pre-1.3 per-file folders (`tables.<file>` and
-// `<file>.tables`) into the shared aot.files, then remove them. A CSV whose
-// name is already present is left (the fresh write below is authoritative).
-function migrateLegacyDirs(doc, dir) {
-  const legacies = [
-    path.join(path.dirname(doc.fileName), "tables." + path.basename(doc.fileName).replace(/\.aot$/i, "")),
-    doc.fileName.replace(/\.aot$/i, ".tables"),
-  ];
-  for (const legacy of legacies) {
-    let stat; try { stat = fs.statSync(legacy); } catch { continue; }
-    if (!stat.isDirectory()) continue;
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-      for (const entry of fs.readdirSync(legacy)) {
-        const from = path.join(legacy, entry), to = path.join(dir, entry);
-        if (/\.csv$/i.test(entry) && !fs.existsSync(to)) {
-          fs.copyFileSync(from, to);
-          moveBaselines(from, to); // what it agreed on travels with it
-        }
-        fs.unlinkSync(from);
-      }
-      fs.rmdirSync(legacy);
-    } catch { continue; } // a held lock loses this round; the next save retries
-  }
-}
-
-// Fold an 'aot.files' an earlier release left elsewhere in this repository
-// into the repository's own — the two places the old rule could have put
-// one for *this* document: beside the file itself, and at its workspace
-// root. Everything moves, not the CSVs alone: a '.formulas' store and a
-// file copied in as evidence are exactly what must not be left behind. A
-// name already taken at the destination is never overwritten — that copy
-// stays where it is and its folder with it, so the fold can lose nothing.
-// Only a folder *inside this repository* is ever moved: a file opened from
-// another repository answers with the open workspace's root, and that
-// folder is another repository's business, not this save's.
-function migrateStrayAotFiles(doc, dir) {
-  const root = path.dirname(dir);
-  const strays = [path.dirname(doc.fileName), workspaceRoot(doc)]
-    .map((d) => path.join(d, "aot.files"))
-    .filter((d) => fileKey(d) !== fileKey(dir) && isInside(root, d));
-  const seen = new Set();
-  for (const stray of strays) {
-    if (seen.has(fileKey(stray))) continue; // the two places can be one
-    seen.add(fileKey(stray));
-    let entries;
-    try {
-      if (!fs.statSync(stray).isDirectory()) continue;
-      entries = fs.readdirSync(stray);
-    } catch { continue; }
-    try { fs.mkdirSync(dir, { recursive: true }); } catch { continue; }
-    for (const entry of entries) {
-      const from = path.join(stray, entry), to = path.join(dir, entry);
-      if (fs.existsSync(to)) continue; // taken: the repo's copy is the one
-      try {
-        fs.copyFileSync(from, to); // a sub-folder throws, and is left alone
-        fs.unlinkSync(from);
-      } catch { continue; } // a held lock loses this round; the next save retries
-      moveBaselines(from, to);
-    }
-    try { fs.rmdirSync(stray); } catch { /* what could not move stays, folder and all */ }
-  }
-}
-
 // A CSV whose Concept no table anywhere still has is not deleted — it is
 // prefixed with '_' so it is kept as an archive and skipped by the fold-back
 // watcher. Only .csv files, only in this folder, never recursive.
@@ -5085,8 +4925,7 @@ function cleanupOrphans(dir, expected) {
     if (!/\.csv$/i.test(entry) || entry.startsWith("_")) continue;
     if (expected.has(entry.toLowerCase())) continue;
     const from = path.join(dir, entry), to = path.join(dir, "_" + entry);
-    try { fs.renameSync(from, to); } catch { continue; }
-    forgetBaselines(from); // an archive is never synced
+    try { fs.renameSync(from, to); } catch { /* a held lock loses this round; the next save retries */ }
   }
 }
 
@@ -5094,8 +4933,7 @@ function cleanupOrphans(dir, expected) {
 // of it — each with the grid it mirrors and its document when one is open.
 // Read as last saved, except `current` (the document being saved, its
 // mirrorFacts already read as `currentFacts`), and with `live` every open
-// document as it stands in the editor: its unsaved edits are the latest word
-// in a merge, though never written out before a save.
+// document as it stands in the editor, unsaved edits and all.
 function ownersFrom(index, name, { live, current, currentFacts } = {}) {
   const out = [];
   const low = String(name).toLowerCase();
@@ -5114,15 +4952,14 @@ function ownersFrom(index, name, { live, current, currentFacts } = {}) {
 // Does a file's grid list the Example `row` (case aside)?
 const listsRow = (owner, row) => owner.grid.slice(1).some((r) => String(r[0]).trim().toLowerCase() === String(row).trim().toLowerCase());
 
-// Write a CSV, remembering it as what the two now agree on. Never over a CSV
-// open here with unsaved edits, and never in silence when another program
-// holds it locked (Excel does, with the workbook open): either is said, the
-// baseline stays as it was, and the next sync tries again.
+// Write a CSV. Never over a CSV open here with unsaved edits, and never in
+// silence when another program holds it locked (Excel does, with the workbook
+// open): either is said, and the next sync tries again.
 function writeCsvFile(csvPath, grid) {
   const csv = table.toCsv(grid);
   let onDisk = null;
   try { onDisk = fs.readFileSync(csvPath, "utf8"); } catch { /* none yet */ }
-  if (onDisk !== null && sameCsvText(onDisk, csv)) { rememberBaseline(csvPath, onDisk); return true; }
+  if (onDisk !== null && sameCsvText(onDisk, csv)) return true;
   const openDirty = (vscode.workspace.textDocuments || []).find(
     (d) => d.fileName && fileKey(d.fileName) === fileKey(csvPath) && d.isDirty);
   if (openDirty) {
@@ -5136,8 +4973,6 @@ function writeCsvFile(csvPath, grid) {
     vscode.window.showWarningMessage(`'${path.basename(csvPath)}' is open in another program — close it and save the .aot again to re-mirror.`);
     return false;
   }
-  rememberBaseline(csvPath, csv); // before any watcher hears the write
-  takenIn.delete(fileKey(csvPath));
   return true;
 }
 
@@ -5150,18 +4985,14 @@ function writeMirror(root, name) {
   return grid ? writeCsvFile(path.join(root, "aot.files", csvName(name)), grid) : false;
 }
 
-// Saving a .aot: each Concept it mirrors is written out — unless its CSV
-// says something the two never agreed on (edited with the editor closed, or
-// by a program whose save no watcher heard), which is merged first rather
-// than overwritten.
+// Saving a .aot makes it the file saved last: each Concept it mirrors is
+// written out, over whatever its CSV says.
 function syncAotToCsv(doc) {
   if (doc.languageId !== "aot" || !syncEnabled() || syncManual()) return;
   if (!/\.aot$/i.test(doc.fileName)) return;
   const dir = aotFilesDir(doc);
   const root = path.dirname(dir);
   watchAotRoot(root);
-  migrateLegacyDirs(doc, dir);
-  migrateStrayAotFiles(doc, dir);
   if (fs.existsSync(dir)) cleanupOrphans(dir, globalCsvNames(root, doc));
   // every Concept with Examples in its scope — a table, line form, or both,
   // one idea, one CSV — read once for the whole save
@@ -5179,19 +5010,31 @@ function syncAotToCsv(doc) {
       if (own) owners.unshift({ file: doc.fileName, doc, grid: own.grid });
     }
     const grid = csvsync.unionGrids(owners.map((o) => o.grid));
+    if (grid) writeCsvFile(csvPath, grid);
+  }
+}
+
+// A .aot saved by something other than this editor — another program, a pull —
+// is a save like any other, though no save event says so: each Concept whose
+// CSV no longer says what it says is settled, which writes the CSV out.
+function syncAotSavedElsewhere(uri) {
+  const fsPath = uri.fsPath;
+  if (!syncEnabled() || syncManual() || !/\.aot$/i.test(fsPath)) return;
+  const facts = mirrorFactsOf(fsPath);
+  if (!facts || !facts.grids.length) return;
+  const root = aotRoot({ fileName: fsPath, uri });
+  const index = ownerIndex(root);
+  for (const { name } of facts.grids) {
+    const grid = csvsync.unionGrids(ownersFrom(index, name).map((o) => o.grid));
     if (!grid) continue;
     let onDisk = null;
-    try { onDisk = fs.readFileSync(csvPath, "utf8"); } catch { /* none yet */ }
-    if (onDisk === null || sameCsvText(onDisk, table.toCsv(grid)) || agreedOn(csvPath, onDisk)) {
-      writeCsvFile(csvPath, grid);
-      continue;
-    }
-    settleSoon(root, name, { trigger: "save" });
+    try { onDisk = fs.readFileSync(path.join(root, "aot.files", csvName(name)), "utf8"); } catch { /* none yet */ }
+    if (onDisk === null || !sameCsvText(onDisk, table.toCsv(grid))) settleSoon(root, name);
   }
 }
 
 // One settle at a time per CSV: a save and the watcher hearing the write it
-// causes must never merge the same cells at once.
+// causes must never fold the same cells at once.
 const settling = new Map(); // csv path -> the settle in flight
 function settleSoon(root, name, opts) {
   const k = fileKey(path.join(root, "aot.files", csvName(name)));
@@ -5201,69 +5044,48 @@ function settleSoon(root, name, opts) {
   return next;
 }
 
-// The CSV as the repository's last commit holds it: the baseline a CSV has
-// before this machine ever synced it — a fresh clone, an upgrade. null
-// outside a repository, for a file never committed, and without git.
-let csvAtHead = (root, csvPath) => {
-  const top = repoRootOf(root);
-  if (!top) return null;
-  const rel = path.relative(top, csvPath).split(path.sep).join("/");
-  try { return gitRun(top, ["show", `HEAD:${rel}`]); } catch { return null; }
-};
-
-// Whether the CSV was saved after every .aot it mirrors: the side a conflict
-// goes to. A document with unsaved edits counts as now — they are the latest
-// word, whoever saves them.
-function csvIsNewer(csvPath, owners) {
+// Whether the CSV was saved after every .aot it mirrors. Only saves count, so
+// a document's unsaved edits say nothing here: its file's time is what stands
+// against the CSV's. Two saves in one tick of the clock are a tie, which goes
+// to the .aot unless the CSV is what was just heard saving (`heard`).
+function csvSavedLast(csvPath, owners, heard) {
   let csvTime;
   try { csvTime = fs.statSync(csvPath).mtimeMs; } catch { return false; }
   for (const o of owners) {
-    if (o.doc && o.doc.isDirty) return false;
-    try { if (fs.statSync(o.file).mtimeMs >= csvTime) return false; } catch { /* gone */ }
+    let aotTime;
+    try { aotTime = fs.statSync(o.file).mtimeMs; } catch { continue; } // gone
+    if (aotTime > csvTime || (aotTime === csvTime && !heard)) return false;
   }
   return true;
 }
 
-// One CSV settled both ways (csvsync.threeWay): what the CSV changed since
-// the two last agreed folds into the .aot files that list the rows, what
-// they changed is written back, a cell both changed apart goes to the later
-// save and is said, and a row the CSV dropped is asked about. `trigger` is
-// what asked — "save", "csv" (the watcher), "catchup" (the editor starting
-// up, or Sync CSVs Now) — which matters only when nothing is known to judge
-// by: then a save is the .aot's word, as a save always was, and anything
-// else the CSV's where it says something, as the CSV always was. Answers
-// whether a .aot changed.
+// One CSV settled by the one rule (csvsync.js): saved last, the .aot files
+// write it out; saved last itself, it overrides them: unsaved edits and all,
+// each row into the file that lists it, and a row it lacks deleted. A CSV saying
+// what the saved .aot says has nothing to say, which is what keeps the mirror's
+// own write, always the later of the two, from wiping unsaved edits made since.
+// `heard` says the watcher has just heard the CSV save. Answers whether a .aot
+// changed.
 async function settleCsv(root, name, opts = {}) {
   const csvPath = path.join(root, "aot.files", csvName(name));
-  const owners = ownersFrom(ownerIndex(root), name, { live: true });
+  const index = ownerIndex(root);
+  const owners = ownersFrom(index, name, { live: true });
   if (!owners.length) return false;
-  const aot = csvsync.unionGrids(owners.map((o) => o.grid));
+  const live = csvsync.unionGrids(owners.map((o) => o.grid));
   const raw = await readCsvSettled(csvPath);
   if (raw === null) { writeMirror(root, name); return false; }
-  if (sameCsvText(raw, table.toCsv(aot))) { rememberBaseline(csvPath, raw); return false; }
-  // its edits are in a buffer already: written out once that is saved
-  if (takenIn.get(fileKey(csvPath)) === csvTextOf(raw)) { writeMirror(root, name); return false; }
+  const saved = csvsync.unionGrids(ownersFrom(index, name).map((o) => o.grid));
+  if (sameCsvText(raw, table.toCsv(saved)) || sameCsvText(raw, table.toCsv(live))) return false;
+  if (!csvSavedLast(csvPath, owners, opts.heard)) { writeMirror(root, name); return false; }
   const csv = table.fromCsv(raw);
   if (!csv.length) return false;
-  const known = baselinesOf(csvPath);
-  let base = null;
-  if (known.length) {
-    const grids = known.map((b) => table.fromCsv(b.text));
-    base = grids[Math.max(0, csvsync.closestBaseline(grids, csv))];
-  } else {
-    const committed = csvAtHead(root, csvPath);
-    if (committed !== null && committed !== undefined) base = table.fromCsv(committed);
-  }
-  if (!base && opts.trigger === "save") { writeMirror(root, name); return false; }
-  const plan = csvsync.threeWay(base, csv, aot, { csvNewer: csvIsNewer(csvPath, owners) });
-  const changed = await applyFold(name, owners, plan);
-  if (plan.conflicts.length) reportConflicts(root, name, plan.conflicts, owners);
-  if (plan.deletions.length) askDeletions(root, name, plan.deletions);
-  // written back as the .aot files now have it — and when it cannot be yet
-  // (a buffer with unsaved edits, a locked file), the CSV is remembered as
-  // heard, so the next save writes it rather than asking again
-  if (!writeMirror(root, name)) takenIn.set(fileKey(csvPath), csvTextOf(raw));
-  return changed;
+  const plan = csvsync.csvOverrides(csv, live);
+  const folded = await applyFold(name, owners, plan);
+  const deleted = plan.deletions.length ? await deleteRows(root, name, plan.deletions) : false;
+  // written back as the .aot files now have it; a buffer with other unsaved
+  // edits writes it on its own save
+  writeMirror(root, name);
+  return folded || deleted;
 }
 
 // A plan's folds and erasures, each row into the files that list it — a new
@@ -5310,60 +5132,13 @@ async function applyOpsToDoc(doc, ops, what) {
   return true;
 }
 
-// One notice for every cell both sides changed apart since they last agreed:
-// which value stayed, and the one button that takes the other side's
-// instead — one edit, one undo.
-function reportConflicts(root, name, conflicts, owners) {
-  const csvFile = csvName(name);
-  const aotFile = owners.length === 1 ? path.basename(owners[0].file) : `the ${owners.length} .aot files`;
-  const shown = (v) => (v === "" ? "nothing" : v);
-  const said = (c) => (c.col === null
-    ? (c.winner === "aot" ? `kept '${c.row}' (${csvFile} removed it, ${aotFile} had changed it)`
-      : `brought '${c.row}' back (${aotFile} removed it, ${csvFile} changed it after)`)
-    : c.winner === "aot" ? `${c.row} · ${c.col}: kept ${shown(c.aot)} from ${aotFile} (${csvFile} said ${shown(c.csv)})`
-      : `${c.row} · ${c.col}: took ${shown(c.csv)} from ${csvFile} (${aotFile} said ${shown(c.aot)})`);
-  const list = conflicts.slice(0, 3).map(said).join("; ") + (conflicts.length > 3 ? `; and ${conflicts.length - 3} more` : "");
-  const cells = conflicts.filter((c) => c.col !== null);
-  const aotWon = cells.filter((c) => c.winner === "aot"), csvWon = cells.filter((c) => c.winner === "csv");
-  const useCsv = `Use ${csvFile}'s Values`, useAot = `Use ${owners.length === 1 ? path.basename(owners[0].file) : "the .aot"}'s Values`;
-  const buttons = [...(aotWon.length ? [useCsv] : []), ...(csvWon.length ? [useAot] : [])];
-  return Promise.resolve(vscode.window.showWarningMessage(
-    `AOT: ${csvFile} and ${aotFile} both changed ${conflicts.length === 1 ? "one thing" : `${conflicts.length} things`} since they last agreed, and the later save won — ${list}.`,
-    ...buttons)).then((answer) => {
-    if (answer === useCsv) return takeValues(root, name, aotWon.map((c) => ({ row: c.row, col: c.col, value: c.csv })));
-    if (answer === useAot) return takeValues(root, name, csvWon.map((c) => ({ row: c.row, col: c.col, value: c.aot })));
-    return undefined;
-  });
-}
-
-// Write `values` ([{ row, col, value }]) into the .aot files and the CSV
-// after them: a conflict's other side, taken.
-async function takeValues(root, name, values) {
-  const owners = ownersFrom(ownerIndex(root), name, { live: true });
-  const plan = csvsync.foldOf(csvsync.unionGrids(owners.map((o) => o.grid)), values);
-  const changed = await applyFold(name, owners, plan);
-  writeMirror(root, name);
-  return changed;
-}
-
-// The rows a CSV dropped that the .aot never changed since the two agreed:
-// never deleted in silence. Delete takes them out of the files that list
-// them, a row's sub-rows too when the CSV dropped those as well; Keep leaves
-// them, and the CSV has them back.
-function askDeletions(root, name, names) {
-  const csvFile = csvName(name);
-  const owners = ownersFrom(ownerIndex(root), name);
-  const files = [...new Set(owners.filter((o) => names.some((n) => listsRow(o, n))).map((o) => path.basename(o.file)))];
-  if (!files.length) return Promise.resolve();
-  const list = names.slice(0, 5).map((n) => `'${n}'`).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
-  const del = `Delete from ${files.join(", ")}`;
-  return Promise.resolve(vscode.window.showWarningMessage(
-    `AOT: ${csvFile} no longer lists ${list} — delete ${names.length === 1 ? "it" : "them"} from ${files.join(", ")} too?`,
-    del, "Keep")).then((answer) => (answer === del ? deleteRows(root, name, names) : undefined));
-}
-
+// The rows a CSV saved last no longer lists go from the files that list them, a
+// row's sub-rows too when the CSV dropped those as well. A row whose sub-row the
+// CSV still lists stays, since deleting it would take that sub-row's parent, and
+// that is said. Answers whether any file changed.
 async function deleteRows(root, name, names) {
   const kept = [];
+  let changed = false;
   for (const o of ownersFrom(ownerIndex(root), name, { live: true })) {
     if (!names.some((n) => listsRow(o, n))) continue;
     let doc;
@@ -5375,12 +5150,13 @@ async function deleteRows(root, name, names) {
     if (!concept) continue;
     const { ops, kept: stay } = derive.deleteExamples(doc.getText().split(/\r?\n/), parsed.root, parsed.nodes, concept, names);
     kept.push(...stay);
-    await applyOpsToDoc(doc, ops, `deleted rows of '${csvName(name)}' from`);
+    if (await applyOpsToDoc(doc, ops, `deleted rows of '${csvName(name)}' from`)) changed = true;
   }
   if (kept.length) {
     vscode.window.showInformationMessage(`AOT: kept ${kept.map((n) => `'${n}'`).join(", ")} — ${kept.length === 1 ? "a row under it is" : "rows under them are"} still in ${csvName(name)}.`);
   }
   writeMirror(root, name);
+  return changed;
 }
 
 // Excel does not write a CSV in place: it writes a temp file and renames it
@@ -5400,15 +5176,15 @@ async function readCsvSettled(csvPath) {
 }
 
 // A CSV in an 'aot.files' changed on disk: settled against the .aot files
-// that own its Concept. Our own write echoing back says what the two agree
-// on already, and settles nothing. Answers whether a .aot changed.
+// that own its Concept. Our own write echoing back says what the .aot says
+// already, and settles nothing. Answers whether a .aot changed.
 async function syncCsvIntoAot(uri) {
   if (!syncEnabled() || syncManual()) return false;
   const csvPath = uri.fsPath;
   const dir = path.dirname(csvPath);
   if (path.basename(dir) !== "aot.files") return false;
   if (path.basename(csvPath).startsWith("_")) return false; // an archived orphan, not synced
-  return settleSoon(path.dirname(dir), path.basename(csvPath).replace(/\.csv$/i, ""), { trigger: "csv" });
+  return settleSoon(path.dirname(dir), path.basename(csvPath).replace(/\.csv$/i, ""), { heard: true });
 }
 
 // One save from Excel is several events — the temp file's rename shows up
@@ -5461,7 +5237,7 @@ async function importCsvFolder(root, opts) {
   let folded = 0;
   // one at a time, never in parallel: two CSVs can fold into one .aot, and
   // each fold edits and saves that document
-  for (const name of names.values()) if (await settleSoon(root, name, { trigger: "catchup" })) folded++;
+  for (const name of names.values()) if (await settleSoon(root, name)) folded++;
   if (folded && !(opts && opts.silent)) {
     vscode.window.setStatusBarMessage(`AOT: ${folded} CSV file${folded === 1 ? "" : "s"} folded into the .aot`, 4000);
   }
@@ -5570,12 +5346,7 @@ function runTableOp(editor, op) {
   const block = table.blockAt(lines, pos.line);
   if (!block) return;
   const cursorRow = pos.line - block.start;
-  // A table a 1.12 file nested by indent is rewritten with its parent
-  // column before any key acts on it — the first key pressed in it is its
-  // migration — and a column index past the one added moves with it.
-  const added = table.flatten(block);
-  const shifted = (c) => (added !== -1 && c >= added ? c + 1 : c);
-  const col = shifted(table.colAt(lines[pos.line], pos.character));
+  const col = table.colAt(lines[pos.line], pos.character);
   // A selection travels as cells — its two ends' rows (clamped into the
   // block) and columns — for the operations that act on a range, the fills;
   // every other operation takes the cursor's cell and ignores it.
@@ -5583,7 +5354,7 @@ function runTableOp(editor, op) {
   const span = sel.isEmpty ? undefined : {
     anchor: {
       row: Math.max(0, Math.min(sel.anchor.line - block.start, block.rows.length - 1)),
-      col: shifted(table.colAt(lines[sel.anchor.line] || "", sel.anchor.character)),
+      col: table.colAt(lines[sel.anchor.line] || "", sel.anchor.character),
     },
     active: { row: cursorRow, col },
   };
@@ -6238,10 +6009,6 @@ async function maybeScaffold(event) {
 }
 
 function activate(context) {
-  // what each CSV and its .aot last agreed on, kept per machine in the
-  // extension's own storage — the workspace's, else the global one
-  const store = context.storageUri || context.globalStorageUri;
-  if (store && store.fsPath) baselineStore = diskBaselines(path.join(store.fsPath, "csv-sync"));
   const diagnostics = vscode.languages.createDiagnosticCollection("aot");
   // A crosslink is a *state* (navigable) layered on a token that already has
   // its own *type* colour from the grammar. So we add only an underline and
@@ -6467,7 +6234,6 @@ function activate(context) {
     // command catches up every repository the watchers cover
     // AOT: Sync CSVs Now — both directions, by hand; in manual mode the only sync
     vscode.commands.registerCommand("aot.importCsvFiles", (root) => (root ? importCsvFolder(root, { manual: true }) : importAllCsvFolders({ manual: true }))),
-    vscode.commands.registerCommand("aot.upgradeSyntax", () => upgradeWorkspaceSyntax()),
     vscode.commands.registerCommand("aot.setValueEverywhere", setValueEverywhere),
     // the Quick Fix that brings a cited file into the repo's own file store
     vscode.commands.registerCommand("aot.copyFileIntoRepo", copyFileIntoRepo),
@@ -6722,10 +6488,6 @@ function activate(context) {
   // folder up once, in the background: an unchanged folder does nothing.
   importAllCsvFolders({ silent: true });
 
-  // files written for 1.12 spell a literal '=' and a definition the old way:
-  // asked about once per workspace, never in the way of anything else
-  offerSyntaxUpgrade().catch(() => { /* the command is still there */ });
-
   // a merge driver set up by an older copy of this extension, pointed here
   try { repairGitMerge(); } catch { /* left as it was */ }
 
@@ -6733,6 +6495,7 @@ function activate(context) {
   const onAotFsEvent = (uri) => {
     try { reindexAot(uri.fsPath, fs.readFileSync(uri.fsPath, "utf8")); } catch { /* gone */ }
     refreshPeers(uri.fsPath);
+    syncAotSavedElsewhere(uri);
   };
   aotWatcher.onDidChange(onAotFsEvent);
   aotWatcher.onDidCreate(onAotFsEvent);
@@ -6793,8 +6556,6 @@ const _test = {
   leftAloneMessage,
   // git, for the merge-driver setup: the tests record the calls instead
   setGit: (fn) => { gitRun = fn || defaultGitRun; },
-  // what a CSV and its .aot last agreed on, newest first
-  csvBaselines: (csvPath) => baselinesOf(csvPath).map((b) => b.text),
   // the status item that counts what waits while you write
   holdStatus: () => holdStatus,
   repairGitMerge,

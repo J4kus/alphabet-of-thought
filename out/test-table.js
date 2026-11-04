@@ -11,11 +11,11 @@ const {
   splitCell, splitConstraint, formatValue, tableCtx,
   valueType, copyFormulaDown, copyFormulaAcross, referenceNames,
   copyCell, moveCell, copyRow, copyColumn, headerIndex,
-  demoteRow, promoteRow, flatten,
+  demoteRow, promoteRow,
   mergeRegistries, readValue, writtenValue,
   isRowText, jumpCell, cornerCell, fillDown, fillRight,
   copyFormulaFromAbove, copyValueFromAbove, columnTerm,
-  columnDefinition, defineColumn,
+  columnDefinition, defineColumn, STORED_OPS,
 } = require("../src/table");
 const { lint } = require("../src/linter");
 const { conceptRegistry } = require("../src/derive");
@@ -35,18 +35,8 @@ function check(name, ok) {
 
 // --- an Example hierarchy: rows naming the row they sit under ------------------
 // A table never nests by indentation (1.13): a sub-Example names its parent
-// row in the `parent (thing)` column. A table from 1.12 nested by indent, and
-// blockAt still reads that as a depth on the row — flatten writes it as the
-// column, which is what every draw does first.
+// row in the `parent (thing)` column, and a row's indent means nothing.
 {
-  const legacy = [
-    "Thing       |age",
-    "Parent      |",
-    "    Child 1 |10",
-    "    Child 2 |12",
-    "Other Parent|",
-    "    Child 3 |7",
-  ];
   const nested = [
     "Thing       |parent (thing)|age",
     "Parent      |              |",
@@ -55,38 +45,33 @@ function check(name, ok) {
     "Other Parent|              |",
     "Child 3     |Other Parent  |7",
   ];
-  const b = blockAt(legacy, 0);
-  check("nesting: blockAt still reads a 1.12 table's depth from its name cell",
-    b.rows.map((r) => r.depth).join(",") === "0,0,1,1,0,1");
-  check("nesting: the name stays trimmed, so every reader sees it unchanged",
-    b.rows[2].cells[0] === "Child 1" && b.rows[4].cells[0] === "Other Parent");
-  check("nesting: a 1.12 nested table is drawn with the parent column, second",
-    render(blockAt(legacy, 0)).join("\n") === nested.join("\n"));
-  check("nesting: the table drawn so re-renders byte for byte",
+  check("nesting: the table re-renders byte for byte",
     render(blockAt(nested, 0)).join("\n") === nested.join("\n"));
-  check("nesting: flatten answers the column it added, and has nothing to do twice",
-    (() => { const x = blockAt(legacy, 0); return flatten(x) === 1 && flatten(x) === -1 && flatten(blockAt(nested, 0)) === -1; })());
-  check("nesting: tablesOf hands out the flattened grid and where its parent column is",
-    (() => { const t = tablesOf(legacy, "Zoo")[0]; return t.parentCol === 1 && t.header[1] === "parent (thing)" && t.rows[1][1] === "Parent" && t.rows[3][1] === ""; })());
-  check("nesting: a one-column 1.12 table drops its closing pipe once it has a column to divide",
-    render(blockAt(["Org Structure|", "Department A |", "    Team 1   |"], 0)).join("\n")
-    === ["Org Structure|parent (org structure)", "Department A |", "Team 1       |Department A"].join("\n"));
+  check("nesting: an indented row is only a row: its name reads whole, and a draw sets it flush",
+    (() => {
+      const x = blockAt(["Thing |age", "Parent|", "    Child|10"], 0);
+      return x.rows[2].cells[0] === "Child" && render(x).join("\n") === ["Thing |age", "Parent|", "Child |10"].join("\n");
+    })());
+  check("nesting: a row opening with a pipe has an empty name cell, whatever closes it",
+    blockAt(["|Otter |size|", "|Ollie |5   |"], 0).rows[0].cells.join(",") === ",Otter,size,");
+  check("nesting: tablesOf hands out the grid and where its parent column is",
+    (() => { const t = tablesOf(nested, "Zoo")[0]; return t.parentCol === 1 && t.header[1] === "parent (thing)" && t.rows[1][1] === "Parent" && t.rows[3][1] === ""; })());
 
-  // the two spellings are one tree
   const treeOf = (lines) => {
     const { root } = lint(lines.join("\n"), "Zoo");
     const walk = (n) => n.children.filter((c) => c.kind === 0).map((c) => `${c.name}(${walk(c)})`).join(" ");
     return walk(root.children[0]);
   };
-  check("nesting: the linter reads the parent column and the 1.12 indent as one tree",
-    treeOf(nested) === "Parent(Child 1() Child 2()) Other Parent(Child 3())" && treeOf(legacy) === treeOf(nested));
+  check("nesting: the linter files each row under the row its parent cell names",
+    treeOf(nested) === "Parent(Child 1() Child 2()) Other Parent(Child 3())");
+  check("nesting: an indent files nothing",
+    treeOf(["Thing |age", "Parent|", "    Child|10"]) === "Parent() Child()");
   check("nesting: a parent written below its child is still its parent",
     treeOf(["Thing  |parent (thing)", "Child 1|Parent", "Parent |"]) === "Parent(Child 1())");
 
   const flat = ["Otter |size", "Ollie |5", "Pebble|3"];
   check("nesting: a flat table is unchanged",
-    blockAt(flat, 0).rows.every((r) => !r.depth)
-    && render(blockAt(flat, 0)).join("\n") === flat.join("\n"));
+    render(blockAt(flat, 0)).join("\n") === flat.join("\n"));
 
   const op = (fn, row, col, lines) => {
     const block = blockAt(lines || nested, 0);
@@ -144,8 +129,8 @@ function check(name, ok) {
 
 // --- dividers: '-----|----' groups the rows ------------------------------------
 {
-  check("dividers: a divider is kept, drawn to its columns' widths — a 1.12 rule among them",
-    render(blockAt(["Thing|age", "---+---", "A|1", "------|-", "B|2"], 0)).join("\n")
+  check("dividers: a divider is kept, drawn to its columns' widths",
+    render(blockAt(["Thing|age", "---|---", "A|1", "------|-", "B|2"], 0)).join("\n")
     === ["Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"].join("\n"));
   check("dividers: a one-column table's divider closes with its pipe, as its rows do",
     render(blockAt(["Org|", "-|", "A  |"], 0)).join("\n") === ["Org|", "---|", "A  |"].join("\n"));
@@ -227,9 +212,8 @@ const fresh = () => blockAt(doc, 2);
   check("blockAt: the header is the row that stands first", headerIndex(block) === 0);
   check("blockAt: reads the cells", block.rows[1].cells.join(",") === "Ollie,5,brown");
   check("blockAt: a non-pipe line is no block", blockAt(doc, 0) === null && blockAt(doc, 4) === null);
-  // a rule from before 1.12 is read as the divider it now is, and drawn as one
-  const ruled = blockAt(["name|size", "----+----", "Ollie|5"], 0);
-  check("blockAt: a leftover rule is kept, and drawn as a divider",
+  const ruled = blockAt(["name|size", "----|----", "Ollie|5"], 0);
+  check("blockAt: a divider is kept, and drawn to its columns",
     ruled.rows[1].sep === true && render(ruled).join("/") === "name |size/-----|----/Ollie|5");
   check("blockAt: a row with an empty name cell is a row like any other",
     blockAt(doc, 5).start === 5 && blockAt(doc, 5).end === 5
@@ -244,17 +228,8 @@ const fresh = () => blockAt(doc, 2);
   check("render: an empty name cell is drawn as the spaces of its column",
     render(ragged)[2] === "     |3   |grey");
 
-  // a table written in the pre-1.12 bordered form reads without its borders,
-  // so drawing it again is what migrates the file — its nesting into the
-  // parent column with it, and its rule into a divider
-  const old = ["    |Otter |size|", "    |------+----|", "    |Ollie |5   |", "    |    Pup|1  |"];
-  const legacy = blockAt(old, 0);
-  check("blockAt: a bordered table is read without its borders",
-    legacy.rows[0].cells.join(",") === "Otter,size" && legacy.rows[2].cells.join(",") === "Ollie,5"
-    && legacy.rows[3].depth === 1);
-  check("render: re-drawing a bordered table migrates it",
-    render(legacy).join("\n") === ["    Otter|parent (otter)|size", "    -----|--------------|----",
-      "    Ollie|              |5", "    Pup  |Ollie         |1"].join("\n"));
+  check("isSeparator: dashes and a pipe; a '+' rule, a lone dash and dashes alone are no divider",
+    isSeparator("-----|---") && isSeparator("---|") && !isSeparator("---+---") && !isSeparator("-") && !isSeparator("---"));
 
   check("widthsOf: widest cell per column", widthsOf(block).join(",") === "6,4,6");
   check("render: redraws aligned (no gutters)", render(block)[1] === "    Ollie |5   |brown");
@@ -390,7 +365,7 @@ const fresh = () => blockAt(doc, 2);
   check("splitConstraint: an attribute's trailing bound is recognised",
     (() => { const c = splitConstraint("age >=18"); return c.value === "age" && c.eq === 4 && c.op === ">=" && c.formula === "18"; })()
     && splitConstraint("cap <=@price*1.5").op === "<="
-    && splitConstraint('status =="active"').op === "=="
+    && splitConstraint('status ="active"').op === "=="
     && splitConstraint("150 <= 200").op === "<=");
   check("splitConstraint: prose comparisons stay plain terms",
     splitConstraint("10 < 20 knots").eq === -1
@@ -401,7 +376,7 @@ const fresh = () => blockAt(doc, 2);
     splitConstraint("birth date is date").eq === -1
     && splitConstraint("car is red").eq === -1);
   check("splitConstraint: a bound is Python — the formula language's backtick text is no bound",
-    splitConstraint("status ==`active`").eq === -1);
+    splitConstraint("status =`active`").eq === -1);
   check("splitConstraint: bounds chain on one declaration ('age >=18 <=65')",
     (() => {
       const c = splitConstraint("age >=18 <=65");
@@ -414,18 +389,18 @@ const fresh = () => blockAt(doc, 2);
     splitConstraint("q >=1 <=5 <9").constraints.length === 3);
   check("splitConstraint: an operator inside a bound's brackets or strings never splits it",
     (() => {
-      const c = splitConstraint('status ==("a <= b", "sent")');
+      const c = splitConstraint('status =("a <= b", "sent")');
       return c.constraints.length === 1 && c.constraints[0].formula === '("a <= b", "sent")';
     })());
   check("splitConstraint: an operator quoted inside a reference-bearing bound never splits it",
     (() => {
-      const c = splitConstraint('n ==len(@note.split("a > b"))');
-      const d = splitConstraint('v ==@price if "a <= b" else 1');
+      const c = splitConstraint('n =len(@note.split("a > b"))');
+      const d = splitConstraint('v =@price if "a <= b" else 1');
       return c.value === "n" && c.constraints.length === 1
         && d.value === "v" && d.constraints.length === 1;
     })());
   check("splitConstraint: a bound still open is no Python yet, so no bound",
-    splitConstraint("v ==@price*(2").eq === -1 && splitConstraint("v ==@price*(2)").constraints.length === 1);
+    splitConstraint("v =@price*(2").eq === -1 && splitConstraint("v =@price*(2)").constraints.length === 1);
   check("splitConstraint: a single bound still answers a one-entry chain",
     (() => {
       const c = splitConstraint("age >=18");
@@ -434,13 +409,9 @@ const fresh = () => blockAt(doc, 2);
   check("valueType: dates, numbers, text",
     valueType("2025-01-01") === "date" && valueType("$1,200") === "number" && valueType("hello") === "text");
 
-  // an escaped '=' is a value's own character, not the derivation operator
-  check("splitCell: an escaped '=' never splits the cell",
-    splitCell("a \\= b").eq === -1 && splitCell("a \\= b").value === "a \\= b"
-    && splitCell("4 =2*2").eq === 2);
-  check("readValue: the backslash comes off when the value is read as data",
-    readValue("a \\= b") === "a = b" && readValue("plain") === "plain"
-    && readValue("4") === "4");
+  check("splitCell: a value's derivation opens at its '='", splitCell("4 =2*2").eq === 2);
+  check("readValue: a value with no '=' to read is itself, and a backslash is only a backslash",
+    readValue("plain") === "plain" && readValue("4") === "4" && readValue("a \\= b") === "a \\= b");
 
   // 1.13: a literal '=' is doubled — a run of '=' at the start or after a
   // space reads one shorter; one inside a word is itself
@@ -464,10 +435,12 @@ const fresh = () => blockAt(doc, 2);
       return c.value === "vat" && c.constraints.length === 1 && c.constraints[0].op === "=="
         && c.constraints[0].opText === "=" && c.constraints[0].formula === "@price*0.2";
     })());
-  check("splitConstraint: the older '==' is the same operator, and keeps its spelling",
+  check("splitConstraint: '==' is no operator on a declaration, so it defines nothing",
+    splitConstraint("status ==(\"draft\", \"sent\")").eq === -1 && splitConstraint("size ==4").eq === -1);
+  check("splitConstraint: the store's own spelling reads with the store's operators",
     (() => {
-      const c = splitConstraint("status ==(\"draft\", \"sent\")");
-      return c.constraints[0].op === "==" && c.constraints[0].opText === "==";
+      const c = splitConstraint("_ ==@price*0.2 >=0", STORED_OPS);
+      return c.constraints.map((k) => k.opText).join(" ") === "== >=" && c.constraints[0].formula === "@price*0.2";
     })());
   check("splitConstraint: '=' never reads out of '>=' or '<=', and chains with them",
     (() => {
@@ -552,21 +525,20 @@ const fresh = () => blockAt(doc, 2);
 }
 
 // ---------------------------------------------------------------------------
-// no alignment: every column is drawn left, and a leftover rule's colons
-// (org's alignment marks) are gone from the divider it is drawn as
+// no alignment: every column is drawn left
 // ---------------------------------------------------------------------------
 {
   const written = [
     "default|left|right|centre",
-    "-------|:---|----:|:----:",
+    "---|---|---|---",
     "1|1|1|1",
     "2|2|2|2",
   ];
   const b = blockAt(written, 0);
   const drawn = render(b);
-  check("no alignment: every column is padded on its right, whatever the old rule said",
+  check("no alignment: every column is padded on its right",
     drawn[2] === "1      |1   |1    |1");
-  check("no alignment: the rule is a divider of dashes alone",
+  check("no alignment: a divider is dashes alone, to its columns' widths",
     drawn.length === 4 && drawn[0] === "default|left|right|centre" && drawn[1] === "-------|----|-----|------");
 
   // the formatter must not churn: drawing an aligned table again changes
@@ -766,10 +738,9 @@ const fresh = () => blockAt(doc, 2);
   check("align: still pads, redraws, and reports 1-based lines",
     edits.length === 2 && edits[0].line === 2 && edits[0].text === "    name |size"
     && edits[1].text === "    Ollie|5");
-  // a table carrying a leftover rule keeps it, drawn as the divider it now is
-  const ruled = ["Otter", "    name|size", "    ----+----", "    Ollie|5"].join("\n");
+  const ruled = ["Otter", "    name|size", "    ----|----", "    Ollie|5"].join("\n");
   const ruledEdits = align(ruled);
-  check("align: a leftover rule is redrawn as a divider, line for line",
+  check("align: a divider is redrawn to its columns, line for line",
     ruledEdits.length === 2 && ruledEdits[0].line === 2 && ruledEdits[0].text === "    name |size"
     && ruledEdits[1].line === 3 && ruledEdits[1].text === "    -----|----");
 }
@@ -823,8 +794,6 @@ const fresh = () => blockAt(doc, 2);
     isRowText("Reload: Ctrl+K|T") && isRowText("    Currency (Money): EUR|symbol"));
   check("isRowText: rows keep their colons after the first divider",
     isRowText("Otter|size") && isRowText("|12:30") && isRowText("Ollie|http://x.org|5"));
-  check("isRowText: a leftover rule with alignment colons is still a row",
-    isRowText("---:|:---") && isRowText(":--+--:"));
   const lines = ["Otter|size", "Ollie|5", "    note: a | b", "Pebble|3"];
   const block = blockAt(lines, 0);
   check("blockAt: a value line holding a pipe ends the table",

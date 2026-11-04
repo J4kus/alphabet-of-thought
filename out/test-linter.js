@@ -168,73 +168,59 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
 }
 
 // ---------------------------------------------------------------------------
-// A row indented under the row above it is that row's sub-Example, exactly as
-// '- Child' under '- Parent' is — which is what makes a table shorthand for
-// the lines rather than a weaker notation than them.
+// A row's indent means nothing: it stands at its table's depth, and only a
+// parent cell files it under another row.
 // ---------------------------------------------------------------------------
 {
-  const text = aot(
+  const report = makeReport();
+  const { root, nodes } = parse(aot(
     "Thing       |age",
     "Parent      |",
     "    Child 1 |10",
-    "    Child 2 |12",
-    "Other Parent|",
-    "    Child 3 |7",
-  );
-  const report = makeReport();
-  const { root, nodes } = parse(text, "World", report);
+    "  Child 2   |12",
+  ), "World", report);
   const at = (n) => node(root, nodes, n);
-  check("nesting: a nested table parses without errors", report.errors.length === 0);
-  check("nesting: a row one level deeper is a sub-Example of the row above",
-    at("Child 1").kind === INDIVIDUAL && at("Child 1").parent === at("Parent")
-    && at("Child 2").parent === at("Parent")
-    && at("Child 3").parent === at("Other Parent"));
-  check("nesting: a top-level row is still an Example of the Concept",
-    at("Parent").parent === at("Thing") && at("Other Parent").parent === at("Thing"));
-  check("nesting: a nested row's cells are its own Attribute Values",
-    at("Child 1").children.length === 1
-    && at("Child 1").children[0].name === "age" && at("Child 1").children[0].value === "10");
-  check("nesting: a parent row with an empty cell asserts nothing",
+  check("indent: an indented row raises nothing, however far it is indented", report.errors.length === 0 && report.warnings.length === 0);
+  check("indent: an indented row is an Example of the Concept, like any other",
+    at("Child 1").kind === INDIVIDUAL && at("Child 1").parent === at("Thing") && at("Child 2").parent === at("Thing"));
+  check("indent: its cells are its own", at("Child 1").children.length === 1 && at("Child 1").children[0].value === "10");
+  check("indent: a parent row with an empty cell asserts nothing",
     at("Parent").children.filter((c) => c.kind === DEFAULT).length === 0);
 
-  // the same idea written as lines must parse to the very same tree
+  // a tree written as a table parses to the very tree it is as lines
   const shape = (n) => n.children
     .map((c) => `${c.kind}:${c.name}:${c.value || ""}:${c.depth}[${shape(c)}]`).join(",");
+  const names = (n) => n.children.filter((c) => c.kind === INDIVIDUAL)
+    .map((c) => `${c.name}(${names(c)})`).join(" ");
   const asLines = parse(aot(
     "Thing",
     "    age",
     "    - Parent",
     "        - Child 1",
     "            age: 10",
-    "        - Child 2",
-    "            age: 12",
     "    - Other Parent",
     "        - Child 3",
     "            age: 7",
   ), "World", makeReport());
   const asTable = parse(aot(
     "Thing",
-    "    Thing       |age",
-    "    Parent      |",
-    "        Child 1 |10",
-    "        Child 2 |12",
-    "    Other Parent|",
-    "        Child 3 |7",
+    "    Thing       |parent (thing)|age",
+    "    Parent      |              |",
+    "    Child 1     |Parent        |10",
+    "    Other Parent|              |",
+    "    Child 3     |Other Parent  |7",
   ), "World", makeReport());
-  check("nesting: a nested table is shorthand for the nested lines, exactly",
-    shape(asLines.root) === shape(asTable.root));
+  check("indent: a table's parent column gives the tree the nested lines give",
+    names(asLines.root.children[0]) === names(asTable.root.children[0]));
 
   const errs = (...ls) => {
     const r = makeReport();
     parse(aot(...ls), "World", r);
     return r.errors;
   };
-  check("nesting: the table's first row has no row above it to nest under",
-    errs("Thing|age", "    A|1").some((e) => /no row at depth/.test(e.message)));
-  check("nesting: a row cannot skip a level",
-    errs("Thing|age", "A    |1", "        B|2").length > 0);
-  check("nesting: gutter spaces are padding, not depth",
-    errs("Otter | size", "Ollie | 5").length === 0);
+  check("indent: gutter spaces are padding", errs("Otter | size", "Ollie | 5").length === 0);
+  check("indent: a row shallower than the header still opens a table of its own",
+    errs("Thing", "    Sub|age", "    A  |1", "Other|n", "B    |2").length === 0);
 }
 
 // tables: org-style plain-text spreadsheets — header + separator + data rows.
@@ -427,8 +413,8 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   check("cells: offsets point at the cell text", cells("a | b")[1].col === 4);
   check("cells: a leading divider opens an empty name cell", cells("|gegeg").length === 2
     && cells("|gegeg")[0].text === "" && cells("|gegeg")[1].text === "gegeg");
-  check("isSeparator: a leftover rule yes, a name and a lone dash no",
-    isSeparator("---+---") && !isSeparator("a") && !isSeparator("-"));
+  check("isSeparator: dashes and a pipe yes; a '+' rule, a name and a lone dash no",
+    isSeparator("---|---") && !isSeparator("---+---") && !isSeparator("a") && !isSeparator("-"));
 
   const messy = aot(
     "Otter",
@@ -439,8 +425,8 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   check("align: rows are padded to the widest cell",
     edits.some((e) => e.text === "    name |size")
     && edits.some((e) => e.text === "    Ollie|5"));
-  check("align: a leftover rule is redrawn as the divider it now is",
-    align(aot("Otter", "    name|size", "    ----+----", "    Ollie|5"))
+  check("align: a divider is redrawn to its columns",
+    align(aot("Otter", "    name|size", "    ----|----", "    Ollie|5"))
       .some((e) => e.line === 3 && e.text === "    -----|----"));
   check("align: an already aligned table needs no edits",
     align(aot("Otter", "    name |size", "    Ollie|5")).length === 0);
@@ -499,9 +485,9 @@ check("verify: identical sibling defaults are an error",
     child.some((e) => SAME.test(e.message) && e.line === 3 && e.related && e.related[0].line === 2));
   check("verify: ... under a grandparent too, whatever the case or numbering",
     errs("Thing", "    - Root", "        - Mid", "            - 1. root", "            - Leaf", "        - Side").some((e) => SAME.test(e.message) && e.line === 4));
-  const rows = lint(aot("Thing|age", "Parent|", "    Parent|10", "    Child|12"), "Book").errors;
-  check("verify: ... in a nested table row, pinned on its name cell",
-    rows.some((e) => SAME.test(e.message) && e.line === 3 && e.startCol === 4));
+  const rows = lint(aot("Thing |parent (thing)|age", "Parent|              |", "Parent|Parent        |10", "Child |Parent        |12"), "Book").errors;
+  check("verify: ... in a table row naming its parent, pinned on its name cell",
+    rows.some((e) => SAME.test(e.message) && e.line === 3 && e.startCol === 0));
   check("verify: same-named Examples under different parents are not this error",
     !errs("Thing", "    - A", "        - X", "        - Y", "    - B", "        - X", "        - Z").some((e) => SAME.test(e.message)));
 }
@@ -868,77 +854,21 @@ check("verify: a well-formed tree yields no errors",
       && !recursive.warnings.some((w) => /dependency/.test(w.message)));
 }
 
-// 1.13: '=' defines on a declaration — a header cell or a bare line — as '=='
-// did, and '==' still reads the same; a literal '=' in a value is doubled
+// '=' defines on a declaration, a header cell or a bare line; a literal '=' in
+// a value is doubled
 {
   const header = lint(aot("Invoice|price|vat =@price*0.2", "A      |100  |20"), "Book");
   const vat = header.nodes.find((n) => n.name === "vat" && n.cell && n.kind === 3);
   check("lint: '=' on a header cell is the column's definition, not part of its name",
     header.errors.length === 0 && vat && vat.constraints && vat.constraints[0].op === "==" && vat.constraints[0].formula === "@price*0.2");
-  const legacy = lint(aot("Invoice|price|vat ==@price*0.2", "A      |100  |20"), "Book");
-  const old = legacy.nodes.find((n) => n.name === "vat" && n.cell && n.kind === 3);
-  check("lint: the older '==' reads as the same definition", old && old.constraints[0].op === "==" && old.constraints[0].opText === "==");
-  const values = lint(aot("Note", "    - A", "        text: a == b", "        older: a \\= b"), "Book");
-  check("lint: a doubled '=' in a value reads as one, and the older escape still reads",
+  const doubled = lint(aot("Invoice|price|vat ==@price*0.2", "A      |100  |20"), "Book");
+  check("lint: '==' on a header cell defines nothing: it is part of the cell's name",
+    !doubled.nodes.some((n) => n.name === "vat") && !doubled.nodes.some((n) => n.constraints && n.constraints.length));
+  const values = lint(aot("Note", "    - A", "        text: a == b", "        plain: a \\= b"), "Book");
+  check("lint: a doubled '=' in a value reads as one, and a backslash is only a backslash",
     values.errors.length === 0
     && values.nodes.find((n) => n.name === "text").value === "a = b" && values.nodes.find((n) => n.name === "text").formula === undefined
-    && values.nodes.find((n) => n.name === "older").value === "a = b");
-
-  const { upgradeText } = require("../src/upgrade");
-  const old112 = aot(
-    "Invoice",
-    "    status ==(\"draft\", \"sent\")",
-    "    Invoice|price|vat ==@price*0.2",
-    "    A      |100  |20",
-    "    - B",
-    "        note: a \\= b",
-    "        rule: x == y",
-    "        check: 1 =1 if @a == 2 else 0",
-  );
-  const up = upgradeText(old112, "Book");
-  check("upgrade: a 1.12 file is respelled — '\\=' doubled, a literal '==' one longer, '==' definitions '='",
-    up.includes("    status =(\"draft\", \"sent\")") && up.includes("|vat =@price*0.2")
-    && up.includes("note: a == b") && up.includes("rule: x === y"));
-  check("upgrade: a derivation's own Python is never touched", up.includes("check: 1 =1 if @a == 2 else 0"));
-  // what each line meant under 1.12: 'note' the value 'a = b', 'rule' the
-  // value 'x == y' (a run of '=' was literal then), 'vat' and 'status'
-  // definitions — and read now, the upgraded file means the same
-  const now = lint(up, "Book");
-  const valueOf = (name) => (now.nodes.find((n) => n.name === name && n.kind === 1) || {}).value;
-  check("upgrade: the respelled file says what the 1.12 file said",
-    now.errors.length === 0 && valueOf("note") === "a = b" && valueOf("rule") === "x == y"
-    && now.nodes.filter((n) => n.kind === 3 && n.constraints && n.constraints[0].op === "==").length === 2);
-  check("upgrade: running it twice changes nothing", upgradeText(up, "Book") === up);
-  const fresh = aot("Note", "    - A", "        text: a == b");
-  check("upgrade: a file showing no sign of the old spelling is left exactly as it is",
-    upgradeText(fresh, "Book") === fresh);
-  // a table nested by indent is 1.12 wherever it stands: it is drawn with
-  // its parent column, its cells respelled as they go, and no other table is
-  // touched
-  const nested112 = aot(
-    "Thing      |note",
-    "Parent     |a \\= b",
-    "    Child  |",
-    "",
-    "Other|x",
-    "A    |1",
-  );
-  const flatUp = upgradeText(nested112, "Book");
-  check("upgrade: a table nested by indent gains its parent column, its values respelled with it",
-    flatUp === aot(
-      "Thing |parent (thing)|note",
-      "Parent|              |a == b",
-      "Child |Parent        |",
-      "",
-      "Other|x",
-      "A    |1",
-    ));
-  check("upgrade: the parent column files the rows where the indent did",
-    (() => {
-      const kids = (text) => lint(text, "Book").nodes.filter((n) => n.kind === 0).map((n) => `${n.name}<${n.parent.name}`).join(",");
-      return kids(flatUp) === kids(nested112) && lint(flatUp, "Book").warnings.every((w) => !/nests by its indent/.test(w.message));
-    })());
-  check("upgrade: and a second run finds nothing", upgradeText(flatUp, "Book") === flatUp);
+    && values.nodes.find((n) => n.name === "plain").value === "a \\= b");
 }
 
 // --- the parent column (1.13): a table nests through it, never by indent -------
@@ -972,10 +902,6 @@ check("verify: a well-formed tree yields no errors",
     plain.of("Rex") === "Dog" && plain.r.nodes.some((n) => n.kind === 1 && n.name === "parent" && n.value === "Ann"));
   const noDefault = lint(aot("Thing|parent (thing): X", "A    |"), "Zoo");
   check("parent column: it takes no default, and says so", noDefault.errors.some((e) => /gives the parent column a default/.test(e.message)));
-  const legacy = lint(aot("Thing     |age", "Parent    |", "    Child |1", "    Child2|2"), "Zoo");
-  check("parent column: a 1.12 table nested by indent still nests, once warned about",
-    legacy.nodes.find((n) => n.name === "Child").parent.name === "Parent"
-    && legacy.warnings.filter((w) => /nests by its indent/.test(w.message)).length === 1);
   const chi = lint(aot("Thing  |parent (thing)", "Child 1|Parent", "Parent |"), "Zoo");
   const child = chi.nodes.find((n) => n.name === "Child 1"), parent = chi.nodes.find((n) => n.name === "Parent");
   check("parent column: a child written above its parent is still numbered under it (chi divisible)",

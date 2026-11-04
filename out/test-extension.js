@@ -735,8 +735,7 @@ const listed = [
 // a table nests through its `parent (thing)` column, so there is no indent
 // a key could mean — with lines selected Tab still moves to the next cell.
 // Line form keeps the editor's own indent on a selection, since there the
-// indent IS the nesting. And the first key pressed in a table a 1.12 file
-// nested by indent rewrites it with the column, the cursor's cell kept.
+// indent IS the nesting.
 (async () => {
   const lines = [
     "Otter|parent (otter)|size",
@@ -786,17 +785,9 @@ const listed = [
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
   const lineIndent = vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines");
-  // a 1.12 table nested by indent: Tab in its value cell migrates it, and the
-  // cursor lands in the next cell of the table as drawn now
-  lines.splice(0, lines.length, "Otter    |size", "Ollie    |5", "    Pup  |1");
-  editor.selection = new vscode.Selection(1, 10, 1, 10); // Ollie's size
-  registeredCommands.get("aot.table.nextCell")(editor);
-  await new Promise((r) => setImmediate(r));
-  const migrated = lines.join("\n") === ["Otter|parent (otter)|size", "Ollie|              |5", "Pup  |Ollie         |1"].join("\n")
-    && editor.selection.active.line === 2 && editor.selection.active.character === 0;
-  console.log(kept && toNext && back && noIndent && lineIndent && migrated
-    ? "PASS (table editor: Tab travels the cells and indents nothing, selected or not; line form indents a selection; a 1.12 nested table migrates on the first key)"
-    : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toNext, back, noIndent, lineIndent, migrated, sel: editor.selection.a }));
+  console.log(kept && toNext && back && noIndent && lineIndent
+    ? "PASS (table editor: Tab travels the cells and indents nothing, selected or not; line form indents a selection)"
+    : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toNext, back, noIndent, lineIndent, sel: editor.selection.a }));
 })();
 
 // 5c) a first '|' typed on an otherwise empty line scaffolds a fresh table —
@@ -920,8 +911,8 @@ const listed = [
 
 // 7) the CSV mirror, end to end: saving the .aot writes each table's CSV
 // into one 'aot.files' folder at the repository root, named after the
-// Concept; a CSV edit folds back; legacy per-file folders migrate; an
-// orphaned CSV is archived with '_' (never deleted).
+// Concept; a CSV edit folds back; an orphaned CSV is archived with '_' (never
+// deleted).
 (async () => {
   // a fresh folder outside the repository: a file-syncing client (OneDrive)
   // watching the repository can write an earlier run's copy back into a
@@ -940,25 +931,22 @@ const listed = [
   ].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
-  // a legacy per-file folder from a pre-1.3 install, with a stale CSV + note
-  const legacyDir = path.join(tmp, "tables.World");
-  fs.mkdirSync(legacyDir, { recursive: true });
-  fs.writeFileSync(path.join(legacyDir, "Ghost.csv"), "name\nBoo\n");
-  fs.writeFileSync(path.join(legacyDir, "notes.txt"), "keep me");
-
-  // save the .aot -> aot.files/Otter.csv appears; the legacy folder folds in
-  // and is removed; the orphaned Ghost.csv is archived as _Ghost.csv
-  vscode.workspace._save(makeDoc(aotPath, aotText));
+  // a CSV no Concept speaks for
   const dir = path.join(tmp, "aot.files");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "Ghost.csv"), "name\nBoo\n");
+
+  // save the .aot -> aot.files/Otter.csv appears; the orphaned Ghost.csv is
+  // archived as _Ghost.csv
+  vscode.workspace._save(makeDoc(aotPath, aotText));
   const csvPath = path.join(dir, "Otter.csv");
   const written = fs.existsSync(csvPath) && fs.readFileSync(csvPath, "utf8");
   console.log(written === "Otter,size\nOllie,5\n"
     ? "PASS (csv mirror: saving writes aot.files/<Concept>.csv at the workspace root)"
     : "UNEXPECTED csv written: " + JSON.stringify(written));
-  console.log(!fs.existsSync(legacyDir) && !fs.existsSync(path.join(dir, "Ghost.csv"))
-    && fs.existsSync(path.join(dir, "_Ghost.csv"))
-    ? "PASS (csv mirror: the legacy folder folds in; an orphan is archived _Ghost.csv, not deleted)"
-    : "UNEXPECTED migration state " + JSON.stringify(fs.existsSync(dir) && fs.readdirSync(dir)));
+  console.log(!fs.existsSync(path.join(dir, "Ghost.csv")) && fs.existsSync(path.join(dir, "_Ghost.csv"))
+    ? "PASS (csv mirror: an orphan is archived _Ghost.csv, not deleted)"
+    : "UNEXPECTED orphan state " + JSON.stringify(fs.existsSync(dir) && fs.readdirSync(dir)));
 
   // edit the CSV -> the owning .aot's table gains the row, aligned, and saves
   fs.writeFileSync(csvPath, "Otter,size\nOllie,5\nPebble,3\n");
@@ -1014,9 +1002,7 @@ const listed = [
 // 7a) one 'aot.files' per repository. The folder hangs off the repository
 // root - the nearest '.git' above the file - so a subfolder opened on its
 // own, and a file opened with no folder at all, both write to the one
-// place. An 'aot.files' an older release left elsewhere folds into it on
-// the next save, everything in it and not the CSVs alone; a name already
-// taken at the destination is never overwritten, and its folder stays.
+// place.
 (async () => {
   const os = require("os");
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "aot-onefolder-"));
@@ -1024,51 +1010,19 @@ const listed = [
   const sub = path.join(repo, "sub");
   fs.mkdirSync(sub);
 
-  // what the old rule left at the opened folder: a CSV, a parked
-  // store, a copied-in file, and one name the repository already has
-  const stray = path.join(sub, "aot.files");
-  fs.mkdirSync(stray);
-  fs.writeFileSync(path.join(stray, "Ghost.csv"), "name\nBoo\n");
-  fs.writeFileSync(path.join(stray, "Deep.formulas"), "@Otter@size@Ollie\t=1+4\n");
-  fs.writeFileSync(path.join(stray, "note.txt"), "the stray copy");
   const dir = path.join(repo, "aot.files");
   fs.mkdirSync(dir);
-  fs.writeFileSync(path.join(dir, "note.txt"), "the repo's own");
 
   const aotPath = path.join(sub, "Deep.aot");
   const aotText = ["Otter", "    Otter | size", "    Ollie | 5"].join("\n");
   fs.writeFileSync(aotPath, aotText);
 
-  // the workspace is the subfolder, so the old rule would have written here
+  // the workspace is the subfolder, and the CSV still goes to the root
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: sub } }];
   vscode.workspace._save(makeDoc(aotPath, aotText));
-
-  console.log(fs.existsSync(path.join(dir, "Otter.csv")) && !fs.existsSync(path.join(stray, "Otter.csv"))
+  console.log(fs.existsSync(path.join(dir, "Otter.csv")) && !fs.existsSync(path.join(sub, "aot.files"))
     ? "PASS (one folder: the CSV lands at the repository root, not at the opened subfolder)"
     : "UNEXPECTED mirror location " + JSON.stringify(fs.readdirSync(repo)));
-
-  // folded in whole, and the CSV no Concept claims archived as the orphan
-  // it is, in the same save
-  const moved = fs.existsSync(path.join(dir, "Deep.formulas"))
-    && !fs.existsSync(path.join(stray, "Deep.formulas"))
-    && fs.existsSync(path.join(dir, "_Ghost.csv"));
-  console.log(moved
-    ? "PASS (one folder: a stray aot.files folds in whole - the store and the orphan CSV with it)"
-    : "UNEXPECTED stray fold " + JSON.stringify({ repo: fs.readdirSync(dir), stray: fs.readdirSync(stray) }));
-
-  console.log(fs.readFileSync(path.join(dir, "note.txt"), "utf8") === "the repo's own"
-    && fs.readFileSync(path.join(stray, "note.txt"), "utf8") === "the stray copy"
-    && fs.readdirSync(stray).length === 1
-    ? "PASS (one folder: a name already taken is never overwritten, and its folder stays)"
-    : "UNEXPECTED overwrite " + JSON.stringify(fs.readdirSync(stray)));
-
-  // the clash resolved by hand: the next save takes the last file, and the
-  // emptied folder goes with it
-  fs.unlinkSync(path.join(stray, "note.txt"));
-  vscode.workspace._save(makeDoc(aotPath, aotText));
-  console.log(!fs.existsSync(stray)
-    ? "PASS (one folder: the emptied stray folder is removed)"
-    : "UNEXPECTED stray survives " + JSON.stringify(fs.readdirSync(stray)));
 
   // a file opened on its own, no folder in sight: still the repository's
   // folder, never a second one beside the file
@@ -1088,11 +1042,10 @@ const listed = [
 
 // 6d) the catch-up. The fold-back watcher only hears a CSV edited while the
 // editor is running, so a file changed in Excel with the window closed
-// would be overwritten, unread, by the next save of its .aot. On activation
-// — and from 'aot.importCsvFiles' by hand — the folder is caught up: every
-// CSV saying something its .aot does not folds in, an unchanged one costs
-// nothing, and an archived '_' file is left alone exactly as the watcher
-// leaves it. The command is given its root, so this holds no global and
+// would wait for the next save of its .aot, which overwrites it. On activation
+// — and from 'aot.importCsvFiles' by hand — the folder is caught up: a CSV
+// saved after its .aot folds in, an unchanged one costs nothing, and an
+// archived '_' file is left alone exactly as the watcher leaves it. The command is given its root, so this holds no global and
 // races with nothing else here.
 (async () => {
   const os = require("os");
@@ -1102,9 +1055,16 @@ const listed = [
   const aotPath = path.join(root, "Numbers.aot");
   fs.writeFileSync(aotPath, ["Integer", "    - 1", "        is prime: Yes"].join("\n"));
   const importCsvs = () => plainCommands.get("aot.importCsvFiles")(root);
+  // a CSV saved after everything so far, whatever the clock's tick says
+  let later = Date.now() / 1000;
+  const saveCsv = (text) => {
+    fs.writeFileSync(path.join(dir, "Integer.csv"), text);
+    later += 10;
+    fs.utimesSync(path.join(dir, "Integer.csv"), later, later);
+  };
 
   // the editor was closed for this edit: no watcher heard it
-  fs.writeFileSync(path.join(dir, "Integer.csv"), "Integer,is prime\n1,Yes\n7,Yes\n");
+  saveCsv("Integer,is prime\n1,Yes\n7,Yes\n");
   const folded = await importCsvs();
   const after = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
   console.log(folded === 1 && after[3] === "    - 7" && after[4] === "        is prime: Yes"
@@ -1128,7 +1088,7 @@ const listed = [
 
   // what Excel writes is read as what it means: a BOM in front of the
   // Concept's own cell, and CRLF throughout, is the same grid
-  fs.writeFileSync(path.join(dir, "Integer.csv"), "\uFEFFInteger,is prime\r\n1,Yes\r\n7,Yes\r\n13,Yes\r\n");
+  saveCsv("\uFEFFInteger,is prime\r\n1,Yes\r\n7,Yes\r\n13,Yes\r\n");
   const fromExcel = await importCsvs();
   const excelAfter = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
   console.log(fromExcel === 1 && excelAfter[5] === "    - 13" && excelAfter[6] === "        is prime: Yes"
@@ -1137,7 +1097,7 @@ const listed = [
 
   // a semicolon file, which is all Excel writes where the comma is the
   // decimal mark, folds in exactly as a comma one does
-  fs.writeFileSync(path.join(dir, "Integer.csv"), "Integer;is prime\n1;Yes\n7;Yes\n13;Yes\n21;No\n");
+  saveCsv("Integer;is prime\n1;Yes\n7;Yes\n13;Yes\n21;No\n");
   const semi = await importCsvs();
   const semiAfter = fs.readFileSync(aotPath, "utf8").split(/\r?\n/);
   console.log(semi === 1 && semiAfter[7] === "    - 21" && semiAfter[8] === "        is prime: No"
@@ -1194,11 +1154,10 @@ const listed = [
   fs.rmSync(root, { recursive: true, force: true });
 })();
 
-// 6e) the CSV mirror both ways at once (1.13): every cell merged against what
-// the .aot and its CSV last agreed on, so whichever side changed it is the
-// one that counts. Run late and on a timer: it presses buttons on the shared
-// warning mock, which another block's message must not answer — and the
-// blocks that do the same wait for it to finish (lateBlocks).
+// 6e) the CSV mirror's one rule (1.13): the file saved last overrides the other,
+// even where the other was edited too. Run late and on a timer: it presses
+// buttons on the shared warning mock, which another block's message must not
+// answer — and the blocks that do the same wait for it to finish (lateBlocks).
 let lateBlocks = Promise.resolve();
 const late = (ms, fn) => {
   const ready = new Promise((r) => setTimeout(r, ms));
@@ -1206,102 +1165,130 @@ const late = (ms, fn) => {
 };
 late(2600, async () => {
   const os = require("os");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-3way-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-lastsaved-"));
   fs.mkdirSync(path.join(root, ".git"));
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
   const dir = path.join(root, "aot.files");
   const aotPath = path.join(root, "Shop.aot");
   const csvPath = path.join(dir, "Order.csv");
-  const writeAot = (...lines) => fs.writeFileSync(aotPath, lines.join("\n"));
+  // the save times are the test's own, each later than every one before it, so
+  // "saved last" never rests on a tick of the clock
+  let clock = Date.now() / 1000;
+  const stamp = (p) => { clock += 10; fs.utimesSync(p, clock, clock); };
+  const writeAot = (...lines) => { fs.writeFileSync(aotPath, lines.join("\n")); stamp(aotPath); };
+  const writeCsv = (text) => { fs.writeFileSync(csvPath, text); stamp(csvPath); };
   const aot = () => fs.readFileSync(aotPath, "utf8");
   const csv = () => fs.readFileSync(csvPath, "utf8").replace(/\r\n/g, "\n");
   const sync = () => plainCommands.get("aot.importCsvFiles")(root);
   const settle = () => new Promise((r) => setTimeout(r, 60)); // a button's answer lands
-  const older = (p) => { const t = Date.now() / 1000 - 120; fs.utimesSync(p, t, t); };
   const results = [];
-  const expect = (name, ok, detail) => results.push(ok ? `PASS (csv 3-way: ${name})` : `UNEXPECTED csv 3-way ${name} ${JSON.stringify(detail)}`);
-  // its notices all name Order.csv: the button pressed is pressed for those alone
-  const press = (answer) => {
-    vscode.window._answers = vscode.window._answers.filter((a) => a.key !== "3way");
-    if (answer !== undefined) vscode.window._answers.push({ key: "3way", test: /Order\.csv/, answer });
-  };
+  const expect = (name, ok, detail) => results.push(ok ? `PASS (csv last save: ${name})` : `UNEXPECTED csv last save ${name} ${JSON.stringify(detail)}`);
+  const notices = () => vscode.window._warnings.filter((w) => /Order\.csv|Shop\.aot/.test(w));
+  const quiet = () => { vscode.window._warnings.length = 0; };
 
   writeAot("Order|price|qty", "Acme |100  |1", "Bolt |50   |2");
   vscode.workspace._save(makeDoc(aotPath, aot()));
   expect("the first save writes the CSV", csv() === "Order,price,qty\nAcme,100,1\nBolt,50,2\n", csv());
 
-  // a .aot changed with the editor closed — a pull — while the CSV still says
-  // what the two agreed on: the .aot's value goes out, never the old one in
+  // saving a .aot in the editor overwrites the CSV, unread, whatever it said
+  writeCsv("Order,price,qty\nAcme,100,1\nBolt,99,2\n");
+  writeAot("Order|price|qty", "Acme |101  |1", "Bolt |50   |2");
+  vscode.workspace._save(makeDoc(aotPath, aot()));
+  expect("a .aot saved in the editor overwrites the CSV, an edit the CSV had included",
+    csv() === "Order,price,qty\nAcme,101,1\nBolt,50,2\n", csv());
+
+  // the same with the editor closed: only the save times say which is later
+  writeCsv("Order,price,qty\nAcme,101,1\nBolt,98,2\n");
   writeAot("Order|price|qty", "Acme |110  |1", "Bolt |50   |2");
+  quiet();
   await sync();
-  expect("a .aot changed while closed is written out, not reverted",
-    aot().includes("Acme |110  |1") && csv() === "Order,price,qty\nAcme,110,1\nBolt,50,2\n", { aot: aot(), csv: csv() });
+  expect("both edited in different cells, the .aot saved last: the .aot overrides the whole CSV",
+    aot() === "Order|price|qty\nAcme |110  |1\nBolt |50   |2" && csv() === "Order,price,qty\nAcme,110,1\nBolt,50,2\n" && !notices().length,
+    { aot: aot(), csv: csv(), notices: notices() });
 
-  // the CSV changed a cell the .aot did not: it folds in, and nothing else does
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,110,1\nBolt,55,2\n");
+  writeAot("Order|price|qty", "Acme |111  |1", "Bolt |50   |2");
+  writeCsv("Order,price,qty\nAcme,110,1\nBolt,55,2\n");
+  quiet();
   await sync();
-  expect("a cell the CSV changed folds in", aot() === "Order|price|qty\nAcme |110  |1\nBolt |55   |2", aot());
+  expect("both edited in different cells, the CSV saved last: the CSV overrides the whole .aot",
+    aot() === "Order|price|qty\nAcme |110  |1\nBolt |55   |2" && csv() === "Order,price,qty\nAcme,110,1\nBolt,55,2\n" && !notices().length,
+    { aot: aot(), csv: csv(), notices: notices() });
 
-  // an emptied cell empties now (it held a value when the two last agreed)
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,110,\nBolt,55,2\n");
+  // the same cell: no conflict to report, the later save simply stands
+  writeAot("Order|price|qty", "Acme |120  |1", "Bolt |55   |2");
+  writeCsv("Order,price,qty\nAcme,130,1\nBolt,55,2\n");
+  quiet();
   await sync();
-  expect("a cell the CSV emptied is emptied", aot() === "Order|price|qty\nAcme |110  |\nBolt |55   |2", aot());
-
-  // a program that held an older copy saves it back with one edit of its
-  // own: merged against the copy it descends from, it brings that edit and
-  // never undoes what changed since (Acme's emptied qty stays empty)
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,110,1\nBolt,56,2\n");
+  expect("one cell edited on both sides goes to the later save, and nothing is said",
+    aot().includes("Acme |130  |1") && !notices().length, { aot: aot(), notices: notices() });
+  writeCsv("Order,price,qty\nAcme,131,1\nBolt,55,2\n");
+  writeAot("Order|price|qty", "Acme |140  |1", "Bolt |55   |2");
   await sync();
-  expect("a stale copy brings only its own edit",
-    aot() === "Order|price|qty\nAcme |110  |\nBolt |56   |2", aot());
+  expect("and the other way about", aot().includes("Acme |140  |1") && csv().includes("Acme,140,1"), { aot: aot(), csv: csv() });
 
-  // both changed one cell: the later save wins, and it is said by cell
-  writeAot("Order|price|qty", "Acme |120  |", "Bolt |55   |2");
-  older(aotPath);
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,130,\nBolt,55,2\n");
-  vscode.window._warnings.length = 0;
-  press(undefined);
+  // a value set back to an earlier one is just the file saved last: no older
+  // copy to detect, no notice, nothing remembered to judge it by
+  writeCsv("Order,price,qty\nAcme,140,1\nBolt,56,2\n");
   await sync();
-  await settle();
-  const said = vscode.window._warnings.find((w) => /both changed/.test(w)) || "";
-  expect("a cell both changed goes to the later save, named in one notice with the other side's button",
-    aot().includes("Acme |130  |") && /Acme · price: took 130 from Order\.csv \(Shop\.aot said 120\)/.test(said)
-    && (vscode.window._warningItems || []).includes("Use Shop.aot's Values"), { aot: aot(), said, items: vscode.window._warningItems });
+  writeCsv("Order,price,qty\nAcme,140,1\nBolt,55,2\n");
+  quiet();
+  await sync();
+  expect("a CSV edit changed back folds in", aot().includes("Bolt |55   |2") && csv().includes("Bolt,55,2") && !notices().length, { aot: aot(), notices: notices() });
+  writeAot("Order|price|qty", "Acme |140  |1", "Bolt |58   |2");
+  await sync();
+  writeCsv("Order,price,qty\nAcme,140,1\nBolt,55,2\n");
+  quiet();
+  await sync();
+  expect("a CSV setting a cell back to before the .aot's change wins too, since it was saved later",
+    aot().includes("Bolt |55   |2") && !notices().length, { aot: aot(), notices: notices() });
 
-  // the same, the button pressed: one click puts the other side's value back
+  // an emptied cell empties, and the watcher hearing the save does the same
+  writeCsv("Order,price,qty\nAcme,140,\nBolt,55,2\n");
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
+  expect("a cell the CSV emptied is emptied", aot() === "Order|price|qty\nAcme |140  |\nBolt |55   |2", aot());
+
+  // the watcher's event is no trump: a CSV event carrying an older time loses
+  const copied = "Order,price,qty\nAcme,1,\nBolt,1,2\n";
+  fs.writeFileSync(csvPath, copied);
+  fs.utimesSync(csvPath, clock - 1000, clock - 1000); // a copy that kept its old time
   writeAot("Order|price|qty", "Acme |140  |", "Bolt |55   |2");
-  older(aotPath);
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,150,\nBolt,55,2\n");
-  press("Use Shop.aot's Values");
-  await sync();
-  await settle();
-  press(undefined);
-  expect("the notice's button takes the other side's value, in the .aot and the CSV",
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
+  expect("a CSV older than the .aot is overwritten, whatever event brought it",
     aot().includes("Acme |140  |") && csv().includes("Acme,140,"), { aot: aot(), csv: csv() });
 
-  // a row the CSV dropped is asked about — Keep leaves it, and the CSV has it back
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,140,\n");
-  vscode.window._warnings.length = 0;
-  press("Keep");
+  // a row the CSV no longer lists goes from the .aot, with nothing asked
+  writeCsv("Order,price,qty\nAcme,140,\n");
+  quiet();
   await sync();
-  await settle();
-  expect("a dropped row is asked about, never deleted in silence; Keep keeps it",
-    aot().includes("Bolt |55   |2") && vscode.window._warnings.some((w) => /no longer lists 'Bolt'/.test(w))
-    && csv().includes("Bolt,55,2"), { aot: aot(), csv: csv(), warnings: vscode.window._warnings });
-  // Delete takes it out of the .aot
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,140,\n");
-  press("Delete from Shop.aot");
+  expect("a row the CSV no longer lists is deleted from the .aot, and nothing is asked",
+    !aot().includes("Bolt") && aot().includes("Acme") && !vscode.window._warnings.length && csv() === "Order,price,qty\nAcme,140,\n",
+    { aot: aot(), csv: csv(), warnings: vscode.window._warnings });
+  // but a row whose sub-row the CSV still lists has to stay, and that is said
+  writeAot("Order|parent (order)|price|qty", "Acme |              |140  |", "Kid  |Acme          |1    |");
   await sync();
-  await settle();
-  press(undefined);
-  expect("Delete takes the dropped row out of the .aot", !aot().includes("Bolt") && aot().includes("Acme"), aot());
+  writeCsv("Order,parent,price,qty\nKid,Acme,1,\n");
+  vscode.window._info.length = 0;
+  await sync();
+  expect("a row whose sub-row the CSV still lists stays, and that is said",
+    aot().includes("Acme |") && aot().includes("Kid  |") && vscode.window._info.some((m) => /kept 'Acme'/.test(m)),
+    { aot: aot(), info: vscode.window._info });
+  writeAot("Order|price|qty", "Acme |140  |");
+  await sync();
 
-  // a fold into a .aot with unsaved edits edits the buffer and leaves it
-  // for its writer to save — a sync never saves somebody's work in progress
-  const lines = aot().split("\n");
+  // a new row in the CSV saved last arrives
+  writeCsv("Order,price,qty\nAcme,140,\nBolt,55,2\n");
+  await sync();
+  expect("a new row in the CSV arrives", aot().includes("Bolt |55"), aot());
+
+  // Unsaved edits are no save. A CSV saved after them overrides them: the table
+  // in the buffer ends up saying what the CSV says, cells and rows alike, the
+  // buffer stays unsaved for what it holds elsewhere, and the disk is untouched.
+  writeAot("Note", "    - Plain", "", "Order|price|qty", "Acme |140  |1", "Bolt |55   |2", "Cog  |7    |3");
+  await sync();
+  const typed = ["Note", "    - Plain", "    - Typed", "", "Order|price|qty", "Acme |140  |9", "Bolt |55   |2", "Cog  |8    |3", "New  |1    |1"];
   let saves = 0;
   const open = {
-    lines, languageId: "aot", fileName: aotPath, eol: vscode.EndOfLine.LF, isDirty: true,
+    lines: typed.slice(), languageId: "aot", fileName: aotPath, eol: vscode.EndOfLine.LF, isDirty: true,
     get lineCount() { return this.lines.length; },
     getText() { return this.lines.join("\n"); },
     lineAt(i) { return { range: new vscode.Range(i, 0, i, this.lines[i].length), text: this.lines[i] }; },
@@ -1310,57 +1297,108 @@ late(2600, async () => {
   open.uri = { fsPath: aotPath, toString: () => "file:///" + aotPath, __doc: open };
   vscode.workspace.textDocuments.push(open);
   const onDisk = aot();
-  fs.writeFileSync(csvPath, "Order,price,qty\nAcme,145,\n");
+  const withoutTyped = csv();
+  // the mirror's own text, heard again: nothing new, so nothing is overridden.
+  // This is what stops every save's write, always the later file, from wiping
+  // what was typed since — and a startup from wiping restored unsaved edits
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
   await sync();
-  vscode.workspace.textDocuments.splice(vscode.workspace.textDocuments.indexOf(open), 1);
-  expect("a fold into a document with unsaved edits edits it and does not save it",
-    open.getText().includes("Acme |145  |") && saves === 0 && aot() === onDisk, { text: open.getText(), saves });
-  fs.writeFileSync(aotPath, open.getText()); // the writer saves it
+  expect("a CSV saying what the saved .aot says overrides nothing, however late it was saved",
+    open.getText() === typed.join("\n") && csv() === withoutTyped, { text: open.getText(), csv: csv() });
+  writeCsv("Order,price,qty\nAcme,140,1\nBolt,60,2\nCog,70,3\n");
+  quiet();
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
+  expect("a CSV saved after unsaved edits edits the buffer, leaves it unsaved, and leaves the disk alone",
+    saves === 0 && aot() === onDisk, { saves, aot: aot() });
+  expect("it overrides them all: a cell it left alone, a cell it changed, and a row typed and not saved",
+    open.getText().includes("Acme |140  |1") && open.getText().includes("Bolt |60") && open.getText().includes("Cog  |70") && !open.getText().includes("New"),
+    open.getText());
+  expect("what the buffer holds outside the table stays, and nothing is said",
+    open.getText().includes("    - Typed") && !vscode.window._warnings.length, { text: open.getText(), warnings: vscode.window._warnings });
+  expect("the CSV is left as it was saved until the buffer is", csv() === "Order,price,qty\nAcme,140,1\nBolt,60,2\nCog,70,3\n", csv());
+  const heardOnce = open.getText();
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
+  expect("heard twice, the same CSV changes nothing more", open.getText() === heardOnce, open.getText());
+  // saved at last: the .aot is the file saved last
+  fs.writeFileSync(aotPath, open.getText());
+  stamp(aotPath);
   vscode.workspace._save(makeDoc(aotPath, aot()));
+  expect("the buffer saved writes the CSV", /Acme,140,1/.test(csv()) && /Bolt,60,2/.test(csv()) && /Cog,70,3/.test(csv()), csv());
+  // a .aot saved after the CSV, with unsaved edits on top: nothing to write yet
+  writeCsv(csv().replace("Acme,140,1", "Acme,141,1"));
+  writeAot(...aot().split("\n"));
+  const waiting = csv();
+  open.lines = aot().split("\n");
+  await sync();
+  expect("with the .aot saved last but a buffer still unsaved, nothing moves until it is saved",
+    csv() === waiting && open.getText() === aot(), { csv: csv(), text: open.getText() });
+  vscode.workspace.textDocuments.splice(vscode.workspace.textDocuments.indexOf(open), 1);
+  await sync();
+
+  // a .aot saved by another program while the editor runs: no save event, and
+  // the file watcher is what hears it
+  writeAot("Order|price|qty", "Acme |150  |9", "Bolt |60   |2", "Cog  |70   |3");
+  await vscode.workspace._aotChanged({ fsPath: aotPath });
+  await settle();
+  expect("a .aot saved by another program overrides the CSV at once", csv().includes("Acme,150,9"), csv());
+  const unchanged = fs.statSync(csvPath).mtimeMs;
+  await vscode.workspace._aotChanged({ fsPath: aotPath });
+  await settle();
+  expect("and hearing it again writes nothing", fs.statSync(csvPath).mtimeMs === unchanged, csv());
 
   // one Concept written in two files: the CSV holds both files' rows, and a
   // row's edit lands in the file that lists it
   const peerPath = path.join(root, "Shop2.aot");
-  fs.writeFileSync(peerPath, ["Order|price|qty", "Cog  |7    |3"].join("\n"));
+  fs.writeFileSync(peerPath, ["Order|price|qty", "Dot  |7    |3"].join("\n"));
+  stamp(peerPath);
   vscode.workspace._save(makeDoc(peerPath, fs.readFileSync(peerPath, "utf8")));
   const union = csv();
-  fs.writeFileSync(csvPath, union.replace("Cog,7,3", "Cog,8,3"));
+  writeCsv(union.replace("Dot,7,3", "Dot,8,3"));
   await sync();
   expect("a Concept two files spell mirrors both, and each row's edit goes to its own file",
-    /Acme,145,/.test(union) && /Cog,7,3/.test(union) && fs.readFileSync(peerPath, "utf8").includes("Cog  |8    |3") && !aot().includes("Cog"),
+    /Acme,150,9/.test(union) && /Dot,7,3/.test(union) && fs.readFileSync(peerPath, "utf8").includes("Dot  |8    |3") && !aot().includes("Dot"),
     { union, peer: fs.readFileSync(peerPath, "utf8"), aot: aot() });
+  writeAot("Order|price|qty", "Acme |151  |9", "Bolt |60   |2", "Cog  |70   |3");
+  await sync();
+  expect("saved after the CSV, either file overrides it, the other file's rows still in the union",
+    /Acme,151,9/.test(csv()) && /Dot,8,3/.test(csv()), csv());
+  fs.unlinkSync(peerPath);
+  await sync();
 
-  // manual mode: nothing syncs until Sync CSVs Now, which does both ways
+  // manual mode: nothing syncs until Sync CSVs Now, where the save times decide
   configStore.tableCsvSyncMode = "manual";
-  writeAot("Order|price|qty", "Acme |146  |");
+  writeAot("Order|price|qty", "Acme |152  |9", "Bolt |60   |2", "Cog  |70   |3");
   vscode.workspace._save(makeDoc(aotPath, aot()));
   const unsynced = csv();
+  writeCsv(csv().replace("Bolt,60,2", "Bolt,61,2"));
+  await vscode.workspace._csvChanged({ fsPath: csvPath });
+  const notFolded = !aot().includes("Bolt |61");
   await sync();
   delete configStore.tableCsvSyncMode;
-  expect("in manual mode a save writes no CSV, and Sync CSVs Now does",
-    /Acme,145,/.test(unsynced) && /Acme,146,/.test(csv()), { unsynced, csv: csv() });
+  expect("in manual mode nothing syncs until Sync CSVs Now, and then the file saved last overrides the other",
+    /Acme,151,9/.test(unsynced) && notFolded && aot().includes("Bolt |61") && !aot().includes("Acme |152"),
+    { unsynced, notFolded, aot: aot() });
 
-  // no baseline yet (a fresh clone): the committed CSV is the ancestor, so
-  // a .aot edit and a CSV edit since the commit both stand
-  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "aot-3way-git-"));
+  // nothing was ever remembered about this repository: a first meeting decides
+  // exactly as any other, which is what makes a moved folder or a new profile safe
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "aot-lastsaved-fresh-"));
   fs.mkdirSync(path.join(fresh, ".git"));
   fs.mkdirSync(path.join(fresh, "aot.files"));
-  fs.writeFileSync(path.join(fresh, "Shop.aot"), ["Order|price|qty", "Acme |100  |9", "Bolt |50   |2"].join("\n"));
-  fs.writeFileSync(path.join(fresh, "aot.files", "Order.csv"), "Order,price,qty\nAcme,100,1\nBolt,60,2\n");
-  const asked = [];
-  ext._test.setGit((at, args) => {
-    asked.push(args.join(" "));
-    if (args[0] === "show" && args[1] === "HEAD:aot.files/Order.csv") return "Order,price,qty\nAcme,100,1\nBolt,50,2\n";
-    throw new Error("unexpected git call");
-  });
+  const freshAot = path.join(fresh, "Shop.aot"), freshCsv = path.join(fresh, "aot.files", "Order.csv");
+  fs.writeFileSync(freshAot, ["Order|price|qty", "Acme |100  |9", "Bolt |50   |2"].join("\n"));
+  fs.writeFileSync(freshCsv, "Order,price,qty\nAcme,1,1\nBolt,1,2\n");
+  stamp(freshCsv);
+  stamp(freshAot);
   await plainCommands.get("aot.importCsvFiles")(fresh);
-  ext._test.setGit(null);
-  const merged = fs.readFileSync(path.join(fresh, "Shop.aot"), "utf8");
-  expect("with no baseline the committed CSV is the ancestor — both sides' edits stand",
-    merged.includes("Acme |100  |9") && merged.includes("Bolt |60   |2") && asked.includes("show HEAD:aot.files/Order.csv"),
-    { merged, asked });
+  expect("an older CSV never beats a newer .aot, with nothing known of either",
+    fs.readFileSync(freshAot, "utf8").includes("Acme |100  |9") && fs.readFileSync(freshCsv, "utf8").includes("Acme,100,9"),
+    { aot: fs.readFileSync(freshAot, "utf8"), csv: fs.readFileSync(freshCsv, "utf8") });
+  fs.writeFileSync(freshCsv, "Order,price,qty\nAcme,200,\nBolt,50,2\n");
+  stamp(freshCsv);
+  await plainCommands.get("aot.importCsvFiles")(fresh);
+  expect("and a newer CSV overrides the .aot the same way, an emptied cell included",
+    fs.readFileSync(freshAot, "utf8").includes("Acme |200  |"), fs.readFileSync(freshAot, "utf8"));
 
-  press(undefined);
   vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(fresh, { recursive: true, force: true });
@@ -1704,6 +1742,33 @@ if (process.platform === "win32" || process.platform === "darwin") {
 
   vscode.workspace.workspaceFolders = undefined;
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// 7c2b) the hover says each thing once: a line whose name and value both link
+// to a Concept is one use, a G that is a lone prime is not written twice, and
+// two Concepts carrying nothing are not called identical in content
+{
+  const text = [
+    "Currency: EUR",
+    "Note",
+    "Trip",
+    "    currency: EUR",
+    "Tag",
+    "    colour",
+  ].join("\n");
+  const d = makeDoc("c:\\repo\\HoverOnce.aot", text);
+  vscode.workspace._open(d);
+  const said = (line) => {
+    const h = hoverProvider.provideHover(d, new vscode.Position(line, 1));
+    return h ? h.contents.value : "";
+  };
+  const uses = said(0).match(/- line 4:/g) || [];
+  const tag = said(4);
+  const factors = /\*\*Content\*\* — G = (\S+)/.exec(tag);
+  console.log(uses.length === 1 && !/Identical in content/.test(said(0)) && !/Identical in content/.test(said(1))
+    && factors && !tag.includes(`G = ${factors[1]} = `)
+    ? "PASS (hover: a line used twice is listed once; no 'identical' for empty content; a lone prime is not repeated)"
+    : "UNEXPECTED hover repeats " + JSON.stringify({ currency: said(0), note: said(1), tag }));
 }
 
 // 7c3) AOT: Set Up Git Merge for .aot Files: .gitattributes gains the two
@@ -3618,8 +3683,8 @@ setTimeout(async () => {
     const c = live(path.join(root, "Staff.aot"), [
       "Staff",
       "    age >=18",
-      '    status ==("draft", "sent")',
-      "    grade ==@level*2",
+      '    status =("draft", "sent")',
+      "    grade =@level*2",
       "    - Ann",
       "        age: 30",
       "        status: void",
@@ -3638,7 +3703,7 @@ setTimeout(async () => {
     console.log(checkedRun.broken === 2 && checkedRun.defined === 2
       && c.lines()[8] === "        grade: 6" && c.lines()[13] === "        grade: 2,408"
       && cf().some((d) => d.range.a[0] === 10 && d.severity === W && /^'15' breaks 'age >=18' — it is not >= 18$/.test(d.message))
-      && cf().some((d) => d.range.a[0] === 6 && d.severity === W && /^'void' breaks 'status ==\("draft", "sent"\)' — it is not one of 'draft', 'sent'$/.test(d.message))
+      && cf().some((d) => d.range.a[0] === 6 && d.severity === W && /^'void' breaks 'status =\("draft", "sent"\)' — it is not one of 'draft', 'sent'$/.test(d.message))
       && cf().filter((d) => d.severity === W).length === 2
       ? "PASS (constraints: Ctrl+Enter checks every bound, warns a breach on its value, and fills what a '==' defines)"
       : "UNEXPECTED constraint run " + JSON.stringify({ checkedRun, lines: c.lines(), findings: cf().map((d) => [d.range.a, d.message]) }));

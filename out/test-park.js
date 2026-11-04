@@ -105,10 +105,10 @@ const parsed = (lines, rootName) => {
   const lines = [
     "Person",
     "    age (years) >=18 <=65",
-    "    status ==or(`draft`,`sent`)",
+    "    status =or(`draft`,`sent`)",
     "    - Socrates",
     "        age: 70",
-    "        note: a \\= b",
+    "        note: a == b",
   ];
   const { nodes } = parsed(lines);
   const out = park(lines, nodes, "Sheet");
@@ -119,11 +119,11 @@ const parsed = (lines, rootName) => {
     && out.parked[0].address === "@Person@age" && out.parked[0].formula === ">=18 <=65"
     && out.parked[1].address === "@Person@status" && out.parked[1].formula === "==or(`draft`,`sent`)");
   check("park: an escaped '=' is a value, not a derivation",
-    out.lines[5] === "        note: a \\= b");
+    out.lines[5] === "        note: a == b");
   const after = parsed(out.lines);
   const back = unpark(out.lines, after.nodes, "Sheet", out.parked);
-  check("unpark: the bounds come home as they were written — the older '==' in today's spelling, '='",
-    back.lines.join("\n") === lines.map((l, i) => (i === 2 ? "    status =or(`draft`,`sent`)" : l)).join("\n") && back.missing.length === 0);
+  check("unpark: the bounds come home as they were written",
+    back.lines.join("\n") === lines.join("\n") && back.missing.length === 0);
   const held = parkedConstraints(after.nodes, "Sheet", out.parked);
   const age = [...held.keys()].find((n) => n.name === "age");
   check("parkedConstraints: a parked chain is handed back to its declaration",
@@ -159,14 +159,6 @@ const parsed = (lines, rootName) => {
   const norm = (ls) => ls.map((l) => l.split("|").map((c) => c.trim()).join("|")).join("\n");
   check("unpark: the header's constraints and the cell's derivation all come home, the definition as '='",
     norm(back.lines) === norm(lines) && back.missing.length === 0);
-  // a store written before constraints parked addressed the cell by the
-  // column's name WITH its constraint — written the older way, `==`, as
-  // every header was then; it still comes home
-  const legacyLines = ["Invoice|price|vat ==@price*0.2|qty >=1", "INV-1|100|20|2"];
-  const legacy = unpark(legacyLines,
-    parsed(legacyLines).nodes, "Sheet", [{ address: "@Invoice@vat ==@price*0.2@INV-1", formula: "=@price/5" }]);
-  check("unpark: a legacy address carrying the column's constraint still resolves",
-    legacy.missing.length === 0 && legacy.lines[1].includes("20 =@price/5"));
 }
 {
   // a renamed declaration keeps its constraint in the store

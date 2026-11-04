@@ -7,7 +7,7 @@
 //     Pebble|3   |              one Attribute Value per cell
 //
 // The pipe is a DIVIDER, never a border: a row carries one between each
-// pair of cells and none at either end (before 1.12 it carried both). So a
+// pair of cells and none at either end. So a
 // table is exactly as wide as its widest content, and the first column
 // stands where every other line of the language stands. Columns are padded
 // to their widest cell so they align, but carry no gutter spaces around the
@@ -22,8 +22,7 @@
 //
 //     Org Structure|
 //     Department A |
-//         Team 1   |
-//             Alice|
+//     Department B |
 //
 // which is the same pipe doing the only job it has left. It is drawn
 // wherever such a table is drawn — folded back from a one-column CSV,
@@ -32,12 +31,9 @@
 // why drawing it again changes nothing: the padding of an empty last column
 // is trailing whitespace, and what is left when that goes is the pipe.
 //
-// The HEADER is the first row, and that is all it takes to be one. Before
-// 1.12 a '---+---' rule under it said so; standing first says it now, and a
-// rule says something else since 1.13 — it is a divider (below) — so one
-// left under a header from then is kept, drawn as the divider it now reads
-// as. Columns line up without one, since every cell is padded to its column
-// and every column padded to its widest cell.
+// The HEADER is the first row, and that is all it takes to be one. Columns
+// line up with no rule under it, since every cell is padded to its column and
+// every column padded to its widest cell.
 //
 // A data row's first cell is the Example's name; an empty cell leaves that
 // attribute unasserted. With no border to hold it open, an empty NAME cell
@@ -47,8 +43,8 @@
 // row — unless a colon stands before it, which makes the line a
 // 'name: value' line with a pipe in its value (isRowText).
 //
-// A row never nests by its indent. A sub-Example names the row it sits
-// under in the table's `parent (thing)` column — the column named parent
+// A row never nests by its indent, and its indent means nothing. A
+// sub-Example names the row it sits under in the table's `parent (thing)` column — the column named parent
 // whose (alias) is the table's own Concept, so by the alias rule every cell
 // in it names one of the table's rows:
 //
@@ -58,33 +54,21 @@
 //
 // It is the column the CSV mirror has always carried the tree in, so the
 // table, its spreadsheet and a DataFrame of it are one shape, and a row can
-// stand anywhere: sorted, moved, parent below child. A table from 1.12
-// wrote the same tree as leading spaces in front of the name. blockAt still
-// reads those as a depth on the row, and flatten rewrites them as the column
-// the first time the table is drawn — Format Document, or any table key.
+// stand anywhere: sorted, moved, parent below child.
 //
 // A DIVIDER — dashes between the pipes, `-----|----` — groups the rows, as a
 // blank line groups an outline's lines (the flip turns one into the other).
 // It holds no cells, says nothing to the model, and every key steps over it.
 
-// Four spaces to the level, the same INDENT linter.js declares — one number
-// under two names, because linter.js requires this file and not the other
-// way about. Change one and change the other.
-const INDENT = 4;
-
 const { readsAsExpression } = require("./pyshape");
 
-// A divider row — '----|----' — groups a table's rows. Read loosely, so a
-// '---+---' rule from before 1.12 (when it marked the row above it as the
-// header) reads as one too, and is drawn as one the next time the table is:
-// dashes, pluses, colons, pipes and spaces with at least two characters and
-// one dash. Two is the floor because a lone '-' is an Example whose name is
-// still being typed, and the divider must not steal it.
-const isSeparator = (text) => /^[\s\-+:|]*$/.test(text) && text.includes("-") && text.trim().length > 1;
+// A divider row — '----|----' — groups a table's rows: dashes, pipes and
+// spaces, with at least one of each of the first two. The pipe is what keeps a
+// lone '-', an Example whose name is still being typed, from reading as one.
+const isSeparator = (text) => /^[\s\-|]*$/.test(text) && text.includes("-") && text.includes("|");
 
 // A line is a table row when it carries a '|': the divider between two
-// cells is the only pipe a row has, so one is all it takes. A leftover rule
-// counts too — it divides its columns with '+' and may carry no pipe at all.
+// cells is the only pipe a row has, so one is all it takes.
 //
 // Except behind a colon. A name never holds one (the line grammar splits
 // on it), so a colon standing before the first pipe says the line is a
@@ -215,10 +199,9 @@ function lineDerivation(text) {
   return { head: head.trim(), formula: t.slice(split.eq + 1).trim(), eq: split.eq };
 }
 
-// The block's header: its first row. With the rule gone, standing first is
-// what makes a row the header — the cells that name the Concept and its
-// columns — and every row under it is an Example. -1 when the block is
-// nothing but leftover rules.
+// The block's header: its first row. Standing first is what makes a row the
+// header — the cells that name the Concept and its columns — and every row
+// under it is an Example. -1 when the block is nothing but dividers.
 const headerIndex = (block) => block.rows.findIndex((r) => !r.sep);
 
 // A cell padded to its column's width. An over-long cell is never
@@ -234,12 +217,6 @@ function padCell(text, width) {
 // on an empty name cell, and a TRAILING one leaves an empty cell after it
 // (which asserts nothing, exactly as any other empty cell does — and which
 // is how the closing pipe of an attribute-less table reads back).
-//
-// `indent` is the cell's own leading spaces. On the name cell that is where
-// a row's depth is written; everywhere else it is only padding. A cell with
-// nothing in it indents nothing — an all-spaces cell is empty, not deep,
-// which is what keeps a row whose name cell is still empty at the depth of
-// the table it is being typed into.
 function cells(line) {
   const text0 = String(line);
   if (!text0.trim()) return [];
@@ -249,18 +226,15 @@ function cells(line) {
   for (const i of [...dividers(text0), text0.length]) {
     const seg = text0.slice(start, i);
     const text = seg.trim();
-    const indent = seg.length - seg.trimStart().length;
-    out.push({ text, col: start + indent, indent: text ? indent : 0 });
+    out.push({ text, col: start + (seg.length - seg.trimStart().length) });
     start = i + 1;
   }
   return out;
 }
 
 // The table block around one line: the unbroken run of rows around it.
-// Rows carry their cell texts — and, in a table written before 1.13, their
-// depth: the name's own indent, in levels past the block's, which flatten
-// turns into the parent column — while divider rows carry neither. null
-// when the line is not a row.
+// Rows carry their cell texts, and divider rows carry none. null when the
+// line is not a row.
 //
 // The run is bounded by what is not a row: a blank line, or any line
 // carrying no pipe. The block's own indent is its header's, and a row
@@ -296,20 +270,6 @@ function blockAt(lines, lineIdx) {
       if (indentOf(i).length < indent.length) indent = indentOf(i);
     }
   }
-  // A table written in the pre-1.12 bordered form — every row of it opening
-  // and closing with a '|' — is read without those borders, so drawing the
-  // block again is what migrates the file. The test is the whole block's,
-  // and every row must agree: a half-converted table is left to its errors
-  // rather than guessed at, and a table whose every row genuinely had an
-  // empty name cell would have nothing to name its Examples anyway.
-  const bordered = (() => {
-    for (let i = start; i <= end; i++) {
-      const t = lines[i].trim();
-      if (!t.startsWith("|") || !t.endsWith("|") || t.length < 2) return false;
-    }
-    return true;
-  })();
-  const unborder = (list) => (bordered ? list.slice(1, -1) : list);
   const rows = [];
   for (let i = start; i <= end; i++) {
     // a divider is kept in the block, so every row still answers to its own
@@ -319,23 +279,10 @@ function blockAt(lines, lineIdx) {
       rows.push({ sep, cells: [] });
       continue;
     }
-    const row = unborder(cells(lines[i]));
-    // a 1.12 table's tree: the name's leading spaces past the table's own
-    // indent, or — in a bordered table being migrated — the spaces the old
-    // border held them behind. flatten writes it as the parent column.
-    const lead = row.length ? row[0].indent - (bordered ? 0 : indent.length) : 0;
-    rows.push({
-      sep,
-      cells: row.map((c) => c.text),
-      depth: Math.floor(Math.max(0, lead) / INDENT),
-    });
+    rows.push({ sep, cells: cells(lines[i]).map((c) => c.text) });
   }
   return { start, end, indent, rows };
 }
-
-// Does any row of the block still nest by its indent, as a table did before
-// 1.13? Only such a block has anything for flatten to do.
-const nests = (block) => block.rows.some((r) => !r.sep && r.depth);
 
 // A header cell's term and its (alias): its default, bounds and derivation
 // set aside. The first cell names the Concept, so a colon there opens the
@@ -440,53 +387,6 @@ function branchOf(block, i) {
   return out;
 }
 
-// A table written before 1.13 nests a row under the row above it by
-// indenting its name. A table never nests that way now: the row names its
-// parent in the `parent (thing)` column. flatten rewrites the one as the
-// other, in place — each indented row's parent (the nearest shallower row
-// above it) written into its parent cell, the column added second when the
-// table has none, every row's indent dropped. Answers the index of the
-// column it added, so a caller holding a column index can shift it, or -1.
-function flatten(block) {
-  if (!nests(block)) return -1;
-  const head = headerIndex(block);
-  if (head === -1) {
-    for (const r of block.rows) r.depth = 0;
-    return -1;
-  }
-  const header = block.rows[head];
-  const data = block.rows.filter((r, i) => i > head && !r.sep);
-  let col = parentColumnOf(header.cells);
-  let added = -1;
-  if (col === -1) {
-    // a one-column table closed its rows with a pipe, read back as an empty
-    // last column; with a column added it has pipes to divide, and needs none
-    if (header.cells.length === 2 && !String(header.cells[1]).trim()
-      && data.every((r) => !String(r.cells[1] || "").trim())) {
-      for (const r of [header, ...data]) r.cells.length = Math.min(r.cells.length, 1);
-    }
-    col = added = 1;
-    header.cells.splice(1, 0, parentHeader(header.cells));
-    for (const r of data) {
-      while (r.cells.length < 1) r.cells.push("");
-      r.cells.splice(1, 0, "");
-    }
-  }
-  data.forEach((r, k) => {
-    const depth = r.depth || 0;
-    if (!depth || String(r.cells[col] || "").trim()) return;
-    for (let j = k - 1; j >= 0; j--) {
-      if ((data[j].depth || 0) < depth) {
-        while (r.cells.length <= col) r.cells.push("");
-        r.cells[col] = data[j].cells[0] || "";
-        break;
-      }
-    }
-  });
-  for (const r of block.rows) r.depth = 0;
-  return added;
-}
-
 // A numbering prefix — `1. `, `2.3 `, `1.1.1 ` — is presentation, never
 // part of a name's identity: `trip` types by the Concept `1. Trip` exactly
 // as it would by `Trip`, so numbering a tree breaks no reference. Shared
@@ -513,7 +413,6 @@ function widthsOf(block) {
   block.rows.forEach((row) => {
     if (row.sep) return;
     row.cells.forEach((c, k) => {
-      // a 1.12 row's indent is drawn nowhere (flatten), so a name is its own width
       widths[k] = Math.max(widths[k] || 0, c.length);
     });
   });
@@ -526,10 +425,8 @@ function widthsOf(block) {
 // Draw the block aligned: every column padded to its widest cell, no gutter
 // spaces around the pipes, and every divider drawn as dashes to its
 // columns' widths — `------|---|----`. One row is one line: nothing here
-// splits a cell across two. A 1.12 table's nesting is written as the parent
-// column first (flatten), which is how a file from then is migrated.
+// splits a cell across two.
 function render(block) {
-  flatten(block);
   const widths = widthsOf(block);
   const drawn = (row, k) => row.cells[k] || "";
   // The pipes divide, so a drawn row opens with its name and ends with its
@@ -1120,9 +1017,8 @@ function fromRegion(lines) {
 // a value is read *as data* (the model, the evaluator, a sort key) and leave
 // them in the text, which is what every rewrite path copies verbatim.
 // readValue is that step; call it wherever a value becomes meaning rather
-// than characters. `\=`, the escape before 1.13, still reads as '='.
+// than characters.
 const readValue = (text) => String(text)
-  .replace(/\\=/g, "=")
   .replace(/(^|\s)(={2,})/g, (m, lead, run) => lead + run.slice(1));
 
 // readValue's inverse: a value as the file must write it so that it reads
@@ -1153,12 +1049,21 @@ function splitCell(text) {
 
 // The constraint operators an attribute declaration may carry. `=` defines:
 // one value it computes is what every value of the attribute is, a
-// collection the values it may take — what `==` said before 1.13, and still
-// says, read as the same operator. Longest first, so `==`, `<=` and `>=` are
+// collection the values it may take. Longest first, so `<=` and `>=` are
 // never read as an `=` with something in front of it.
-const CONSTRAINT_OPS = ["==", "<=", ">=", "=", "<", ">"];
-// the operator a clause means: `=` and the older `==` are one equality
+const CONSTRAINT_OPS = ["<=", ">=", "=", "<", ">"];
+// the operators of a chain as the .formulas store spells it (park.js), where
+// a definition is `==` so it never reads as a value's derivation
+const STORED_OPS = ["==", "<=", ">=", "<", ">"];
+// the operator a clause means: a definition is an equality, spelled as Python
+// spells one
 const meaningOf = (op) => (op === "=" ? "==" : op);
+// the operator standing at `i`, if one does: an `=` with another behind it is
+// no definition, so `size ==4` is a name and never a bound of `=4`
+const operatorAt = (text, i, ops) => {
+  const op = ops.find((o) => text.startsWith(o, i));
+  return op === "=" && text[i + 1] === "=" ? undefined : op;
+};
 
 // Split an attribute declaration into its term and its constraints —
 // comparison bounds such as `age >=18`, `cap <=@price*1.5`, a definition
@@ -1169,14 +1074,15 @@ const meaningOf = (op) => (op === "=" ? "==" : op);
 // [{ op, opText, formula, eq }] } — `op` the operator meant (an equality is
 // always "=="), `opText` the one written. A bound is Python, and only
 // believed when its right side reads as an expression (pyshape.js), so a
-// prose term such as 'speed > none noted' stays a plain name.
-function splitConstraint(text) {
+// prose term such as 'speed > none noted' stays a plain name. `ops` is
+// STORED_OPS for a chain read from the store.
+function splitConstraint(text, ops = CONSTRAINT_OPS) {
   if (!text) return { value: text || "", eq: -1, op: null, formula: "", constraints: [] };
   for (let i = 0; i < text.length; i++) {
     if (i > 0 && text[i - 1] !== " ") continue;
-    const op = CONSTRAINT_OPS.find((o) => text.startsWith(o, i));
+    const op = operatorAt(text, i, ops);
     if (!op) continue;
-    const constraints = chainOf(text, i);
+    const constraints = chainOf(text, i, ops);
     if (constraints) {
       return {
         value: text.slice(0, i).trim(), eq: i,
@@ -1212,22 +1118,22 @@ function standsWhole(text) {
 // carries two, while an operator inside a bound's own Python (a string, a
 // bracket) never splits it. Answers null when a segment fails to read as an
 // expression; the caller then treats the text as prose.
-function chainOf(text, from) {
+function chainOf(text, from, ops) {
   const constraints = [];
   let opAt = from;
-  let op = CONSTRAINT_OPS.find((o) => text.startsWith(o, opAt));
+  let op = operatorAt(text, opAt, ops);
   let segStart = opAt + op.length;
   for (let j = segStart; j <= text.length; j++) {
     let next = null;
     const boundary = j === text.length;
     if (!boundary) {
       if (text[j - 1] !== " ") continue;
-      next = CONSTRAINT_OPS.find((o) => text.startsWith(o, j));
+      next = operatorAt(text, j, ops);
       if (!next) continue;
     }
     const seg = text.slice(segStart, boundary ? text.length : j).trim();
     // Mid-text, a cut inside a string or a bracket is the middle of the
-    // bound already being read, never a new one, so '==("a > b",)' keeps its
+    // bound already being read, never a new one, so '=("a > b",)' keeps its
     // quoted operator.
     if (!seg || !readsAsExpression(seg) || (!boundary && !standsWhole(seg))) {
       if (boundary) return null; // every bound must read as an expression
@@ -1527,24 +1433,19 @@ const cleanName = (t) => {
 // `headerOnly` asks for it: the table of a Concept with no Examples yet is
 // one, and the flip writes it back as the Concept's lines.
 //
-// The grid is the table as it reads since 1.13: a 1.12 table's indented rows
-// come out flattened into the parent column (flatten), so every reader sees
-// one shape, and a writer that draws the grid back migrates the table.
-// `parentCol` is that column's index in the header (-1 for none), and
-// `breaks` the data-row indices a divider stands before (rows.length for
-// one after the last row).
+// `parentCol` is the parent column's index in the header (-1 for none), and
+// `breaks` the data-row indices a divider stands before (rows.length for one
+// after the last row).
 function tablesOf(lines, rootName, { headerOnly = false } = {}) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    const read = blockAt(lines, i);
-    if (!read) continue;
-    i = read.end;
-    if (headerIndex(read) === -1 || (!headerOnly && !dataRowsOf(read).length)) continue;
-    const block = { ...read, rows: read.rows.map((r) => ({ ...r, cells: r.cells.slice() })) };
-    flatten(block);
-    // the table names the Concept it describes in its first header cell
-    // (1.9); an older table (a 'name' label, or a cell that reads as no
-    // Concept) still takes its name from the nearest shallower line.
+    const block = blockAt(lines, i);
+    if (!block) continue;
+    i = block.end;
+    if (headerIndex(block) === -1 || (!headerOnly && !dataRowsOf(block).length)) continue;
+    // the table names the Concept it describes in its first header cell; a
+    // cell that reads as no Concept (an error the linter reports) takes its
+    // name from the nearest shallower line.
     let name, nameLine;
     const own = cleanName(block.rows[0].cells[0] || "");
     if (own && /^[A-Z]/.test(own)) {
@@ -1661,8 +1562,8 @@ function updateTable(lines, name, header, rows, rootName, registry, breaks) {
     to = selfBlock.end;
     indent = selfBlock.indent;
   } else {
-    // 2) the Concept's own line and the table beneath it (an older grid, or
-    //    a line-form Concept gaining its first grid — inserted under its
+    // 2) the Concept's own line and the table beneath it, or a line-form
+    //    Concept gaining its first grid — inserted under its
     //    line as a merge-form table that repeats the Concept's name).
     let conceptLine = -1, conceptIndent = -1;
     for (let i = 0; i < lines.length; i++) {
@@ -1751,14 +1652,14 @@ module.exports = {
   cells, dividers, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross, columnDefinition, defineColumn,
-  demoteRow, promoteRow, flatten, nests, parentsOf, branchOf, breaksOf,
+  demoteRow, promoteRow, parentsOf, branchOf, breaksOf,
   headerTerm, isParentColumn, parentColumnOf, parentHeader, PARENT_TERM,
   copyCell, moveCell, copyRow, copyColumn,
   jumpCell, cornerCell, fill, fillDown, fillRight, copyFormulaFromAbove, copyValueFromAbove,
   columnTerm, defaultColon,
   padCell, headerIndex,
   cleanName, tablesOf, toCsv, fromCsv, updateTable,
-  splitCell, splitConstraint, formatValue,
+  splitCell, splitConstraint, STORED_OPS, formatValue,
   longestMatch, numericValue, tableCtx,
   readValue, writtenValue,
   valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,

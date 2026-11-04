@@ -35,6 +35,11 @@ const {
 } = require("./table");
 const { typeDefaultOf } = require("./crosslinks");
 
+// The maintained `...` line, told from anything you wrote by its own shape.
+// Only a Map whose note matches this is ever rewritten or removed (repo.js);
+// a `... still to do` beside it is left exactly as it stands.
+const NOTE_RE = /^\d+ more in /;
+
 // The `==` bound on an attribute declaration — the one that *defines* every
 // value of the attribute rather than bounding it, when what it computes is
 // one value. Answers the bound's source, or null when the declaration
@@ -1158,7 +1163,10 @@ const columnAttributes = (concept) => {
 // all the table stands alone where the Concept's line stood, and when it is
 // not the Concept keeps its line and the grid is filed beneath it, repeating
 // its name in the first cell — the merge form, which is what lets a Map, a
-// sub-Concept or an Example too deep to be a row survive the flip.
+// sub-Concept or an Example too deep to be a row survive the flip. The
+// maintained `... N more in a.aot:3` note is the exception: a table has a
+// place for it, one level under its last row (where reconcile writes it), so
+// it never decides the form.
 //
 // A blank line straight above an Example's line becomes a divider above its
 // row — above the first, one under the header — and the flip back writes
@@ -1209,7 +1217,8 @@ function toTableForm(lines, concept) {
   const cell = (text) => String(text).replace(/\|/g, "¦");
   const consumed = new Set([...declared, ...examples.map((e) => e.node)]);
   const kept = concept.children.filter((c) => !consumed.has(c) && c.line !== concept.line);
-  const standalone = !kept.length && concept.line > 0;
+  const isNote = (c) => c.kind === KIND.MAP && NOTE_RE.test(c.name);
+  const standalone = kept.every(isNote) && concept.line > 0;
   const indent = " ".repeat(INDENT * (concept.depth + (standalone ? 0 : 1)));
   // the Concept's own default as its line wrote it, escapes and all
   const ownDefault = concept.value != null && concept.value !== "" ? rawValueOf(lines, concept) : "";
@@ -1271,6 +1280,7 @@ function toTableForm(lines, concept) {
     for (const c of kept) put(lines.slice(c.line - 1, lastLineOf(c)));
   }
   put(drawn);
+  if (standalone) for (const n of kept) out.push(indent + " ".repeat(INDENT) + String(lines[n.line - 1] || "").trim());
   if (touches(to + 1)) out.push("");
   return { form: "table", from, to, block: out };
 }
@@ -1638,6 +1648,6 @@ module.exports = {
   derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, valueSpanOf, makeCtx, scopeOf, kindAbove,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
   mirrorGrids, updateScope, deleteExamples,
-  lastLineOf, headerColName, renumberExamples, renumberConcepts,
+  lastLineOf, headerColName, renumberExamples, renumberConcepts, NOTE_RE,
   flipForm, gridOfConcept, toTableForm, toLineForm, ideaAt, positionOf,
 };
