@@ -2,8 +2,8 @@
 // `<fix> — <why>`, with a rule's label (`drift:`) allowed ahead of the fix.
 //
 // Each case fires one rule and pins the fix it opens with. Every message any
-// fixture produces, the case's own or incidental, must also open with a fix,
-// so a new rule worded the old way fails here even with no case of its own.
+// fixture produces, the case's own or incidental, must also open with a fix.
+// A new rule is only held to this once a fixture here raises it: give it a case.
 //
 // Plain Node script, no framework — run with: node out/test-messages.js
 const { lint } = require("../src/linter");

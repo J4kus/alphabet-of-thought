@@ -26,160 +26,72 @@
     Portfolio
 - graph
     Worker (Agent)
-        is bottleneck: yes
+        Concurrent (Single-Threading)                        |parent (concurrent)                   |how                                                           |cost                               |waiting for                            |has lock|tackles                           |readers block writers|validated     |seen in                     |needs
+        Cheaper Resource                                     |                                      |                                                              |                                   |                                       |        |too few resources                 |                     |              |                            |
+        diversified copies (multi-version concurrency)       |Cheaper Resource                      |each reader gets its own version                              |storage for old versions           |                                       |no      |                                  |no                   |on commit only|SQL Server In-Memory OLTP   |
+        buffer ("slack")                                     |Cheaper Resource                      |hold spare capacity between steps                             |idle capacity                      |                                       |        |                                  |                     |              |                            |
+        held by me                                           |buffer ("slack")                      |                                                              |                                   |                                       |        |                                  |                     |              |in-process queue            |
+        another party                                        |buffer ("slack")                      |                                                              |                                   |                                       |        |                                  |                     |              |message broker              |
+        fastest gun redundancy                               |Cheaper Resource                      |fire at several replicas and take first answer                |extra load from duplicate requests |                                       |        |                                  |                     |              |hedged requests             |multiple nodes with same data
+        optimistic concurrency                               |Cheaper Resource                      |speculate then reconcile on rare miss                         |redone work on each miss           |                                       |no      |                                  |                     |              |compare-and-swap            |
+        No Shared State                                      |                                      |                                                              |                                   |                                       |        |shared state                      |                     |              |                            |
+        delete (design away)                                 |No Shared State                       |redesign until nothing is shared                              |redesign effort                    |                                       |        |                                  |                     |              |stateless services          |
+        clamp into single complex (no shared medium)         |No Shared State                       |fuse the parties into one unit                                |parts can no longer change alone   |                                       |        |                                  |                     |              |enzyme complexes            |
+        coordinate once, offline, by convention              |No Shared State                       |agree the rule up front, no talking at run time               |run-time flexibility               |                                       |        |                                  |                     |              |driving on the left         |
+        pass messages and isolate (guard)                    |No Shared State                       |one owner holds the state, others ask it                      |a message hop per access           |                                       |        |                                  |                     |              |Erlang actors               |
+        separate service                                     |pass messages and isolate (guard)     |                                                              |                                   |                                       |        |                                  |                     |              |microservice owning its data|
+        hide information                                     |pass messages and isolate (guard)     |                                                              |                                   |                                       |        |                                  |                     |              |private fields              |
+        reduce costs                                         |No Shared State                       |keep the sharing, pay less for it                             |                                   |                                       |        |                                  |                     |              |                            |
+        free riding                                          |reduce costs                          |reuse coordination another party already paid for             |no control over when it happens    |                                       |        |                                  |                     |              |request coalescing          |
+        unreliable channels                                  |reduce costs                          |stop guaranteeing delivery                                    |consistency or availability        |                                       |        |                                  |                     |              |DNS                         |
+        Externalised Work                                    |                                      |                                                              |                                   |                                       |        |work on the bottleneck            |                     |              |                            |
+        pre-computed                                         |Externalised Work                     |do the work before it is needed                               |storage, stale answers             |                                       |        |                                  |                     |              |materialised views          |
+        parallelised                                         |Externalised Work                     |do the work alongside, on another worker                      |exposure to race conditions        |                                       |        |                                  |                     |              |Parallel                    |
+        asynchronised                                        |Externalised Work                     |do the work elsewhere while the worker moves on               |straight-line control flow         |                                       |        |                                  |                     |              |Async                       |
+        defer                                                |Externalised Work                     |do the work later, once the rush is over                      |late results                       |                                       |        |                                  |                     |              |write-behind cache          |
+        Interchangeable Resource                             |                                      |                                                              |                                   |                                       |        |need tied to one resource         |                     |              |                            |
+        de-correlate the need from the specific resource     |Interchangeable Resource              |ask for any resource that fits, not a named one               |no say in which resource you get   |                                       |        |                                  |                     |              |load balancer               |
+        substitute collateral                                |Interchangeable Resource              |pledge a different asset of equal value                       |checking the swap is worth the same|                                       |        |                                  |                     |              |tri-party repo              |
+        Satisficing (Good Enough Optimisation)               |                                      |                                                              |                                   |                                       |        |requirement stricter than needed  |                     |              |                            |
+        net and clear                                        |Satisficing (Good Enough Optimisation)|offset what parties owe each other, settle only the difference|a central party everyone must trust|                                       |        |                                  |                     |              |clearing house              |
+        collapse the obligation graph                        |Satisficing (Good Enough Optimisation)|cancel closed loops of obligations                            |every party must join in           |                                       |        |                                  |                     |              |portfolio compression       |
+        Outsourced Dependency to whoever can handle it better|                                      |hand the dependency over and pay for it                       |control                            |                                       |        |dependency held by the wrong party|                     |              |managed database            |
+        synchronise                                          |                                      |tasks wait for each other                                     |time spent waiting                 |                                       |        |                                  |                     |              |                            |
+        re-entrant lock                                      |synchronise                           |                                                              |                                   |the holder to release, unless it is you|        |                                  |                     |              |                            |
+        event                                                |synchronise                           |                                                              |                                   |a signal from another task             |        |                                  |                     |              |                            |
+        condition                                            |synchronise                           |                                                              |                                   |shared state to change                 |        |                                  |                     |              |                            |
+        barrier                                              |synchronise                           |                                                              |                                   |every task to arrive                   |        |                                  |                     |              |                            |
+            is bottleneck: yes
+
+        Async
+            wrapped concurrent
+            waiting for: external instrument
+            suspension event
+            awaiting event
+            wrapped co routine
+        Parallel (Multi Threading)
+            maximum worker pool: many
+            is worker pool count known: no
+            processing rule
+                - Queue
+                    has lock: yes
+                - Dedicated
+                    has lock: no
+                - Semaphore
+                    permit count
+            is memory shared in pool of workers
+                - Thread
+                - Process
+            risk
+                - Race Condition
+                - Deadlock
         is tangible: no
         useful life: infinite
         write off method: not applicable
         maximum worker pool: 1
-        thread
-            Concurrent (Single-Threading)
-                - synchronise
-                    how: tasks wait for each other
-                    cost: time spent waiting
-                    - re-entrant lock
-                        waiting for: the holder to release, unless it is you
-                    - event
-                        waiting for: a signal from another task
-                    - condition
-                        waiting for: shared state to change
-                    - barrier
-                        waiting for: every task to arrive
-                fixes
-                    problem: tasks wait for one worker
-                    order: remove the cause first, give the problem away last
-                    tackles
-                    how
-                    cost
-                    seen in
-                    1. No Shared State
-                        tackles: shared state
-                        - delete (design away)
-                            how: redesign until nothing is shared
-                            cost: redesign effort
-                            seen in: stateless services
-                        - clamp into single complex (no shared medium)
-                            how: fuse the parties into one unit
-                            cost: parts can no longer change alone
-                            seen in: enzyme complexes
-                        - coordinate once, offline, by convention
-                            how: agree the rule up front, no talking at run time
-                            cost: run-time flexibility
-                            seen in: driving on the left
-                        - pass messages and isolate (guard)
-                            how: one owner holds the state, others ask it
-                            cost: a message hop per access
-                            seen in: Erlang actors
-                            - separate service
-                                seen in: microservice owning its data
-                            - hide information
-                                seen in: private fields
-                        - reduce costs
-                            how: keep the sharing, pay less for it
-                            - free riding
-                                how: reuse coordination another party already paid for
-                                cost: no control over when it happens
-                                seen in: request coalescing
-                            - unreliable channels
-                                how: stop guaranteeing delivery
-                                cost: consistency or availability
-                                seen in: DNS
-                    2. Externalised Work
-                        tackles: work on the bottleneck
-                        - pre-computed
-                            how: do the work before it is needed
-                            cost: storage, stale answers
-                            seen in: materialised views
-                        - parallelised
-                            how: do the work alongside, on another worker
-                            cost: exposure to race conditions
-                            seen in: Parallel
-                        - asynchronised
-                            how: do the work elsewhere while the worker moves on
-                            cost: straight-line control flow
-                            seen in: Async
-                        - defer
-                            how: do the work later, once the rush is over
-                            cost: late results
-                            seen in: write-behind cache
-                    3. Cheaper Resource
-                        tackles: too few resources
-                        - diversified copies (multi-version concurrency)
-                            how: each reader gets its own version
-                            has lock: no
-                            readers block writers: no
-                            validated: on commit only
-                            cost: storage for old versions
-                            seen in: SQL Server In-Memory OLTP
-                        - buffer ("slack")
-                            how: hold spare capacity between steps
-                            cost: idle capacity
-                            held by
-                                - me
-                                    seen in: in-process queue
-                                - another party
-                                    seen in: message broker
-                        - fastest gun redundancy
-                            how: fire at several replicas and take first answer
-                            needs: multiple nodes with same data
-                            cost: extra load from duplicate requests
-                            seen in: hedged requests
-                        - optimistic concurrency
-                            how: speculate then reconcile on rare miss
-                            has lock: no
-                            cost: redone work on each miss
-                            seen in: compare-and-swap
-                    4. Interchangeable Resource
-                        tackles: need tied to one resource
-                        - de-correlate the need from the specific resource
-                            how: ask for any resource that fits, not a named one
-                            cost: no say in which resource you get
-                            seen in: load balancer
-                        - substitute collateral
-                            how: pledge a different asset of equal value
-                            cost: checking the swap is worth the same
-                            seen in: tri-party repo
-                    5. Satisficing (Good Enough Optimisation)
-                        tackles: requirement stricter than needed
-                        - net and clear
-                            how: offset what parties owe each other, settle only the difference
-                            cost: a central party everyone must trust
-                            seen in: clearing house
-                        - collapse the obligation graph
-                            how: cancel closed loops of obligations
-                            cost: every party must join in
-                            seen in: portfolio compression
-                    6. Outsourced Dependency
-                        tackles: dependency held by the wrong party
-                        - to whoever can handle it better
-                            how: hand the dependency over and pay for it
-                            cost: control
-                            seen in: managed database
-            Async
-                wrapped concurrent
-                waiting for: external instrument
-                suspension event
-                awaiting event
-                wrapped co routine
-            Parallel (Multi Threading)
-                maximum worker pool: many
-                is worker pool count known: no
-                processing rule
-                    - Queue
-                        has lock: yes
-                    - Dedicated
-                        has lock: no
-                    - Semaphore
-                        permit count
-                is memory shared in pool of workers
-                    - Thread
-                    - Process
-                risk
-                    - Race Condition
-                    - Deadlock
-
 
     Time (Timing)
-        Milestone
+        - Milestone
             precision
             interval count: 0
             format
@@ -192,10 +104,11 @@
                     precision: no seconds
                 - Precise Date Time
                     precision: microseconds
-        Duration
+        - Duration
             interval count: 1
-        Cycle
+        - Cycle
             interval count: 2 or more
+        
         result
         is done
         exception
@@ -206,4 +119,6 @@
         polling duration
         precision: up to minutes
         displacement from greenwich meridian hours: +0
+
+    
 - function

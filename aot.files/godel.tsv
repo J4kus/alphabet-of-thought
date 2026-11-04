@@ -350,6 +350,12 @@ a	driver	2347
 a	signal	2351
 a	evidence	2357
 a	portfolio	2371
+a	how	2377
+a	needs	2381
+a	readers block writers	2383
+a	seen in	2389
+a	tackles	2393
+a	validated	2399
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -1297,6 +1303,10 @@ v	vat	4	716.8
 v	vat	5	16
 v	volume	2	1.7
 v	waiting for	2	external instrument
+v	waiting for	3	a signal from another task
+v	waiting for	4	every task to arrive
+v	waiting for	5	shared state to change
+v	waiting for	6	the holder to release, unless it is you
 v	weight	2	
 v	weight	3	15
 v	weight	4	2
@@ -1352,6 +1362,26 @@ v	warmth	4	200
 v	cost	2	12
 v	cost	3	4
 v	cost	4	900
+v	cost	5	a central party everyone must trust
+v	cost	6	a message hop per access
+v	cost	7	checking the swap is worth the same
+v	cost	8	consistency or availability
+v	cost	9	control
+v	cost	10	every party must join in
+v	cost	11	exposure to race conditions
+v	cost	12	extra load from duplicate requests
+v	cost	13	idle capacity
+v	cost	14	late results
+v	cost	15	no control over when it happens
+v	cost	16	no say in which resource you get
+v	cost	17	parts can no longer change alone
+v	cost	18	redesign effort
+v	cost	19	redone work on each miss
+v	cost	20	run-time flexibility
+v	cost	21	storage for old versions
+v	cost	22	storage, stale answers
+v	cost	23	straight-line control flow
+v	cost	24	time spent waiting
 v	sage	2	Socrates
 v	spread	2	20
 v	spread	3	200
@@ -1377,3 +1407,55 @@ v	naming convention	4	input/output + entity name from graph rationale
 v	objective attribute	2	input/output + entity name from graph rationale
 v	evidence	2	strong
 v	evidence	3	weak
+v	how	2	agree the rule up front, no talking at run time
+v	how	3	ask for any resource that fits, not a named one
+v	how	4	cancel closed loops of obligations
+v	how	5	do the work alongside, on another worker
+v	how	6	do the work before it is needed
+v	how	7	do the work elsewhere while the worker moves on
+v	how	8	do the work later, once the rush is over
+v	how	9	each reader gets its own version
+v	how	10	fire at several replicas and take first answer
+v	how	11	fuse the parties into one unit
+v	how	12	hand the dependency over and pay for it
+v	how	13	hold spare capacity between steps
+v	how	14	keep the sharing, pay less for it
+v	how	15	offset what parties owe each other, settle only the difference
+v	how	16	one owner holds the state, others ask it
+v	how	17	pledge a different asset of equal value
+v	how	18	redesign until nothing is shared
+v	how	19	reuse coordination another party already paid for
+v	how	20	speculate then reconcile on rare miss
+v	how	21	stop guaranteeing delivery
+v	how	22	tasks wait for each other
+v	needs	2	multiple nodes with same data
+v	readers block writers	2	no
+v	seen in	2	Async
+v	seen in	3	DNS
+v	seen in	4	Erlang actors
+v	seen in	5	Parallel
+v	seen in	6	SQL Server In-Memory OLTP
+v	seen in	7	clearing house
+v	seen in	8	compare-and-swap
+v	seen in	9	driving on the left
+v	seen in	10	enzyme complexes
+v	seen in	11	hedged requests
+v	seen in	12	in-process queue
+v	seen in	13	load balancer
+v	seen in	14	managed database
+v	seen in	15	materialised views
+v	seen in	16	message broker
+v	seen in	17	microservice owning its data
+v	seen in	18	portfolio compression
+v	seen in	19	private fields
+v	seen in	20	request coalescing
+v	seen in	21	stateless services
+v	seen in	22	tri-party repo
+v	seen in	23	write-behind cache
+v	tackles	2	dependency held by the wrong party
+v	tackles	3	need tied to one resource
+v	tackles	4	requirement stricter than needed
+v	tackles	5	shared state
+v	tackles	6	too few resources
+v	tackles	7	work on the bottleneck
+v	validated	2	on commit only
