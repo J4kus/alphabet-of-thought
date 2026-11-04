@@ -30,6 +30,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
   Also:
   - A `.aot` saved by another program, or a pull, rewrites the CSV as soon as the file watcher hears it.
+  - Hovering a Concept, on its name or on anything that links to it, offers a link that opens its CSV, once the CSV exists.
   - A Concept written in several files mirrors their union, and each row's edit goes to the file that lists it.
   - `aot.tableCsvSyncMode: manual` syncs only on **AOT: Sync CSVs Now** (`Ctrl+K Y`; it was *Import Edited CSVs*), where the same rule decides.
   - A fold no longer writes an inherited value down as an Example's own, and no longer repeats a nested `- ` Example at the top with a literal `parent:` line.

@@ -821,6 +821,7 @@ v	expected	170	the hover of Rent lists currency EUR as the default of Currency; 
 v	expected	171	Washer goes back to what the CSV says and Screw goes from this file, with nothing asked; this file stays unsaved until you save it
 v	expected	172	nothing syncs until Ctrl+K Y; the first time the CSV was saved last, so here Nut reads 8 and Bolt goes back to what the CSV says; the second time this file was saved last, so the CSV has Nut 3 and Bolt goes back to what this file says; no notice either time
 v	expected	173	nothing warns and nothing moves in the Outline, since the parent cell is what files Sapling under Apple; Format Document draws the row flush with the others again
+v	expected	174	the link opens the CSV; after each CSV save this file changes and saves itself; Bolt reads 6, then 5 again, and the count cell of Washer is empty
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot
@@ -1265,6 +1266,7 @@ v	try	63	under Power Tool type a line Drill one level deeper, watch the status b
 v	try	64	change Washer here and do not save; delete the Screw row from the CSV and save it
 v	try	65	indent the Sapling row by four spaces, then run Format Document
 v	try	66	set the setting to manual; change Nut to 4 and Bolt to 7 here and save; change Nut to 8 in the CSV and save it; press Ctrl+K Y; then change Bolt to 9 in the CSV and save it, change Nut to 3 here and save, and press Ctrl+K Y; afterwards set the setting back to auto
+v	try	67	save this file; hover the name Stock and click Open Stock.csv; in the CSV change Bolt to 6 and save it, then back to 5 and save it; then empty the count of Washer in the CSV and save it
 v	turns	2	WIDGET into widget
 v	turns	3	a packed value into its fields
 v	turns	4	a part into its position, or zero when it is absent

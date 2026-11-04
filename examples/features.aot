@@ -6,7 +6,10 @@
     Cross Concept    |@Integer@35@is prime     |                      |a Concept written line form is referenced like a table; its Examples are the rows, its attributes the columns
     Concept Own Value|@Measurement@alias       |                      |no Example named reads the value the Concept states on its own line, the default its Examples inherit; only a Concept has one, a table is rows and nothing else
     Past A Local Name|@Person@alias@Socrates   |                      |the local reading is tried first; a Concept gets its turn when that reading cannot be completed, so an owner's own person attribute no longer swallows the lead
+
     Constraint
+        keyword
+        example
         - Comparison Bound
             keyword: >= > < <= ===
             example: age >=0

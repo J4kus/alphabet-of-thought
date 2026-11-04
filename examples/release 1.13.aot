@@ -61,8 +61,8 @@ Release Check
     - B12 The CSV Mirror Writes Back
         area: csv
         fixture: Stock below, and aot.files/Stock.csv after a save
-        try: save this file; in the CSV change Bolt to 6 and save it, then back to 5 and save it; then empty the count of Washer in the CSV and save it
-        expected: after each CSV save this file changes and saves itself; Bolt reads 6, then 5 again, and the count cell of Washer is empty
+        try: save this file; hover the name Stock and click Open Stock.csv; in the CSV change Bolt to 6 and save it, then back to 5 and save it; then empty the count of Washer in the CSV and save it
+        expected: the link opens the CSV; after each CSV save this file changes and saves itself; Bolt reads 6, then 5 again, and the count cell of Washer is empty
     - B13 A CSV Saved Last Overrides Unsaved Edits And Drops Rows
         area: csv
         fixture: Stock below and aot.files/Stock.csv

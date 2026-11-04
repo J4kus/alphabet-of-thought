@@ -222,6 +222,7 @@ Under `Parent`, type `    Child`: no "1 sub-Concept" squiggle, and `1 waiting â€
 
 ## Smaller changes
 
+- Hovering a Concept, on its name or on anything that links to it, offers a link that opens its CSV, once the CSV exists (`out/test-extension.js`, *6d2*).
 - The `... N more in â€¦` note: file names with spaces link, links follow the Concept's current line, a hover per span, and an Example two peers list counts once.
 - A Concept's alias links the Concepts its words name: `Human (Natural Person)` links `Person`.
 - A sub-Example inherits nothing from its parent Example: a part inherits nothing from its whole.

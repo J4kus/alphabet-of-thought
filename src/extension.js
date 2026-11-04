@@ -1211,6 +1211,18 @@ function appendContent(md, doc, analysis, node) {
   return true;
 }
 
+// The link that opens a Concept's CSV, once it has one. A plain file link needs
+// no trust, so the hover stays untrusted around the file's own text: nothing a
+// value says can become a command link. False when there is no CSV to open.
+function appendCsvLink(md, doc, concept) {
+  if (concept.kind !== KIND.CONCEPT || !concept.name) return false;
+  const file = csvName(concept.name);
+  const csvPath = path.join(aotFilesDir(doc), file);
+  if (!fs.existsSync(csvPath)) return false;
+  md.appendMarkdown(`[Open ${mdText(file)}](${vscode.Uri.file(csvPath)})\n\n`);
+  return true;
+}
+
 const hoverProvider = {
   provideHover(doc, position) {
     // a URL or file path answers (metadata / picture) before anything else
@@ -1257,6 +1269,7 @@ const hoverProvider = {
     if (!concept) return null;
     const found = armstrong.chains(analysis.root, analysis.nodes, concept);
     const md = new vscode.MarkdownString();
+    const hadCsv = appendCsvLink(md, doc, concept);
     if (found.length) {
       md.appendMarkdown(`**'${concept.name}' dependency chains**\n\n`);
       for (const chain of found) {
@@ -1270,7 +1283,7 @@ const hoverProvider = {
     const hadUsages = appendUsages(md, doc, analysis, concept);
     // its content, when the Concept is this file's own
     const hadContent = analysis.nodes.includes(concept) && appendContent(md, doc, analysis, concept);
-    if (!found.length && !hadUsages && !hadContent) return null;
+    if (!found.length && !hadUsages && !hadContent && !hadCsv) return null;
     return new vscode.Hover(md, range);
   },
 };

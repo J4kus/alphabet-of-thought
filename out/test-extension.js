@@ -1405,6 +1405,40 @@ late(2600, async () => {
   for (const r of results) console.log(r);
 });
 
+// 6d2) hovering a Concept links its CSV, once it has one: on the Concept's own
+// name, in a table or on a line, and on anything linking to it. The link is a
+// plain file link, so the hover stays untrusted around the file's own text.
+{
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aot-csvlink-"));
+  fs.mkdirSync(path.join(root, ".git"));
+  const dir = path.join(root, "aot.files");
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, "Stock Item.csv"), "Stock Item,count\nBolt,5\n");
+  fs.writeFileSync(path.join(dir, "Lonely.csv"), "Lonely\n");
+  const text = ["Stock Item|count", "Bolt      |5", "", "Lonely", "", "Alone", "", "Bin", "    stock item", "    - Top", "        stock item: Bolt"].join("\n");
+  const doc = makeDoc(path.join(root, "Shop.aot"), text);
+  const at = (line, ch) => hoverProvider.provideHover(doc, new vscode.Position(line, ch));
+  const LINK = /\[Open Stock Item\.csv\]\(file:\/\/\/.*aot\.files\/Stock Item\.csv\)/;
+  const inTable = at(0, 2), onAttribute = at(8, 6), lone = at(3, 2), onExample = at(1, 1), bare = at(5, 2);
+  console.log(inTable && LINK.test(inTable.contents.value)
+    ? "PASS (csv link: hovering a table's Concept links its CSV)"
+    : "UNEXPECTED csv link on the Concept " + JSON.stringify(inTable && inTable.contents.value));
+  console.log(onAttribute && LINK.test(onAttribute.contents.value)
+    ? "PASS (csv link: hovering a link to the Concept links its CSV too)"
+    : "UNEXPECTED csv link on a crosslink " + JSON.stringify(onAttribute && onAttribute.contents.value));
+  console.log(lone && /\[Open Lonely\.csv\]/.test(lone.contents.value)
+    ? "PASS (csv link: a line-form Concept with nothing else to say still gets a hover, for its CSV)"
+    : "UNEXPECTED csv link alone " + JSON.stringify(lone && lone.contents.value));
+  console.log(bare === null && !(onExample && /\[Open /.test(onExample.contents.value))
+    ? "PASS (csv link: none for a Concept with no CSV, and none on an Example)"
+    : "UNEXPECTED csv link where none belongs " + JSON.stringify({ bare: bare && bare.contents.value, example: onExample && onExample.contents.value }));
+  console.log(inTable && inTable.contents.isTrusted !== true
+    ? "PASS (csv link: the hover stays untrusted, so a value can never become a command link)"
+    : "UNEXPECTED trusted hover");
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 // 6d) value completion: an attribute typed by a Concept offers that
 // Concept's Examples, with its archived CSV's values beside them.
 (async () => {
