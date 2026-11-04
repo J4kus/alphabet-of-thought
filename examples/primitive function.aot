@@ -1,64 +1,68 @@
-- Metric
+- Motivation
     Solution Architect
-        - scope of what must be done balanced to motivation
-            target: full content derived to most useful level with sharp boundaries
-            actual: specific viewpoint operational understanding bais
-            measurement operation used: rank
-            grade interval minimum: f
-            grade interval maximum: a
-            is minimum ranking open: yes
-            is maximum ranking open: yes
-            number of grades: 6
-        - natural functional decomposition
-            target: higher order types are better
-            actual: unnatural functional decomposition with low cohesion and high coupling
+        target
+        actual
         - shared understanding
-            target: understanding between reader and writer
-            actual: contention or malfunction of functional understanding
-            - peer objective cohesion
-                target: peer child objective follows "magic formula" in sequence to achieve parent objective
-                actual: unclear or ambiguous functions defined
+            target: functional rationale understanding between reader and writer
+            actual: contention or malfunction of of functional understanding
+            - balanced rationale
+                target: functional rationale don't contradict itself
+                actual: inconsistent and contradictory rationales
+                - understanding of paradigm elements
+                    target: function objectives and types are well remembered elements of thought
+                    actual: new way of thinking causes it's own problems
+                - natural objective decomposition
+                    target: first objective and last objective logically follows parent
+                    actual: unnatural functional decomposition
+                - type decomposition resonates
+                    target: higher order types are better
+                    actual: ...
+                - peer objective cohesion
+                    target: peer child objective follows "magic formula" to achieve parent objective
+                    actual: unclear or ambiguous functions defined and links not clear
+            - Consistent rationales
+                - Use of motivational rationale to come up with grandparent objective
+                - inputs, outputs and qualified objectives share entity model
+            - scope of what must be done is integrated
+                target: full content derived to most useful level with sharp boundaries
+                actual: specific high coupling viewpoint bais
             - terminology defined
                 target: specific reader terms integrated into standardised industry terminology
                 actual: different understanding of function between reader and writer
-        - balanced paradigms
-            target: all paradigms align to each other
-            actual: inconsistent and contradictory paradigms
-    
     Reader
         - essential elements evaluation against motivation
         - identify outputs required
         - intrinsic dependencies
-- Workflow
+- Factor
     Facilitator
-        - understand requirement
+        - surface requirement
             - discussion
             - research
             - think
         - model solution    
             - system objective
-            - motivation
+            - functional motivation
             - business process evaluation
             - delivery prioritisation
         - use solution
+
 - Graph
     
-    Function
-        parent function
-        is external: no
-        criticality: importance to achieve parent function
-        business priority
-
+    Functional Element
+        parent functional element
+        criticality (importance to achieve parent function)
         Objective (Result)
-            term format: verb + qualified object
             frequency: how often the result is needed to achieve parent function
-
+            naming convention: Transitive Verb + Qualified Object
         Type
+            naming convention: Qualified Object
     Attribute
-        function
-        Input
-        Output
-        Descriptive
+        functional element
+        naming convention: input/output + entity name from graph rationale
+    Naming Convention
+        - Transitive Verb + Qualified Object
+        - Qualified Object
+        - input/output + entity name from graph rationale
     Rule
         Objective Rule 
             - Naming
@@ -77,9 +81,7 @@
                 - Attributes may be attached to objectives to describe their arguments and results.
                     - Parent and child IO
                     - Descriptive attributes added
-            - General Objectives
-                - First Thing And Last Thing Works Well With Parent
-                - Sequence Of Peers Follows "Magic Formula" For Cohesion
+           
             - Remove Non-Functional Coupling
                 - Location
                 - Procedural
@@ -96,25 +98,21 @@
         - Problem Solving
         - Design
 - Function
-
-    Determine Measurement
+    Determine Solution Measurement
         - Effect
         - Control
-    Formulate Objective
-    Link To Parent Function
-    Reorganise Function Tree
+    Formulate Functional Element
+    Link To Parent Functional Element
+    Reorganise Functional Element Tree
         input rule
         output architect
     Discover Entity
-        - Input
-        - Output
-        - Qualified Object
-    Map Function Timing
+        input attribute: input
+        output attribute: output
+        part of objective: qualified object
+    Map Functional Element Factor Timing
         importance
         frequency
-
-       
-
 
 - Example
     Do Value Chain Activity

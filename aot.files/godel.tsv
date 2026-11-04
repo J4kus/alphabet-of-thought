@@ -337,6 +337,15 @@ a	seats	2251
 a	tax	2267
 a	after facilitator	2269
 a	facilitator	2273
+a	input attribute	2281
+a	objective	2287
+a	output attribute	2293
+a	part of objective	2297
+a	naming convetion	2309
+a	naming convention	2311
+a	objective attribute	2333
+a	functional element	2339
+a	parent functional element	2341
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -357,6 +366,14 @@ v	actual	17	unclear or ambiguous functions defined
 v	actual	18	inconsistant and contridictory paradigms
 v	actual	19	inconsistent and contradictory paradigms
 v	actual	20	specific viewpoint operational understanding bais
+v	actual	21	specific high coupling viewpoint bais
+v	actual	22	unclear or ambiguous functions defined and links not clear
+v	actual	23	unnatural functional decomposition with low cohesion and
+v	actual	24	...
+v	actual	25	contention or malfunction of of functional understanding
+v	actual	26	inconsistent and contradictory rationales
+v	actual	27	unnatural functional decomposition
+v	actual	28	new way of thinking causes it's own problems
 v	after	2	#ERR
 v	after	3	confusing time
 v	after	4	grappling with a subject
@@ -1138,6 +1155,11 @@ v	target	19	peer child objective follows "magic formula" in sequence to achieve 
 v	target	20	specific reader terms integrated into standardised industry terminology
 v	target	21	understanding between reader and writer
 v	target	22	all paradigms align to each other
+v	target	23	peer child objective follows "magic formula" to achieve parent objective
+v	target	24	first objective and last objective logically follows parent
+v	target	25	functional rationale don't contradict itself
+v	target	26	functional rationale understanding between reader and writer
+v	target	27	function objectives and types are well remembered elements of thought
 v	tax rate	2	0.2
 v	team	2	Back-end
 v	team	3	Content
@@ -1234,6 +1256,7 @@ v	turns	6	three pieces into one
 v	turns	7	widget into WIDGET
 v	twin pair	2	a
 v	type	2	Reference
+v	type	3	Qualified Object
 v	units	2	1,000
 v	units	3	1,204
 v	units	4	1,380
@@ -1313,3 +1336,12 @@ v	tax	2
 v	after facilitator	2	derive motivation
 v	after facilitator	3	determine system objective
 v	after facilitator	4	evaluate business process
+v	input attribute	2	input
+v	objective	2	Transitive Verb + Qualified Object
+v	output attribute	2	output
+v	part of objective	2	qualified object
+v	naming convetion	2	Transitive Verb + Qualified Object
+v	naming convention	2	Transitive Verb + Qualified Object
+v	naming convention	3	Qualified Object
+v	naming convention	4	input/output + entity name from graph rationale
+v	objective attribute	2	input/output + entity name from graph rationale

@@ -29,7 +29,7 @@
         - Listed Value
             keyword: or
             example: 0 =or(0>=1,1==0)
-    String Function
+    String Functional Element
         - upper
             turns: widget into WIDGET
         - lower

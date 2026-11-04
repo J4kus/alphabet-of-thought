@@ -42,6 +42,17 @@
                 actual: claims lazily produced
                 target: claims that survive another mind's scrutiny
                 measurement operation used: Grading
+
+- Factor
+    Collective Belief
+        thinker
+        - New Belief is Introduced
+            timing: Asynchronous
+            use intuition
+            make deliberation
+
+
+
 - Graph
     Mind
         Global Workspace
@@ -119,12 +130,3 @@
         Monitor Own Confidence
             Rate confidence in answer
             Summon low confidence deliberation
-- Workflow
-    Collective Belief
-        thinker
-        - New Belief is Introduced
-            timing: Asynchronous
-            use intuition
-            make deliberation
-
-
