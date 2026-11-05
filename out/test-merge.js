@@ -149,8 +149,31 @@ const GRID = aot("Order|price|qty", "A    |10   |1", "B    |20   |2");
     bound.clean && bound.text === aot("Order|price|qty >=1", "A    |10   |1", "B    |20   |9"));
   const column = merge(GRID, GRID, aot("Order|price|qty|note", "A    |10   |1  |x", "B    |20   |2  |"), "Zoo");
   check("fallback: a column added is an edit it hands back to git", /a column of 'Order' was added or removed/.test(column.fallback || ""));
-  const underRow = merge(GRID, GRID, GRID.replace("A    |10   |1", "A    |10   |1\n    note: x"), "Zoo");
-  check("fallback: an attribute written as a line under a row", /written as a line under the row 'A'/.test(underRow.fallback || ""));
+  const lined = aot("Order", "    price", "    - A", "        price: 10", "        qty: 1", "    - B", "        price: 20");
+  const underRow = merge(aot("Order|price", "A    |10", "B    |20"), aot("Order|price", "A    |10", "B    |20"), lined, "Zoo");
+  check("fallback: an attribute written as a line under what the other side has as a row", /written as a line under the row 'A'/.test(underRow.fallback || ""));
+  const split = merge(GRID, GRID, GRID.replace("A    |10   |1", "A    |10   |1\n    note: x"), "Zoo");
+  check("fallback: a line between two rows ends the table, and the rest reads as another", /'B' is a table the other side has no place for/.test(split.fallback || ""));
+  // what stands under a table is the Concept's, so it merges as the Concept's
+  const under = merge(GRID, GRID.replace("B    |20   |2", "B    |20   |9"), GRID + "\n    note: x", "Zoo");
+  check("merge: a line added under a table, a cell changed on the other side",
+    under.clean && under.text === aot("Order|price|qty", "A    |10   |1", "B    |20   |9", "    note: x"));
+  check("merge: and that line is the Concept's, never the last row's",
+    lint(under.text, "Zoo").nodes.find((n) => n.name === "note").parent.name === "Order");
+  const underBoth = merge(GRID + "\n    a: 1", GRID + "\n    a: 1\n    b: 2", GRID + "\n    a: 1\n    c: 3", "Zoo");
+  check("merge: a line added under a table on each side, both land",
+    underBoth.clean && underBoth.text === aot(GRID, "    a: 1", "    b: 2", "    c: 3"));
+  const underRowAdded = merge(GRID, GRID + "\nC    |30   |3", GRID + "\n    note: x", "Zoo");
+  check("merge: a row added on one side, a line under the table on the other",
+    underRowAdded.clean && underRowAdded.text === aot(GRID, "C    |30   |3", "    note: x"));
+  const underSub = merge(GRID, GRID, GRID + "\n    Sub\n        x: 1", "Zoo");
+  check("merge: a sub-Concept added under a table lands below its rows", underSub.clean && underSub.text === aot(GRID, "    Sub", "        x: 1"));
+  const defaulted = aot("Order|price|tax: 1", "A    |10   |", "B    |20   |");
+  const underDefault = merge(defaulted, defaulted, defaulted + "\n    note: x", "Zoo");
+  check("merge: a column's default in the header is not where a new line goes", underDefault.clean && underDefault.text === aot(defaulted, "    note: x"));
+  const underTwoWays = merge(GRID + "\n    a: 1", GRID + "\n    a: 2", GRID + "\n    a: 3", "Zoo");
+  check("conflict: a line under a table changed two ways is marked on that line, the table untouched",
+    !underTwoWays.clean && underTwoWays.text === aot(GRID, MARK_OURS, "    a: 2", MARK_MID, "    a: 3", MARK_THEIRS));
   const cell = merge(GRID, GRID.replace("A    |10   |1", "A    |11   |1"), GRID.replace("A    |10   |1", "A    |12   |1"), "Zoo");
   check("conflict: one cell changed two ways is marked on its row, theirs as theirs wrote it",
     !cell.clean && /'price' of 'A' was changed two ways/.test(cell.conflicts[0].message) && cell.conflicts[0].line === 2

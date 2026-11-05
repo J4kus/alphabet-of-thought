@@ -142,6 +142,15 @@ const MODEL = lines(
   check("a table a formula writes is compared too", table.status === 1 && /'3' in its row 2, and its formula gives '2'/.test(table.stdout), table.out);
   const chart = inFolder({ "N.aot": lines("Case", "    long: aot.files/x.md =\"x\" * 500") });
   check("a long text is only checked for running", chart.status === 0, chart.out);
+  // a table and the lines under it are one Concept: each reads the other
+  const under = inFolder({ "N.aot": lines("Order|price|vat =@price*@tax rate|discount <=@max discount", "Acme |100  |20 |30%", "Kite |50   |10 |5%", "    tax rate: 0.2", "    max discount: 35%", "    total: 30 =@Order@vat.sum()") });
+  check("under a table: a cell's formula and a column's rule read the values there, and a total there reads the table", under.status === 0, under.out);
+  const underWrong = inFolder({ "N.aot": lines("Order|price|vat =@price*@tax rate", "Acme |100  |21", "    tax rate: 0.2") });
+  check("under a table: and a number that disagrees is still caught", underWrong.status === 1 && /'21' is written here, and its formula gives '20'/.test(underWrong.stdout), underWrong.out);
+  const underBroken = inFolder({ "N.aot": lines("Deal|discount <=@max discount", "Acme|40%", "Kite|5%", "    max discount: 35%") });
+  check("under a table: a value there holds every row, not only the last", underBroken.status === 1 && /'40%' breaks/.test(underBroken.stdout), underBroken.out);
+  const underWritten = inFolder({ "N.aot": lines("Sales =[{\"n\": 1}, {\"n\": 2}]|n", "1|1", "2|2", "    total: 2 =len(@Sales)") });
+  check("under a table: a total there reads the table a formula writes", underWritten.status === 0, underWritten.out);
 }
 {
   // the guards: what the editor holds a formula to

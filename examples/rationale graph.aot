@@ -48,13 +48,8 @@
     Charlie     |   |Yes
     Dave        |   |Yes
         average age: 20 =@Person@age.mean()
-
-    tax rate: 0.2
-    vat: 716.8 =@Sales@units.sum()*@tax rate
-    total: 53,760 =@Sales@amount.sum()
-    rows: 6 =len(@Person)
-    revenue: 53,760 =@Sales@units.sum()*15
-    chart: aot.files/rationale graph.chart.Example.png =@Sales.plot.bar(y="units", rot=0)
+    Tester|tax rate|vat                                            |total                      |rows           |revenue                      |chart
+    1     |0.2     |716.8000000000001 =@Sales@units.sum()*@tax rate|53,760 =@Sales@amount.sum()|6 =len(@Person)|53,760 =@Sales@units.sum()*15|aot.files/Tester.chart.1.png =@Sales.plot.bar(y="units", rot=0)
 
     Sales|month  |units|amount
     P1   |2026-01|1,000|15,000

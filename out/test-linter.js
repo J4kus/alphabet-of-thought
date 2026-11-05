@@ -908,6 +908,38 @@ check("verify: a well-formed tree yields no errors",
     child.chi % parent.chi === 0n);
 }
 
+// What stands one level under a table is the Concept's, never the last row's
+{
+  const owner = (text, name) => {
+    const n = lint(text, "Zoo").nodes.find((x) => x.name === name);
+    return n && n.parent.name;
+  };
+  const trip = aot("Trip|distance", "A   |120", "B   |75", "    total: 195", "    stops");
+  check("under a table: a value and a bare attribute are the Concept's",
+    owner(trip, "total") === "Trip" && owner(trip, "stops") === "Trip" && lint(trip, "Zoo").errors.length === 0);
+  check("under a table: the last row holds only its own cells",
+    lint(trip, "Zoo").nodes.find((n) => n.name === "B").children.every((c) => c.cell));
+  check("under a table: a blank line above it changes nothing", owner(aot("Trip|distance", "A   |120", "", "    total: 195"), "total") === "Trip");
+  check("under a table: a header with no rows yet has its lines too", owner(aot("Trip|distance", "    total: 195"), "total") === "Trip");
+  const whole = aot("Trip|distance", "A   |120", "    Leg", "        x: 1", "    - Odd", "        ... why", "    y: 2");
+  check("under a table: a sub-Concept, an Example and what they hold keep their places",
+    owner(whole, "Leg") === "Trip" && owner(whole, "x") === "Leg" && owner(whole, "Odd") === "Trip" && owner(whole, "y") === "Trip"
+    && lint(whole, "Zoo").errors.length === 0);
+  const nested = aot("Outer", "    Trip|distance", "    A   |120", "        total: 195", "    other: 1");
+  check("under a table: at any depth, and a line level with the table is the table's neighbour",
+    owner(nested, "total") === "Trip" && owner(nested, "other") === "Outer");
+  const tree = aot("Thing  |parent (thing)|age", "Parent |              |", "Child 1|Parent        |10", "    note: x");
+  check("under a table: nor the last row's when that row sits under another", owner(tree, "note") === "Thing" && owner(tree, "Child 1") === "Parent");
+  const merged = aot("Order", "    Order|price", "    A    |1", "        deep: 1", "    level: 2");
+  check("under a table: a table filling in its Concept's line files them on that Concept",
+    owner(merged, "deep") === "Order" && owner(merged, "level") === "Order");
+  check("under a table: a bare = line is filed there too",
+    lint(aot("Trip|distance", "A   |120", "    =write()"), "Zoo").generators[0].parent.name === "Trip");
+  const ends = lint(aot("Trip|distance", "A   |120", "    total: 195", "B   |75"), "Zoo");
+  check("under a table: the line ends the table, as any line carrying no pipe does",
+    ends.nodes.find((n) => n.name === "B").parent.name === "Zoo");
+}
+
 // ---------------------------------------------------------------------------
 // any alphabet: case is read from Unicode, so a lowercase first letter means an
 // attribute whichever alphabet it is from

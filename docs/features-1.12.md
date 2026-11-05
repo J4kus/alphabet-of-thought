@@ -1,4 +1,4 @@
-# Alpha features 1.12 — Python that reaches further, and numbers that hold still
+# Alphabet of Thought features 1.12 — Python that reaches further, and numbers that hold still
 
 A per-feature reference for the **1.12.0** batch. It picks up where [features-1.10.md](features-1.10.md) leaves off. Each entry has four parts:
 
@@ -21,7 +21,7 @@ The batch has two halves. The first makes the Python half reach what the languag
 
 ### What changed
 
-A Concept's rows are every Example in its scope, sub-Examples included, depth-first — the rows the [CSV mirror](../README.md#the-csv-mirror) writes. Where they nest, the frame carries the tree in a `parent` column, as the mirror does. A value on an Example reaches the Examples under it by name, after its siblings (a sibling keeps a shared name).
+A Concept's rows are every Example in its scope, sub-Examples included, depth-first — the rows the [CSV mirror](tables.md#the-csv-mirror) writes. Where they nest, the frame carries the tree in a `parent` column, as the mirror does. A value on an Example reaches the Examples under it by name, after its siblings (a sibling keeps a shared name).
 
 ### Try it
 

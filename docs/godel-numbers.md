@@ -1,6 +1,6 @@
-# How Alpha computes its Gödel numbers
+# How Alphabet of Thought computes its Gödel numbers
 
-Every node of an Alpha model carries a Gödel number, `G`: one integer that encodes everything the node says. Since 1.13 the extension computes these numbers without ever building the integers, unless a person asks to see one. This note explains what `G` encodes, why it can be computed without being built, what that buys, and what was considered and turned down.
+Every node of an Alphabet of Thought model carries a Gödel number, `G`: one integer that encodes everything the node says. Since 1.13 the extension computes these numbers without ever building the integers, unless a person asks to see one. This note explains what `G` encodes, why it can be computed without being built, what that buys, and what was considered and turned down.
 
 The code is [`src/godel.js`](../src/godel.js) and [`src/primes.js`](../src/primes.js). The measurements below come from [`out/bench-godel.js`](../out/bench-godel.js).
 
@@ -18,7 +18,7 @@ So `G` is a factorisation the linter reads, never a number anyone computes with.
 - Do two nodes say the same thing? Is `G(a) = G(b)`?
 - What do two nodes share? `gcd(G(a), G(b))`.
 
-That is Leibniz's characteristic-number idea (1679), with Gödel's prime-power encoding (1931) carrying the values. Since 1.12 the primes and codes are stable across edits, files and branches ([`aot.files/godel.tsv`](../README.md#gödel-numbering)).
+That is Leibniz's characteristic-number idea (1679), with Gödel's prime-power encoding (1931) carrying the values. Since 1.12 the primes and codes are stable across edits, files and branches ([`aot.files/godel.tsv`](checks.md#gödel-numbering)).
 
 ## Why it can be computed without being built
 

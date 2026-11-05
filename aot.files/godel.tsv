@@ -364,6 +364,27 @@ a	input principle	2441
 a	input causation	2447
 a	causation	2459
 a	test	2467
+a	discount	2473
+a	distance	2477
+a	enterprise net	2503
+a	limit	2521
+a	list price	2531
+a	load	2539
+a	max discount	2543
+a	mile total	2549
+a	within	2551
+a	columns	2557
+a	direction	2579
+a	geometry	2591
+a	is cheapest	2593
+a	is colour coated	2609
+a	length per piece	2617
+a	material	2621
+a	meters	2633
+a	number of columns	2647
+a	quantum	2657
+a	thickness	2659
+a	timber	2663
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -420,6 +441,9 @@ v	amount	7	45
 v	amount	8	12
 v	amount	9	4
 v	amount	10	900
+v	amount	11	2,000
+v	amount	12	20,000
+v	amount	13	4,480
 v	area	2	constraints
 v	area	3	editor
 v	area	4	every derivation is Python
@@ -446,6 +470,10 @@ v	area	24	links
 v	area	25	notes
 v	area	26	rename
 v	area	27	syntax
+v	area	28	checks
+v	area	29	inheritance
+v	area	30	numbers
+v	area	31	units
 v	attribute	2	"version"
 v	attribute	3	value
 v	attribute one	2	0
@@ -636,6 +664,8 @@ v	change log entry	2	1.3.0
 v	characters	2	lowercase
 v	chart	2	aot.files/rationale graph.chart.Example.png
 v	chart	3	./chart.png
+v	chart	4	aot.files/Test.chart.1.png
+v	chart	5	aot.files/Tester.chart.1.png
 v	city	2	Athens
 v	city	3	Old
 v	city	4	Durban
@@ -665,6 +695,11 @@ v	department	4	Marketing
 v	description	2	Admitting his own lack of knowledge to spark true wisdom, famously saying "I know that I know nothing".
 v	description	3	Shifting focus away from the physical universe and toward human virtue and how to live a good life.
 v	description	4	Teaching through a back-and-forth series of questions rather than lecturing.
+v	description	5	100mm stainless screws cost R465 for 200, which is enough for 2 per rail at each post.
+v	description	6	Buy 14 lengths of 4.2m and cut each into three, which gives 42 posts including 2 spares. A 4.2m length of 50×76 H3 costs R171.15. Mount them with the 50mm face against the wall so the 76mm depth resists the wind.
+v	description	7	Galseal costs R539 per 5L, covers about 15 m² per litre, and is sold for poles and fencing. Three coats need about 8L, so two tins.
+v	description	8	That’s 2 per post, so 80 M10 anchors. Prices range from R39 each to R73 each for a 130mm RawlPlug.
+v	description	9	That’s two rails along the 56m in 38×76, about 118m in total. That size costs R26 per metre.
 v	direct lookup	2	10
 v	displacement from greenwich meridian hours	2	+0
 v	doors	2	3
@@ -870,6 +905,20 @@ v	expected	186	nothing runs; a formula runs only when its source, its inputs or 
 v	expected	187	what reads it runs, in place, and nothing else; then its constraints are checked
 v	expected	188	when it calculated, to the second, how long it took and with what; the end of the line says nothing while all is well
 v	expected	189	$1,205 once run
+v	expected	190	$87,000, the rows of both kinds, and by kind names each
+v	expected	191	0 problems and exit 0, then that number, what its formula gives, and exit 1
+v	expected	192	75 mi over 1 h is 120.7008 in the column's km/h
+v	expected	193	it reads the 100 two levels up
+v	expected	194	it says Unit, Length, km, and that 1 km is 1000 m; a formula reads 120 as 120 km
+v	expected	195	it says to write the unit on 5, as in 5 km; adding 5 km works
+v	expected	196	it verifies, then says how many formulas and rules it did not calculate
+v	expected	197	net goes back to €17,000, and a warning stays on the cell until you edit it or close the file
+v	expected	198	the heading says distance (km), and 120 is a number the spreadsheet sums
+v	expected	199	the line says the formula gives km and this cell says kg, and the cell keeps what it said
+v	expected	200	the net of Acme is $70,000 and of Kite €17,000
+v	expected	201	the net says n/a is text, so it can't be multiplied, and keeps its value
+v	expected	202	the status bar counts the problem though V is 0, then says formulas not calculated
+v	expected	203	the total comes back in miles
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot
@@ -971,6 +1020,7 @@ v	height	7	35
 v	height	8	40
 v	height	9	short
 v	height	10	tall
+v	height	11	700mm
 v	hull	2	wood
 v	indent	2	4 spaces, never tabs
 v	indentation	2	exactly 4 spaces per level
@@ -1060,6 +1110,10 @@ v	name	4	either
 v	net	2	49
 v	net	3	79
 v	net	4	99
+v	net	5	$70,000
+v	net	6	€17,000
+v	net	7	$8,000
+v	net	8	€28,710
 v	newline	2	unix
 v	note	2	a Concept written line form is referenced like a table; its Examples are the rows, its attributes the columns
 v	note	3	either order works, @price@Alpha or @Alpha@price
@@ -1131,6 +1185,7 @@ v	ref	4	102
 v	relative zero point	2	0
 v	reports to	2	CEO
 v	repository page	2	https://github.com/Jakus23/alphabet-of-thought
+v	repository page	3	https://github.com/J4kus/alphabet-of-thought
 v	resident	2	Socrates
 v	residents known as	2	Athenians
 v	revenue	2	14,850
@@ -1142,6 +1197,9 @@ v	right	3	q
 v	risk	2	Race Condition
 v	role	2	financial controller
 v	rows	2	6
+v	rows	3	2
+v	rows	4	4
+v	rows	5	7
 v	sample category	2	Item A
 v	sample category	3	Item B
 v	scaffold	2	Rationale
@@ -1173,6 +1231,8 @@ v	sound	4	squawk
 v	span	2	2
 v	span	3	3
 v	speed	2	fast
+v	speed	3	120.7008
+v	speed	4	80
 v	start	2	:
 v	state	2	open
 v	state	3	paid
@@ -1233,6 +1293,8 @@ v	then	2	#ERR
 v	thread	2	Parallel
 v	thread	3	Synchronous
 v	time	2	Bronze age Greece
+v	time	3	1
+v	time	4	1.5
 v	timeout duration	2	unproductive to continue
 v	timing	2	Asynchronous
 v	title	2	Gadget
@@ -1244,6 +1306,8 @@ v	total	5	5
 v	total	6	53,760
 v	total	7	90
 v	total	8	22
+v	total	9	240.7008 km
+v	total	10	240.70080000000002 km
 v	total units	2	1,204
 v	total units	3	1,380
 v	total units	4	990
@@ -1317,6 +1381,20 @@ v	try	64	change Washer here and do not save; delete the Screw row from the CSV a
 v	try	65	indent the Sapling row by four spaces, then run Format Document
 v	try	66	set the setting to manual; change Nut to 4 and Bolt to 7 here and save; change Nut to 8 in the CSV and save it; press Ctrl+K Y; then change Bolt to 9 in the CSV and save it, change Nut to 3 here and save, and press Ctrl+K Y; afterwards set the setting back to auto
 v	try	67	save this file; hover the name Stock and click Open Stock.csv; in the CSV change Bolt to 6 and save it, then back to 5 and save it; then empty the count of Washer in the CSV and save it
+v	try	68	change the formula on total in Trip Summary to add 5
+v	try	69	clear the number in front of the mile total in Trip Summary, leaving mi, and leave the line
+v	try	70	hover the km in Trip's distance (km) heading
+v	try	71	in a terminal, run node check.js on this file, then type a wrong number in front of a formula and run it again
+v	try	72	in a terminal, run node verify.js on this file
+v	try	73	look at the limit of Deep below
+v	try	74	look at the speed of B in Trip below
+v	try	75	look at total net in Deal Summary
+v	try	76	make a discount break its rule, then turn formulas off
+v	try	77	save, and open aot.files/Trip.csv in a spreadsheet
+v	try	78	turn formulas on and leave the discount cell in Deal below
+v	try	79	type 99999 over the net of Kite and leave the cell
+v	try	80	type n/a over the list price of Acme and leave the cell
+v	try	81	write 5 kg in front of the formula on total in Trip Summary
 v	turns	2	WIDGET into widget
 v	turns	3	a packed value into its fields
 v	turns	4	a part into its position, or zero when it is absent
@@ -1338,6 +1416,7 @@ v	vat	2	10
 v	vat	3	20
 v	vat	4	716.8
 v	vat	5	16
+v	vat	6	716.8000000000001
 v	volume	2	1.7
 v	waiting for	2	external instrument
 v	waiting for	3	a signal from another task
@@ -1441,6 +1520,11 @@ v	cost	43	some of what is paid for goes unused
 v	cost	44	tasks wait for a free permit
 v	cost	45	the stricter outcome is given up
 v	cost	46	weaker guarantees
+v	cost	47	R1,080
+v	cost	48	R2,400
+v	cost	49	R3,060
+v	cost	50	R3,100–R5,800
+v	cost	51	R470
 v	sage	2	Socrates
 v	spread	2	20
 v	spread	3	200
@@ -1580,3 +1664,48 @@ v	worker pool	3	many
 v	worker pool	4	permit count
 v	test	2	2026-11-05 08:57
 v	test	3	<dict 1 key>
+v	test	4	999,999
+v	discount	2	10%
+v	discount	3	15%
+v	discount	4	30%
+v	discount	5	1%
+v	discount	6	20%
+v	distance	2	120
+v	distance	3	75 mi
+v	enterprise net	2	$70,000
+v	enterprise net	3	$78,000
+v	limit	2	100
+v	list price	2	$100,000
+v	list price	3	€20,000
+v	list price	4	$10000
+v	list price	5	€29,000
+v	load	2	5
+v	max discount	2	20%
+v	max discount	3	35%
+v	mile total	2	149.56454306848008 mi
+v	within	2	Yes
+v	columns	2	10
+v	columns	3	20
+v	columns	4	7
+v	direction	2	east
+v	direction	3	north
+v	geometry	2	square
+v	is cheapest	2	no
+v	is cheapest	3	yes
+v	is colour coated	2	yes
+v	length per piece	2	1.4m
+v	material	2	concrete
+v	material	3	sheeting
+v	material	4	single brick wall
+v	material	5	wood
+v	meters	2	13
+v	meters	3	18
+v	meters	4	25
+v	number of columns	2	40
+v	quantum	2	22.400000000000002
+v	quantum	3	3 days
+v	quantum	4	40 columns
+v	quantum	5	500
+v	quantum	6	56
+v	thickness	2	0.4mm-0.53mm
+v	timber	2	treated pine

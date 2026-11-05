@@ -1,4 +1,4 @@
-# Alpha features 1.1 → 1.2 — what changed, what to write, edge cases
+# Alphabet of Thought features 1.1 → 1.2 — what changed, what to write, edge cases
 
 A per-feature reference for everything introduced across the **1.1.x** line and the **1.2.0** batch. Each entry has three parts:
 
@@ -221,7 +221,7 @@ Order
 - **⚠️ 1.2/1.3**: deleting a CSV never deletes a table; an orphaned CSV is **archived `_<name>.csv`** (1.3), not deleted.
 - Off with `aot.tableCsvSync`.
 
-### 1.1.68e — Alpha parity inside cells
+### 1.1.68e — Alphabet of Thought parity inside cells
 - **Colouring**: header cells as attributes, name cells as Examples, value cells as values. **⚠️ 1.3**: custom semantic types so themes can't override the colour.
 - **Aliases**: a header cell may carry `size (length)`, stripped and crosslinked like a bare attribute.
 - **Linting in place**: a finding carries `{startCol,endCol}`, so a capitalised column / extra cells / empty name cell squiggle the offending cell, not the line.

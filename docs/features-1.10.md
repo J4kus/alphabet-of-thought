@@ -1,4 +1,4 @@
-# Alpha features 1.10 — a Concept written in two files is one idea
+# Alphabet of Thought features 1.10 — a Concept written in two files is one idea
 
 A per-feature reference for the **1.10.0** batch. It picks up where [features-1.8.md](features-1.8.md) leaves off. Each entry has four parts:
 
@@ -11,7 +11,7 @@ Every snippet uses the **current** syntax, so it runs as written. The file **ver
 
 Run the whole suite with `npm test` (614 checks across ten plain Node scripts — no framework, each prints `PASS`/`FAIL` and exits non-zero on failure).
 
-The batch has one idea behind it: **a repository is not a bag of unrelated files, and a name that appears in two of them is one idea seen twice.** So Alpha stops asking you to pick a winner and starts keeping the two in step — closing every gap that can be closed without a decision, and reserving the errors for the two disagreements only a person can settle.
+The batch has one idea behind it: **a repository is not a bag of unrelated files, and a name that appears in two of them is one idea seen twice.** So Alphabet of Thought stops asking you to pick a winner and starts keeping the two in step — closing every gap that can be closed without a decision, and reserving the errors for the two disagreements only a person can settle.
 
 ---
 

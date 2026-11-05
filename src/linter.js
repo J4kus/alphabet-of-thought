@@ -150,8 +150,15 @@ function parse(text, rootName, report) {
   // rows are the table's Examples in the order written, filed under the rows
   // their parent cells name once the table is complete (refile).
   let table = null;
+  // A table names its Concept in its first header cell, so one level under the
+  // table is one level under the Concept: what stands there is the Concept's,
+  // never the last row's. A row that needs a line of its own is written in
+  // line form, where it has a line to hang one under.
   const closeTable = () => {
-    if (table) refile(table, report);
+    if (!table) return;
+    refile(table, report);
+    stack.length = table.depth + 1;
+    stack.push(table.owner);
     table = null;
   };
   const lines = text.split(/\r?\n/);
@@ -197,15 +204,10 @@ function parse(text, rootName, report) {
     // a row carries a '|' between its cells, and only a shallower line ends
     // the table
     const isRow = isRowText(trimmed);
-    // A '...' Map written under a table is the table's OWN — a child of the
-    // Concept the table names, not of the row it happens to follow. A
-    // standalone table names its Concept in its first header cell, so the
-    // Concept and its rows share a line depth and the Concept's children
-    // have nowhere else to sit: one level under the table is where they
-    // belong, and it is where a reader already reads them ('... 4 more in
-    // other.aot:12' under a grid says what the grid is missing, never what
-    // its last row is missing). A row that needs a Map of its own is
-    // written in line form, where it has a line to hang one under.
+    // A '...' Map under a table is the Concept's like every other line there
+    // (closeTable), and it is where a reader already reads it: '... 4 more in
+    // other.aot:12' says what the grid is missing, never what its last row is
+    // missing. It alone leaves the table open, so more rows may follow it.
     //
     // One level with the rows it is the same: the line Ctrl+/ makes of a row
     // (`... Rail|20`). It is out of the model and the table goes on past it,

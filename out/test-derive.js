@@ -561,7 +561,7 @@ const parsed = (text) => {
   check("flipForm: a constraint never lands on a value line, an alias does",
     flip(suffixedTable.text, "Life Event").text === suffixed);
 
-  // the merge form is what carries everything a row cannot hold
+  // what a row cannot hold stands under the table, and is still the Concept's
   const mixed = aot(
     "Order",
     "    tax rate: 0.2",
@@ -572,12 +572,57 @@ const parsed = (text) => {
     "        vat: 20 =@price*@tax rate",
   );
   const mixedTable = flip(mixed, "Order");
-  const mixedLines = mixedTable.text.split("\n");
-  check("flipForm: a Concept with a Map keeps its own line and files the grid under it — its default rides in the header",
-    mixedLines[0] === "Order" && mixedLines[1] === "    ... more to come"
-    && mixedLines[2].startsWith("    Order|tax rate: 0.2|price|vat"));
+  check("flipForm: a Map and a value no row states stand under the table, which stays one Concept",
+    mixedTable.text === aot("Order|price|vat", "Acme |100  |20 =@price*@tax rate", "    tax rate: 0.2", "    ... more to come"));
   check("flipForm: the flip never recomputes — a cell reading the Concept's default keeps its value",
-    /Acme \| +\|100 +\|20 =@price\*@tax rate/.test(mixedTable.text));
+    mixedTable.text.includes("|20 =@price*@tax rate"));
+  check("flipForm: and they come back as the Concept's first lines",
+    flip(mixedTable.text, "Order").text === aot("Order", "    tax rate: 0.2", "    ... more to come", "    price", "    vat", "    - Acme", "        price: 100", "        vat: 20 =@price*@tax rate"));
+  // the shape a Concept with totals takes: a table, and the values below it
+  const trip = aot(
+    "Trip",
+    "    total: 195 km =@Trip@distance.sum()",
+    "    distance (km)",
+    "    speed (km/h) =@distance/@time",
+    "    - A",
+    "        distance (km): 120",
+    "        speed (km/h): 80",
+    "    - B",
+    "        distance (km): 75",
+    "        speed (km/h): 75",
+    "",
+    "Shelf",
+    "    limit: 100",
+  );
+  const tripTable = flip(trip, "Trip");
+  check("flipForm: a value carrying a formula stands under the flush table, not the table indented under the Concept",
+    tripTable.text === aot(
+      "Trip|distance (km)|speed (km/h) =@distance/@time",
+      "A   |120          |80",
+      "B   |75           |75",
+      "    total: 195 km =@Trip@distance.sum()",
+      "",
+      "Shelf",
+      "    limit: 100",
+    ));
+  check("flipForm: and the same key writes the lines it was written from", flip(tripTable.text, "Trip").text === trip);
+  check("flipForm: and writes the table again, unchanged", flip(flip(tripTable.text, "Trip").text, "Trip").text === tripTable.text);
+  const nestedTrip = flip(aot("Outer", "    Trip", "        total: 3 =1+2", "        a", "        - A", "            a: 1", "    other: 1"), "Trip");
+  check("flipForm: a Concept nested in another keeps its depth, its own lines one level under its table",
+    nestedTrip.text === aot("Outer", "    Trip|a", "    A   |1", "        total: 3 =1+2", "    other: 1"));
+  check("flipForm: a Concept with no Examples is its header, its values under it",
+    flip(aot("Summary", "    rows: 6 =len(@Deal)"), "Summary").text === aot("Summary|", "    rows: 6 =len(@Deal)"));
+  // a kept sub-Concept travels whole, and two tables never touch
+  const subs = aot("Trip", "    a", "    - A", "        a: 1", "    Leg", "        x: 1", "    Inner|y", "    B    |2", "", "    Other|z", "    C    |3");
+  const subsTable = flip(subs, "Trip");
+  check("flipForm: a sub-Concept stays whole under the table, and a table under it stands apart from the rows",
+    subsTable.text === aot("Trip|a", "A   |1", "    Leg", "        x: 1", "    Inner|y", "    B    |2", "", "    Other|z", "    C    |3"));
+  const noted2 = flip(aot("Trip", "    a", "    ... why", "    - A", "        a: 1", "    Inner|y", "    B    |2"), "Trip");
+  check("flipForm: a `...` line between them keeps nothing apart, so the blank line still comes",
+    noted2.text === aot("Trip|a", "A   |1", "    ... why", "", "    Inner|y", "    B    |2")
+    && parsed(noted2.text).nodes.find((n) => n.name === "A").parent.name === "Trip" && parsed(noted2.text).nodes.find((n) => n.name === "Inner").parent.name === "Trip");
+  check("flipForm: the Concept's derivation moves into the first cell with its name, and back",
+    flip(aot("Sales =frame()", "    total: 3 =1+2", "    a", "    - A", "        a: 1"), "Sales").text === aot("Sales =frame()|a", "A             |1", "    total: 3 =1+2"));
   // the maintained `... N more` note decides nothing: a table has a place for
   // it, one level under its last row, where reconcile itself writes it
   const noted = aot(
@@ -596,7 +641,7 @@ const parsed = (text) => {
       "        ... 4 more in bank recon.aot:2",
     ));
   const notedBack = flip(notedLines.text, "Jakus");
-  check("flipForm: and it does not force the merge form on the way back — the table returns, its note under its last row",
+  check("flipForm: on the way back the table returns, its note under its last row",
     notedBack.form === "table" && notedBack.text === aot(
       "- Motivation",
       "    Jakus  |role",
@@ -606,12 +651,17 @@ const parsed = (text) => {
   check("flipForm: a table with a maintained note flips and flips back, whole, every time",
     flip(flip(notedBack.text, "Jakus").text, "Jakus").text === notedBack.text);
   const notedMap = flip(aot("Order", "    price", "    ... more to come", "    - Acme", "        price: 100", "    ... 2 more in a.aot:1"), "Order");
-  check("flipForm: a Map you wrote still keeps the merge form, and the note stays among the lines it keeps",
-    notedMap.text === aot("Order", "    ... more to come", "    ... 2 more in a.aot:1", "    Order|price", "    Acme |100"));
+  check("flipForm: a Map you wrote stands under the table, and the note among the lines there",
+    notedMap.text === aot("Order|price", "Acme |100", "    ... more to come", "    ... 2 more in a.aot:1"));
+  check("flipForm: on the way back the Map comes first, and the maintained note stays last",
+    flip(notedMap.text, "Order").text === aot("Order", "    ... more to come", "    price", "    - Acme", "        price: 100", "    ... 2 more in a.aot:1"));
   const defaultsOnly = aot("Order", "    tax rate: 0.2", "    price", "    - Acme", "        price: 100");
   const standalone = flip(defaultsOnly, "Order");
-  check("flipForm: a Concept whose only extra is a default flips to one standalone table, the default in the header",
-    standalone.text.split("\n")[0] === "Order|tax rate: 0.2|price" && flip(standalone.text, "Order").text === defaultsOnly);
+  check("flipForm: a default no row states stands under the table, and comes back where it stood",
+    standalone.text === aot("Order|price", "Acme |100", "    tax rate: 0.2") && flip(standalone.text, "Order").text === defaultsOnly);
+  const overridden = aot("Order", "    tax rate: 0.2", "    price", "    - Acme", "        price: 100", "    - Beta", "        tax rate: 0.1", "        price: 5");
+  check("flipForm: a default a row states is that column's, so it rides in the header",
+    flip(overridden, "Order").text === aot("Order|tax rate: 0.2|price", "Acme |             |100", "Beta |0.1          |5"));
   const typed = aot("Currency: EUR", "    symbol", "    - USD", "        symbol: $");
   const typedTable = flip(typed, "Currency");
   check("flipForm: a Concept's own default moves into the first header cell, and back",
@@ -781,9 +831,15 @@ const parsed = (text) => {
   const sub = across(lineForm, "Invoice", { line: 5, character: 12 }); // the 'm' of 'Acme Sub'
   check("ideaAt/positionOf: an Example's line lands on its row's name, the same character in",
     sub.at && sub.text.startsWith("me Sub") && sub.at.character === 2);
-  const decl = across(lineForm, "Invoice", { line: 1, character: 6 }); // in 'tax rate'
+  const decl = across(lineForm, "Invoice", { line: 2, character: 6 }); // in 'price'
   check("ideaAt/positionOf: a declaration lands on its header cell",
-    decl.at && decl.at.line === 0 && decl.text.startsWith("x rate: 0.2"));
+    decl.at && decl.at.line === 0 && decl.text.startsWith("ice"));
+  const under = across(lineForm, "Invoice", { line: 1, character: 6 }); // in 'tax rate'
+  check("ideaAt/positionOf: a value no row states stays on its line, under the table",
+    under.at && under.at.line === under.lines.length - 1 && under.text.startsWith("x rate: 0.2"));
+  const back = across(under.lines.join("\n"), "Invoice", { line: under.lines.length - 1, character: 6 });
+  check("ideaAt/positionOf: and it is found again from there, back in the lines",
+    back.at && back.at.line === 1 && back.text.startsWith("x rate: 0.2"));
   const own = across(lineForm, "Invoice", { line: 0, character: 10 }); // in the default 'EUR'
   check("ideaAt/positionOf: the Concept's default lands in the header's first cell, on the default",
     own.at && own.at.line === 0 && own.text.startsWith("UR|"));
@@ -838,7 +894,7 @@ const parsed = (text) => {
   const { hoists } = require("../src/godel");
   const run = (lines, parentLine, attr, value, mode) => {
     const { root, nodes } = lint(lines.join("\n"), "Zoo");
-    const ops = hoistOps(lines, root, nodes, parentLine, attr, value, "Zoo", undefined, mode);
+    const ops = hoistOps(lines, root, nodes, parentLine, attr, value, "Zoo", mode);
     return ops && applyOps(lines, ops);
   };
   const quiet = (lines) => { const r = lint(lines.join("\n"), "Zoo"); return !r.errors.length && !hoists(r.root, r.nodes).length; };
@@ -848,10 +904,35 @@ const parsed = (text) => {
     moved && moved.join("\n") === ["Vehicle", "    wheels: 4", "    Car", "        doors: 3", "    Van", "        doors: 5"].join("\n") && quiet(moved));
   const table = ["Payment|currency|amount", "P1     |EUR     |10", "P2     |EUR     |20", "P3     |EUR     |30"];
   const lifted = run(table, 1, "currency", "EUR");
-  check("hoistOps: a table column holding it in every row is dropped, the table taking the merge form",
-    lifted && lifted.join("\n") === ["Payment", "    currency: EUR", "    Payment|amount", "    P1     |10", "    P2     |20", "    P3     |30"].join("\n") && quiet(lifted));
-  // the merge form: the Concept has a line of its own, the table beneath it
-  const merged = ["Payment", "    note: monthly", "    Payment|currency|amount", "    P1     |EUR     |10", "    P2     |EUR     |20", "    P3     |EUR     |30"];
+  check("hoistOps: a table column holding it in every row is dropped, the fact under the table, which stays flush",
+    lifted && lifted.join("\n") === ["Payment|amount", "P1     |10", "P2     |20", "P3     |30", "    currency: EUR"].join("\n") && quiet(lifted));
+  check("hoistOps: and the fact is the Concept's",
+    lint(lifted.join("\n"), "Zoo").nodes.find((n) => n.name === "currency" && !n.cell).parent.name === "Payment");
+  const withLines = run([...table, "    note: monthly", "After"], 1, "currency", "EUR");
+  check("hoistOps: the fact joins the lines already under the table",
+    withLines.join("\n") === ["Payment|amount", "P1     |10", "P2     |20", "P3     |30", "    note: monthly", "    currency: EUR", "After"].join("\n") && quiet(withLines));
+  const deadLine = run([...table, "    currency: USD"], 1, "currency", "EUR");
+  check("hoistOps: a dead default under the table is rewritten, not doubled",
+    deadLine.join("\n") === ["Payment|amount", "P1     |10", "P2     |20", "P3     |30", "    currency: EUR"].join("\n") && quiet(deadLine));
+  const deadHeader = run(["Payment|currency: USD|amount", "P1     |EUR          |10", "P2     |EUR          |20", "P3     |EUR          |30"], 1, "currency", "EUR");
+  check("hoistOps: a dead default in the header goes with its column, the header left whole",
+    deadHeader.join("\n") === ["Payment|amount", "P1     |10", "P2     |20", "P3     |30", "    currency: EUR"].join("\n") && quiet(deadHeader));
+  const deep = run(["Outer", ...table.map((l) => "    " + l), "    other: 1"], 2, "currency", "EUR");
+  check("hoistOps: at any depth, one level under the table",
+    deep.join("\n") === ["Outer", "    Payment|amount", "    P1     |10", "    P2     |20", "    P3     |30", "        currency: EUR", "    other: 1"].join("\n") && quiet(deep));
+  const grouped = run(["Payment|currency|amount", "P1     |EUR     |10", "-------|--------|------", "P2     |EUR     |20", "... Old|EUR|1", "P3     |EUR     |30"], 1, "currency", "EUR");
+  check("hoistOps: a divider and a `...` line keep their places among the rows",
+    grouped.join("\n") === ["Payment|amount", "P1     |10", "-------|------", "P2     |20", "... Old|EUR|1", "P3     |30", "    currency: EUR"].join("\n"));
+  const noColumn = run(["Vehicle|colour", "Paint  |red", "    Car", "        wheels: 4", "    Van", "        wheels: 4"], 1, "wheels", "4");
+  check("hoistOps: with no column to drop, the table is untouched and the fact stands straight under it",
+    noColumn.join("\n") === ["Vehicle|colour", "Paint  |red", "    wheels: 4", "    Car", "    Van"].join("\n"));
+  const deadCell = run(["Order|tax: 0.1|price", "A    |0.2    |1", "B    |0.3    |2", "C    |0.4    |3"], 1, "tax", "", "bare");
+  check("hoistOps: 'keep just the attribute' on a default in a header takes off the value, and the columns after it stay",
+    deadCell[0] === "Order|tax|price" && !lint(deadCell.join("\n"), "Zoo").errors.length);
+  const deadLast = run(["Order|price|tax: 0.1", "A    |1    |0.2", "B    |2    |0.3", "C    |3    |0.4"], 1, "tax", "", "bare");
+  check("hoistOps: and in the last column it stops at the end of the line", deadLast[0] === "Order|price|tax");
+  // a Concept with a line of its own, the table beneath it, stays so
+  const merged =["Payment", "    note: monthly", "    Payment|currency|amount", "    P1     |EUR     |10", "    P2     |EUR     |20", "    P3     |EUR     |30"];
   const liftedMerged = run(merged, 1, "currency", "EUR");
   check("hoistOps: under a Concept with a line of its own, the column goes and the fact joins its attributes",
     liftedMerged && liftedMerged.join("\n") === ["Payment", "    note: monthly", "    currency: EUR", "    Payment|amount", "    P1     |10", "    P2     |20", "    P3     |30"].join("\n")
@@ -882,8 +963,8 @@ const parsed = (text) => {
     escaped && escaped[1] === "    note: a == b" && reread && reread.value === "a = b" && reread.formula === undefined);
   const nested = ["Payment|parent (payment)|currency|amount", "P1     |                |EUR     |10", "P1a    |P1              |EUR     |5",
     "P2     |                |EUR     |20", "P3     |                |EUR     |30"];
-  const liftedGrid = ["Payment", "    currency: EUR", "    Payment|parent (payment)|amount", "    P1     |                |10",
-    "    P1a    |P1              |5", "    P2     |                |20", "    P3     |                |30"].join("\n");
+  const liftedGrid = ["Payment|parent (payment)|amount", "P1     |                |10",
+    "P1a    |P1              |5", "P2     |                |20", "P3     |                |30", "    currency: EUR"].join("\n");
   check("hoistOps: a table with rows under rows keeps them under, the column gone",
     run(nested, 1, "currency", "EUR").join("\n") === liftedGrid);
   check("hoistOps: nothing to do where the parent is gone, or there is no default to keep just",

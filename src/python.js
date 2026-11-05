@@ -1470,43 +1470,40 @@ function gridOf(result, conceptName) {
 // The table IS the Concept. Its first header cell is the Concept as it is
 // written, derivation and all — `Quarter =quarters()|units|revenue` — and it
 // stands where the Concept's line stood, its rows at the same indent: the
-// standalone form, the one that names its Concept in its first cell. A `...`
-// Map under the Concept stays, under the table, as a table's own Map does.
+// standalone form, the one that names its Concept in its first cell. Everything
+// else the Concept holds stays, one level under the table.
 //
 // A derivation holding a pipe heads its table like any other — a pipe
 // inside Python still open is the Python's, never a divider (table.dividers).
-// One Concept cannot be written so, and keeps its line with the table
-// beneath it repeating its name (the merge form): one carrying attributes or
-// sub-Concepts of its own, which a table has no line to hold. Returns fresh
-// lines.
+// One Concept cannot be written so, and keeps its line with the table beneath
+// it repeating its name (the merge form): one whose derivation a header cell
+// cannot hold, as `Sales =frame() # it's`, whose quote would swallow the
+// divider after it. Returns fresh lines.
 function writeGrid(lines, concept, grid) {
   const out = lines.slice();
   const at = concept.line - 1;
   const raw = out[at] || "";
   const isHeader = table.isRowText(raw);
   const head = isHeader ? ((table.cells(raw)[0] || {}).text || concept.name) : raw.trim();
-  const ownLines = concept.children.some((c) => c.kind !== KIND.INDIVIDUAL && c.kind !== KIND.MAP && !c.cell);
-  // a pipe the table would read as a divider cannot stand in the header: a
-  // derivation that is closed and still holds one outside its brackets
+  // the divider after the first cell has to read as one
   const headerSafe = table.cells(`${head}|x`).length === 2;
-  if (!isHeader && (ownLines || !headerSafe)) return writeMergeGrid(out, concept, grid);
+  if (!isHeader && !headerSafe) return writeMergeGrid(out, concept, grid);
   const indent = raw.match(/^ */)[0];
   const last = derive.lastLineOf(concept) - 1;
-  // its Maps stay, one level under the table
-  const maps = [];
-  for (const c of concept.children) {
-    if (c.kind !== KIND.MAP) continue;
-    for (let i = c.line - 1; i <= derive.lastLineOf(c) - 1; i++) maps.push(out[i]);
-  }
   const drawn = table.render({
     indent,
     rows: [{ sep: false, cells: [head, ...grid.header.slice(1)] }, ...grid.rows.map((cells) => ({ sep: false, cells }))],
   });
+  // what it holds besides its rows and columns stays, one level under the table
+  for (const c of concept.children) {
+    if (c.kind === KIND.INDIVIDUAL || (c.kind !== KIND.CONCEPT && (c.cell || c.header))) continue;
+    derive.putApart(drawn, out.slice(c.line - 1, derive.lastLineOf(c)));
+  }
   // a table must not run into a neighbouring one: two blocks of rows with no
   // line between them read as one
   const before = at > 0 && table.isRowText(out[at - 1]) ? [""] : [];
   const after = last + 1 < out.length && table.isRowText(out[last + 1]) ? [""] : [];
-  out.splice(at, last - at + 1, ...before, ...drawn, ...maps, ...after);
+  out.splice(at, last - at + 1, ...before, ...drawn, ...after);
   return out;
 }
 

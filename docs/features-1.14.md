@@ -1,4 +1,4 @@
-# Alpha features 1.14 — numbers as an analyst writes them, units of measure, and a check that can fail on a number
+# Alphabet of Thought features 1.14 — numbers as an analyst writes them, units of measure, and a check that can fail on a number
 
 A per-feature reference for the **1.14.0** batch. It picks up where [features-1.13.md](features-1.13.md) leaves off. Each entry has four parts:
 
@@ -117,6 +117,48 @@ Summary
 
 ---
 
+## What no row says stands under the table
+
+### Before
+
+A line under a table belonged to its last row, so `max discount: 35%` written beneath a table held only for that row, and every other row's rule read nothing. To give a table's Concept a value, the Concept took a line of its own and the table was indented beneath it, repeating its name. The flip, the "move up" lightbulb and a formula writing its table all wrote that form for any Concept with a value of its own.
+
+### What changed
+
+- One level under a table is one level under its Concept. A value, a `...` line or a sub-Concept written there is the Concept's, never the last row's.
+- The flip always writes a flush table, with those lines one level under it. A value no row states stays a line, where it used to become a column with empty cells.
+- Flipped back, those lines are the Concept's first lines, so lines written that way return unchanged. The maintained `... N more` note stays last.
+- "Move up" drops the column from a flush table and writes the fact under it. A formula rewriting its table keeps every line under it, and a table it finds indented under the Concept's line turns flush.
+- A Concept with its own line and a table beneath it still reads. Nothing writes it now, except a formula whose derivation a header cell cannot hold, as `Sales =frame() # it's`, whose quote would swallow the divider after it.
+
+### Try it
+
+```aot
+Trip
+    total: 195 km =@Trip@distance.sum()
+    distance (km)
+    time (h)
+    - A
+        distance (km): 120
+        time (h): 1.5
+    - B
+        distance (km): 75
+        time (h): 1
+```
+
+Press `Ctrl+Alt+T` on `Trip`. It becomes a flush table with `total` one level under it, and the cursor stays on the idea it was on. Press it again, and the lines come back as they were.
+
+### How it is tested
+
+- `out/test-linter.js`, *under a table*: what is filed where, at any depth.
+- `out/test-derive.js`, *flipForm*: both directions, sub-Concepts, tables kept apart, notes, the cursor.
+- `out/test-check.js`, *under a table*: a cell's formula and a column's rule read a value there, and a total there reads the table.
+- `out/test-merge.js`: a line under a table added, changed and marked.
+- `out/test-python.js`: a formula rewriting its table keeps every line under it, and turns an indented table flush.
+- `out/test-derive.js`, *hoistOps*, and `out/test-extension.js`, *7c4*: "move up" on a flush table.
+
+---
+
 ## A check that can fail on a number
 
 ### Before
@@ -125,7 +167,7 @@ Summary
 
 ### What changed
 
-- **`node check.js [file or folder]`** checks every file, every agreement, every formula and every rule, and exits `1` on any problem. It runs the code in those files, so it is for your own files and trusted branches. See [The calculating check](../README.md#the-calculating-check).
+- **`node check.js [file or folder]`** checks every file, every agreement, every formula and every rule, and exits `1` on any problem. It runs the code in those files, so it is for your own files and trusted branches. See [The calculating check](cli.md#the-calculating-check).
 - **`verify.js` still runs nothing**, and says what it did not calculate: `12 formulas and 3 rules not calculated here — run check.js`.
 - **The status bar** adds violations and calculation into one count, and says when formulas were not calculated.
 - **A value a formula replaces says so**, until you edit the cell or close the file.

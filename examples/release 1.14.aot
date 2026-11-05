@@ -2,6 +2,7 @@ Release Check
     area
     try
     expected
+    fixture
     - C01 A Percent Is A Share
         area: numbers
         try: turn formulas on and leave the discount cell in Deal below
@@ -58,31 +59,54 @@ Release Check
         area: checks
         try: in a terminal, run node verify.js on this file
         expected: it verifies, then says how many formulas and rules it did not calculate
+    ... 51 more in release 1.12.aot:1, release 1.13.aot:1
+
 
 Deal
+    max discount: 35%
+    list price
     discount <=@max discount
-    net =@list price*(1-@discount)
-    ... more kinds to come
-    Enterprise Deal
-        max discount: 35%
-        Enterprise Deal|list price|discount|net
-        Acme           |$100,000  |30%     |$70,000
-    Standard Deal
-        max discount: 20%
-        Standard Deal|list price|discount|net
-        Kite         |€20,000   |15%     |€17,000
+    net =@list price*(1-@discount) if @list price else None
+    - Enterprise Deal
+        - Acme
+            list price: $100,000
+            discount: 30%
+            net: $70,000
+        - Beta
+            list price: $10000
+            discount: 20%
+            net: $8,000
+    - Standard Deal
+        - Kite
+            list price: €20,000
+            discount: 15%
+            net: €17,000
+        - String
+            list price: €29,000
+            discount: 1%
+            net: €28,710
 
 Deal Summary
-    enterprise net: $70,000 =@Enterprise Deal@net.sum()
-    rows: 2 =len(@Deal)
+    enterprise net: $78,000 =@Enterprise Deal@net.sum()
+    rows: 7 =len(@Deal)+1
 
-Trip|distance (km)|time (h)|speed (km/h) =@distance/@time
-A   |120          |1.5     |80
-B   |75 mi        |1       |120.7008
 
-Trip Summary
-    total: 240.7008 km =@Trip@distance.sum()
+Trip
+    total: 240.70080000000002 km =@Trip@distance.sum()
     mile total: 149.56454306848008 mi =@Trip@distance.sum()
+    distance (km)
+    time (h)
+    speed (km/h) =@distance/@time
+    - A
+        distance (km): 120
+        time (h): 1.5
+        speed (km/h): 80
+    - B
+        distance (km): 75 mi
+        time (h): 1
+        speed (km/h): 120.7008
+
+    
 
 Shelf
     limit: 100

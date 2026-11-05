@@ -560,7 +560,7 @@ function decorate(editor, decorationTypes) {
 // holds every digit, so this is only ever a matter of what is drawn, and the cell
 // a cursor stands in shows all of them, as a spreadsheet's formula bar does. Read
 // once per version of the text, however often the cursor moves.
-const shortSpansByDoc = new Map(); // uri -> { version, spans: [{ line, start, end, text, shown, inTable }] }
+const shortSpansByDoc = new Map(); // uri -> { version, spans: [{ line, start, end, text, shown, cellEnd }] }
 function shortSpans(doc) {
   const key = doc.uri.toString();
   const hit = shortSpansByDoc.get(key);
@@ -570,25 +570,27 @@ function shortSpans(doc) {
     const { nodes } = parsedDoc(doc);
     const lines = doc.getText().split(/\r?\n/);
     const rootName = docRootName(doc);
-    const add = (line, start, end, inTable) => {
+    // cellEnd: where the text of the table cell holding the number ends. Outside a
+    // table there is none.
+    const add = (line, start, end, cellEnd) => {
       const text = String(lines[line] || "").slice(start, end);
       const shown = table.shortNumber(text);
-      if (shown) spans.push({ line, start, end, text: text.trim(), shown, inTable });
+      if (shown) spans.push({ line, start, end, text: text.trim(), shown, cellEnd });
     };
     const cellValue = (line, col) => {
       const cell = table.cells(lines[line] || "")[col];
-      if (cell) add(line, cell.col, cell.col + table.splitCell(cell.text).value.length, true);
+      if (cell) add(line, cell.col, cell.col + table.splitCell(cell.text).value.length, cell.col + cell.text.length);
     };
     for (const h of python.calcHosts(nodes, lines, rootName, parkedConstraintsOf(doc, nodes))) {
       if (h.kind === "cell") cellValue(h.line - 1, h.cell.col);
       else if (h.kind === "value") {
         const raw = lines[h.line - 1] || "";
         const d = python.valueDerivation(raw);
-        if (d) add(h.line - 1, d.valueStart, d.valueStart + d.value.length, false);
+        if (d) add(h.line - 1, d.valueStart, d.valueStart + d.value.length);
         else {
           const colon = raw.indexOf(":");
           const lead = raw.slice(colon + 1).length - raw.slice(colon + 1).trimStart().length;
-          if (colon !== -1) add(h.line - 1, colon + 1 + lead, raw.trimEnd().length, false);
+          if (colon !== -1) add(h.line - 1, colon + 1 + lead, raw.trimEnd().length);
         }
       }
     }
@@ -609,7 +611,7 @@ function shortSpans(doc) {
     }
     // and a parked formula's value is still its number
     for (const s of park.parkedSpans(lines, nodes, rootName, parkedFormulas(doc))) {
-      if (!s.constraint) add(s.line - 1, s.startCol, s.endCol, table.isRowText(lines[s.line - 1] || ""));
+      if (!s.constraint) add(s.line - 1, s.startCol, s.endCol, table.isRowText(lines[s.line - 1] || "") ? s.endCol : undefined);
     }
   } catch { /* an unparseable file shows what it holds */ }
   shortSpansByDoc.set(key, { version: doc.version, spans });
@@ -630,14 +632,20 @@ function paintShortNumbers(editor, decorationTypes) {
     if (visible && visible.length && !visible.some((r) => s.line >= r.start.line - SHORT_MARGIN && s.line <= r.end.line + SHORT_MARGIN)) continue;
     const at = cellAtPosition(doc, { line: s.line, character: s.start });
     if (cursors.some((c) => c.line === at.line && c.cell === at.cell)) continue;
-    // padded to the width of what it stands in for, so a table's pipes stay lined up
+    // padded to the width of what it stands in for, so a table's pipes stay lined up.
+    // The padding goes at the end of the cell, so a formula stays one space behind
+    // the number, as the file writes it.
     const width = [...s.shown.replace(/\u0305/g, "")].length;
-    const pad = s.inTable ? "\u00a0".repeat(Math.max(0, s.end - s.start - width)) : "";
+    const pad = s.cellEnd === undefined ? "" : "\u00a0".repeat(Math.max(0, s.end - s.start - width));
+    const padBehindFormula = pad && s.cellEnd > s.end;
     options.push({
       range: new vscode.Range(s.line, s.start, s.line, s.end),
       hoverMessage: s.text,
-      renderOptions: { after: { contentText: s.shown + pad } },
+      renderOptions: { after: { contentText: padBehindFormula ? s.shown : s.shown + pad } },
     });
+    if (padBehindFormula) {
+      options.push({ range: new vscode.Range(s.line, s.cellEnd, s.line, s.cellEnd), renderOptions: { after: { contentText: pad } } });
+    }
   }
   editor.setDecorations(decorationTypes.shortNumber, options);
 }
@@ -2490,7 +2498,7 @@ async function hoistValue(parentLine, attr, value, mode) {
   if (!doc || doc.languageId !== "aot") return;
   const rootName = docRootName(doc);
   const { root, nodes } = lint(doc.getText(), rootName);
-  const ops = derive.hoistOps(doc.getText().split(/\r?\n/), root, nodes, parentLine, attr, value, rootName, formulaRegistry(doc), mode);
+  const ops = derive.hoistOps(doc.getText().split(/\r?\n/), root, nodes, parentLine, attr, value, rootName, mode);
   if (!ops || !ops.length) {
     vscode.window.setStatusBarMessage("AOT: nothing to move — the file changed since the warning was found.", 4000);
     return;

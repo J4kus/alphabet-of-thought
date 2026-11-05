@@ -1,4 +1,4 @@
-# Alpha features 1.13 — tables that stay flat, a mirror that follows the last save, names that follow you
+# Alphabet of Thought features 1.13 — tables that stay flat, a mirror that follows the last save, names that follow you
 
 A per-feature reference for the **1.13.0** batch. It picks up where [features-1.12.md](features-1.12.md) leaves off. Each entry has four parts:
 

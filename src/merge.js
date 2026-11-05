@@ -195,10 +195,13 @@ function applyChanges(ch, target, toTarget, side) {
     if (!inserts.has(line)) inserts.set(line, []);
     inserts.get(line).push(...lines);
   };
-  // where a node's own attribute lines end — what a new one follows
+  // where a node's own attribute lines end — what a new one follows. A Concept
+  // written as a table holds its lines under its last row.
   const slotsEnd = (t) => {
-    const own = t.children.filter((c) => isSlot(c) && !c.cell && c.line >= 1);
-    return own.length ? lastLineOf(own[own.length - 1]) : t.line;
+    const own = t.children.filter((c) => isSlot(c) && !c.cell && !c.header && c.line >= 1);
+    if (own.length) return lastLineOf(own[own.length - 1]);
+    const grid = isHeaderNode(target, t) ? rowOf(target, t) : null;
+    return grid ? grid.block.end + 1 : t.line;
   };
 
   // 1) nodes removed
@@ -266,7 +269,7 @@ function applyChanges(ch, target, toTarget, side) {
         if (here && here.line) deleted.add(here.line);
       } else if (here && here.line) {
         if (here.text !== c.text) replaced.set(here.line, indentOf(target.lines[here.line - 1]) + c.text);
-      } else if (row) {
+      } else if (row && !isHeaderNode(target, t)) {
         fail(`'${key}' was written as a line under the row '${t.name}'`);
       } else {
         insertAfter(slotsEnd(t), [childIndent + c.text]);

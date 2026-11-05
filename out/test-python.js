@@ -833,29 +833,43 @@ function results() {
   const node = rc.nodes.find((n) => n.name === "Sales");
   const grid = python.gridOf({ columns: ["month", "units"], rows: [["Q1", "2026-01", 1204], ["Q2", "2026-04", 1380]] }, "Sales");
   const created = python.writeGrid(concept, node, grid);
-  // a Concept with an attribute of its own keeps its line: a table has no
-  // line to hold the attribute
-  check("write: a Concept carrying its own attribute keeps its line, the table beneath it (the merge form)", created.join("\n") === [
+  // a Concept with an attribute of its own is still one flush table, the
+  // attribute one level under it
+  check("write: a Concept carrying its own attribute becomes the table's header, the attribute under the table", created.join("\n") === [
     "Report",
-    "    Sales =frame()",
-    "        Sales|month  |units",
-    "        Q1   |2026-01|1,204",
-    "        Q2   |2026-04|1,380",
+    "    Sales =frame()|month  |units",
+    "    Q1            |2026-01|1,204",
+    "    Q2            |2026-04|1,380",
     "        tax: 0.2",
     "    After",
   ].join("\n"));
   const rc2 = lint(created.join("\n"), "t");
+  check("write: and the attribute is the Concept's", rc2.nodes.find((n) => n.name === "tax").parent.name === "Sales");
   const again = python.writeGrid(created, rc2.nodes.find((n) => n.name === "Sales"),
     python.gridOf({ columns: ["month", "units"], rows: [["Q3", "2026-07", 9]] }, "Sales"));
   check("write: a second run replaces the table wholesale — typed rows go", again.join("\n") === [
     "Report",
-    "    Sales =frame()",
-    "        Sales|month  |units",
-    "        Q3   |2026-07|9",
+    "    Sales =frame()|month  |units",
+    "    Q3            |2026-07|9",
     "        tax: 0.2",
     "    After",
   ].join("\n"));
   check("write: the written table verifies", lint(again.join("\n"), "t").errors.length === 0);
+  const subs = ["Sales =frame()", "    tax: 0.2", "    Leg", "        x: 1", "    Inner|y", "    B    |2", "After"];
+  check("write: a sub-Concept keeps its lines under the table, and a table under it stands apart from the rows", python.writeGrid(subs,
+    lint(subs.join("\n"), "t").nodes.find((n) => n.name === "Sales"), python.gridOf({ columns: ["units"], rows: [["Q1", 5]] }, "Sales"))
+    .join("\n") === ["Sales =frame()|units", "Q1            |5", "    tax: 0.2", "    Leg", "        x: 1", "    Inner|y", "    B    |2", "After"].join("\n"));
+  const indented = ["Sales =frame()", "    tax: 0.2", "    Sales|month  |units", "    Q1   |2026-01|1", "After"];
+  check("write: a table indented under its Concept's line becomes the header on its next run, its lines under it", python.writeGrid(indented,
+    lint(indented.join("\n"), "t").nodes.find((n) => n.name === "Sales"), python.gridOf({ columns: ["month", "units"], rows: [["Q2", "2026-04", 2]] }, "Sales"))
+    .join("\n") === ["Sales =frame()|month  |units", "Q2            |2026-04|2", "    tax: 0.2", "After"].join("\n"));
+  // the one Concept a header cell cannot hold: the quote would swallow the divider
+  const quoted = ["Sales =frame() # it's", "    tax: 0.2", "After"];
+  const quotedTable = python.writeGrid(quoted, lint(quoted.join("\n"), "t").nodes.find((n) => n.name === "Sales"),
+    python.gridOf({ columns: ["units"], rows: [["Q1", 5]] }, "Sales"));
+  check("write: a derivation a header cell cannot hold keeps its line, the table beneath it", quotedTable.join("\n") === [
+    "Sales =frame() # it's", "    Sales|units", "    Q1   |5", "    tax: 0.2", "After",
+  ].join("\n") && lint(quotedTable.join("\n"), "t").errors.length === 0);
 
   // the ordinary case: the table IS the Concept
   const plain = ["Report", "    Sales =frame()", "        - Old", "        ... more to come", "    After"];
@@ -882,6 +896,19 @@ function results() {
     "    Sales =frame()|month  |units",
     "    Q3            |2026-07|9",
     "        ... more to come",
+  ].join("\n"));
+  const underTable = ["Sales =frame()|month  |units", "Old           |2026-01|1", "    total: 3 =1+2", "    Leg", "        x: 1", "", "    Inner|y", "    B    |2", "After"];
+  const writtenOver = python.writeGrid(underTable, lint(underTable.join("\n"), "t").nodes.find((n) => n.name === "Sales"),
+    python.gridOf({ columns: ["month", "units"], rows: [["Q3", "2026-07", 9]] }, "Sales"));
+  check("write: the next run replaces the rows, and every line under the table stays", writtenOver.join("\n") === [
+    "Sales =frame()|month  |units",
+    "Q3            |2026-07|9",
+    "    total: 3 =1+2",
+    "    Leg",
+    "        x: 1",
+    "    Inner|y",
+    "    B    |2",
+    "After",
   ].join("\n"));
   const parkedHead = park.park(rerun, lint(rerun.join("\n"), "t").nodes, "t");
   check("park: a Concept's derivation comes off its table's first header cell", parkedHead.lines[1] === "    Sales|month  |units"

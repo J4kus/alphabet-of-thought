@@ -1,0 +1,27 @@
+# Working in a team
+
+[Back to the README](../README.md)
+
+Alphabet of Thought's discipline pays off most when more than one mind works the same model:
+
+- **One subject per file, and the file name is the root Concept** — so ownership maps cleanly onto files, and a model's scope is visible in the repository tree.
+- **Models are reviewed like code.** A `.aot` file diffs line by line, so a pull request shows exactly which idea changed, and a review comment lands on a specific parent, attribute, or value — the "disagreements become locatable" promise, operationalised.
+- **The checks are the first reviewer.** They run in the editor as you type and in CI. `node verify.js <file>` runs no code and exits `0` when the structure holds, so it is safe on a pull request nobody has read. [`node check.js`](cli.md#the-calculating-check) also calculates every formula and rule, and runs the code in the files, so it is for trusted branches. A person still reads the diff, because a changed rule or formula passes both.
+- **Univocity is governance.** One Concept name, one meaning — enforced by the checker rather than by a single location. A term may be written in as many files as need it; what a save guarantees is that they all say the same thing, and what `V` guarantees is that any real disagreement is an error on every side at once. When a team disputes a term, the dispute has an address — every place the term is written, all of them squiggling until it is settled, and one lightbulb that settles it everywhere.
+- **Stakeholders who live in Excel still contribute.** The [CSV mirror](tables.md#the-csv-mirror) means a domain expert can edit `aot.files/Order.csv` in a spreadsheet; saving folds it back into the model, where the linter re-audits it like any other edit.
+
+## The conformance examples
+
+The reference docs describe the rules; a handful of files in [`examples/`](../examples/) *are* the rules — the linter's specification of record:
+
+- [`examples/lint.aot`](../examples/lint.aot) plants one violation per syntactic and style rule: a tab, a six-space indent, a depth jump, an empty value, a `-nospace` Example, the file name repeated as a line, an "and" Concept, a duplicated Concept name, identical siblings, a Map that leaks content, plural Concept names, a target-less and an actual-less measurement, a ninth sub-Concept, lone subtypes, and sibling sub-Concepts told apart by position only. It ends with a `Clean` subtree that must stay squiggle-free.
+- [`examples/warning.aot`](../examples/warning.aot) exercises the analytical passes: a Gödel content clash (two Examples with identical attributes and values), FCA drift (a Goldfish filed under `Fowl` while carrying `Fish`'s attributes), an exhaustion gap (a Sponge matching no sub-Concept), differentia twins, and dependency pairs with enough witnessed repeats to trip the Armstrong warnings.
+- [`examples/thought.aot`](../examples/thought.aot) is the clean model: a real one (all four rationales; tables and the CSV mirror) that must verify at `V = 0`.
+- [`examples/accounting monthly close.aot`](../examples/accounting%20monthly%20close.aot) and [`examples/accounting bank recon.aot`](../examples/accounting%20bank%20recon.aot) are the clean *repo* pair: one Concept, `Jakus`, written in two files — the same definition in both, the Examples split between them, and a maintained `...` line in each. Both must verify at `V = 0`, and `node verify.js --workspace examples --reconcile` must leave them exactly as they stand.
+
+- [`examples/godel.aot`](../examples/godel.aot) and [`examples/godel twins.aot`](../examples/godel%20twins.aot) verify at `V = 0` and carry the Gödel warnings on purpose: a value every child states (`Vehicle`'s `wheels: 4`, `Payment`'s `EUR` column), a default no child keeps (`Drink`), and `Kettle` / `Boiler`, one content under two names. Hover `Pet`'s kinds for their content.
+- [`examples/release 1.12.aot`](../examples/release%201.12.aot) is 1.12's hands-on checklist as a file — entries A01–A32, each saying what to do in the editor and what you should see — and verifies at `V = 0` with its three Gödel warnings; [`examples/release 1.12 peer.aot`](../examples/release%201.12%20peer.aot) is its other file for the cross-file entries; [`examples/release 1.12 errors.aot`](../examples/release%201.12%20errors.aot) must fail at `V = 5` (an Example named like the Example it sits under, a lone `=`, a bound with no attribute).
+- [`examples/release 1.14.aot`](../examples/release%201.14.aot) is 1.14's checklist — entries C01–C14 — and verifies at `V = 0`. [`examples/release 1.14 errors.aot`](../examples/release%201.14%20errors.aot) must fail at `V = 2`: two numbers on one attribute (rule 26), once on each line.
+- [`examples/release 1.13.aot`](../examples/release%201.13.aot) is 1.13's checklist — entries B01–B19 — and verifies at `V = 0`. [`examples/release 1.13 errors.aot`](../examples/release%201.13%20errors.aot) must fail at `V = 7`: a parent cell naming no row, one naming its own row, two rows naming each other (rule 25), a derived Concept default, a definition that does not read as Python, and a derived header default (rule 12).
+
+A change to the linter is correct when it flags every planted violation in the first two files and nothing in the clean pair. The check is one command per file: `node verify.js examples/thought.aot` must exit `0`, `node verify.js examples/lint.aot` must not — and `node out/test-<module>.js` runs each module's smoke tests.

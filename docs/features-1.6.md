@@ -1,4 +1,4 @@
-# Alpha features 1.6 — tables and free text are one notation
+# Alphabet of Thought features 1.6 — tables and free text are one notation
 
 A per-feature reference for the **1.6.0** batch. It picks up where [features-1.3-1.5.md](features-1.3-1.5.md) leaves off. Each entry has four parts:
 

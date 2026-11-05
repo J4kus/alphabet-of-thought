@@ -1,4 +1,4 @@
-# Alpha features 1.3 → 1.5 — what changed, what to write, edge cases
+# Alphabet of Thought features 1.3 → 1.5 — what changed, what to write, edge cases
 
 A per-feature reference for everything introduced across **1.3.0**, **1.4.1** and the **1.5.0** batch. It picks up where [features-1.1-1.2.md](features-1.1-1.2.md) leaves off. Each entry has four parts:
 
@@ -453,9 +453,9 @@ Three levels, because the feature crosses three:
 `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace` and `&`. Enough to tidy a value, not enough to build one: no way to join three pieces readably, find a substring, split a packed value, or check a prefix.
 
 ### What changed
-`concat` `proper` `find` `contains` `starts` `ends` `substitute` `split` `repeat` `pad` `text` `value`. The full table with an example each is in the README's [Working with text](../README.md#working-with-text).
+`concat` `proper` `find` `contains` `starts` `ends` `substitute` `split` `repeat` `pad` `text` `value`. The full table with an example each was in the README until the formula language was removed.
 
-Two decisions worth naming. **Positions are 1-based** (`mid`, `find`, `split`) — matching how the rest of Alpha counts — though `find` still answers `0` for "not there", so it reads as a truth. And `substitute(x,a,b,n)` replaces the **nth** occurrence where `replace(x,a,b)` replaces them all, the way Excel splits the same pair.
+Two decisions worth naming. **Positions are 1-based** (`mid`, `find`, `split`) — matching how the rest of Alphabet of Thought counts — though `find` still answers `0` for "not there", so it reads as a truth. And `substitute(x,a,b,n)` replaces the **nth** occurrence where `replace(x,a,b)` replaces them all, the way Excel splits the same pair.
 
 ### Write
 ```aot
@@ -610,13 +610,13 @@ The CRLF case is covered in the mirror block: it rewrites the CSV with `\r\n`, a
 
 ---
 
-## What Alpha costs an LLM, measured
+## What Alphabet of Thought costs an LLM, measured
 
 ### Before
-The README claimed Alpha was economical with tokens. It gave no number, so the claim could not be checked, and nobody knew *where* the saving was.
+The README claimed Alphabet of Thought was economical with tokens. It gave no number, so the claim could not be checked, and nobody knew *where* the saving was.
 
 ### What changed
-[`out/token-experiment.js`](../out/token-experiment.js) tokenises the same knowledge written as Alpha and as plain English and prints the comparison. The prose it compares against is what a careful person would actually type — the experiment is only worth anything if the prose is fair.
+[`out/token-experiment.js`](../out/token-experiment.js) tokenises the same knowledge written as Alphabet of Thought and as plain English and prints the comparison. The prose it compares against is what a careful person would actually type — the experiment is only worth anything if the prose is fair.
 
 ```
 npm install --no-save gpt-tokenizer
@@ -625,16 +625,16 @@ node out/token-experiment.js
 
 The findings, which are more interesting than the claim was:
 
-| Shape | Alpha | Prose | Alpha saves |
+| Shape | Alphabet of Thought | Prose | Alphabet of Thought saves |
 |-------|-------|-------|-------------|
 | Taxonomy, 155 ideas | 666 | 1,565 | **57%** |
 | Grid, 100 Examples × 4 attributes | 2,330 | 3,007 | **23%** |
 | Grid, 5 Examples × 4 attributes | 151 | 163 | **7%** |
 | Grid, 1 Example × 4 attributes | 55 | 38 | **−45%** |
 
-The saving is **mostly in the tree**: an is-a edge costs Alpha four spaces of indentation and prose a whole sentence — 4.3 tokens per edge against 10.1, steady at every size. The grid's saving is modest and **grows with size**, and below about five Examples Alpha genuinely costs *more* than prose. Alpha is not a compression trick for small facts; it earns its keep on structure and at scale.
+The saving is **mostly in the tree**: an is-a edge costs Alphabet of Thought four spaces of indentation and prose a whole sentence — 4.3 tokens per edge against 10.1, steady at every size. The grid's saving is modest and **grows with size**, and below about five Examples Alphabet of Thought genuinely costs *more* than prose. Alphabet of Thought is not a compression trick for small facts; it earns its keep on structure and at scale.
 
-The real economy is elsewhere: ten questions over a 100-Example record cost prose 30,070 tokens because every question re-reads the text, while in Alpha the questions a model is *for* are arithmetic — `verify.js --ask X Y` divides two integers at **zero** tokens, with no chance of a plausible wrong answer.
+The real economy is elsewhere: ten questions over a 100-Example record cost prose 30,070 tokens because every question re-reads the text, while in Alphabet of Thought the questions a model is *for* are arithmetic — `verify.js --ask X Y` divides two integers at **zero** tokens, with no chance of a plausible wrong answer.
 
 One practical finding: the aligned table's column padding is **19% of its cost** (2,330 against 1,892 as CSV), and the CSV mirror already writes exactly that file. Hand a model the tree for structure and `aot.files/*.csv` for rows.
 

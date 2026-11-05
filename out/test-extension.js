@@ -2277,6 +2277,15 @@ async function hoistAndReconcile() {
   console.log(docD.getText() === ["Drink", "    temperature", "    Tea", "        temperature: hot", "    Soup", "        temperature: warm"].join("\n")
     ? "PASS (hoists: 'keep just the attribute' takes the dead value off the line)"
     : "UNEXPECTED keep just " + JSON.stringify(docD.getText()));
+  // a table ending the file: the column and the fact are one edit, not two meeting at its end
+  const pPath = path.join(tmp, "Ledger.aot");
+  fs.writeFileSync(pPath, ["Payment|currency|amount", "P1     |EUR     |10", "P2     |EUR     |20", "P3     |EUR     |30"].join("\n"));
+  const docP = await vscode.workspace.openTextDocument(pPath);
+  vscode.window.activeTextEditor = { document: docP };
+  await plainCommands.get("aot.hoistValue")(1, "currency", "EUR", "hoist");
+  console.log(docP.getText() === ["Payment|amount", "P1     |10", "P2     |20", "P3     |30", "    currency: EUR"].join("\n")
+    ? "PASS (hoists: 'move up' on a table drops the column and writes the fact under it, the table flush)"
+    : "UNEXPECTED hoist table " + JSON.stringify(docP.getText()));
 
   const aPath = path.join(tmp, "Lamps.aot"), bPath = path.join(tmp, "Store.aot");
   fs.writeFileSync(aPath, ["Lantern", "    fuel", "    - Hurricane", "        fuel: oil", "    ... 2 more in Store.aot:1"].join("\n"));
@@ -3549,8 +3558,8 @@ late(3200, async () => {
 // Ctrl+Alt+T: the Concept at the cursor written out in its other form, end
 // to end — the cursor standing anywhere inside it, and the re-align that
 // follows computing nothing: a flip is a re-spelling, and each derivation
-// waits for the next run where it has landed. A Concept's own defaults ride
-// in the header (`tax rate: 0.2`), so it flips to one standalone table.
+// waits for the next run where it has landed. A default a row states rides in
+// the header (`tax rate: 0.2`), so it flips to one standalone table.
 //
 // Last, and on a timer: the command names what it did in the status bar,
 // which is one shared global here, so running it after every other block has
@@ -3561,6 +3570,7 @@ setTimeout(async () => {
     "    tax rate: 0.2",
     "    price",
     "    - INV-1",
+    "        tax rate: 0.1",
     "        price: 100",
     "        vat: 20 =@price*@tax rate",
     "    - INV-9",
@@ -3579,7 +3589,7 @@ setTimeout(async () => {
   const editor = {
     document: doc,
     // the cursor on a value line deep inside the Concept, not on its own line
-    selection: new vscode.Selection(5, 10, 5, 10),
+    selection: new vscode.Selection(6, 10, 6, 10),
     edit: (cb) => {
       cb({ replace: (range, t) => {
         const ls = text.split("\n");
@@ -3596,7 +3606,7 @@ setTimeout(async () => {
   const gridLines = text.split("\n");
   console.log(gridLines.join("\n") === [
     "Invoice|tax rate: 0.2|price|vat",
-    "INV-1  |             |100  |20 =@price*@tax rate",
+    "INV-1  |0.1          |100  |20 =@price*@tax rate",
     "INV-9  |             |50   |10 =@price*@tax rate",
   ].join("\n")
     ? "PASS (flip: a cursor inside the Concept writes the whole Concept out as a grid, its default in the header)"
@@ -3623,6 +3633,7 @@ setTimeout(async () => {
     "    price",
     "    vat",
     "    - INV-1",
+    "        tax rate: 0.1",
     "        price: 100",
     "        vat: 20 =@price*@tax rate",
     "    - INV-9",
@@ -3631,9 +3642,32 @@ setTimeout(async () => {
   ].join("\n")
     ? "PASS (flip: the same key writes it back, every value and derivation intact)"
     : "UNEXPECTED unflipped " + JSON.stringify(text.split("\n")));
-  console.log(backAt === [7, 6, 7, 6].join(",")
+  console.log(backAt === [8, 6, 8, 6].join(",")
     ? "PASS (flip: a cursor in an empty cell lands on its Example's name in line form)"
     : "UNEXPECTED unflip cursor " + backAt);
+
+  // a Concept with totals: one flush table, its values one level under it, and
+  // the cursor stays on the value it stood on, both ways
+  const tripLines = [
+    "Trip",
+    "    total: 195 km =@Trip@distance.sum()",
+    "    distance (km)",
+    "    - A",
+    "        distance (km): 120",
+    "    - B",
+    "        distance (km): 75",
+  ];
+  text = tripLines.join("\n");
+  editor.selection = new vscode.Selection(1, 6, 1, 6); // inside 'total'
+  await registeredCommands.get("aot.toggleTableForm")(editor);
+  console.log(text === ["Trip|distance (km)", "A   |120", "B   |75", "    total: 195 km =@Trip@distance.sum()"].join("\n")
+    && editor.selection.a.join(",") === [3, 6, 3, 6].join(",") && lint(text, "Books").errors.length === 0
+    ? "PASS (flip: a value no row states stands under the flush table, the cursor still on it)"
+    : "UNEXPECTED flip under " + JSON.stringify({ text, sel: editor.selection.a }));
+  await registeredCommands.get("aot.toggleTableForm")(editor);
+  console.log(text === tripLines.join("\n") && editor.selection.a.join(",") === [1, 6, 1, 6].join(",")
+    ? "PASS (flip: the same key, from the line under the table, writes the lines it came from)"
+    : "UNEXPECTED unflip under " + JSON.stringify({ text, sel: editor.selection.a }));
 
   // a Concept with no Examples flips too — its header alone — and the
   // cursor stays on the declaration it stood on
@@ -5139,7 +5173,7 @@ setTimeout(async () => {
       // what a number shows: the file holds every digit, the screen the short form,
       // and the cell a cursor stands in all of it
       {
-        const sn = live(path.join(root, "Short.aot"), ["Ratio|v         |typed", "A    |=third()  |0.3333333333333333", "B    |=whole()  |1", "", "lone: =third()", "plain: 0.3333333333333333", ""]);
+        const sn = live(path.join(root, "Short.aot"), ["Ratio|v         |typed", "A    |=third()  |0.3333333333333333", "B    |=whole()  |1", "", "lone: =third()", "plain: 0.3333333333333333", "", "Share|w =third()|z", "C    |         |1", ""]);
         vscode.workspace.textDocuments = [f.doc, sn.doc];
         vscode.window.visibleTextEditors = [sn.editor];
         await registeredCommands.get("aot.recomputeFormulas")(sn.editor);
@@ -5155,15 +5189,29 @@ setTimeout(async () => {
         const loneShort = shortAway.find((o) => o.range.a[0] === 4);
         const width = sn.lines()[1].split("|")[1].length;
         console.log(sn.lines()[1].includes("0.3333333333333333 =third()") && sn.lines()[2].includes("12,345 =whole()")
-          && shortAway.length === 2 && cellShort && loneShort
-          && cellShort.renderOptions.after.contentText.replace(/\u00a0+$/, "") === "0.3\u0305"
+          && shortAway.filter((o) => o.hoverMessage).length === 3 && cellShort && loneShort
+          && cellShort.renderOptions.after.contentText === "0.3\u0305"
           && loneShort.renderOptions.after.contentText === "0.3\u0305"
           && cellShort.hoverMessage === "0.3333333333333333"
           ? "PASS (short numbers: a computed value shows its short form, and a typed one never does)"
           : "UNEXPECTED short forms " + JSON.stringify({ lines: sn.lines(), shortAway: shortAway.map((o) => [o.range.a, o.renderOptions.after.contentText]), width }));
-        console.log(cellShort && [...cellShort.renderOptions.after.contentText.replace(/\u0305/g, "")].length === cellShort.range.a[3] - cellShort.range.a[1]
-          ? "PASS (short numbers: in a table the short form is padded to the width it stands in for, so the pipes stay lined up)"
-          : "UNEXPECTED padding " + JSON.stringify(cellShort && [cellShort.renderOptions.after.contentText, cellShort.range.a]));
+        // a row as the screen draws it: a number's digits gone, each `after` where it is attached
+        const drawn = (line) => {
+          let text = sn.lines()[line];
+          const here = shortAway.filter((o) => o.range.a[0] === line).sort((x, y) => y.range.a[1] - x.range.a[1]);
+          for (const o of here) text = text.slice(0, o.range.a[1]) + o.renderOptions.after.contentText + text.slice(o.range.a[3]);
+          return text.replace(/\u0305/g, "");
+        };
+        const pipesAt = (text) => JSON.stringify([...text].flatMap((c, i) => (c === "|" ? [i] : [])));
+        console.log(/^A\s*\|0\.3 =third\(\)\s*\|/.test(drawn(1))
+          ? "PASS (short numbers: a formula stands one space behind the short form, the padding at the end of its cell)"
+          : "UNEXPECTED formula's place " + JSON.stringify(drawn(1)));
+        console.log(/^C\s*\|0\.3\s*\|/.test(drawn(8)) && shortAway.filter((o) => o.range.a[0] === 8).length === 1
+          ? "PASS (short numbers: with no formula in the cell, the padding is drawn with the number)"
+          : "UNEXPECTED plain cell's padding " + JSON.stringify(drawn(8)));
+        console.log(pipesAt(drawn(1)) === pipesAt(sn.lines()[1]) && pipesAt(drawn(8)) === pipesAt(sn.lines()[8])
+          ? "PASS (short numbers: in a table the pipes stay where the file has them)"
+          : "UNEXPECTED pipes " + JSON.stringify([drawn(1), sn.lines()[1], drawn(8), sn.lines()[8]]));
         const inCell = paint(1, sn.lines()[1].indexOf("|") + 2);
         console.log(!inCell.some((o) => o.range.a[0] === 1) && inCell.some((o) => o.range.a[0] === 4)
           ? "PASS (short numbers: the cell a cursor stands in shows every digit)"
