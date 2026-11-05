@@ -62,6 +62,19 @@
 
 const { readsAsExpression } = require("./pyshape");
 
+// Case says what a term is, and case belongs to every alphabet that has it, so
+// these read Unicode's letter classes rather than a to z: `ête`, `één` and
+// `цена` are lowercase, and `Éclair` and `Цена` are capitalised. A term is an
+// attribute when it starts with a lowercase letter; anything else names a
+// Concept — a capital, a number (`3D Print`, the prefix of `1. Trip`), or a
+// letter of a script with no capitals at all (`日本語`).
+const startsLower = (text) => /^\p{Ll}/u.test(String(text));
+const startsUpper = (text) => /^[\p{Lu}\p{Lt}]/u.test(String(text));
+// A script with no capitals cannot use case to tell the two apart, so there
+// the line's shape decides: `名前: 太郎` states a value, and a bare `名前` is a
+// Concept (linter.classify).
+const startsCaseless = (text) => /^[\p{Lo}\p{Lm}]/u.test(String(text));
+
 // A divider row — '----|----' — groups a table's rows: dashes, pipes and
 // spaces, with at least one of each of the first two. The pipe is what keeps a
 // lone '-', an Example whose name is still being typed, from reading as one.
@@ -90,17 +103,21 @@ const isSeparator = (text) => /^[\s\-|]*$/.test(text) && text.includes("-") && t
 // (`Currency: EUR`) — which a table writes in its first header cell,
 // `Currency: EUR|symbol`. So behind a capitalised name the colon makes no
 // value line, and the pipe divides; a literal pipe in a Concept's default
-// is written `¦`, as it is in every cell.
+// is written `¦`, as it is in every cell. A name opening with a number is the
+// same: `10:30 Standup|room` is a row, and `1. Trip: EUR|symbol` a header.
+//
+// A `...` line is never a row, pipes and all: it is a Map, and the line a row
+// turns into when Ctrl+/ takes it out of the model (`... Rail|20`).
 const isRowText = (text) => {
   const t = String(text).trim();
-  if (!t) return false;
+  if (!t || t.startsWith("...")) return false;
   if (isSeparator(t)) return true;
   const ds = dividers(t);
   if (!ds.length) return false;
   const head = t.slice(0, ds[0]);
   const d = splitCell(head);
   const term = d.eq > 0 ? head.slice(0, d.eq) : head;
-  return !term.includes(":") || /^[A-Z]/.test(term.trim());
+  return !term.includes(":") || /^[\p{Lu}\p{Lt}\p{N}]/u.test(term.trim());
 };
 
 // Where a row's dividers stand. Every pipe divides — except inside the
@@ -243,16 +260,31 @@ function cells(line) {
 // them, as the header of the second would otherwise read as more rows of
 // the first. A row whose name cell is empty stands at its table's depth,
 // whatever its leading spaces: they are its empty cell.
+//
+// A `...` line between two rows stays in the block rather than ending it, as a
+// divider does: it holds no cells, every key steps over it, and it is drawn
+// back exactly as written ({ sep: true, note: the line }). That is what lets
+// Ctrl+/ take one row out of a table and leave one table. One shallower than
+// the rows ends the table, and one past the last row is the table's Map, under
+// it, as the linter reads both.
 function blockAt(lines, lineIdx) {
   const isRow = (i) => i >= 0 && i < lines.length && isRowText(lines[i]);
   if (!isRow(lineIdx)) return null;
+  const isNote = (i) => i >= 0 && i < lines.length && /^ *\.\.\./.test(lines[i]);
   const indentOf = (i) => lines[i].match(/^ */)[0];
-  // a line's own indent, or null for one that has none to give: a divider,
-  // or a row still waiting for its name
-  const leadOf = (i) => (isSeparator(lines[i].trim()) || !(cells(lines[i])[0] || {}).text ? null : indentOf(i).length);
+  // a line's own indent, or null for one that has none to give: a divider, a
+  // `...` line, or a row still waiting for its name
+  const leadOf = (i) => (isNote(i) || isSeparator(lines[i].trim()) || !(cells(lines[i])[0] || {}).text ? null : indentOf(i).length);
+  // the next row from a row, over any `...` lines standing level with it or deeper
+  const rowFrom = (i, dir) => {
+    const floor = leadOf(i);
+    let j = i + dir;
+    while (isNote(j) && (floor === null || indentOf(j).length >= floor)) j += dir;
+    return isRow(j) ? j : -1;
+  };
   let start = lineIdx, end = lineIdx;
-  while (isRow(start - 1)) start--;
-  while (isRow(end + 1)) end++;
+  for (let j = rowFrom(start, -1); j !== -1; j = rowFrom(start, -1)) start = j;
+  for (let j = rowFrom(end, 1); j !== -1; j = rowFrom(end, 1)) end = j;
   let head = null;
   for (let i = start; i <= end; i++) {
     const lead = leadOf(i);
@@ -264,6 +296,10 @@ function blockAt(lines, lineIdx) {
     start = i;
     head = lead;
   }
+  // a block opens and closes on a row: a `...` line left at either edge by the
+  // cut above stands outside it
+  while (isNote(end)) end--;
+  while (isNote(start)) start++;
   let indent = head === null ? indentOf(start) : " ".repeat(head);
   if (head === null) {
     for (let i = start + 1; i <= end; i++) {
@@ -272,6 +308,10 @@ function blockAt(lines, lineIdx) {
   }
   const rows = [];
   for (let i = start; i <= end; i++) {
+    if (isNote(i)) {
+      rows.push({ sep: true, note: lines[i], cells: [] });
+      continue;
+    }
     // a divider is kept in the block, so every row still answers to its own
     // line, and drawn again to the columns' widths
     const sep = isSeparator(lines[i].trim());
@@ -453,7 +493,8 @@ function render(block) {
   const emptyLast = last > 0 && block.rows.every((r) => r.sep || !String(r.cells[last] || "").trim());
   const dashed = (emptyLast ? widths.slice(0, -1) : widths).map((w) => "-".repeat(Math.max(w, 1))).join("|");
   const rule = block.indent + dashed + (closes || emptyLast ? "|" : "");
-  return block.rows.map((row) => (row.sep ? rule
+  return block.rows.map((row) => (row.note !== undefined ? row.note
+    : row.sep ? rule
     : drawRow(widths.map((w, k) => padCell(drawn(row, k), w)))));
 }
 
@@ -678,7 +719,7 @@ function carried(text) {
 
 // Copy the cursor cell's derivation onto every other data row's cell in the
 // same column. A copy arrives without a value — the one there was not this
-// derivation's — and computes when the derivations next run (Ctrl+Enter).
+// derivation's — and computes when the file next calculates.
 function copyFormulaDown(block, row, col) {
   const r = block.rows[row];
   if (!r || r.sep) return null;
@@ -1001,7 +1042,7 @@ function fromRegion(lines) {
 
 // --- derivations and constraints --------------------------------------------
 // A value may be derived: `20 =@price*0.2` keeps the value first and its
-// derivation after it — Python, run only when asked (python.js). An attribute
+// derivation after it — Python, run when the file calculates (python.js). An attribute
 // may be constrained — `age >=18` on a bare attribute line or a table header
 // cell — and every value it takes is held to the bound, also Python, checked
 // when the derivations run. Nothing here evaluates either: this is the
@@ -1076,12 +1117,22 @@ const operatorAt = (text, i, ops) => {
 // believed when its right side reads as an expression (pyshape.js), so a
 // prose term such as 'speed > none noted' stays a plain name. `ops` is
 // STORED_OPS for a chain read from the store.
+//
+// This runs on every line of every keystroke's parse, and a line of nothing but
+// operators (`x = = = = …`, 3 KB of it took 12 s) makes each one a candidate
+// with every later one a place to split. A real declaration has a handful, so
+// the search gives up past MAX_CHAIN operators, and a line past MAX_DECLARATION
+// characters is no declaration at all.
+const MAX_CHAIN = 32;
+const MAX_DECLARATION = 4000;
 function splitConstraint(text, ops = CONSTRAINT_OPS) {
-  if (!text) return { value: text || "", eq: -1, op: null, formula: "", constraints: [] };
+  if (!text || text.length > MAX_DECLARATION) return { value: text || "", eq: -1, op: null, formula: "", constraints: [] };
+  let tried = 0;
   for (let i = 0; i < text.length; i++) {
     if (i > 0 && text[i - 1] !== " ") continue;
     const op = operatorAt(text, i, ops);
     if (!op) continue;
+    if (++tried > MAX_CHAIN) break;
     const constraints = chainOf(text, i, ops);
     if (constraints) {
       return {
@@ -1123,6 +1174,7 @@ function chainOf(text, from, ops) {
   let opAt = from;
   let op = operatorAt(text, opAt, ops);
   let segStart = opAt + op.length;
+  let met = 0;
   for (let j = segStart; j <= text.length; j++) {
     let next = null;
     const boundary = j === text.length;
@@ -1130,6 +1182,7 @@ function chainOf(text, from, ops) {
       if (text[j - 1] !== " ") continue;
       next = operatorAt(text, j, ops);
       if (!next) continue;
+      if (++met > MAX_CHAIN) return null;
     }
     const seg = text.slice(segStart, boundary ? text.length : j).trim();
     // Mid-text, a cut inside a string or a bracket is the middle of the
@@ -1168,10 +1221,29 @@ const numericValue = (text) => parseFloat(String(text).replace(/[$,%\s]/g, ""));
 // [{ key, id }] candidates (keys lowercased). The character after the
 // match must not continue a word, so `@price2` never half-matches `price`;
 // names may hold spaces, so `@basket size+1` matches 'basket size' whole.
+//
+// A table of thousands of rows offers thousands of candidates to every
+// reference of every formula, so they are looked at by first character.
+const byFirstChar = new WeakMap(); // candidates -> Map(first character -> candidates)
+function candidatesFor(low, candidates) {
+  if (candidates.length < 32) return candidates;
+  let index = byFirstChar.get(candidates);
+  if (!index) {
+    index = new Map();
+    for (const c of candidates) {
+      if (!c.key) continue;
+      const k = c.key[0];
+      if (!index.has(k)) index.set(k, []);
+      index.get(k).push(c);
+    }
+    byFirstChar.set(candidates, index);
+  }
+  return index.get(low[0]) || [];
+}
 function longestMatch(rest, candidates) {
   const low = rest.toLowerCase();
   let best = null;
-  for (const { key, id } of candidates) {
+  for (const { key, id } of candidatesFor(low, candidates)) {
     if (!key || !low.startsWith(key)) continue;
     if (rest.length > key.length && /[a-z0-9_]/i.test(rest[key.length])) continue;
     if (!best || key.length > best.length) best = { id, length: key.length };
@@ -1179,19 +1251,89 @@ function longestMatch(rest, candidates) {
   return best;
 }
 
-// Render a computed result: a number is written with thousands separators
-// and two decimals at most (`1,215.6`, `184,540`), keeping a leading $ the
-// old value carried; a string is written as it is, with any '|' bent to a
-// broken bar (a pipe cannot live inside a pipe table). Every computed number
-// reads the same way, so a column of them lines up by
-// eye; a value somebody typed is never passed through here, so a typed year
-// or ID keeps the digits it was written with.
+// Render a computed result. A number is written with every digit it has and
+// thousands separators (`1,215.6`, `0.30000000000000004`), keeping a leading $
+// the old value carried: the file is what the CSV, git and other files read, so
+// it holds the value itself, and shortNumber says what the screen shows of it.
+// A string is written as it is, with any '|' bent to a broken bar (a pipe cannot
+// live inside a pipe table). A value somebody typed is never passed through
+// here, so a typed year or ID keeps the digits it was written with.
+//
+// `v` is a JavaScript number or, as the runtime sends one so that no digit is
+// lost on the way, the number's own text.
+function formatNumberText(text, old) {
+  const m = /^(-?)(\d+)(?:\.(\d+))?$/.exec(String(text).trim());
+  if (!m) throw new Error("the result is not a number");
+  const whole = m[2].replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const zero = /^0*$/.test(m[2]) && /^0*$/.test(m[3] || "");
+  return `${m[1] && !zero ? "-" : ""}${String(old || "").trim().startsWith("$") ? "$" : ""}${whole}${m[3] ? `.${m[3]}` : ""}`;
+}
 function formatValue(v, old) {
   if (typeof v === "string") return v.replace(/\|/g, "¦");
   if (!isFinite(v)) throw new Error("the result is not a number");
-  const rounded = Math.round(v * 100) / 100;
-  const s = (Object.is(rounded, -0) ? 0 : rounded).toLocaleString("en-US", { maximumFractionDigits: 2 });
-  return (String(old || "").trim().startsWith("$") ? "$" : "") + s;
+  const digits = v.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
+  return formatNumberText(digits, old);
+}
+
+// What the screen shows of a computed number. The file holds every digit; a
+// cell shows the first digits that are any use, by these rules, in this order:
+//
+//   1. A whole number shows every digit.
+//   2. Round to 15 significant digits and drop trailing zeros. A double holds
+//      about that many digits that mean anything, so this takes off the noise
+//      of its binary form: 0.30000000000000004 is 0.3. If nothing is left after
+//      the point, it is rule 1.
+//   3. Three or fewer decimals, not counting zeros straight after the point,
+//      show in full: 13.225, 0.0000001.
+//   4. Repeating decimals show the repeating digits once, each with an overline.
+//      Leaving out the last of the 15 digits (it may be rounded), a block of 1
+//      to 3 digits repeats when it runs through the end, covers at least the
+//      last 5 digits and repeats at least 3 times; a block of all 0s or all 9s
+//      does not count: 0.3̅, 0.83̅, 0.0̅9̅, 333.3̅.
+//   5. Anything else shows the zeros straight after the point, then 3 digits,
+//      cut rather than rounded, then "...": 0.363..., 1,234.567..., 0.000123...
+//
+// A sign and a $ stay in front. Answers the text to show, or null when that is
+// the text as written, so there is nothing to replace.
+const OVERLINE = "̅";
+const MIN_REPEAT_DIGITS = 5, MIN_REPEATS = 3, MAX_BLOCK = 3, SHOWN_DIGITS = 3;
+function shortNumber(written) {
+  const t = String(written).trim();
+  const m = /^(-?\$?-?)((?:\d{1,3}(?:,\d{3})+|\d+))(?:\.(\d+))?$/.exec(t);
+  if (!m || !m[3]) return null; // not a number, or a whole one (rule 1)
+  const sign = m[1];
+  const whole = m[2].replace(/,/g, "");
+  const value = Number(`${whole}.${m[3]}`);
+  if (!isFinite(value)) return null;
+  // rule 2: 15 significant digits, written out in full
+  const rounded = Number(value.toPrecision(15));
+  const fixed = rounded.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
+  const [int, frac = ""] = fixed.split(".");
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const show = (text) => (text === t ? null : text);
+  if (!frac) return show(`${sign}${grouped}`);
+  // rule 3
+  const zeros = /^0*/.exec(frac)[0].length;
+  if (frac.length - zeros <= SHOWN_DIGITS) return show(`${sign}${grouped}.${frac}`);
+  // rule 4, over all the digits the 15 give, before any trailing zero went
+  const significant = value.toPrecision(15);
+  const body = (significant.split(".")[1] || "").replace(/^(.*)$/, (s) => s.slice(0, -1));
+  for (let from = 0; from < body.length; from++) {
+    for (let size = 1; size <= MAX_BLOCK; size++) {
+      const block = body.slice(from, from + size);
+      if (block.length < size || /^0+$/.test(block) || /^9+$/.test(block)) continue;
+      const tail = body.slice(from);
+      if (tail.length < Math.max(MIN_REPEAT_DIGITS, MIN_REPEATS * size)) continue;
+      let holds = true;
+      for (let k = 0; k < tail.length; k++) if (tail[k] !== block[k % size]) { holds = false; break; }
+      if (holds) {
+        const lined = [...block].map((d) => d + OVERLINE).join("");
+        return `${sign}${grouped}.${body.slice(0, from)}${lined}`;
+      }
+    }
+  }
+  // rule 5
+  return `${sign}${grouped}.${frac.slice(0, zeros + SHOWN_DIGITS)}...`;
 }
 
 // The data rows of a table block: everything under the header.
@@ -1270,9 +1412,16 @@ function mergeRegistries(...maps) {
 // cell's reference.
 // The grid always wins a shared name (the local reading first, as ever).
 function tableCtx(rows, row, header, registry, outer) {
+  return tableReader(rows, header, registry, outer)(row);
+}
+
+// The same, built once for a table and handed each of its rows: what the rows
+// share (the names they answer to) is worked out one time, however many cells
+// of them hold a formula.
+function tableReader(rows, header, registry, outer) {
   const names = headerNameCands(header);
   const rowNames = rows.map((r) => ({ key: splitCell(r.cells[0] || "").value.toLowerCase(), id: r }));
-  const numCols = Math.max(header ? header.length : 0, ...rows.map((r) => r.cells.length));
+  const numCols = rows.reduce((n, r) => Math.max(n, r.cells.length), header ? header.length : 0);
   const raw = (r, c) => {
     if (c < 1 || c > numCols) throw new Error(`there is no column @${c}`);
     return readValue(splitCell(r.cells[c - 1] || "").value);
@@ -1317,7 +1466,7 @@ function tableCtx(rows, row, header, registry, outer) {
     const own = key !== null ? inheritedOf(key) : undefined;
     return own === undefined ? v : own;
   };
-  return {
+  return (row) => ({
     matchColumn: (rest) => longestMatch(rest, names) || (outer ? outer.matchColumn(rest) : null),
     matchRow: (rest) => {
       const local = longestMatch(rest, rowNames);
@@ -1374,7 +1523,7 @@ function tableCtx(rows, row, header, registry, outer) {
     },
     matchTable: registry ? (rest) => longestMatch(rest, registry.cands) : undefined,
     table: registry ? (id) => registry.scopes.get(id) : undefined,
-  };
+  });
 }
 
 // The Concept a table block itself names: its header's first cell, minus
@@ -1448,7 +1597,7 @@ function tablesOf(lines, rootName, { headerOnly = false } = {}) {
     // name from the nearest shallower line.
     let name, nameLine;
     const own = cleanName(block.rows[0].cells[0] || "");
-    if (own && /^[A-Z]/.test(own)) {
+    if (own && !startsLower(own)) {
       name = own;
       nameLine = block.start + 1;
     } else {
@@ -1466,9 +1615,13 @@ function tablesOf(lines, rootName, { headerOnly = false } = {}) {
     const head = headerIndex(block);
     const header = block.rows[head].cells;
     // each data row with its 1-based line — every row is pinned to its own
-    const rows = [], rowLines = [], breaks = [];
+    const rows = [], rowLines = [], breaks = [], notes = [];
     block.rows.forEach((r, j) => {
       if (j <= head) return;
+      if (r.note !== undefined) {
+        notes.push({ before: rows.length, text: r.note });
+        return;
+      }
       if (r.sep) {
         if (breaks[breaks.length - 1] !== rows.length) breaks.push(rows.length);
         return;
@@ -1478,16 +1631,24 @@ function tablesOf(lines, rootName, { headerOnly = false } = {}) {
     });
     out.push({
       name, nameLine, start: block.start, end: block.end, indent: block.indent,
-      header, rows, rowLines, breaks, parentCol: parentColumnOf(header),
+      header, rows, rowLines, breaks, notes, parentCol: parentColumnOf(header),
     });
   }
   return out;
 }
 
+// One row of a table is one line of the file, so a line break inside a cell —
+// Alt+Enter in Excel — is held as this character, and is a real line break again
+// in the CSV. Nothing is lost on the way round, and no row is split.
+const LINE_BREAK = "↵";
+
 // A grid as RFC 4180 CSV: cells holding a comma, quote or newline are
 // quoted, quotes doubled; rows end in '\n'.
 function toCsv(grid) {
-  const cell = (c) => (/[",\r\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c);
+  const cell = (c) => {
+    const t = String(c).split(LINE_BREAK).join("\n");
+    return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
   return grid.map((row) => row.map(cell).join(",")).join("\n") + "\n";
 }
 
@@ -1504,7 +1665,8 @@ function delimiterOf(text) {
 
 // CSV text back to a grid. Quoted cells may hold commas, doubled quotes
 // and newlines; unquoted cells are trimmed. A pipe cannot survive inside a
-// pipe table, so it is bent to a broken bar. A leading byte-order mark is
+// pipe table, so it is bent to a broken bar, and a line break inside a cell is
+// held as LINE_BREAK, since one row is one line. A leading byte-order mark is
 // dropped: Excel's 'CSV UTF-8' writes one, and it would otherwise ride into
 // the header's first cell — the very cell that names the Concept.
 function fromCsv(text) {
@@ -1530,7 +1692,31 @@ function fromCsv(text) {
     }
     cell += ch;
   }
-  return grid.map((r) => r.map((c) => c.replace(/\|/g, "¦")));
+  return grid.map((r) => r.map((c) => c.replace(/\r\n|\r|\n/g, LINE_BREAK).replace(/\|/g, "¦")));
+}
+
+// A name that must not read as code or as anything but a name: its operators
+// made full-width, and any colon too, since one in a header cell would state a
+// default and one before a row's first pipe make the line a value.
+function inertName(s) {
+  const t = String(s);
+  const code = splitConstraint(t).eq !== -1 || splitCell(t).eq !== -1;
+  const plain = code ? t.replace(/[<>=]/g, (c) => ({ "<": "＜", ">": "＞", "=": "＝" })[c]) : t;
+  return plain.replace(/:/g, "：");
+}
+
+// A new row's name as the first cell of a row must hold it, so a spreadsheet's
+// text stays one row with that name: left as it is when it reads back as itself
+// (`10:30 Standup`), and made inert only when it would not — `=x()` opening a
+// line is a bare formula, `standup: 10:30` a value line, `... rest` a Map.
+function rowName(name) {
+  let t = String(name == null ? "" : name).trim();
+  if (!t) return t;
+  if (t.startsWith("...")) t = "…" + t.slice(3);
+  if (isSeparator(`${t}|`)) t = t.replace(/-/g, "–");
+  const row = `${t}|x`;
+  const reads = isRowText(row) && splitCell(t).eq === -1 && (cells(row)[0] || {}).text === t;
+  return reads ? t : inertName(t);
 }
 
 // The line edit that folds a CSV grid back into its table: replace the
@@ -1595,13 +1781,8 @@ function updateTable(lines, name, header, rows, rootName, registry, breaks) {
   }
   // the table's dividers stay where they stood, before the same data rows
   // — a grid from a CSV has no way to say where they were
-  const keep = new Set(breaks || (selfBlock ? breaksOf(selfBlock) : []));
-  const body = [];
-  rows.forEach((cells, k) => {
-    if (keep.has(k)) body.push({ sep: true, cells: [] });
-    body.push({ sep: false, cells });
-  });
-  if (rows.length && keep.has(rows.length)) body.push({ sep: true, cells: [] });
+  const keep = rows.length ? breaks || (selfBlock ? breaksOf(selfBlock) : []) : [];
+  const body = rowsBetween(rows, keep, selfBlock ? notesOf(selfBlock) : []);
   const block = render({ indent, rows: [{ sep: false, cells: header }, ...body] });
   const changed = lines.slice(from, to + 1).join("\n") !== block.join("\n");
   return { changed, from, to, block };
@@ -1615,9 +1796,43 @@ function breaksOf(block) {
   block.rows.forEach((r, j) => {
     if (j <= head) return;
     if (!r.sep) { n++; return; }
+    if (r.note !== undefined) return;
     if (out[out.length - 1] !== n) out.push(n);
   });
   return out;
+}
+
+// The `...` lines a block holds, each with the data row it stands before
+// (tablesOf's notes).
+function notesOf(block) {
+  const out = [];
+  const head = headerIndex(block);
+  let n = 0;
+  block.rows.forEach((r, j) => {
+    if (j <= head) return;
+    if (!r.sep) n++;
+    else if (r.note !== undefined) out.push({ before: n, text: r.note });
+  });
+  return out;
+}
+
+// A table's data rows as a block holds them, with what stands between them put
+// back before the same rows: its dividers and its `...` lines. Every redraw
+// from a grid goes through here, so neither is lost by a CSV arriving, a
+// reconcile or a value moving up.
+function rowsBetween(rows, breaks, notes) {
+  const keep = new Set(breaks || []);
+  const body = [];
+  const before = (k) => {
+    if (keep.has(k)) body.push({ sep: true, cells: [] });
+    for (const n of notes || []) if (n.before === k) body.push({ sep: true, note: n.text, cells: [] });
+  };
+  rows.forEach((cells, k) => {
+    before(k);
+    body.push({ sep: false, cells });
+  });
+  before(rows.length);
+  return body;
 }
 
 // Re-align every table in the text so the pipes line up. A table is an
@@ -1649,18 +1864,19 @@ function align(text, registry, rootName) {
 }
 
 module.exports = {
+  startsLower, startsUpper, startsCaseless,
   cells, dividers, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
   insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross, columnDefinition, defineColumn,
-  demoteRow, promoteRow, parentsOf, branchOf, breaksOf,
+  demoteRow, promoteRow, parentsOf, branchOf, breaksOf, notesOf, rowsBetween,
   headerTerm, isParentColumn, parentColumnOf, parentHeader, PARENT_TERM,
   copyCell, moveCell, copyRow, copyColumn,
   jumpCell, cornerCell, fill, fillDown, fillRight, copyFormulaFromAbove, copyValueFromAbove,
   columnTerm, defaultColon,
   padCell, headerIndex,
-  cleanName, tablesOf, toCsv, fromCsv, updateTable,
-  splitCell, splitConstraint, STORED_OPS, formatValue,
-  longestMatch, numericValue, tableCtx,
+  cleanName, tablesOf, toCsv, fromCsv, updateTable, LINE_BREAK, inertName, rowName,
+  splitCell, splitConstraint, STORED_OPS, formatValue, formatNumberText, shortNumber,
+  longestMatch, numericValue, tableCtx, tableReader,
   readValue, writtenValue,
   valueType, isDateValue, referenceNames, referenceNamesFrom, dataRowsOf,
   mergeRegistries, enclosingScope,

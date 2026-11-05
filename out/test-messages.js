@@ -155,6 +155,17 @@ const parsed = (...lines) => lint(aot(...lines), "Zoo");
   opens("a value no Example names", unlistedValues(text, r.root, r.nodes).map((h) => h.message), "add it as an Example of 'Person', or use one already listed");
 }
 
+// --- the flip ------------------------------------------------------------------
+{
+  const { flipBlockers } = require("../src/derive");
+  const flip = (...lines) => {
+    const r = parsed(...lines);
+    return flipBlockers(lines, r.nodes.find((n) => n.name === "Order"), "Zoo").map((b) => b.message);
+  };
+  opens("two values where a table holds one", flip("Order", "    - A1", "        tag: red", "        tag: blue"), "keep one value for 'tag' on 'A1' before flipping");
+  opens("an allowed-values list a table has no place for", flip("Order", "    status", "        - draft", "    - A1", "        status: draft"), `write 'status =("draft",)' on one line before flipping`);
+}
+
 // ...and whatever else any fixture happened to raise reads the same way
 const late = [...seen].filter((m) => !FIX_FIRST.test(m));
 check(`all ${seen.size} messages open with a fix`, late.length === 0);

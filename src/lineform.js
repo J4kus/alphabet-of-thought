@@ -6,9 +6,10 @@
 // lines under it; its columns are its attributes; a cell is an Example's
 // 'attribute: value' line, and a cell nobody wrote is a line nobody wrote.
 // This module reads that grid off the parse and gives the table keys their
-// meaning there: Alt+↑ moves an Example as it moves a row, Ctrl+D fills a
-// value down from the Example above, Tab walks the Examples and their
-// values.
+// meaning there: Alt+↑ moves an Example as it moves a row, and Ctrl+D fills a
+// value down from the Example above. Tab is not among them: off a table it is
+// VS Code's own, as in any other file, since in line form the indent is the
+// nesting.
 //
 // Flipping to a table, running the table's own operation and flipping back
 // would be shorter, and it would rewrite the writer's text: a flip orders
@@ -103,7 +104,7 @@ function looksLikeCell(textOf, lineIdx) {
   if (text === undefined || text === null || isRowText(text)) return false;
   const t = text.trim();
   if (t.startsWith("-")) return true;
-  if (!/^[^A-Z\s\-][^:]*:/.test(t)) return false;
+  if (!/^[^\p{Lu}\p{Lt}\s\-][^:]*:/u.test(t)) return false;
   const depth = indentOf(text).length;
   for (let i = lineIdx - 1; i >= 0; i--) {
     const above = textOf(i);
@@ -116,7 +117,7 @@ function looksLikeCell(textOf, lineIdx) {
 // The column keys work from an attribute's declaration too — a bare `age`
 // under the Concept is that column's header, the one line that names it for
 // every Example — so Alt+Shift+← there deletes the column exactly as it does
-// from a value. Only these keys: Tab on a declaration still indents it.
+// from a value. Only these keys.
 const COLUMN_OPS = new Set([
   "moveColumnLeft", "moveColumnRight", "insertColumn", "deleteColumn", "copyColumnLeft", "copyColumnRight",
 ]);
@@ -128,7 +129,7 @@ const COLUMN_OPS = new Set([
 function looksLikeDeclaration(textOf, lineIdx) {
   const text = textOf(lineIdx);
   if (text === undefined || text === null || isRowText(text)) return false;
-  if (!/^[^A-Z\s\-.:|][^:|]*$/.test(text.trim())) return false;
+  if (!/^[^\p{Lu}\p{Lt}\s\-.:|][^:|]*$/u.test(text.trim())) return false;
   const depth = indentOf(text).length;
   if (!depth) return false;
   let parent = -1;
@@ -276,37 +277,6 @@ function setCell(g, r, col, text, edits, mark) {
 }
 
 // --- moving the cursor -------------------------------------------------------
-
-// Every cell line — each Example's name and its values — in document order.
-function cellLines(g) {
-  const out = [];
-  for (const r of g.rows) {
-    out.push(r.line - 1);
-    for (const v of valuesOf(r, g.lines)) out.push(v.line - 1);
-  }
-  return out.sort((a, b) => a - b);
-}
-
-// Tab: the next cell — an Example's name, or one of its values; past the
-// last, a new Example at the bottom, as a table grows a row.
-function nextCell(g) {
-  const next = cellLines(g).find((i) => i > g.at);
-  if (next !== undefined) return { cursor: { line: next } };
-  const last = g.rows[g.rows.length - 1];
-  return {
-    edits: [{
-      type: "insert", after: blockOf(topOf(g, last)).to,
-      lines: [{ text: `${indentOf(g.lines[last.line - 1])}- `, mark: "cursor" }],
-    }],
-    cursor: { mark: "cursor" },
-  };
-}
-
-// Shift+Tab: the previous cell; never grows.
-function prevCell(g) {
-  const before = cellLines(g).filter((i) => i < g.at);
-  return { cursor: { line: before.length ? before[before.length - 1] : g.at } };
-}
 
 // Ctrl+arrow: the spreadsheet's jump to the edge of the data (table.jumpCell)
 // over the grid — down and up through the Examples, left and right through
@@ -759,8 +729,6 @@ function changedLines(before, after) {
 
 // The operations, by the table command each one answers to.
 const ops = {
-  nextCell: (g) => nextCell(g),
-  prevCell: (g) => prevCell(g),
   moveRowUp: (g) => moveRow(g, -1),
   moveRowDown: (g) => moveRow(g, 1),
   moveColumnLeft: (g) => moveColumn(g, -1),

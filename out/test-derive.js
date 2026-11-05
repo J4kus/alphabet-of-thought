@@ -991,5 +991,70 @@ const parsed = (text) => {
     on(5).join(",") === "alias-is-a-Concept:Car->Car");
 }
 
+// ---------------------------------------------------------------------------
+// the flip keeps every value, whatever alphabet or numbering the name is in
+// ---------------------------------------------------------------------------
+{
+  const { flipForm } = require("../src/derive");
+  for (const name of ["Trip", "1. Trip", "Éclair", "3D Print", "日本語"]) {
+    const lines = [`${name}|cost`, "Bus|10", "Rail|20"];
+    const parsed = lint(lines.join("\n"), "Model");
+    const concept = parsed.nodes.find((n) => n.kind === KIND.CONCEPT);
+    const edit = flipForm(lines, concept, "Model");
+    const out = edit.block.join("\n");
+    check(`flip: '${name}' keeps every value`,
+      edit.form === "lines" && /cost: 10/.test(out) && /cost: 20/.test(out) && out.startsWith(name));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// a `...` line in a table: out of the model, in its place, through every redraw
+// ---------------------------------------------------------------------------
+{
+  const { flipForm, hoistOps } = require("../src/derive");
+  const lines = ["Trip|cost", "Bus |10", "... Rail|20", "Air |30"];
+  const parsed = lint(lines.join("\n"), "Model");
+  const concept = parsed.nodes.find((n) => n.kind === KIND.CONCEPT);
+  const grid = mirrorGrids(parsed.root, parsed.nodes).find((g) => g.name === "Trip");
+  check("'...' row: the Example is gone from the model and the CSV", grid.rows.map((r) => r[0]).join() === "Bus,Air");
+  // a CSV arriving redraws the table: the line stays between the same rows
+  const ops = updateScope(lines, parsed.root, parsed.nodes, concept, ["Trip", "cost"], [["Bus", "11"], ["New", "5"]], "Model");
+  const block = ops.find((o) => o.type === "block");
+  check("'...' row: a CSV folding in keeps it between the same rows",
+    block && block.block.join("\n") === ["Trip|cost", "Bus |11", "... Rail|20", "Air |30", "New |5"].join("\n"));
+  // the flip writes it as a line, and nothing is lost
+  const flipped = flipForm(lines, concept, "Model");
+  const out = flipped.block.join("\n");
+  check("'...' row: the flip keeps it, in its place among the Examples",
+    flipped.form === "lines" && /- Bus\n\s+cost: 10\n\s+\.\.\. Rail\|20\n\s+- Air/.test(out));
+  const back = lint(out, "Model");
+  check("'...' row: what the flip wrote reads with no error", back.errors.length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// the flip stops rather than lose a value, and says where
+// ---------------------------------------------------------------------------
+{
+  const { flipBlockers } = require("../src/derive");
+  const blockers = (...lines) => {
+    const parsed = lint(lines.join("\n"), "Model");
+    const concept = parsed.nodes.find((n) => n.kind === KIND.CONCEPT);
+    return flipBlockers(lines, concept, "Model");
+  };
+  const repeated = blockers("Order", "    - A1", "        tag: red", "        tag: blue");
+  check("flip stops: an attribute with two values on one Example, on both its lines",
+    repeated.map((b) => b.line).join() === "3,4" && /^keep one value for 'tag' on 'A1' before flipping — /.test(repeated[0].message));
+  const listed = blockers("Order", "    status", "        - draft", "        - sent", "    - A1", "        status: draft");
+  check("flip stops: an attribute listing its values on lines, with the bound to write instead",
+    listed.length === 1 && listed[0].line === 2 && listed[0].message.startsWith(`write 'status =("draft", "sent")' on one line before flipping — `));
+  check("flip goes ahead: an attribute repeated with one value loses nothing",
+    !blockers("Order", "    - A1", "        tag: red", "        tag: red").length);
+  check("flip goes ahead: an allowed-values list no Example gives a value",
+    !blockers("Order", "    status", "        - draft", "    - A1", "        size: 3").length);
+  check("flip goes ahead: a table flipping to lines loses nothing",
+    !blockers("Order|tag", "A1|red").length);
+  check("flip goes ahead: an ordinary Concept", !blockers("Order", "    - A1", "        tag: red", "    - A2", "        tag: blue").length);
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

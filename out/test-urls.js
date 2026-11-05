@@ -3,7 +3,7 @@
 // nothing touches the network.
 //
 // Plain Node script, no framework — run with: node out/test-urls.js
-const { findUrls, findFiles, metadata, isImage, looksLikePath } = require("../src/urls");
+const { findUrls, findFiles, metadata, isImage, looksLikePath, isInternalUrl, isInternalHost, isPrivateIp } = require("../src/urls");
 
 let failures = 0;
 function check(name, ok) {
@@ -143,6 +143,44 @@ const respond = (statusCode, headers) => (opts, cb) => {
   await metadata("https://cached.test/x", counting);
   await metadata("https://cached.test/x", counting);
   check("metadata: a repeat within the TTL is served from the cache", calls === 1);
+
+  // a hover never knocks on this machine or its network
+  for (const url of ["http://localhost/x", "http://127.0.0.1:8080/x", "http://2130706433/", "http://0x7f.1/", "http://10.0.0.5/", "http://172.20.1.1/",
+    "http://192.168.1.1/", "http://169.254.169.254/latest/meta-data", "http://[::1]/", "http://[fe80::1]/", "http://[fd00::1]/", "http://[::ffff:10.0.0.1]/",
+    "http://intranet/", "http://printer.local/", "http://db.internal/", "not a url"]) {
+    check(`internal: ${url}`, isInternalUrl(url));
+  }
+  for (const url of ["https://example.com/a", "http://8.8.8.8/", "https://sub.domain.org/x?y=1", "http://[2606:4700::1111]/", "http://172.32.0.1/"]) {
+    check(`public: ${url}`, !isInternalUrl(url));
+  }
+  check("private ranges: a public address is not one", !isPrivateIp("93.184.216.34") && !isInternalHost("example.com"));
+  let knocked = 0;
+  const knocking = (opts, cb) => { knocked++; return respond(200, {})(opts, cb); };
+  const inside = await metadata("http://169.254.169.254/latest/meta-data", knocking);
+  check("metadata: an internal address is refused before any request", knocked === 0 && /internal address/.test(inside.error));
+  knocked = 0;
+  let hops = 0;
+  const toInside = (opts, cb) => {
+    hops++;
+    return respond(301, { location: "http://192.168.1.1/admin" })(opts, cb);
+  };
+  const bounced = await metadata("https://public.test/start", toInside);
+  check("metadata: a redirect to an internal address is refused too", hops === 1 && /internal address/.test(bounced.error));
+  let lookupGiven = null;
+  const looking = (opts, cb) => { lookupGiven = opts.lookup; return respond(200, {})(opts, cb); };
+  await metadata("https://looked.test/x", looking);
+  check("metadata: the request resolves names through the check", typeof lookupGiven === "function");
+  const dns = require("dns");
+  const realLookup = dns.lookup;
+  dns.lookup = (host, opts, cb) => cb(null, "10.1.2.3", 4);
+  const rebound = await new Promise((resolve) => lookupGiven("rebound.test", {}, (err) => resolve(err)));
+  dns.lookup = (host, opts, cb) => cb(null, [{ address: "8.8.8.8", family: 4 }, { address: "192.168.0.9", family: 4 }]);
+  const reboundAll = await new Promise((resolve) => lookupGiven("rebound.test", { all: true }, (err) => resolve(err)));
+  dns.lookup = (host, opts, cb) => cb(null, "93.184.216.34", 4);
+  const fine = await new Promise((resolve) => lookupGiven("example.com", {}, (err, address) => resolve(err || address)));
+  dns.lookup = realLookup;
+  check("metadata: a public name resolving to an internal address is refused at the lookup",
+    /internal address/.test(rebound && rebound.message) && /internal address/.test(reboundAll && reboundAll.message) && fine === "93.184.216.34");
 
   console.log(failures ? `\n${failures} FAILED` : "\nall passed");
   process.exit(failures ? 1 : 0);

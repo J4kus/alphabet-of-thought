@@ -908,5 +908,97 @@ check("verify: a well-formed tree yields no errors",
     child.chi % parent.chi === 0n);
 }
 
+// ---------------------------------------------------------------------------
+// any alphabet: case is read from Unicode, so a lowercase first letter means an
+// attribute whichever alphabet it is from
+// ---------------------------------------------------------------------------
+{
+  const kindOf = (term) => {
+    const r = lint(["Thing", `    ${term}`, ""].join("\n"), "Model");
+    return r.nodes[1] && r.nodes[1].kind;
+  };
+  check("alphabets: a lowercase letter of any alphabet opens an attribute",
+    kindOf("ête") === ATTRIBUTE && kindOf("цена") === ATTRIBUTE && kindOf("ñandu") === ATTRIBUTE);
+  check("alphabets: with a value it is a value line",
+    kindOf("één: 1") === DEFAULT && kindOf("ñandu: x") === DEFAULT && kindOf("цена: 3") === DEFAULT);
+  check("alphabets: a capital of any alphabet opens a Concept",
+    kindOf("Éclair") === CONCEPT && kindOf("Цена") === CONCEPT);
+  check("alphabets: a number opens a Concept",
+    kindOf("3D Print") === CONCEPT && kindOf("1. Trip") === CONCEPT);
+  check("alphabets: a script with no capitals: a term with a value is a value line, a bare term a Concept",
+    kindOf("名前: 太郎") === DEFAULT && kindOf("名前") === CONCEPT);
+  const bound = lint(["Thing", "    ête >=1", "    価格 >=1", ""].join("\n"), "Model");
+  check("alphabets: a bound is an attribute's in any alphabet",
+    bound.nodes.filter((n) => n.kind === ATTRIBUTE && n.constraints).length === 2);
+  const shouty = lint(["Thing|Цена", "A|1", ""].join("\n"), "Model");
+  check("alphabets: a capitalised column is told to lowercase in any alphabet",
+    shouty.errors.some((e) => /lowercase column 'Цена'/.test(e.message)));
+  const low = lint(["ête|size", "A|1", ""].join("\n"), "Model");
+  check("alphabets: a lowercase first header cell is an error in any alphabet",
+    low.errors.some((e) => /first header cell/.test(e.message)));
+  const row = lint(["Trip|cost", "10:30 Standup|5", "Éclair|6", "3D Print|7", ""].join("\n"), "Model");
+  check("alphabets: a row name opening with a number or a capital of any alphabet stays a row, colon and all",
+    row.errors.length === 0 && row.nodes.filter((n) => n.kind === INDIVIDUAL).map((n) => n.name).join() === "10:30 Standup,Éclair,3D Print");
+}
+
+// ---------------------------------------------------------------------------
+// a `...` line: what Ctrl+/ makes of a line — out of the model, and a table
+// goes on past it
+// ---------------------------------------------------------------------------
+{
+  const row = lint(["Trip|cost", "Bus|10", "... Rail|20", "Air|30", ""].join("\n"), "Model");
+  const names = row.nodes.filter((n) => n.kind === INDIVIDUAL).map((n) => n.name);
+  const map = row.nodes.find((n) => n.kind === MAP);
+  check("'...' row: it is no Example, and the rows around it are one table",
+    row.errors.length === 0 && names.join() === "Bus,Air");
+  check("'...' row: it is the table's Concept's Map", map && map.parent.name === "Trip" && map.name === "Rail|20");
+  check("'...' row: a row after it keeps the table's columns",
+    row.nodes.find((n) => n.name === "Air").children.some((c) => c.name === "cost" && c.value === "30"));
+  const line = lint(["Trip", "    cost", "    ... Hotel", "    - Bus", "        cost: 10", ""].join("\n"), "Model");
+  check("'...' line: out of the model in line form too",
+    line.errors.length === 0 && !line.nodes.some((n) => n.kind === CONCEPT && /Hotel/.test(n.name)));
+  const two = lint(["Trip", "    ... Hotel", "    ...     cost: 10", "    - Bus", ""].join("\n"), "Model");
+  check("'...' lines: a parent and its child taken out together read with no error",
+    two.errors.length === 0 && two.nodes.filter((n) => n.kind === MAP).length === 2);
+  const orphan = lint(["Trip", "    ... Hotel", "        cost: 10", ""].join("\n"), "Model");
+  check("'...' line: a parent taken out with its child left behind is the Map error",
+    orphan.errors.some((e) => /move those lines out from under it/.test(e.message)));
+  const shallow = lint(["Trip", "    Pet|age", "    Rex|3", "... rest", "Other", ""].join("\n"), "Model");
+  check("'...' line: one shallower than the rows still ends the table",
+    shallow.errors.length === 0 && shallow.nodes.find((n) => n.kind === MAP).parent.name === "Model");
+}
+
+// ---------------------------------------------------------------------------
+// a tab: only the indentation is the language's
+// ---------------------------------------------------------------------------
+{
+  const inValue = lint(["Thing", "    note: one\ttwo", ""].join("\n"), "Model");
+  check("tab: inside a value it is a character of the value, and no error",
+    inValue.errors.length === 0 && inValue.nodes.find((n) => n.name === "note").value === "one\ttwo");
+  const inRow = lint(["Thing|note", "A|one\ttwo", ""].join("\n"), "Model");
+  check("tab: inside a table cell likewise", inRow.errors.length === 0);
+  const leading = lint(["Thing", "\tfoo", ""].join("\n"), "Model");
+  check("tab: in the indentation it is still an error, and reads as a level",
+    leading.errors.some((e) => /tab in the indentation/.test(e.message)) && leading.nodes.find((n) => n.name === "foo").depth === 1);
+}
+
+// ---------------------------------------------------------------------------
+// no line can stall a keystroke's parse
+// ---------------------------------------------------------------------------
+{
+  const quick = (name, text) => {
+    const t = Date.now();
+    lint(text, "Model");
+    const ms = Date.now() - t;
+    check(`pathological line: ${name} (${ms} ms)`, ms < 1500);
+  };
+  quick("a line of nothing but '='", "x " + "= ".repeat(3200) + "\n");
+  quick("a long line of mixed operators", "x " + ">= <= = ".repeat(1200) + "\n");
+  quick("a bound made of a long reference", "x =@" + "a ".repeat(2000) + "\n");
+  quick("a paragraph at the left margin", "Word " + Array.from({ length: 1600 }, (_, i) => `word${i}`).join(" ") + "\nOther\n");
+  const chained = lint(["Thing", "    age >=18 <=65", ""].join("\n"), "Model").nodes.find((n) => n.name === "age");
+  check("pathological line: an ordinary chain still reads as bounds", chained && chained.constraints.length === 2);
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

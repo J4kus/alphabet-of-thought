@@ -1,4 +1,4 @@
-// Python written where a formula would be written, and run only when asked.
+// Python written where a formula would be written, run when the file calculates.
 //
 // `=` has one meaning — "this value is derived" — and two languages behind
 // it. pyshape.js decides which from the text alone; this module is
@@ -14,8 +14,8 @@
 //                   the repo — answered as a typed target the runtime can
 //                   hand to Python: a live object, a value, a frame, a column
 //   planRun         the order to run in (dependencies first, cycles
-//                   reported), and for Ctrl+Enter the part of the file one
-//                   run must bring up to date
+//                   reported), and the part of the file one pass must bring
+//                   up to date
 //   Session         the persistent Python process: JSON lines over stdio,
 //                   one pending request per id, timeouts that kill
 //   resultEdits     what a result writes back into the file
@@ -111,6 +111,42 @@ function hostsOf(nodes, lines, rootName) {
 // A bare `=` line's address: its place among the file's bare lines.
 const generatorAddress = (k) => `@=${k + 1}`;
 
+// Every calculation in a file: its derivations, and one for each value a
+// column's or an attribute's definition computes (`price =@qty*2`). A definition
+// is a formula like any other, so it takes its turn among them, and what reads
+// its column reads what it computes. A value's own derivation is the nearer word.
+function calcHosts(nodes, lines, rootName, parked) {
+  const hosts = hostsOf(nodes, lines, rootName);
+  const addressAt = new Map();
+  for (const [address, where] of park.cellIndex(lines, nodes, rootName)) addressAt.set(`${where.line}:${where.col}`, address);
+  const taken = new Set(hosts.map((h) => h.address));
+  for (const check of constraintChecks(nodes, lines, parked)) {
+    if (check.derived) continue;
+    const clause = check.chain.find((c) => c.op === "==");
+    if (!clause) continue;
+    const raw = lines[check.host.line - 1] || "";
+    const defined = { defined: true, source: clause.formula, line: check.host.line, value: check.value };
+    if (check.host.kind === "cell") {
+      const address = addressAt.get(`${check.host.cell.line}:${check.host.cell.col}`);
+      const cell = table.cells(raw)[check.host.cell.col];
+      if (!address || !cell || taken.has(address)) continue;
+      taken.add(address);
+      hosts.push(Object.assign(defined, {
+        kind: "cell", address, cell: check.host.cell, startCol: cell.col, endCol: cell.col + cell.text.length,
+      }));
+    } else {
+      const address = park.addressOf(check.host.node, rootName);
+      if (taken.has(address)) continue;
+      taken.add(address);
+      const colon = raw.indexOf(":");
+      hosts.push(Object.assign(defined, {
+        kind: "value", address, node: check.host.node, startCol: colon === -1 ? 0 : colon + 1, endCol: raw.length,
+      }));
+    }
+  }
+  return hosts.sort((a, b) => (a.line - b.line) || (a.startCol - b.startCol));
+}
+
 // --- the constraints ---------------------------------------------------------
 // A constraint's bound is Python too — `age >=18`, `cap <=@price*1.5`,
 // `status ==("draft", "sent")` — checked when the derivations run, against
@@ -177,7 +213,9 @@ function checkItems(checks, ctx) {
   const out = [];
   for (const check of checks) {
     check.chain.forEach((clause, k) => {
-      if (clause.op !== "==" && (check.definesOnly || !String(check.value).trim())) return;
+      // an empty value is held to nothing; what a definition writes into it is
+      // the calculation's (calcHosts)
+      if (check.definesOnly || !String(check.value).trim()) return;
       let r;
       try { r = resolveHost(Object.assign({}, check.host, { source: clause.formula }), ctx); }
       catch (e) { r = { errors: [e.message] }; }
@@ -342,14 +380,37 @@ const fold = (s) => table.numberless(String(s || "").trim()).toLowerCase();
 // is then { kind: "generated", address, key, node }, `key` the name the
 // result holds it under. A Concept's own derivation wins a shared name.
 // `nodes` finds each written Concept's node, for a rename to follow.
-function hostIndex(hosts, generated, nodes) {
+//
+// `lines` (optional) is the text, for the rest of what a reference may read: an
+// Example's cell by its column (`byRow`), so that `@Item@price`, `@Item@Bob` or
+// `@Item@Bob@price` reads a formula's live result rather than the text it last
+// wrote, and depends on it. `blocks` finds each table once, and `targets` keeps
+// what one pass has already read of a Concept: a column a thousand formulas
+// read is read one time, and is one object to send and to hash.
+function hostIndex(hosts, generated, nodes, lines) {
   const byNode = new Map();
   const byConcept = new Map();
   const byCell = new Map();
+  const byRow = new Map(); // Example node -> Map(lowercased attribute -> host)
+  const blocks = lines ? blockFinder(lines) : null;
+  const inRow = (example, attr, h) => {
+    if (!example) return;
+    if (!byRow.has(example)) byRow.set(example, new Map());
+    byRow.get(example).set(String(attr).toLowerCase(), h);
+  };
+  const exampleAt = new Map();
+  for (const n of nodes || []) if (n.kind === KIND.INDIVIDUAL && !exampleAt.has(n.line)) exampleAt.set(n.line, n);
   for (const h of hosts) {
-    if (h.kind === "value") byNode.set(h.node, h);
-    else if (h.kind === "concept") byConcept.set(fold(h.node.name), h);
-    else if (h.kind === "cell") byCell.set(`${h.cell.line}:${h.cell.col}`, h);
+    if (h.kind === "value") {
+      byNode.set(h.node, h);
+      if (h.node.parent && h.node.parent.kind === KIND.INDIVIDUAL) inRow(h.node.parent, h.node.name, h);
+    } else if (h.kind === "concept") byConcept.set(fold(h.node.name), h);
+    else if (h.kind === "cell") {
+      byCell.set(`${h.cell.line}:${h.cell.col}`, h);
+      const block = blocks && blocks(h.line - 1);
+      const head = block ? table.headerIndex(block) : -1;
+      if (head !== -1) inRow(exampleAt.get(h.line), table.columnTerm(block.rows[head].cells[h.cell.col] || ""), h);
+    }
   }
   for (const h of hosts) {
     if (h.kind !== "generator" || !generated) continue;
@@ -360,8 +421,28 @@ function hostIndex(hosts, generated, nodes) {
       byConcept.set(key, { kind: "generated", address: h.address, key: name, node });
     }
   }
-  return { byNode, byConcept, byCell };
+  return { byNode, byConcept, byCell, byRow, blocks, targets: new Map(), readers: new Map() };
 }
+
+// The table block around a line, each table found once for the whole text.
+function blockFinder(lines) {
+  const found = new Map();
+  return (at) => {
+    if (found.has(at)) return found.get(at);
+    const block = table.blockAt(lines, at);
+    if (block) for (let i = block.start; i <= block.end; i++) found.set(i, block);
+    else found.set(at, null);
+    return block;
+  };
+}
+
+// What an Example's cell reads as: `text`, or where a formula computes the cell,
+// a reference to that formula's live result.
+const liveOr = (index, example, attr, text) => {
+  const row = index.byRow && index.byRow.get(example);
+  const h = row && row.get(String(attr).toLowerCase());
+  return h ? { $live: h.address } : text;
+};
 
 // A Concept carrying its own derivation, named at the head of `rest`:
 // { length, host } or null. Longest name wins, as every reference resolves.
@@ -408,35 +489,65 @@ function conceptTail(src, at, scope, index) {
     target = liveTarget(derived);
     if (column !== null) target.column = display(column);
     if (row !== null) target.row = scope.rows[row];
-  } else if (column !== null && row !== null) {
-    target = { kind: "value", text: scope.cellAt(column, row) };
+    return { length: i - at, target, names };
+  }
+  // one read of each thing a pass reads of a Concept, however many formulas do
+  const memo = index.targets;
+  const key = memo && `${scope.name}\0${column}\0${row}`;
+  if (memo && memo.has(key)) return { length: i - at, target: memo.get(key), names };
+  if (column !== null && row !== null) {
+    const live = liveOr(index, scope.examples[row], column, null);
+    target = live ? { kind: "object", address: live.$live } : { kind: "value", text: scope.cellAt(column, row) };
   } else if (column !== null) {
-    target = { kind: "column", name: display(column), values: scope.column(column), index: scope.rows };
+    target = {
+      kind: "column", name: display(column), index: scope.rows,
+      values: scope.column(column).map((text, r) => liveOr(index, scope.examples[r], column, text)),
+    };
   } else if (row !== null) {
-    const ex = scope.examples[row];
-    target = recordOf(ex, scope);
+    target = recordOf(scope.examples[row], scope, index);
   } else {
     const grid = scope.grid();
-    target = { kind: "frame", name: scope.name, header: grid[0], rows: grid.slice(1) };
+    const columns = grid[0].map((name) => String(name).toLowerCase());
+    target = {
+      kind: "frame", name: scope.name, header: grid[0],
+      rows: grid.slice(1).map((cells, r) => cells.map((text, k) => (k === 0 ? text : liveOr(index, scope.examples[r], columns[k], text)))),
+    };
   }
+  if (memo) memo.set(key, target);
   return { length: i - at, target, names };
 }
 
 // An Example as a dict of its attributes, the Concept's defaults filling in
 // what it is silent on.
-function recordOf(ex, scope) {
+function recordOf(ex, scope, index) {
   const fields = {};
+  const live = (attr, text) => (index ? liveOr(index, ex, attr, text) : text);
   if (scope) {
+    const r = scope.examples.indexOf(ex);
     for (const col of scope.columns) {
-      const r = scope.examples.indexOf(ex);
-      fields[col] = r === -1 ? "" : scope.cellAt(col.toLowerCase(), r);
+      fields[col] = r === -1 ? "" : live(col, scope.cellAt(col.toLowerCase(), r));
     }
   } else {
     for (const c of ex.children) {
-      if (c.kind === KIND.DEFAULT) fields[c.name] = c.value || "";
+      if (c.kind === KIND.DEFAULT) fields[c.name] = live(c.name, c.value || "");
     }
   }
   return { kind: "record", name: ex.name, fields };
+}
+
+// The formulas a reference's target reads. A target read by many is worked out
+// once, and hashed once (runHash).
+const targetDepsMemo = new WeakMap();
+function targetDeps(t) {
+  if (t.kind === "object") return [t.address];
+  if (targetDepsMemo.has(t)) return targetDepsMemo.get(t);
+  const out = [];
+  const add = (v) => { if (v && v.$live) out.push(v.$live); };
+  if (t.kind === "column") t.values.forEach(add);
+  else if (t.kind === "frame") t.rows.forEach((r) => r.forEach(add));
+  else if (t.kind === "record") Object.values(t.fields).forEach(add);
+  targetDepsMemo.set(t, out);
+  return out;
 }
 
 // The resolver for a line-form value or a Concept line: the host's own
@@ -467,6 +578,11 @@ function lineResolver(host, registry, index) {
   const owners = [...new Set([anchor.parent, owner, ...examples])].filter(Boolean);
   const attrsNamed = (id) => owners.flatMap((o) => o.children.filter((c) =>
     (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE) && c.name.toLowerCase() === id));
+  // a named Example's value: its formula's live result where one computes it
+  const cellTarget = (example, id) => {
+    const live = liveOr(index, example, id, null);
+    return live ? { kind: "object", address: live.$live } : { kind: "value", text: ctx.cellAt(id, example) };
+  };
   return (src, at) => {
     const rest = src.slice(at + 1);
     const col = ctx.matchColumn(rest);
@@ -511,7 +627,7 @@ function lineResolver(host, registry, index) {
         if (r) {
           names.push({ offset: end + 1, length: r.length, kind: "row", nodes: [r.id] });
           end += 1 + r.length;
-          return { length: end - at, target: { kind: "value", text: ctx.cellAt(col.id, r.id) }, names };
+          return { length: end - at, target: cellTarget(r.id, col.id), names };
         }
       }
       const node = nodeFor(col.id);
@@ -527,10 +643,10 @@ function lineResolver(host, registry, index) {
         if (c) {
           names.push({ offset: end + 1, length: c.length, kind: "column", nodes: attrsNamed(c.id) });
           end += 1 + c.length;
-          return { length: end - at, target: { kind: "value", text: ctx.cellAt(c.id, row.id) }, names };
+          return { length: end - at, target: cellTarget(row.id, c.id), names };
         }
       }
-      return { length: end - at, target: recordOf(row.id), names };
+      return { length: end - at, target: recordOf(row.id, null, index), names };
     }
     const scope = ctx.table(tab.id);
     if (!scope) return null;
@@ -547,14 +663,23 @@ function lineResolver(host, registry, index) {
 // the current Concept answers only where no other is named.
 function cellResolver(host, lines, registry, rootName, index) {
   const at0 = host.line - 1;
-  const block = table.blockAt(lines, at0);
-  const rows = table.dataRowsOf(block);
-  const row = rows.find((r) => block.start + block.rows.indexOf(r) === at0);
-  const header = block.rows[table.headerIndex(block)].cells;
-  const outer = table.enclosingScope(lines, block, registry, rootName);
-  const ctx = table.tableCtx(rows, row, header, registry, outer);
-  const headerLine = block.start + table.headerIndex(block) + 1;
-  const headerCells = table.cells(lines[headerLine - 1] || "");
+  // what every formula of one table shares is read once for the table
+  const block = index.blocks ? index.blocks(at0) : table.blockAt(lines, at0);
+  const readers = index.readers || new Map();
+  if (!readers.has(block)) {
+    const rows = table.dataRowsOf(block);
+    const header = block.rows[table.headerIndex(block)].cells;
+    const outer = table.enclosingScope(lines, block, registry, rootName);
+    const headerLine = block.start + table.headerIndex(block) + 1;
+    readers.set(block, {
+      outer, headerLine, headerCells: table.cells(lines[headerLine - 1] || ""),
+      read: table.tableReader(rows, header, registry, outer),
+      lineOf: new Map(block.rows.map((r, k) => [r, block.start + k + 1])),
+    });
+  }
+  const { outer, headerLine, headerCells, read, lineOf } = readers.get(block);
+  const row = block.rows[at0 - block.start];
+  const ctx = read(row);
   const columnName = (col, offset) => (typeof col.id === "number"
     ? { offset, length: col.length, kind: "column", site: { line: headerLine, col: (headerCells[col.id - 1] || {}).col } }
     : { offset, length: col.length, kind: "column", conceptNode: outer && outer.node, attrKey: col.id });
@@ -576,7 +701,15 @@ function cellResolver(host, lines, registry, rootName, index) {
     const derived = typeof col.id === "number" ? index.byCell.get(`${line}:${col.id - 1}`) : null;
     return derived && derived !== host ? { kind: "object", address: derived.address } : null;
   };
-  const cellOf = (col, r) => (inGrid(r) && liveCell(block.start + block.rows.indexOf(r) + 1, col))
+  // a name no column of this grid holds, or a line-form Example of the Concept:
+  // its formula, if one computes it
+  const liveRow = (col, r) => {
+    if (typeof col.id !== "string") return null;
+    const live = liveOr(index, exampleOf(r), col.id, null);
+    return live && live.$live !== host.address ? { kind: "object", address: live.$live } : null;
+  };
+  const cellOf = (col, r) => (inGrid(r) && liveCell(lineOf.get(r), col))
+    || liveRow(col, r)
     || { kind: "value", text: ctx.cellAt(col.id, r) };
   return (src, at) => {
     const rest = src.slice(at + 1);
@@ -620,7 +753,7 @@ function cellResolver(host, lines, registry, rootName, index) {
       const ex = exampleOf(named.id);
       if (!rowCol && !ex) return null;
       const names = [rowName(named.id, at + 1, named.length)];
-      if (!rowCol) return { length: 1 + rowReach, target: recordOf(ex, outer), names };
+      if (!rowCol) return { length: 1 + rowReach, target: recordOf(ex, outer, index), names };
       names.push(columnName(rowCol, at + 2 + named.length));
       return { length: 1 + rowReach, target: cellOf(rowCol, named.id), names };
     }
@@ -661,7 +794,7 @@ function resolveHost(host, ctx) {
     targets.push(hit.target);
     spans.push({ start, length: hit.length, text: src.slice(start, start + hit.length) });
     for (const n of hit.names || []) names.push(Object.assign({ start: n.offset, text: src.slice(n.offset, n.offset + n.length) }, n));
-    if (hit.target.kind === "object") deps.add(hit.target.address);
+    for (const d of targetDeps(hit.target)) deps.add(d);
     last = start + hit.length;
   }
   code += src.slice(last);
@@ -716,34 +849,50 @@ function referencedModules(source) {
 // Dependencies first. Answers { order, cycles }: every address in an order
 // that runs each derivation after the ones it reads, and the members of each
 // cycle (which never run — a derivation that reads itself has no first value).
+//
+// Walked with a stack of its own: a column of running totals is a chain as long
+// as the column, far deeper than the call stack should go.
 function orderDerivations(hosts, depsOf) {
-  const byAddress = new Map(hosts.map((h) => [h.address, h]));
+  const known = new Set(hosts.map((h) => h.address));
   const state = new Map(); // address -> 1 visiting, 2 done
   const order = [];
   const cycles = [];
   const inCycle = new Set();
-  const visit = (a, stack) => {
-    if (state.get(a) === 2) return;
-    if (state.get(a) === 1) {
-      const loop = stack.slice(stack.indexOf(a));
-      cycles.push(loop);
-      loop.forEach((x) => inCycle.add(x));
-      return;
+  for (const h of hosts) {
+    if (state.has(h.address)) continue;
+    const path = [];
+    const enter = (a) => {
+      state.set(a, 1);
+      path.push({ a, deps: depsOf(a) || [], next: 0 });
+    };
+    enter(h.address);
+    while (path.length) {
+      const top = path[path.length - 1];
+      if (top.next >= top.deps.length) {
+        state.set(top.a, 2);
+        order.push(top.a);
+        path.pop();
+        continue;
+      }
+      const d = top.deps[top.next++];
+      if (!known.has(d) || state.get(d) === 2) continue;
+      if (state.get(d) === 1) {
+        const loop = path.slice(path.findIndex((p) => p.a === d)).map((p) => p.a);
+        cycles.push(loop);
+        loop.forEach((x) => inCycle.add(x));
+        continue;
+      }
+      enter(d);
     }
-    state.set(a, 1);
-    for (const d of depsOf(a) || []) if (byAddress.has(d)) visit(d, [...stack, a]);
-    state.set(a, 2);
-    order.push(a);
-  };
-  for (const h of hosts) visit(h.address, []);
+  }
   return { order: order.filter((a) => !inCycle.has(a)), cycles };
 }
 
-// What Ctrl+Enter on one derivation must run: the derivation itself, every
-// derivation downstream of it (so nothing that reads it is left stale), and
-// whatever upstream `needs` says cannot be read as it stands — stale, or
-// never computed in this session.
-function affected(hosts, depsOf, address, needs) {
+// What a pass must run to bring `seeds` up to date: the derivations themselves,
+// every derivation downstream of them (so nothing that reads one is left stale),
+// and whatever upstream `needs` says cannot be read as it stands — never computed
+// in this session.
+function affected(hosts, depsOf, seeds, needs) {
   const readers = new Map();
   for (const h of hosts) {
     for (const d of depsOf(h.address) || []) {
@@ -751,8 +900,9 @@ function affected(hosts, depsOf, address, needs) {
       readers.get(d).push(h.address);
     }
   }
-  const out = new Set([address]);
-  const down = [address];
+  const start = Array.isArray(seeds) ? seeds : [seeds];
+  const out = new Set(start);
+  const down = [...start];
   while (down.length) {
     for (const r of readers.get(down.pop()) || []) {
       if (!out.has(r)) { out.add(r); down.push(r); }
@@ -776,8 +926,34 @@ function runHash(source, targets, sidecarHash, upstream) {
   // (a key only where there is one, so the hashes recorded before keys
   // existed still match)
   const live = (t) => (t.key === undefined ? [t.address, t.column, t.row] : [t.address, t.column, t.row, t.key]);
-  h.update(JSON.stringify([source, targets.map((t) => (t.kind === "object" ? live(t) : t)), sidecarHash || "", upstream || []]));
+  h.update(JSON.stringify([source, targets.map((t) => (t.kind === "object" ? live(t) : targetDigest(t))), sidecarHash || "", upstream || []]));
   return h.digest("hex").slice(0, 16);
+}
+
+// One digest for a target however many formulas read it, so a column read by a
+// thousand of them is hashed once.
+const targetDigests = new WeakMap();
+function targetDigest(t) {
+  if (!targetDigests.has(t)) targetDigests.set(t, crypto.createHash("sha1").update(JSON.stringify(t)).digest("hex").slice(0, 16));
+  return targetDigests.get(t);
+}
+
+// A host's run hash, what it reads and the formulas behind that included. What a
+// target's formulas last computed is one digest too, per pass, for the same
+// reason. `hashes` is the run hash of every address already ordered.
+const upstreamMemo = new WeakMap();
+function hostHash(host, r, code, hashes) {
+  const upstream = (r.targets || []).map((t) => {
+    if (t.kind === "object") return hashes.get(t.address) || "";
+    const deps = targetDeps(t);
+    if (!deps.length) return "";
+    const memo = upstreamMemo.get(t);
+    if (memo && memo.hashes === hashes) return memo.digest;
+    const digest = crypto.createHash("sha1").update(deps.map((d) => hashes.get(d) || "").join()).digest("hex").slice(0, 16);
+    upstreamMemo.set(t, { hashes, digest });
+    return digest;
+  });
+  return runHash(host.source, r.targets || [], code, upstream);
 }
 
 // Just the source: whether a derivation was edited since it last ran.
@@ -849,7 +1025,16 @@ class Session {
         if (p) this.settle(+m[1], null, "the runtime answered with something that is not JSON");
         continue;
       }
-      if (msg && this.pending.has(msg.id)) this.settle(msg.id, msg);
+      if (!msg || !this.pending.has(msg.id)) continue;
+      // one formula of a batch finished: told to whoever asked, and the clock
+      // starts again, since the limit is on one formula rather than on all of them
+      if (msg.partial) {
+        const p = this.pending.get(msg.id);
+        if (p.arm) p.arm();
+        if (p.onPartial) p.onPartial(msg);
+        continue;
+      }
+      this.settle(msg.id, msg);
     }
   }
 
@@ -868,7 +1053,7 @@ class Session {
     else p.resolve(msg);
   }
 
-  request(msg, timeoutMs) {
+  request(msg, timeoutMs, onPartial) {
     if (!this.alive) return Promise.reject(new Error("the Python session is not running"));
     const id = this.nextId++;
     // The runtime answers one request at a time, in the order they arrive.
@@ -878,10 +1063,10 @@ class Session {
     const turn = this.tail || Promise.resolve();
     const answered = new Promise((resolve, reject) => {
       const ms = timeoutMs || this.options.timeoutMs || 15000;
-      const entry = { resolve, reject, timer: null };
+      const entry = { resolve, reject, timer: null, onPartial };
       this.pending.set(id, entry);
-      turn.then(() => {
-        if (!this.pending.has(id)) return; // answered, or the session died
+      entry.arm = () => {
+        clearTimeout(entry.timer);
         entry.timer = setTimeout(() => {
           // a hung expression holds the interpreter: the only way to stop it
           // is to stop the process, and every request in flight goes with it
@@ -889,6 +1074,10 @@ class Session {
           reject(new Error(`timed out after ${Math.round(ms / 1000)} s (aot.python.timeoutMs) — the session was stopped`));
           this.kill("timed out");
         }, ms);
+      };
+      turn.then(() => {
+        if (!this.pending.has(id)) return; // answered, or the session died
+        entry.arm();
       });
       try {
         this.proc.stdin.write(JSON.stringify(Object.assign({ id }, msg)) + "\n");
@@ -985,6 +1174,19 @@ function resolveExecutable(command, o) {
   return null;
 }
 
+// A failure in plain words, for the end of a formula's line: what went wrong
+// rather than which Python exception said so. The original stays in the hover.
+function plainError(message) {
+  const m = String(message || "");
+  let x;
+  if ((x = /^NameError: name '(.+?)' is not defined/.exec(m))) return `'${x[1]}' isn't a known name`;
+  if (/^ZeroDivisionError\b/.test(m)) return "division by zero";
+  if ((x = /^KeyError: ([^]*)$/.exec(m))) return `${x[1]} isn't there`;
+  if ((x = /^SyntaxError: ([^(]*)/.exec(m))) return `this isn't a formula yet: ${x[1].trim()}`;
+  if ((x = /^(?:[A-Za-z]*Error|Exception): ([^]*)$/.exec(m))) return x[1];
+  return m;
+}
+
 function spawnMessage(e, python) {
   if (e && e.code === "ENOENT") {
     return `'${python || "python"}' was not found — install Python 3.10 or later, or set aot.python.path to its executable`;
@@ -1003,8 +1205,11 @@ function outputStem(address) {
   return (stem || "output").slice(0, 120);
 }
 
-// A number as the language writes a computed one.
-const formatNumber = (n, old) => table.formatValue(n, old || "");
+// A number as the language writes a computed one: the runtime sends its text, so
+// that no digit is lost on the way.
+const formatNumber = (n, old) => (typeof n === "number" ? table.formatValue(n, old || "") : table.formatNumberText(n, old || ""));
+// A grid cell's number, as the runtime sends one: { $n: its text }.
+const numberIn = (v) => (v && typeof v === "object" && v.$n !== undefined ? v.$n : undefined);
 
 // --- what a result may write ----------------------------------------------------
 // Two things a result is never allowed to put into the file.
@@ -1025,14 +1230,7 @@ const formatNumber = (n, old) => table.formatValue(n, old || "");
 // looks like one is refused, and says why.
 
 const inertValue = (s) => table.writtenValue(s);
-function inertName(s) {
-  const t = String(s);
-  const code = table.splitConstraint(t).eq !== -1 || table.splitCell(t).eq !== -1;
-  const plain = code ? t.replace(/[<>=]/g, (c) => ({ "<": "＜", ">": "＞", "=": "＝" })[c]) : t;
-  // a colon would state a default in a header cell, and before a row's
-  // first pipe make the line a value: a name keeps it full-width instead
-  return plain.replace(/:/g, "：");
-}
+const { inertName } = table;
 
 const SECRETS = [
   [/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/, "a private key"],
@@ -1057,20 +1255,20 @@ function refuseSecret(text) {
   }
 }
 
-// A grid cell as the runtime sends it: numbers as JSON numbers (formatted
-// here, so a formula's and Python's numbers read alike), everything else
-// already text.
+// A grid cell as the runtime sends it: numbers with every digit, formatted here
+// so a formula's and Python's numbers read alike, everything else already text.
 function cellText(v) {
   if (v === null || v === undefined) return "";
-  if (typeof v === "number") {
-    try { return formatNumber(v, ""); } catch { return String(v); }
+  const n = numberIn(v);
+  if (typeof v === "number" || n !== undefined) {
+    try { return formatNumber(n !== undefined ? n : v, ""); } catch { return String(n !== undefined ? n : v); }
   }
-  return inertValue(String(v).replace(/\r?\n/g, " ").replace(/\|/g, "¦"));
+  return inertValue(String(v).replace(/\r\n|\r|\n/g, table.LINE_BREAK).replace(/\|/g, "¦"));
 }
 
 // An Example name: never thousands-separated (`2026` names a year, not a sum)
 const nameText = (v) => (v === null || v === undefined ? ""
-  : inertName(String(v).replace(/\r?\n/g, " ").replace(/\|/g, "¦").trim()));
+  : inertName(String(numberIn(v) !== undefined ? numberIn(v) : v).replace(/\r?\n/g, " ").replace(/\|/g, "¦").trim()));
 
 // The table a Concept derivation writes: header [Concept, ...columns], rows
 // [[Example, ...cells]]. Its rows are numbered 1, 2, 3 — unless a column
@@ -1080,7 +1278,9 @@ const nameText = (v) => (v === null || v === undefined ? ""
 // numbered then, and the column stays. A grid Python named row by row
 // (aot.grid) keeps its names.
 function gridOf(result, conceptName) {
-  let columns = (result.columns || []).map((c) => inertName(String(c)));
+  // a column's name is a name like any other: a pipe in it would split the
+  // header and leave every value after it under the wrong column
+  let columns = (result.columns || []).map(nameText);
   let rows = (result.rows || []).map((r) => [nameText(r[0]), ...r.slice(1).map(cellText)]);
   const own = result.named ? -1 : columns.findIndex((c) => fold(c) === fold(conceptName));
   if (own !== -1) {
@@ -1319,7 +1519,7 @@ function resultOf(host, result, maxInlineText) {
     return { grid: gridOf(r, host.node.name), count: (r.rows || []).length };
   }
   switch (r.kind) {
-    case "number": return { text: formatNumber(r.value, host.value) };
+    case "number": return { text: formatNumber(r.text !== undefined ? r.text : r.value, host.value) };
     case "text": {
       const s = String(r.text || "");
       refuseSecret(s);
@@ -1341,8 +1541,8 @@ function resultOf(host, result, maxInlineText) {
 
 module.exports = {
   PROTOCOL, readsAsExpression,
-  hostsOf, hostIndex, constraintChecks, checkItems, referenceStarts, callSites, resolveHost, valueDerivation, moduleFiles, referencedModules,
-  orderDerivations, affected, runHash, sourceHash,
+  hostsOf, calcHosts, hostIndex, constraintChecks, checkItems, referenceStarts, callSites, resolveHost, valueDerivation, moduleFiles, referencedModules,
+  orderDerivations, affected, runHash, hostHash, sourceHash, targetDeps, plainError,
   inertValue, inertName, looksSecret,
   Session, spawnMessage, resolveExecutable, scrubbedEnv, defaultPythons, blasThreads, outputStem, resultOf, gridOf, writeGrid, writeValue, cellText,
   writeGenerated, conceptNameOf, generatorAddress,

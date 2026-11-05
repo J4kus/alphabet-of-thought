@@ -11,7 +11,7 @@
     "ideas"
   ],
   "license": "MIT",
-  "version": "1.13.4",
+  "version": "1.13.5",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -22,10 +22,13 @@
     "Linters"
   ],
   "main": "./src/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/*.aot"
+  ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Python derivations never run in an untrusted workspace: they are code the files carry. Everything else works.",
+      "description": "Formulas never run in an untrusted workspace: they are code the files carry. Everything else works.",
       "restrictedConfigurations": [
         "aot.python.enabled",
         "aot.python.manager",
@@ -39,7 +42,7 @@
     }
   },
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js && node out/test-csvsync.js && node out/test-messages.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js && node out/test-csvsync.js && node out/test-messages.js && node out/test-recalc.js"
   },
   "contributes": {
     "configurationDefaults": {
@@ -88,12 +91,12 @@
             "Sync only on AOT: Sync CSVs Now (Ctrl+K Y)."
           ],
           "default": "auto",
-          "description": "When the CSV mirror syncs. Either way the sync is the same three-way merge; manual only chooses the moment."
+          "description": "When the CSV mirror syncs. Either way the rule is the same, the file saved last overrides the other; manual only chooses the moment."
         },
         "aot.spellingHints": {
           "type": "boolean",
           "default": true,
-          "description": "Hint words longer than four characters that neither British nor American English knows, with suggestions. Hints show on their span and on hover, never in the Problems panel."
+          "description": "Check spelling and number in English: hint words longer than four characters that neither British nor American English knows, with suggestions, and warn when a Concept's last word appears plural. Hints show on their span and on hover, never in the Problems panel. Writing in another language? Press Ctrl+. in a .aot file to turn these on or off."
         },
         "aot.exampleHints": {
           "type": "boolean",
@@ -155,7 +158,25 @@
           "type": "boolean",
           "default": false,
           "scope": "machine",
-          "description": "Run the Python a file carries: its '=' derivations and its constraints' bounds. Off by default: a derivation is code, and it runs with your permissions. Runs happen only when asked (Ctrl+Enter, F9, or the park key), only in a trusted workspace, and each .aot's Python and each Python file are asked about before they first run and again when they change outside this editor. A user setting only: no repository can turn it on for you."
+          "description": "Calculate the formulas a file carries: its '=' derivations and its constraints' bounds. Off until you turn it on: a formula is Python, and it runs with your permissions. The first formula you write offers to turn it on with one click. Formulas run only in a trusted workspace, and formulas and Python files that came from outside this editor wait for you to enable them, and again when they change outside it. A user setting only: no repository can turn it on for you."
+        },
+        "aot.calculation": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "manual"
+          ],
+          "enumDescriptions": [
+            "Calculate as a spreadsheet does: when you leave a cell you typed in, on a paste, an undo, a save, a CSV arriving, and when a file opens. Only what is out of date runs.",
+            "Calculate only on F9 (what is out of date) or Ctrl+Alt+F9 (everything, from scratch). For a file whose formulas write files or call services, which would otherwise run each time what they read changes."
+          ],
+          "default": "automatic",
+          "description": "When formulas calculate."
+        },
+        "aot.shortNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a computed number's first useful digits in its cell: 0.3 for 0.30000000000000004, 0.3\u0305 for 0.3333333333333333, 0.363... for 0.363466035246486. The file keeps every digit, the CSV gets every digit, and the cell a cursor stands in shows them all."
         },
         "aot.python.manager": {
           "type": "string",
@@ -214,24 +235,24 @@
           "type": "number",
           "default": 15000,
           "minimum": 1000,
-          "description": "How long one Python derivation may run before its session is stopped. A derivation that hangs holds the interpreter, so stopping the process is the only way to end it; the next run starts a fresh one."
+          "description": "How long one formula may run before its session is stopped. A formula that hangs holds the interpreter, so stopping the process is the only way to end it; the next calculation starts a fresh one, and that formula waits until what it reads or says changes."
         },
         "aot.python.idleTimeoutMs": {
           "type": "number",
           "default": 300000,
           "minimum": 10000,
-          "description": "How long an idle Python session is kept. Its live results (a DataFrame one derivation made for the next) go with it; the next run recomputes what it needs."
+          "description": "How long an idle Python session is kept once its file is off screen. Its live results (a DataFrame one formula made for the next) go with it; the next calculation recomputes what it needs."
         },
         "aot.python.maxResultBytes": {
           "type": "number",
           "default": 8000000,
-          "description": "The largest result one Python derivation may send back. A bigger one stops the session with a message rather than filling memory; return less, or write it to a file."
+          "description": "The largest result one formula may send back. A bigger one stops the session with a message rather than filling memory; return less, or write it to a file."
         },
         "aot.python.maxInlineText": {
           "type": "number",
           "default": 120,
           "minimum": 1,
-          "description": "Text a Python derivation returns longer than this (or holding a line break) is written to 'aot.files/<name>.md', and the value becomes that file's path."
+          "description": "Text a formula returns longer than this (or holding a line break) is written to 'aot.files/<name>.md', and the value becomes that file's path."
         }
       }
     },
@@ -250,7 +271,7 @@
       },
       {
         "id": "aotPython",
-        "description": "A Python derivation"
+        "description": "A formula"
       }
     ],
     "semanticTokenScopes": [
@@ -460,14 +481,14 @@
         "enablement": "editorLangId == aot"
       },
       {
-        "command": "aot.runPython",
-        "title": "Run Python Derivation",
+        "command": "aot.runPythonFresh",
+        "title": "Recalculate Everything",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },
       {
-        "command": "aot.runPythonFresh",
-        "title": "Run All Python (Fresh)",
+        "command": "aot.stopCalculating",
+        "title": "Stop Calculating",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },
@@ -489,7 +510,7 @@
       },
       {
         "command": "aot.recomputeFormulas",
-        "title": "Run Stale Python and Check Constraints",
+        "title": "Calculate Now",
         "category": "AOT",
         "enablement": "editorLangId == aot"
       },
@@ -548,6 +569,11 @@
       {
         "command": "aot.importCsvFiles",
         "title": "Sync CSVs Now",
+        "category": "AOT"
+      },
+      {
+        "command": "aot.toggleSpelling",
+        "title": "Turn Spelling Checks On or Off",
         "category": "AOT"
       },
       {
@@ -675,12 +701,12 @@
       {
         "command": "aot.table.nextCell",
         "key": "tab",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid && !suggestWidgetVisible && !inSnippetMode && !inlineSuggestionVisible"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable && !suggestWidgetVisible && !inSnippetMode && !inlineSuggestionVisible"
       },
       {
         "command": "aot.table.prevCell",
         "key": "shift+tab",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid && !suggestWidgetVisible && !inSnippetMode && !inlineSuggestionVisible"
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable && !suggestWidgetVisible && !inSnippetMode && !inlineSuggestionVisible"
       },
       {
         "command": "aot.table.nextRow",
@@ -753,10 +779,9 @@
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot"
       },
       {
-        "command": "aot.runPython",
-        "key": "ctrl+enter",
-        "mac": "cmd+enter",
-        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && !suggestWidgetVisible"
+        "command": "aot.runPythonFresh",
+        "key": "ctrl+alt+f9",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot"
       },
       {
         "command": "aot.toggleTableForm",
@@ -906,7 +931,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Jakus23/alphabet-of-thought.git"
+    "url": "https://github.com/J4kus/alphabet-of-thought.git"
   },
   "dependencies": {
     "dictionary-en": "^3.2.0",

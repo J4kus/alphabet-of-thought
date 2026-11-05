@@ -49,7 +49,7 @@ function pathOf(node) {
 // --workspace duplicate scan and the cross-table registry.
 function walkAot(dir) {
   const files = [];
-  const skip = new Set(["node_modules", ".git", "aot.files", "out"]);
+  const skip = new Set(["node_modules", ".git", "aot.files"]);
   const walk = (d) => {
     let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
@@ -94,9 +94,12 @@ function readFile(f) {
   } catch (e) {
     if (e.code === "ENOENT") {
       console.error(`no such file: '${f}'`);
-      process.exit(2);
+    } else if (e.code === "EISDIR") {
+      console.error(`'${f}' is a folder — check a whole folder with: node verify.js --workspace "${f}"`);
+    } else {
+      console.error(`could not read '${f}' — ${e.message}`);
     }
-    throw e;
+    process.exit(2);
   }
 }
 
@@ -117,7 +120,19 @@ function main() {
   if ((w = args.indexOf("--workspace")) !== -1) {
     const root = args[w + 1] && !args[w + 1].startsWith("-") ? args[w + 1] : ".";
     const fix = args.includes("--reconcile");
+    // a check of nothing must never read as a pass: a mistyped path in a CI job
+    // would otherwise report 0 contradictions and exit 0 forever
+    let isFolder = false;
+    try { isFolder = fs.statSync(root).isDirectory(); } catch { /* answered just below */ }
+    if (!isFolder) {
+      console.error(`no such folder: '${root}'`);
+      process.exit(2);
+    }
     const files = walkAot(root);
+    if (!files.length) {
+      console.error(`no .aot files under '${root}', so nothing was checked`);
+      process.exit(2);
+    }
     const read = () => files.map((f) => ({
       file: f,
       text: readFile(f),
@@ -266,6 +281,10 @@ function main() {
     return;
   }
   if ((d = args.indexOf("--diff")) !== -1) {
+    if (!args[d + 1] || !args[d + 2]) {
+      console.error("usage: node verify.js --diff old.aot new.aot");
+      process.exit(2);
+    }
     const lintFile = (f) => {
       const name = path.basename(f).replace(/\.[^.]*$/, "");
       return lint(readFile(f), name);
@@ -453,7 +472,7 @@ function main() {
   // Derivations and constraint bounds are Python, and this never runs
   // Python: a CI job that verified a pull request by running its code would
   // run whatever its author wrote. What the values say is the text's; the
-  // editor's run (Ctrl+Enter) is what computes and checks them.
+  // editor's calculation is what computes and checks them.
   for (const { line, message } of deepErrors) console.log(`${file}:${line}: error: ${message}`);
   for (const { line, message } of warnings) console.log(`${file}:${line}: warning: ${message}`);
   for (const { line, message } of depWarnings) console.log(`${file}:${line}: warning: ${message}`);
@@ -465,4 +484,10 @@ function main() {
   process.exit(v ? 1 : 0);
 }
 
-main();
+// Whatever goes wrong is one line and a failing exit, never a stack trace.
+try {
+  main();
+} catch (e) {
+  console.error(`verify.js could not finish — ${e && e.message ? e.message : e}`);
+  process.exit(2);
+}

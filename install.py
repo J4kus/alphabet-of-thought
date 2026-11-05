@@ -6,6 +6,9 @@ Usage:
     python install.py --major    # bump major version (1.1.3 -> 2.0.0)
     python install.py 1.5.0      # set an explicit version
     python install.py --no-bump  # keep the current version
+
+The build stops, before it bumps anything, if the package would hold a file
+outside SHIPPED: a stray script or a local settings file never reaches anyone.
 """
 
 import json
@@ -15,6 +18,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 PACKAGE_JSON = ROOT / "package.json"
+
+# What the extension is, at the top of its package, in lower case. A new file or
+# folder here is a decision: add it to this list, or to .vscodeignore.
+SHIPPED = {
+    "alpha.png",
+    "changelog.md",
+    "language-configuration.json",
+    "license.md",
+    "node_modules",
+    "package.json",
+    "readme.md",
+    "src",
+    "syntaxes",
+    "verify.js",  # the git merge driver runs it
+}
+
+
+def strays(paths: list[str]) -> list[str]:
+    """The packaged paths that stand outside what the extension is."""
+    return sorted(p for p in paths if p.strip() and p.replace("\\", "/").split("/")[0].lower() not in SHIPPED)
 
 
 def bump_version(version: str, part: str) -> str:
@@ -33,6 +56,21 @@ def run(command: str) -> None:
         sys.exit(f"Command failed with exit code {result.returncode}")
 
 
+def check_package() -> None:
+    command = "npx @vscode/vsce ls"
+    print(f"\n> {command}")
+    listed = subprocess.run(command, shell=True, cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+    if listed.returncode != 0:
+        sys.exit(f"Could not list the package:\n{listed.stderr}")
+    found = strays(listed.stdout.splitlines())
+    if found:
+        sys.exit(
+            "The package would hold files it should not. Add each to .vscodeignore, "
+            "or to SHIPPED in install.py if it belongs:\n  " + "\n  ".join(found)
+        )
+    print("The package holds only what the extension is.")
+
+
 def main() -> None:
     package = json.loads(PACKAGE_JSON.read_text(encoding="utf-8-sig"))
     current = package["version"]
@@ -48,6 +86,8 @@ def main() -> None:
         new_version = arg
     else:
         new_version = bump_version(current, "patch")
+
+    check_package()
 
     if new_version != current:
         package["version"] = new_version

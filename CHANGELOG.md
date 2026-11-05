@@ -4,6 +4,42 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+- **Formulas calculate the way a spreadsheet does.** Change a number, move on, and every total is right. Leaving a cell, a paste, a fill, an undo, a save, switching editor or program, and a CSV arriving all calculate; typing in a cell does not. There is no timer.
+  - *Breaking:* `Ctrl+Enter` and **Run Python Derivation** are gone, and `Ctrl+Enter` is VS Code's own again. `F9` calculates now, and `Ctrl+Alt+F9` recalculates everything from scratch.
+  - `aot.calculation` set to `manual` calculates only on those keys. Use it for a file whose formulas write files or call services, since those otherwise run each time what they read changes.
+  - **Right the first time.** Every formula knows what it reads before anything runs, whole columns, rows and tables included, and a cell holding a formula is read as its live result. A total no longer reads `0` on the first run and `40` on the second. A cell reading a column it stands in is now a circular reference, as in a spreadsheet.
+  - **Only what is out of date runs.** Formulas go in batches of 64, each answer arriving as it finishes, and a table many of them read is sent once. The time limit restarts per formula.
+  - **Your typing is left alone.** A result touches only the characters that change and joins your last edit, so one `Ctrl+Z` takes back both. It is found again by its address if you kept typing, dropped if its formula changed, and waits while a cursor stands in its cell. An undo writes nothing unless the answer differs, so redo survives.
+  - **What failed waits** until it or what it reads changes, or `F9` asks again, and what reads it never starts. A formula that hangs or crashes takes only itself out: the rest go on in a fresh session.
+  - **Success is silent.** The `✓ 2 rows · 4 ms · 16:04` inlays are gone, and the hover has the details. Common errors read plainly (`'su' isn't a known name`, `division by zero`), with the traceback in the tooltip. Past half a second the status bar counts, and a click stops it.
+  - **No dialogs.** Formulas from a clone or a pull wait, with their values as they are and one notice: **Enable** or **Show Them**. The first formula offers **Turn on formulas**. With no Python there is one prompt, **Get Python** or **Set Up with uv**. Without pandas, `@col.sum()`, `.mean()`, `.min()`, `.max()` and `.count()` still work.
+- **The file keeps every digit, and the screen shows the short form.** `=1/3` three times totals 1, `=1/250` is no longer `0`, long integers keep their digits, and `10**5000` works. `0.30000000000000004` shows `0.3`, `0.3333333333333333` shows `0.3̅`, and `0.363466035246486` shows `0.363...`. The cell a cursor stands in shows every digit, and so do the hover, a copy and the CSV. `aot.shortNumbers` turns the short form off. The rule is written out in the README's [How a number shows](README.md#how-a-number-shows).
+- **`input()` in a formula** says at once that a formula cannot ask for input, rather than waiting for the time limit.
+- **The CSV mirror loses less.**
+  - An edit to a CSV now always reaches its `.aot`, with the `.aot` or VS Code closed. Two CSVs edited together both arrive: a fold's own save used to rewrite the second before its turn.
+  - An open Source Control diff no longer breaks a sync or an F2 rename.
+  - A line break in a cell (`Alt+Enter` in Excel) reads `↵` in the `.aot` and goes back as a real line break.
+  - A new row's name stays a row: `=x()` no longer becomes code, and `10:30 Standup` no longer reads as a value.
+  - `Input/Output` and `Is it valid?` now sync through their `Input-Output.csv`. Two Concepts that would write one file get a warning.
+  - A model in a folder named `out` is found like any other.
+  - Rows removed from one of two files stay removed, rather than moving into the other at the next catch-up.
+- **`Ctrl+/` takes a line out of the model.** It writes `...`, a Map, and puts it back. A commented-out table row is really gone from the model and the CSV, and the table stays one table.
+- *Breaking:* **`Tab` and `Shift+Tab` off a table are VS Code's own**, 4 spaces in and out, as in any other file. On an Example's line they no longer walk the values or grow a new `- ` Example.
+- **Several cursors** move together on `Tab`, `Shift+Tab` and `Enter`, each in its own row.
+- **The flip keeps your values whatever the name.** `1. Trip`, `Éclair`, `3D Print` and `日本語` used to flip to blank cells. Where a table has no place for something, the flip stops with an error on the line: two values for one attribute on an Example, or allowed values listed on lines.
+- **Write in any language.** Upper and lower case come from Unicode, in the linter, the tables and the colours. **`Ctrl+.` turns spelling checks off or on**, the plural warning with them.
+- **A tab inside a value is only text.** Only a tab in the indentation is an error.
+- **Reconcile across files** no longer writes `note: late` under a table row, or edits that overlap: the value goes into the row's cell.
+- **A `|` in a DataFrame's column name** bends to `¦`, so the values stay under the right columns.
+- **URL hovers contact nobody in an untrusted workspace**, and never a private or internal address, checked on the resolved IP and on every redirect.
+- **Trusted hovers** allow only the exact commands they need, and a file's names are escaped in them.
+- **No line can freeze the editor.** A line of 3 KB of `= ` took 12 seconds, and a Concept name of 1,600 words was slow. Both now finish at once.
+- **`verify.js`** gives one line and exit code 2 for a folder, a missing file, a missing `--workspace` path or one holding no `.aot`, never a stack trace or a false pass.
+- **The package holds only the extension.** `python install.py` stops if anything else would ship. 1.13.4 also carried a local settings file, 45 scripts, `TODO.md` and 1.9 MB of old logos.
+- The README corrects what it said of fresh clones, partial CSVs and re-applying a CSV, and its install line and links.
+
 ## [1.13.0] - 2026-11-01
 
 - **A table never nests by indentation.** A sub-Example names the row it sits under in a `parent (thing)` column — named `parent`, its `(alias)` the table's own Concept, lowercased. It is the column the CSV mirror has always carried the tree in. A parent cell names the nearest row above of that name, else the first below, so a sort can leave a parent below its child. A name no row carries, a row naming itself and a circle of parents are errors.

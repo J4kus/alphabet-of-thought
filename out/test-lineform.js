@@ -77,19 +77,11 @@ const at = (r) => r && r.cursor && `${r.cursor.line}:${r.cursor.ch}`;
 }
 
 // ---------------------------------------------------------------------------
-// Tab / Shift+Tab walk the Examples and their values
+// Tab and Shift+Tab are not among the keys: off a table they are VS Code's own,
+// as in any other file, since in line form the indent is the nesting
 // ---------------------------------------------------------------------------
-{
-  check("Tab: from an Example's name to its first value",
-    at(run(PEOPLE, 2, "nextCell")) === "3:13");
-  check("Tab: from the last value of one Example to the next Example's name",
-    at(run(PEOPLE, 4, "nextCell")) === "5:6");
-  const grown = run(PEOPLE, 11, "nextCell");
-  check("Tab: past the last cell a new Example grows, at the last row's depth",
-    grown && grown.lines[12] === "        - " && at(grown) === "12:10" && grown.lines.length === 13);
-  check("Shift+Tab: back to the previous cell, over a blank line",
-    at(run(PEOPLE, 8, "prevCell")) === "6:14");
-}
+check("Tab: line form has no next-cell or previous-cell operation",
+  !lf.ops.nextCell && !lf.ops.prevCell);
 
 // ---------------------------------------------------------------------------
 // the spreadsheet keys

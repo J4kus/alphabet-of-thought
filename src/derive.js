@@ -31,7 +31,7 @@ const {
   tablesOf, updateTable, readValue, writtenValue, render, isRowText,
   numberless, columnTerm, defaultColon, parentHeader, parentsOf,
   parentColumnOf: headerParentColumn,
-  blockAt, cells, colAt, cellStart, dividers,
+  blockAt, cells, colAt, cellStart, dividers, rowsBetween, rowName,
 } = require("./table");
 const { typeDefaultOf } = require("./crosslinks");
 
@@ -396,23 +396,11 @@ function constraintSpanOf(lines, a, k) {
   return { startCol, endCol: end };
 }
 
-// Where a value sits on its raw line: a table cell knows its column, a
-// 'name: value' line finds its value after the colon.
-function valueSpanOf(lines, d) {
-  if (d.valueCol !== undefined) return { startCol: d.valueCol, endCol: d.valueCol + d.value.length };
-  const raw = lines[d.line - 1] || "";
-  const colon = raw.indexOf(":");
-  if (colon === -1) return null;
-  const after = raw.slice(colon + 1);
-  const start = colon + 1 + (after.length - after.trimStart().length);
-  return { startCol: start, endCol: start + d.value.length };
-}
-
 // Where every line-form derivation and every constraint stands: a
 // derivation's span from its '=' to its end, and each bound's span on its
 // declaration — for the colouring, for keeping spelling out of code, and for
 // the editor's notes on them. Nothing is evaluated here: a derivation and a
-// bound are both Python, run only when asked (python.js).
+// bound are both Python, run when the file calculates (python.js).
 function derivationSpans(root, nodes, lines) {
   const out = [];
   for (const d of hostsOf(nodes)) {
@@ -1011,7 +999,8 @@ function updateScope(lines, root, nodes, concept, header, csvRows, rootName, opt
     for (const r of freshRows) {
       // the parent cell takes the CSV's `parent`, as the column of that name
       own.rows.push(own.header.map((cell, k) => {
-        if (k === 0) return (r[0] || "").trim();
+        // data, like every value here: a name must stay a row with that name
+        if (k === 0) return rowName(r[0]);
         if (k === own.pcol && !own.structured) return "";
         const at = csvIdx.get(headerColName(cell).toLowerCase());
         return at ? (r[at] || "").trim() : "";
@@ -1023,12 +1012,7 @@ function updateScope(lines, root, nodes, concept, header, csvRows, rootName, opt
   // dividers where they stood
   for (const { t, header: drawnHeader, rows: nextRows, changed } of touched) {
     if (!changed) continue;
-    const body = [];
-    nextRows.forEach((cells, i) => {
-      if ((t.breaks || []).includes(i)) body.push({ sep: true, cells: [] });
-      body.push({ sep: false, cells });
-    });
-    if ((t.breaks || []).includes(t.rows.length) && nextRows.length === t.rows.length) body.push({ sep: true, cells: [] });
+    const body = rowsBetween(nextRows, t.breaks, t.notes);
     const block = render({ indent: t.indent, rows: [{ sep: false, cells: drawnHeader }, ...body] });
     ops.push({ type: "block", from: t.start, to: t.end, block });
   }
@@ -1365,6 +1349,8 @@ function toLineForm(lines, concept, grid) {
     const row = grid.rows[r];
     const rowIndent = declIndent + " ".repeat(INDENT * level);
     if (breaks.has(r)) out.push("");
+    // a `...` line keeps its place among the rows, at the depth of the row after it
+    for (const n of grid.notes || []) if (n.before === r) out.push(rowIndent + n.text.trim());
     out.push(rowIndent + "- " + (row[0] || "").trim());
     for (const col of columns) {
       const value = (row[col.at] || "").trim();
@@ -1386,6 +1372,51 @@ function flipForm(lines, concept, rootName) {
   const grid = gridOfConcept(lines, concept, rootName);
   if (grid) return toLineForm(lines, concept, grid);
   return toTableForm(lines, concept);
+}
+
+// What stops a Concept written as lines becoming a table: the shapes a grid
+// has no place for, where a flip would lose a value or write a broken file.
+// Both are fine as lines (a model may repeat an attribute on purpose), so they
+// are findings of the flip, never of the file: [{ line, message }], empty when
+// the flip can go ahead. A table flipping to lines loses nothing.
+function flipBlockers(lines, concept, rootName) {
+  if (!concept || !concept.name || concept.line < 1 || gridOfConcept(lines, concept, rootName)) return [];
+  const out = [];
+  const examples = rowableExamples(concept).map((e) => e.node);
+  // an Example giving one attribute several values: a cell holds one
+  for (const ex of examples) {
+    const byName = new Map();
+    for (const c of ex.children) {
+      if (c.kind !== KIND.DEFAULT) continue;
+      const key = c.name.toLowerCase();
+      if (!byName.has(key)) byName.set(key, []);
+      byName.get(key).push(c);
+    }
+    for (const same of byName.values()) {
+      if (new Set(same.map((c) => String(c.value))).size < 2) continue;
+      const where = same.map((c) => c.line).join(", ");
+      for (const c of same) {
+        out.push({
+          line: c.line,
+          message: `keep one value for '${c.name}' on '${ex.name}' before flipping — a table row holds one value per column, and this Example gives it ${same.length} (lines ${where})`,
+        });
+      }
+    }
+  }
+  // an attribute listing what it may take on lines of its own, which Examples
+  // also give a value: the column it would need is that same attribute's
+  const valued = new Set(examples.flatMap((ex) => ex.children
+    .filter((c) => c.kind === KIND.DEFAULT).map((c) => c.name.toLowerCase())));
+  for (const c of concept.children) {
+    if (c.kind !== KIND.ATTRIBUTE || c.cell || !c.children.length || !valued.has(c.name.toLowerCase())) continue;
+    const listed = c.children.filter((k) => k.kind === KIND.INDIVIDUAL).map((k) => JSON.stringify(k.name));
+    const bound = `${c.name} =(${listed.join(", ")}${listed.length === 1 ? "," : ""})`;
+    out.push({
+      line: c.line,
+      message: `write '${listed.length ? bound : `${c.name} =(…)`}' on one line before flipping — '${c.name}' lists its values on lines of their own, which a table has no place for`,
+    });
+  }
+  return out.sort((a, b) => a.line - b.line);
 }
 
 // --- where the cursor is, across a flip ----------------------------------------
@@ -1615,13 +1646,8 @@ function hoistOps(lines, root, nodes, parentLine, attr, value, rootName, registr
     const inner = indent + " ".repeat(INDENT);
     const shape = dropped || { header: grid.header, rows: grid.rows };
     // the rows as they stand — their parent cells with them — and the
-    // dividers where they stood
-    const breaks = new Set(grid.breaks || []);
-    const body = [];
-    shape.rows.forEach((cells, i) => {
-      if (breaks.has(i)) body.push({ sep: true, cells: [] });
-      body.push({ sep: false, cells });
-    });
+    // dividers and `...` lines where they stood
+    const body = rowsBetween(shape.rows, grid.breaks, grid.notes);
     const drawn = render({ indent: inner, rows: [{ sep: false, cells: shape.header }, ...body] });
     const head = grid.header[0].trim();
     ops.push({ type: "block", from: grid.start, to: grid.end, block: [indent + head, inner + fact, ...drawn] });
@@ -1645,9 +1671,9 @@ function hoistOps(lines, root, nodes, parentLine, attr, value, rootName, registr
 
 module.exports = {
   hoistOps,
-  derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, valueSpanOf, makeCtx, scopeOf, kindAbove,
+  derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, makeCtx, scopeOf, kindAbove,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
   mirrorGrids, updateScope, deleteExamples,
   lastLineOf, headerColName, renumberExamples, renumberConcepts, NOTE_RE,
-  flipForm, gridOfConcept, toTableForm, toLineForm, ideaAt, positionOf,
+  flipForm, flipBlockers, gridOfConcept, toTableForm, toLineForm, ideaAt, positionOf,
 };

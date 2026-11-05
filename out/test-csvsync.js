@@ -3,7 +3,7 @@
 // (derive.updateScope's erasures, derive.deleteExamples).
 //
 // Plain Node script, no framework — run with: node out/test-csvsync.js
-const { csvOverrides, unionGrids } = require("../src/csvsync");
+const { csvOverrides, unionGrids, saysTheSame } = require("../src/csvsync");
 const { lint, KIND } = require("../src/linter");
 const { updateScope, deleteExamples, mirrorGrids } = require("../src/derive");
 const { applyOps } = require("../src/repo");
@@ -130,6 +130,43 @@ const over = (csv, aot = A) => csvOverrides(csv, aot);
     !keep.ops.length && keep.kept.join(",") === "Parent");
   const both = deleteExamples(tree, t.root, t.nodes, thing, ["Parent", "Kid"]);
   check("deleteExamples: a whole branch the CSV dropped goes", applyOps(tree, both.ops).join("\n") === "Thing|parent (thing)");
+}
+
+// A spreadsheet holds 15 significant digits, so it writes a longer number back
+// shorter. Nobody edited that cell.
+{
+  const cellIs = (aotCell, csvCell) => saysTheSame([["T", "n"], ["A", csvCell]], [["T", "n"], ["A", aotCell]]);
+  const planOf = (aotCell, csvCell) => csvOverrides([["T", "n"], ["A", csvCell]], [["T", "n"], ["A", aotCell]]);
+  for (const [long, short] of [
+    ["0.3333333333333333", "0.333333333333333"],
+    ["0.30000000000000004", "0.3"],
+    ["0.7999999999999999", "0.8"],
+    ["1,234.5678901234567", "1234.56789012346"],
+    ["1,234.5678901234567", "1,234.56789012346"],
+    ["-0.3333333333333333", "-0.333333333333333"],
+    ["$0.30000000000000004", "$0.3"],
+    ["12,345,678,901,234,567", "12345678901234600"],
+    ["12345678901234567", "1.23457E+16"],
+    ["1,180,591,620,717,411,303,424", "1,180,591,620,717,410,000,000"],
+    ["1000000000000000000", "1E+18"],
+  ]) {
+    check(`15 digits: ${short} is still ${long}`, cellIs(long, short) && !planOf(long, short).fold && !planOf(long, short).erase.length);
+  }
+  for (const [written, typed, why] of [
+    ["0.3333333333333333", "0.33", "a value someone typed"],
+    ["0.3333333333333333", "0.333333333333334", "the 15th digit wrong"],
+    ["0.30000000000000004", "0.30000000000000001", "more digits than a spreadsheet holds"],
+    ["1.5", "1.50", "a number no longer than 15 digits, in another form"],
+    ["1,000", "1000", "a number no longer than 15 digits, in another form"],
+    ["12345678901234567", "1.2E+15", "another number"],
+    ["0.3333333333333333", "abc", "not a number"],
+    ["0.3333333333333333", "", "an emptied cell"],
+  ]) {
+    check(`15 digits: ${written} to '${typed}' is an edit — ${why}`, !cellIs(written, typed));
+  }
+  check("15 digits: the plan still takes an edited cell", planOf("0.3333333333333333", "0.5").fold[1][1] === "0.5");
+  check("saysTheSame: a row more is something new", !saysTheSame([["T", "n"], ["A", "1"], ["B", "2"]], [["T", "n"], ["A", "1"]]));
+  check("saysTheSame: a cell in a further column is something new", !saysTheSame([["T", "n", "m"], ["A", "1", "2"]], [["T", "n"], ["A", "1"]]));
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

@@ -1,6 +1,18 @@
 .vscode/**
 .vscode-test/**
 .gitignore
+.gitattributes
+# Claude Code's settings for this working copy hold local paths
+.claude/**
+# what the repository keeps for its readers and its author, not for the extension:
+# the README's links and pictures point at the public repository
+docs/**
+examples/**
+TODO.md
+# leftovers of this working copy
+.tmp-check/**
+smoke-tmp.js
+alpha old*.png
 # the token experiment's tokenizer is installed on demand (--no-save) and is
 # large; it must never ride along in the vsix even when it is present
 node_modules/gpt-tokenizer/**
@@ -14,9 +26,7 @@ vsc-extension-quickstart.md
 **/.venv-*/**
 aot.files/**
 out/**
-lp.py
 install.py
-parser.out
 *.aot
 # the Python runtime the editor starts for `=` derivations ships with it
 !src/aot_runtime.py

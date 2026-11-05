@@ -1,9 +1,8 @@
 {
+    // Ctrl+/ takes a line out of the model and puts it back: a `...` line is a
+    // Map, and says nothing to the model. The language has no block comment.
     "comments": {
-        // symbol used for single line comment. Remove this entry if your language does not support line comments
-        "lineComment": "//",
-        // symbols used for start and end a block comment. Remove this entry if your language does not support block comments
-        "blockComment": [ "/*", "*/" ]
+        "lineComment": "..."
     },
     // symbols used as brackets
     "brackets": [

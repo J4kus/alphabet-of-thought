@@ -374,6 +374,18 @@ const aot = (...lines) => lines.join("\n");
 
     const usage = node();
     check("verify.js: no arguments says how, and exits 2", usage.status === 2 && /^usage: node verify\.js/.test(usage.stderr));
+    // a mistake is one line and a failing exit: never a stack trace, and never
+    // a pass a CI job would believe
+    const oneLine = (r) => r.status === 2 && !/\n\s+at /.test(r.stderr) && !/\n\s+at /.test(r.stdout);
+    fs.mkdirSync(path.join(dir, "empty"));
+    const folder = node("empty"), missing = node("gone.aot"), diffOne = node("--diff", "shop.aot"), diffGone = node("--diff", "shop.aot", "gone.aot");
+    check("verify.js: a folder says to use --workspace", oneLine(folder) && /--workspace/.test(folder.stderr));
+    check("verify.js: a missing file says so", oneLine(missing) && /no such file/.test(missing.stderr));
+    check("verify.js --diff: too few files or a missing one says so", oneLine(diffOne) && /usage/.test(diffOne.stderr) && oneLine(diffGone) && /no such file/.test(diffGone.stderr));
+    const noFolder = node("--workspace", "mistyped"), noFiles = node("--workspace", "empty");
+    check("verify.js --workspace: a mistyped path fails, never '0 contradictions'", oneLine(noFolder) && /no such folder/.test(noFolder.stderr));
+    check("verify.js --workspace: a folder with no .aot checked nothing, and fails", oneLine(noFiles) && /nothing was checked/.test(noFiles.stderr));
+
     const plain = node("shop.aot");
     check("verify.js: a value every child sets is a warning on a file that verifies",
       plain.status === 0 && /shop\.aot:\d+: warning: write 'hull: wood' once under 'Boat' and drop it from each child — every child of 'Boat' sets it/.test(plain.stdout) && /V = 0: true/.test(plain.stdout));

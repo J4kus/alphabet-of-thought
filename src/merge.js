@@ -332,7 +332,7 @@ function applyChanges(ch, target, toTarget, side) {
     const rows = [];
     te.block.rows.forEach((row, r) => {
       if (row.sep) {
-        rows.push({ sep: true, cells: [] }); // a divider stays where it stands
+        rows.push(row); // a divider, or a `...` line, stays where it stands
         return;
       }
       if (!te.drop.has(r)) {

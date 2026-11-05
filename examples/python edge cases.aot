@@ -5,9 +5,9 @@ Python Edge Case
     because
     - Arithmetic Is Python
         area: every derivation is Python
-        case: 42 =6*7
+        case: 12 =6*2
         expected: 42 once run; typing it computes nothing
-        because: there is one language behind the equals sign, and it runs only when asked
+        because: there is one language behind the equals sign, and it runs when the file calculates
     - Round Is Python's Round
         area: every derivation is Python
         case: 3.14 =round(3.14159, 2)
@@ -15,7 +15,7 @@ Python Edge Case
     - A Typo In A Function Name
         area: every derivation is Python
         case: #ERR =roundd(2.5)
-        expected: noted as not run yet; once run, a NameError on its line, never in V
+        expected: faded until it calculates; then an error on its line in plain words, never in V
         because: nothing names roundd, and no underline marks it as a function a file here defines
     - A Formula Left In The File
         area: every derivation is Python
@@ -257,11 +257,11 @@ Python Edge Case
         case: 240 =@seed*2
         expected: 240 once run, in the same run that writes seed
         because: each run is a single pass, dependencies first, and a reference to another derivation is its live result
-    - Two Decimals At Most
+    - Every Digit Is Kept
         area: what comes back
-        case: 3.14 =math.pi
-        expected: 3.14 once run
-        because: every computed number is written to two decimals; keep the precision in the live result, or return text
+        case: 3.141592653589793 =math.pi
+        expected: 3.141592653589793 in the file once run, shown as 3.141... with every digit back when the cursor stands in it
+        because: the file holds every digit and the screen the short form, so a total of computed values is never off by what was rounded away
     - A Year Becomes A Thousand
         area: what comes back
         case: 2,026 =2000 + 26
@@ -339,26 +339,26 @@ Python Edge Case
         case: 1,500 =int("1500")
         expected: $1,500 once run
         because: a dollar sign on the value a number replaces is kept
-    - Ctrl Enter Runs One Line
+    - Leaving A Cell Calculates
         area: running
-        case: Ctrl+Enter on a derivation
-        expected: that derivation, the stale ones it reads, and everything that reads it, all in place; then every constraint is checked
-    - Ctrl Enter Off Any Derivation
+        case: change a number and move off its cell
+        expected: what reads it runs, in place, and nothing else; then its constraints are checked
+    - F9 Calculates Now
         area: running
-        case: Ctrl+Enter anywhere else
-        expected: every stale derivation in the file, and every constraint checked; F9 does the same; in a file with no derivation and no constraint it inserts a line, as it always did
+        case: F9 anywhere in a file
+        expected: everything out of date, whatever reads nothing in the file, and anything that failed; then every constraint is checked. Ctrl+Enter is VS Code's own
     - Nothing Runs On A Keystroke
         area: running
-        case: typing, Tab, Format Document, a save, a CSV arriving
-        expected: no Python runs; each value holds until it is asked for
+        case: typing in a cell, a cursor moving inside it
+        expected: no Python runs until the cursor leaves the cell, or a save or a switch of editor commits it
     - The Park Key Runs Everything First
         area: running
         case: Ctrl+Shift+backtick
         expected: every derivation runs fresh and every constraint is checked, then everything parks; putting them back runs nothing
     - A Fresh Derivation Is Not Rerun
         area: running
-        case: Ctrl+Enter off a derivation, twice
-        expected: the second press runs only what is stale in its source, its inputs or the sidecar
+        case: a second calculation with nothing changed
+        expected: nothing runs; a formula runs only when its source, its inputs or the sidecar changed
     - A Cycle
         area: running
         ping: #ERR =@pong.real
@@ -368,18 +368,18 @@ Python Edge Case
         area: running
         case: #ERR =1/0
         after: #ERR =@case.real
-        expected: 7 stays, the line says ZeroDivisionError, and after says it did not run because case failed
+        expected: 7 stays, the line says division by zero, and after says it did not calculate because case failed; neither is tried again until it changes or F9 asks
         because: a failed derivation writes nothing, rather than a marker over a good value
     - Each Derivation Has Its Own Scope
         area: running
         case: 10 =(w := 5) * 2
         then: #ERR =w + 1
-        expected: 10, then a NameError on the next line once run
+        expected: 10, then an error on the next line once run, saying w isn't a known name
         because: a name one derivation makes never leaks into another; its result, read with an at sign, does
     - A Print Is Captured
         area: running
         case: 7 =print("hello") or 7
-        expected: 7 once run; hello is shown in the hover and the inlay's tooltip, never written into the file
+        expected: 7 once run; hello is shown in the hover, never written into the file
     - Exit Ends Only The Expression
         area: running
         case: #ERR =exit()
@@ -387,20 +387,20 @@ Python Edge Case
     - A Hang Stops The Session
         area: running
         case: time.sleep(60) after an equals sign
-        expected: after aot.python.timeoutMs, 15 seconds, the session stops, the line says it timed out, and each later derivation in that run says it did not run; the next run starts a fresh session
+        expected: after aot.python.timeoutMs, 15 seconds, the session stops and the line says it timed out; it then waits until it changes, and the rest go on in a fresh session
         because: a hung expression holds the interpreter, so stopping the process is the only way to end it
     - A Restarted Session Recomputes Upstream
         area: running
-        case: Ctrl+Enter after the session ended, idle or stopped
+        case: a calculation after the session ended, idle or stopped
         expected: every derivation the line reads runs again first, since its live result went with the session
     - Edited Since It Ran
         area: running
         case: a derivation changed after it last ran
-        expected: its value fades and the end of its line says edited since, with the time it last ran; nothing runs until Ctrl+Enter
+        expected: its value fades until the cursor leaves it; with aot.calculation set to manual it also says to press F9, and only F9 runs it
     - When It Last Ran
         area: running
-        case: the end of any Python derivation's line
-        expected: after a run, the rows it wrote and the time it took, then when it ran, 16:04 today or 2026-09-23 16:04 on an older day; its hover gives the time to the second
+        case: the hover on any computed value
+        expected: when it calculated, to the second, how long it took and with what; the end of the line says nothing while all is well
         because: the time is kept with the run records, so it outlasts the session and a restart of the editor
     - Longer Code Lives In The Sidecar
         area: sidecar
@@ -410,7 +410,7 @@ Python Edge Case
     - The Sidecar Is Asked About
         area: sidecar
         case: the first run, and the first after the sidecar changes anywhere but in this editor
-        expected: a prompt naming the sidecar by its path; no answer means nothing runs
+        expected: a notice naming the sidecar by its path, with Enable; no answer means nothing runs, and nothing waits for one
         because: a sidecar's top-level code runs the moment it is loaded
     - A Sidecar That Fails To Load
         area: sidecar
@@ -480,7 +480,7 @@ Python Edge Case
     - Off Until Enabled
         area: security
         case: aot.python.enabled left off
-        expected: nothing runs and nothing starts; each derivation is noted as not run yet, and no constraint is checked
+        expected: nothing runs and nothing starts; the first formula offers to turn them on, each says it is not calculated yet, and no constraint is checked
     - Never In An Untrusted Workspace
         area: security
         case: a workspace VS Code does not trust

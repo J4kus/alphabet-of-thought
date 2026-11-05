@@ -154,7 +154,8 @@ function check(name, ok) {
   check("format: every computed number carries thousands separators",
     table.formatValue(1215.6, "") === "1,215.6" && table.formatValue(184540, "184540") === "184,540");
   check("format: a $ on the old value is kept", table.formatValue(1500, "$9") === "$1,500");
-  check("format: a Python number takes the file's format", python.cellText(3628800) === "3,628,800" && python.cellText(0.1 + 0.2) === "0.3");
+  check("format: a Python number takes the file's format, every digit of it",
+    python.cellText(3628800) === "3,628,800" && python.cellText(0.1 + 0.2) === "0.30000000000000004" && python.cellText({ $n: "12345678901234567" }) === "12,345,678,901,234,567");
   check("format: an Example name is never separated (2026 names a year)", python.gridOf({ columns: [], rows: [[2026]] }, "Year").rows[0][0] === "2026");
 }
 
@@ -607,8 +608,13 @@ function check(name, ok) {
     && itemOn(6, "<=").item.code === "65");
   check("checks: a bound's reference resolves where its value stands",
     itemOn(9, "==").item.code === "_aot_ref(0)*2" && itemOn(9, "==").item.targets[0].text === "3");
-  check("checks: an empty value is sent to a '==' that may define it",
-    itemOn(12, "==") && itemOn(12, "==").item.value === "" && itemOn(17, "=="));
+  check("checks: an empty value is held to nothing, its definition's being the calculation's",
+    !itemOn(12, "==") && !itemOn(17, "=="));
+  const defined = python.calcHosts(r.nodes, lines, "t").filter((h) => h.defined);
+  check("calculation: a definition computes each value it holds, in a cell or on a line",
+    defined.some((h) => h.line === 17 && h.kind === "cell" && h.source === "4") && defined.some((h) => h.line === 12 && h.kind === "value"));
+  check("calculation: a value with a derivation of its own is left to it",
+    !defined.some((h) => h.line === 14));
   const emptyText = "S\n    n >=1\n    - A\n        n:";
   const emptyLines = emptyText.split("\n");
   check("checks: ...and held to no other bound",
@@ -936,8 +942,20 @@ function realRuntime() {
   }
   const runtime = path.join(__dirname, "..", "src", "aot_runtime.py");
   const s = new python.Session(spawn, { python: interpreter, runtime, cwd: os.tmpdir(), timeoutMs: 30000 }).start();
+  // a number travels as its text, and is read back here as the number it is
+  const numbers = (v) => {
+    if (Array.isArray(v)) return v.map(numbers);
+    if (v && typeof v === "object") {
+      if (v.$n !== undefined) return Number(v.$n);
+      const out = {};
+      for (const [k, x] of Object.entries(v)) out[k] = numbers(x);
+      if (v.kind === "number") out.value = Number(v.text);
+      return out;
+    }
+    return v;
+  };
   const ev = (code, targets, host) => s.request({ op: "eval", address: "@t@x", code, targets: targets || [], host: host || "value" })
-    .then((r) => r.result, (e) => ({ error: e.message }));
+    .then((r) => numbers(r.result), (e) => ({ error: e.message }));
   (async () => {
     const hello = await s.request({ op: "hello" });
     check("runtime: hello names the protocol, the interpreter and the libraries", hello.protocol === 1 && /^3\./.test(hello.python) && "pandas" in hello.libraries);
@@ -961,7 +979,7 @@ function realRuntime() {
     check("runtime: Yes/No arrive as booleans and leave as Yes/No", (await ev("not _aot_ref(0)", [{ kind: "value", text: "No" }])).text === "Yes");
     check("runtime: NaN is an empty value", (await ev("float('nan')")).text === "");
     const printed = await s.request({ op: "eval", address: "@t@p", code: "print('hi') or 7", targets: [], host: "value" });
-    check("runtime: a print is captured, never written into the protocol", printed.stdout === "hi\n" && printed.result.value === 7);
+    check("runtime: a print is captured, never written into the protocol", printed.stdout === "hi\n" && printed.result.text === "7");
     check("runtime: exit() ends the expression, not the session", /asked Python to exit/.test((await ev("exit()")).error) && (await ev("1+1")).value === 2);
     const records = await ev("[{'name': 'Q1', 'total_units': 1204}, {'name': 'Q2', 'total_units': 5}]", [], "concept");
     check("runtime: records become a table — rows numbered 1, 2, 3, every key a column, written the language's way",
@@ -982,7 +1000,7 @@ function realRuntime() {
         results[address] = (await s.request({ op: "eval", address, code, targets, host: "cell" })).result;
       }
       check("runtime: a cell naming a row of its own table reads the live result, never last run's value",
-        results["@Est@q@pvc"].value === 56);
+        results["@Est@q@pvc"].text === "56");
     }
     const named = await ev("aot.grid(['Q', 'n'], [['A', 1], ['B', 2]])", [], "concept");
     check("runtime: a grid Python names row by row says so, and keeps its names", named.named === true && named.rows[1][0] === "B");
@@ -1020,7 +1038,7 @@ function realRuntime() {
       })()));
 
     // the constraints: every bound in one round trip
-    const chk = (items) => s.request({ op: "checks", items }).then((r) => r.results);
+    const chk = (items) => s.request({ op: "checks", items }).then((r) => numbers(r.results));
     const [ok18, young, oneOf, notOneOf, defines, wrong, broken] = await chk([
       { code: "18", targets: [], rel: ">=", value: "30" },
       { code: "18", targets: [], rel: ">=", value: "15" },
@@ -1076,14 +1094,14 @@ function realRuntime() {
     got = await evr("finance.revenue(3)");
     check("repository: a module it imports is asked about in its turn", got.consent && got.consent.path.endsWith("helpers.py"));
     await allow(helpers, pkgInit, pkgSub, nsMod, spaced);
-    check("repository: found anywhere by its name, its own import found in aot.files", (await evr("finance.revenue(3)")).ok.value === 60);
-    check("repository: a dotted path from the root", (await evr("tools.finance.revenue(1)")).ok.value === 20);
+    check("repository: found anywhere by its name, its own import found in aot.files", (await evr("finance.revenue(3)")).ok.text === "60");
+    check("repository: a dotted path from the root", (await evr("tools.finance.revenue(1)")).ok.text === "20");
     check("repository: a package, its submodule imported as it is reached", (await evr("pkg.LABEL + pkg.sub.f()")).ok.text === "pkgsub");
     check("repository: a folder without __init__ is a package too", (await evr("ns.deep.mod.g()")).ok.text === "ns");
     check("repository: two files of one name — an error naming both, and the dotted path to write",
       /names 2 files.*dup\.a\.same/.test((await evr("same.X")).error));
     check("repository: the standard library wins — the repository's os.py never runs", (await evr("os.sep in '/\\\\'")).ok.text === "Yes");
-    check("repository: any installed module is there by its name", (await evr("csv.QUOTE_ALL")).ok.value === 1);
+    check("repository: any installed module is there by its name", (await evr("csv.QUOTE_ALL")).ok.text === "1");
     check("repository: aot.use loads a file by its path, a space and all", (await evr('aot.use("tools/my helpers.py").hi()')).ok.text === "hi");
     check("repository: aot.use refuses a file outside the repository", !!(await evr('aot.use("../outside.py")')).error);
     await new Promise((r) => setTimeout(r, 30));
@@ -1092,13 +1110,13 @@ function realRuntime() {
     got = await evr("finance.revenue(3)");
     check("repository: a file changed on disk is asked about again", got.consent && got.consent.path.endsWith("helpers.py"));
     await allow(helpers);
-    check("repository: ...and once allowed, runs as it is now", (await evr("finance.revenue(3)")).ok.value === 90);
+    check("repository: ...and once allowed, runs as it is now", (await evr("finance.revenue(3)")).ok.text === "90");
 
     // the guards, in a session of their own: set at hello, before anything
     // of the repository's runs, and never lifted
     const gs = new python.Session(spawn, { python: interpreter, runtime, cwd: os.tmpdir(), timeoutMs: 30000 }).start();
     const gev = (code) => gs.request({ op: "eval", address: "@g@x", code, targets: [], host: "value" })
-      .then((r) => ({ ok: r.result }), (e) => ({ error: e.message }));
+      .then((r) => ({ ok: numbers(r.result) }), (e) => ({ error: e.message }));
     const gh = await gs.request({ op: "hello", guards: { memoryMb: 512, subprocess: false, network: false, credentials: true } });
     check("guards: hello reports what holds",
       /at most 512 MB/.test(gh.guards.memory) && /refused/.test(gh.guards.subprocess) && /refused/.test(gh.guards.network) && /protected/.test(gh.guards.credentials));
@@ -1145,6 +1163,213 @@ function realRuntime() {
     check("guards: off Windows memory is capped by its data size on Linux, by address space elsewhere, and hello says which",
       capOf.length === 3 && capOf[0].join() === "RLIMIT_DATA,a data-size limit"
       && capOf[1][0] === "RLIMIT_AS" && /which macOS does not enforce$/.test(capOf[1][1]) && capOf[2].join() === "RLIMIT_AS,an address-space limit");
+
+    // a formula asking for input says so at once: stdin is the protocol's, and
+    // waiting on it would hold the session until the timeout killed it
+    const started = Date.now();
+    const asked = await ev('input("name? ")');
+    check("input(): says why straight away, and the session goes on",
+      /put the value in a cell and reference it with @/.test(asked.error || "") && Date.now() - started < 5000 && s.alive);
+    const piped = await ev('__import__("sys").stdin.read()');
+    check("stdin: user code finds it empty, and the next request still arrives", piped.text === "" && (await ev("1 + 1")).value === 2);
+    // a column named with a pipe bends, as a cell does, so every value stays
+    // under its own column
+    const piped2 = python.gridOf({ columns: ["a|b", "c"], rows: [["1", 1, 2]] }, "Sales");
+    check("gridOf: a pipe in a column's name bends to a broken bar", piped2.header.join() === "Sales,a¦b,c" && table.isRowText(piped2.header.join("|")));
+
+    // every digit, all the way from Python to the text the file holds
+    const written = async (code) => {
+      const r = await s.request({ op: "eval", address: "@t@n", code, targets: [], host: "value" }).then((a) => a.result, (e) => ({ error: e.message }));
+      return r.error ? r : python.resultOf({ kind: "value", value: "", address: "@t@n" }, r, 120).text;
+    };
+    check("digits: a long integer is exact", (await written("12345678901234567")) === "12,345,678,901,234,567");
+    check("digits: 2**70 is exact", (await written("2**70")) === "1,180,591,620,717,411,303,424");
+    const huge = await written("10**5000");
+    check("digits: 10**5000 is a number with all its digits", typeof huge === "string" && huge.replace(/,/g, "").length === 5001);
+    check("digits: a repeating decimal keeps all it has", (await written("1/3")) === "0.3333333333333333");
+    check("digits: nothing collapses to 0", (await written("1/250")) === "0.004" && (await written("1e-7")) === "0.0000001");
+    check("digits: no scientific notation", (await written("1e22")) === "10,000,000,000,000,000,000,000");
+    check("digits: a whole float has no point", (await written("6.0")) === "6");
+    check("digits: a Decimal is exact", (await written('Decimal("1.10")')) === "1.10");
+    const dfDigits = await s.request({ op: "eval", address: "@t@g", code: 'aot.grid(["N", "v"], [["a", 12345678901234567], ["b", 1/3]])', targets: [], host: "concept" }).then((a) => a.result);
+    check("digits: a table's cells keep every digit too", python.gridOf(dfDigits, "N").rows.map((r) => r[1]).join("|") === "12,345,678,901,234,567|0.3333333333333333");
+    // what a formula reads is its typed value: every digit reads back as itself
+    check("digits: written and read back, a number is the same number", (await ev("_aot_ref(0)", [{ kind: "value", text: "12,345,678,901,234,567" }])).text === "12345678901234567");
+
+    // the build stops on a file outside what the extension is
+    {
+      const guard = spawnSync(interpreter, ["-I", "-B", "-c", [
+        "import importlib.util, json, sys",
+        "spec = importlib.util.spec_from_file_location('install', sys.argv[1])",
+        "m = importlib.util.module_from_spec(spec)",
+        "spec.loader.exec_module(m)",
+        "print(json.dumps(m.strays(['README.md', 'src/a.js', 'node_modules/x/y.js', 'alpha.png', 'verify.js', '.claude/settings.local.json', 'smoke-tmp.js', 'alpha old.png', 'docs/a.md', ''])))",
+      ].join("\n"), path.join(__dirname, "..", "install.py")], { encoding: "utf8", timeout: 60000 });
+      const found = (() => { try { return JSON.parse(guard.stdout); } catch { return null; } })();
+      check("package: install.py stops on a stray, and passes what the extension is",
+        JSON.stringify(found) === JSON.stringify([".claude/settings.local.json", "alpha old.png", "docs/a.md", "smoke-tmp.js"]));
+    }
+
+    // the first calculation is right, whatever a formula reads: a defined column,
+    // a whole row, a path through a Concept, a column of other formulas
+    {
+      const text = ["Item|qty|price =@qty*2|cost", "Bob|3||=@price*10", "Ann|4||=@price*10", "",
+        "total: =@Item@price.sum()", "bobprice: =@Item@Bob@price", "bobrow: =@Item@Bob['price']", "costsum: =@Item@cost.sum()", "rows: =len(@Item)", ""].join("\n");
+      const r = lint(text, "Model");
+      const lines = text.split("\n");
+      const hosts = python.calcHosts(r.nodes, lines, "Model");
+      const ctx = { lines, registry: table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes)), rootName: "Model", index: python.hostIndex(hosts, undefined, r.nodes, lines) };
+      const resolved = new Map(hosts.map((h) => [h.address, python.resolveHost(h, ctx)]));
+      const { order, cycles } = python.orderDerivations(hosts, (a) => resolved.get(a).deps);
+      check("graph: everything a formula reads comes first", !cycles.length
+        && order.indexOf("@Item@price@Bob") < order.indexOf("@Item@cost@Bob") && order.indexOf("@Item@price@Ann") < order.indexOf("@Model@total")
+        && order.indexOf("@Item@cost@Ann") < order.indexOf("@Model@costsum") && order.indexOf("@Item@cost@Bob") < order.indexOf("@Model@rows"));
+      const targets = [];
+      const items = order.map((a) => {
+        const h = hosts.find((x) => x.address === a);
+        const refs = resolved.get(a).targets.map((t) => {
+          if (!targets.includes(t)) targets.push(t);
+          return targets.indexOf(t);
+        });
+        return { address: a, code: resolved.get(a).code, refs, host: h.defined ? "defined" : h.kind, value: h.value };
+      });
+      const answers = new Map();
+      const done = await s.request({ op: "evalBatch", targets, items }, undefined, (m) => answers.set(items[m.k].address, m));
+      const value = (a) => { const m = answers.get(a); return m && m.result ? Number(m.result.text) : `failed: ${m && m.error}`; };
+      check("batch: one line of answer per formula, then the end of it", done.count === items.length && answers.size === items.length);
+      check("first run: a defined column computes", value("@Item@price@Bob") === 6 && value("@Item@price@Ann") === 8);
+      check("first run: a cell reading a defined column reads what it computed", value("@Item@cost@Bob") === 60 && value("@Item@cost@Ann") === 80);
+      check("first run: a total of a defined column is right, not 0", value("@Model@total") === 14);
+      check("first run: a total of a column of formulas is right", value("@Model@costsum") === 140);
+      check("first run: a path to one cell reads it", value("@Model@bobprice") === 6);
+      check("first run: a whole row reads its computed cells", value("@Model@bobrow") === 6);
+      check("first run: a whole table reads", value("@Model@rows") === 2);
+    }
+
+    // totals use every digit, however the cell is written
+    {
+      const text = ["T|v", "A|=1/3", "B|=1/3", "C|=1/3", "", "total: =@T@v.sum()", ""].join("\n");
+      const r = lint(text, "Model");
+      const lines = text.split("\n");
+      const hosts = python.calcHosts(r.nodes, lines, "Model");
+      const ctx = { lines, registry: table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes)), rootName: "Model", index: python.hostIndex(hosts, undefined, r.nodes, lines) };
+      const resolved = new Map(hosts.map((h) => [h.address, python.resolveHost(h, ctx)]));
+      const { order } = python.orderDerivations(hosts, (a) => resolved.get(a).deps);
+      const targets = [];
+      const items = order.map((a) => ({
+        address: a, code: resolved.get(a).code, host: "value",
+        refs: resolved.get(a).targets.map((t) => { if (!targets.includes(t)) targets.push(t); return targets.indexOf(t); }),
+      }));
+      const answers = new Map();
+      await s.request({ op: "evalBatch", targets, items }, undefined, (m) => answers.set(items[m.k].address, m));
+      check("totals: three =1/3 cells total 1, not 0.99", answers.get("@Model@total").result.text === "1");
+    }
+
+    // a failure leaves nothing behind for what reads it to compute from
+    await s.request({ op: "eval", address: "@t@was", code: "5", targets: [], host: "value" });
+    await s.request({ op: "eval", address: "@t@was", code: "1/0", targets: [], host: "value" }).catch(() => {});
+    const stale = await ev("_aot_ref(0)", [{ kind: "object", address: "@t@was" }]);
+    check("failure: a formula that failed leaves no older result to read", /has not been computed/.test(stale.error || ""));
+    // ...and what reads a failure does not start: no part of its code runs
+    {
+      const said = new Map();
+      await s.request({
+        op: "evalBatch",
+        targets: [{ kind: "object", address: "@t@failing" }],
+        items: [
+          { address: "@t@failing", code: "1/0", refs: [], host: "value" },
+          { address: "@t@reader", code: "print('it ran') or _aot_ref(0)", refs: [0], host: "value" },
+        ],
+      }, undefined, (m) => said.set(m.k, m));
+      check("failure: what reads a failed formula does not run at all", said.get(1).ok === false && !said.get(1).stdout && /has not been computed/.test(said.get(1).error));
+    }
+    // 5,000 formulas: planned in moments, run a batch at a time, and after one cell
+    // changes only what reads it is out of date
+    {
+      const planOf = (text) => {
+        const r = lint(text, "Model");
+        const lines = text.split("\n");
+        const hosts = python.calcHosts(r.nodes, lines, "Model");
+        const ctx = { lines, registry: table.mergeRegistries(derive.conceptRegistry(r.root, r.nodes)), rootName: "Model", index: python.hostIndex(hosts, undefined, r.nodes, lines) };
+        const resolved = new Map(hosts.map((h) => [h.address, python.resolveHost(h, ctx)]));
+        const { order, cycles } = python.orderDerivations(hosts, (a) => resolved.get(a).deps);
+        const hashes = new Map();
+        const byAddress = new Map(hosts.map((h) => [h.address, h]));
+        for (const a of order) hashes.set(a, python.hostHash(byAddress.get(a), resolved.get(a), "", hashes));
+        return { hosts, resolved, order, cycles, hashes };
+      };
+      const rows = Array.from({ length: 5000 }, (_, k) => `R${k}|${k}|=@a*2`);
+      const text = ["Big|a|b", ...rows, "", "total: =@Big@b.sum()", ""].join("\n");
+      const planStart = Date.now();
+      const plan = planOf(text);
+      const planMs = Date.now() - planStart;
+      check(`scale: a plan of 5,001 formulas is linear work (${planMs} ms)`, plan.order.length === 5001 && !plan.cycles.length && planMs < 8000);
+      const runStart = Date.now();
+      const answered = new Map();
+      for (let at = 0; at < plan.order.length; at += 64) {
+        const addresses = plan.order.slice(at, at + 64);
+        const targets = [];
+        const seen = new Map();
+        const items = addresses.map((a) => {
+          const r = plan.resolved.get(a);
+          const refs = r.targets.map((t) => {
+            if (!seen.has(t)) { seen.set(t, targets.length); targets.push(t); }
+            return seen.get(t);
+          });
+          return { address: a, code: r.code, refs, host: "value" };
+        });
+        await s.request({ op: "evalBatch", targets, items }, undefined, (m) => answered.set(addresses[m.k], m));
+      }
+      const runMs = Date.now() - runStart;
+      const expected = String(2 * (4999 * 5000) / 2);
+      check(`scale: 5,001 formulas run a batch at a time (${runMs} ms), and the total reads every one`,
+        answered.size === 5001 && answered.get("@Model@total").result.text === expected);
+      const changed = text.replace("R17|17|", "R17|18|");
+      const again = planOf(changed);
+      const stale = again.order.filter((a) => again.hashes.get(a) !== plan.hashes.get(a)).sort();
+      check("scale: one cell changing puts out of date only what reads it", stale.join() === "@Big@b@R17,@Model@total");
+    }
+    // a definition naming what a value may be writes nothing, and the cell's value stands
+    const allowed = new Map();
+    await s.request({ op: "evalBatch", targets: [], items: [{ address: "@t@status", code: '("draft", "sent")', refs: [], host: "defined", value: "sent" }] }, undefined, (m) => allowed.set("a", m));
+    check("definition: a collection is what a value may be, and writes nothing", allowed.get("a").many === true && !allowed.get("a").result);
+    check("definition: ...and what reads it reads the cell's own value", (await ev("_aot_ref(0)", [{ kind: "object", address: "@t@status" }])).text === "sent");
+    // and a table read by many formulas of one batch is built once, each with a copy
+    const sharedAnswers = new Map();
+    await s.request({
+      op: "evalBatch",
+      targets: [{ kind: "column", name: "n", index: ["a", "b"], values: ["1", "2"] }],
+      items: [
+        { address: "@t@s1", code: "_aot_ref(0).sum()", refs: [0], host: "value" },
+        { address: "@t@s2", code: "_aot_ref(0).sum()", refs: [0], host: "value" },
+      ],
+    }, undefined, (m) => sharedAnswers.set(m.k, m));
+    check("batch: a shared target reads the same for each", sharedAnswers.get(0).result.text === "3" && sharedAnswers.get(1).result.text === "3");
+    // the limit is on one formula: a long batch of quick ones outlasts it, and one hung formula does not
+    {
+      const q = new python.Session(spawn, { python: interpreter, runtime, cwd: os.tmpdir(), timeoutMs: 1000 }).start();
+      await q.request({ op: "hello" }, 30000);
+      const quick = Array.from({ length: 6 }, (_, k) => ({ address: `@q@${k}`, code: '__import__("time").sleep(0.3) or 1', refs: [], host: "value" }));
+      const heard = [];
+      const long = await q.request({ op: "evalBatch", targets: [], items: quick }, undefined, (m) => heard.push(m.k)).then((r) => r, (e) => ({ error: e.message }));
+      check("batch: the limit restarts with each formula, so a long batch of quick ones finishes", long.count === 6 && heard.length === 6);
+      const hung = await q.request({ op: "evalBatch", targets: [], items: [{ address: "@q@h", code: '__import__("time").sleep(30)', refs: [], host: "value" }] }).then((r) => r, (e) => ({ error: e.message }));
+      check("batch: one hung formula is stopped at the limit", /timed out after 1 s/.test(hung.error || "") && !q.alive);
+      q.kill();
+    }
+    // no pandas: a column still totals
+    {
+      const fallback = spawnSync(interpreter, ["-I", "-B", "-c", [
+        "import importlib.util, json, sys",
+        "spec = importlib.util.spec_from_file_location('aot_runtime', sys.argv[1])",
+        "rt = importlib.util.module_from_spec(spec)",
+        "spec.loader.exec_module(rt)",
+        "c = rt._Column([1, 2, None, 3.5])",
+        "sys.__stdout__.write(json.dumps([c.sum(), c.mean(), c.min(), c.max(), c.count(), rt._Column([]).sum(), rt._Column([]).mean()]))",
+      ].join("\n"), runtime], { encoding: "utf8", timeout: 60000 });
+      const got = (() => { try { return JSON.parse(fallback.stdout); } catch { return []; } })();
+      check("no pandas: a column still sums, averages and counts", got.join() === "6.5,2.1666666666666665,1,3.5,3,0,");
+    }
 
     await s.request({ op: "bye" });
     fs.rmSync(dir, { recursive: true, force: true });

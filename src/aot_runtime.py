@@ -15,6 +15,8 @@ Requests
     eval    one derivation: its code (every `@` already rewritten by the
             editor to `_aot_ref(k)`), the targets those stand for, and what
             it is hosted on — a value, a grid cell, or a Concept line
+    evalBatch  many derivations in order, sharing their targets, each answered
+            on a line of its own as it finishes
     reset   forget every result and the sidecar, as a fresh process would
     bye     exit
 
@@ -50,9 +52,28 @@ from pathlib import Path
 
 PROTOCOL = 1
 
+# a long integer is written with every digit it has: 10**5000 is a number, and
+# Python's guard against converting a huge one to text is for parsing untrusted
+# input, which this is not doing
+if hasattr(sys, "set_int_max_str_digits"):
+    sys.set_int_max_str_digits(0)
+
 # stdout is the protocol channel and nothing else's
 _OUT = sys.stdout
 sys.stdout = sys.stderr
+
+# ...and so is stdin. Code that read it would swallow the next request, or wait
+# for one that never comes while the editor waits for it, so user code finds it
+# empty and input() says why.
+_IN = sys.stdin
+sys.stdin = io.StringIO("")
+
+
+def _no_input(*_args):
+    raise RuntimeError("put the value in a cell and reference it with @ — a formula can't ask for input")
+
+
+builtins.input = _no_input
 
 
 def _send(obj):
@@ -225,14 +246,55 @@ def _typed(text):
             return _dt.datetime.fromisoformat(s.replace(" ", "T"))
         except ValueError:
             return s
-    return s
+    # one row is one line of the file, so a line break in a cell is written ↵
+    return s.replace("↵", "\n")
+
+
+def _read(cell):
+    """One cell of a target: its text, typed on arrival, or — where a formula
+    computes it — that formula's live result, every digit of it."""
+    if isinstance(cell, dict) and "$live" in cell:
+        address = cell["$live"]
+        if address not in _registry:
+            raise LookupError(f"{address} has not been computed in this session")
+        return _scalar(_registry[address])
+    return _typed(cell)
+
+
+class _Column(list):
+    """A column where pandas is not installed: the values, and the sums a
+    spreadsheet reaches for. An empty cell counts for nothing, as it does there."""
+
+    def _numbers(self):
+        return [v for v in self if v is not None and not isinstance(v, (str, bool))]
+
+    def sum(self):
+        return sum(self._numbers())
+
+    def mean(self):
+        n = self._numbers()
+        return sum(n) / len(n) if n else None
+
+    def min(self):
+        n = self._numbers()
+        return min(n) if n else None
+
+    def max(self):
+        n = self._numbers()
+        return max(n) if n else None
+
+    def count(self):
+        return len([v for v in self if v is not None])
+
+    def copy(self):
+        return _Column(self)
 
 
 def _frame_from(header, names, rows):
     """A Concept's Examples as a DataFrame — one row per Example, indexed by
     its name — or a list of dicts where pandas is not installed."""
     cols = [str(c) for c in header[1:]]
-    data = [[_typed(v) for v in row] for row in rows]
+    data = [[_read(v) for v in row] for row in rows]
     try:
         pd = importlib.import_module("pandas")
     except ImportError:
@@ -247,11 +309,11 @@ def _frame_from(header, names, rows):
 
 
 def _series_from(name, index, values):
-    typed = [_typed(v) for v in values]
+    typed = [_read(v) for v in values]
     try:
         pd = importlib.import_module("pandas")
     except ImportError:
-        return typed
+        return _Column(typed)
     return pd.Series(typed, index=list(index) if index else None, name=name)
 
 
@@ -320,9 +382,23 @@ def _is_missing(v):
         return True
     if isinstance(v, float) and math.isnan(v):
         return True
+    if isinstance(v, decimal.Decimal) and v.is_nan():
+        return True
     if type(v).__name__ in ("NaTType", "NAType"):
         return True
     return False
+
+
+def _number_text(v):
+    """A number as the file holds it: every digit, never in scientific notation,
+    and travelling as text so that nothing on the way can round it. A float is
+    Python's shortest text that reads back as the same float."""
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, decimal.Decimal):
+        return format(v, "f")
+    text = format(decimal.Decimal(repr(v)), "f")
+    return text[:-2] if text.endswith(".0") else text
 
 
 def _scalar(v):
@@ -336,18 +412,18 @@ def _scalar(v):
 
 
 def _cell(v):
-    """One grid cell: a JSON number, or text."""
+    """One grid cell: a number with every digit ({"$n": its text}), or text."""
     v = _scalar(v)
     if _is_missing(v):
         return None
     if isinstance(v, bool):
         return "Yes" if v else "No"
-    if isinstance(v, int):
-        return v
-    if isinstance(v, float):
-        return v if math.isfinite(v) else None
-    if isinstance(v, decimal.Decimal):
-        return float(v)
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    if isinstance(v, decimal.Decimal) and not v.is_finite():
+        return None
+    if isinstance(v, (int, float, decimal.Decimal)):
+        return {"$n": _number_text(v)}
     if isinstance(v, (_dt.date, _dt.datetime)):
         return _iso(v)
     return str(v)
@@ -533,10 +609,9 @@ def _envelope(v, host):
     if isinstance(v, bool):
         return {"kind": "text", "text": "Yes" if v else "No"}
     if isinstance(v, (int, float, decimal.Decimal)):
-        f = float(v)
-        if math.isinf(f):
+        if (isinstance(v, float) and math.isinf(v)) or (isinstance(v, decimal.Decimal) and v.is_infinite()):
             raise ValueError("the result is infinite")
-        return {"kind": "number", "value": v if isinstance(v, int) else f}
+        return {"kind": "number", "text": _number_text(v)}
     if isinstance(v, (_dt.date, _dt.datetime)):
         return {"kind": "text", "text": _iso(v)}
     if isinstance(v, str):
@@ -964,7 +1039,7 @@ def _target(t):
     if kind == "column":
         return _series_from(t.get("name"), t.get("index"), t.get("values") or [])
     if kind == "record":
-        fields = dict((k, _typed(v)) for k, v in (t.get("fields") or {}).items())
+        fields = dict((k, _read(v)) for k, v in (t.get("fields") or {}).items())
         fields.setdefault("name", t.get("name"))
         return fields
     raise LookupError(f"unknown reference kind {kind!r}")
@@ -1033,8 +1108,8 @@ def _describe(v):
     if isinstance(v, int):
         return f"{v:,}"
     if isinstance(v, float) and math.isfinite(v):
-        # as the file writes a computed number: separated, two decimals at most
-        return f"{v:,.2f}".rstrip("0").rstrip(".")
+        # as a cell shows a number: separated, and without a float's binary noise
+        return f"{v:,.15g}"
     return str(v)
 
 
@@ -1262,8 +1337,80 @@ def _set_guards(policy):
     return report
 
 
+class _SharedTargets:
+    """The targets one batch shares: a table read by a thousand formulas is built
+    once, and each is handed its own copy to change as it likes. A formula's own
+    live result is the object itself, as it always was: nothing is copied. Every
+    reader of a target runs after what the target reads, so what is built for the
+    first holds for the rest."""
+
+    def __init__(self, targets):
+        self.targets = targets
+        self.built = {}
+
+    def read(self, k):
+        t = self.targets[k]
+        if t.get("kind") == "object":
+            return _target(t)
+        if k not in self.built:
+            self.built[k] = _target(t)
+        made = self.built[k]
+        return made.copy() if hasattr(made, "copy") else made
+
+
+def _eval_one(item, shared):
+    """One formula. A failed one leaves no result behind, so what reads it does not
+    run at all: everything it reads is read first, and no part of its code runs on
+    an older value. A formula on a column's definition may name what a value may be
+    rather than what it is: a collection, which writes nothing, and the cell's own
+    value stands."""
+    address = item["address"]
+    refs = item.get("refs") or []
+    scope = _scope([])
+    started = time.perf_counter()
+    buf = io.StringIO()
+    try:
+        reads = [shared.read(k) for k in refs]
+        scope["_aot_ref"] = lambda k: reads[k]
+        code = compile(item["code"], f"<{address}>", "eval")
+        with contextlib.redirect_stdout(buf):
+            value = eval(code, scope)
+        if item.get("host") == "defined":
+            if _alternatives(value) is not None:
+                _registry[address] = _typed(item.get("value"))
+                return {"ok": True, "many": True, "ms": round((time.perf_counter() - started) * 1000)}
+            _registry[address] = value
+            envelope = _envelope(value, "value")
+        else:
+            _registry[address] = value
+            envelope = _envelope(value, item.get("host"))
+    except SystemExit:
+        _registry.pop(address, None)
+        return {"ok": False, "error": "the expression asked Python to exit — a formula computes a value"}
+    except BaseException as e:
+        _registry.pop(address, None)
+        return _error(e, {"stdout": buf.getvalue()[-2000:]})
+    return {"ok": True, "result": envelope, "stdout": buf.getvalue()[-2000:],
+            "ms": round((time.perf_counter() - started) * 1000)}
+
+
 def _handle(req):
     op = req.get("op")
+    if op == "evalBatch":
+        # formulas in the order they must run, one line of answer each as it
+        # finishes, so the editor's clock measures one formula rather than the
+        # batch, and what finished shows without waiting for what has not
+        shared = _SharedTargets(req.get("targets") or [])
+        items = req.get("items") or []
+        for k, item in enumerate(items):
+            answer = _eval_one(item, shared)
+            answer.update({"id": req.get("id"), "partial": True, "k": k})
+            try:
+                _send(answer)
+            except (TypeError, ValueError) as e:
+                _registry.pop(item.get("address"), None)
+                _send({"id": req.get("id"), "partial": True, "k": k, "ok": False, "error": f"the result could not be sent — {e}"})
+        return {"ok": True, "count": len(items)}
     if op == "hello":
         guards = _set_guards(req["guards"]) if isinstance(req.get("guards"), dict) else {}
         return {"ok": True, "protocol": PROTOCOL, "python": platform.python_version(),
@@ -1278,7 +1425,9 @@ def _handle(req):
                 pass
         return {"ok": True, "warmed": warmed}
     if op == "open":
-        _api.tree = req.get("tree")
+        # (a tree the session already holds is not sent again)
+        if "tree" in req:
+            _api.tree = req.get("tree")
         _api.file = req.get("file")
         _api.root = req.get("root")
         _api.files = Path(req["aotFiles"]) if req.get("aotFiles") else None
@@ -1317,21 +1466,7 @@ def _handle(req):
         return {"ok": True, "results": results}
     if op == "eval":
         targets = req.get("targets") or []
-        scope = _scope(targets)
-        started = time.perf_counter()
-        buf = io.StringIO()
-        try:
-            code = compile(req["code"], f"<{req.get('address', 'derivation')}>", "eval")
-            with contextlib.redirect_stdout(buf):
-                value = eval(code, scope)
-            _registry[req["address"]] = value
-            envelope = _envelope(value, req.get("host"))
-        except SystemExit:
-            return {"ok": False, "error": "the expression asked Python to exit — a derivation computes a value"}
-        except BaseException as e:
-            return _error(e, {"stdout": buf.getvalue()[-2000:]})
-        return {"ok": True, "result": envelope, "stdout": buf.getvalue()[-2000:],
-                "ms": round((time.perf_counter() - started) * 1000)}
+        return _eval_one(dict(req, refs=list(range(len(targets)))), _SharedTargets(targets))
     if op == "forget":
         for a in req.get("addresses") or []:
             _registry.pop(a, None)
@@ -1358,7 +1493,7 @@ def _handle(req):
 def main():
     while True:
         try:
-            line = sys.stdin.readline()
+            line = _IN.readline()
         except ValueError:  # stdin closed under us
             break
         if not line:

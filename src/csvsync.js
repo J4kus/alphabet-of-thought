@@ -3,9 +3,11 @@
 // A table lives twice — in its .aot, and as aot.files/<Concept>.csv, which
 // anyone may edit in anything. Whichever was saved last is right, and the
 // other is made to say the same, even where it was edited too since they last
-// agreed. Nothing is merged and nothing needs remembering: the two files' save
-// times decide (extension.js reads them), so the rule holds on a fresh clone,
-// in a moved folder and on a new profile exactly as it does anywhere else.
+// agreed. Nothing is merged: the two files' save times decide (extension.js reads
+// them), so the rule holds in a moved folder and on a new profile as it does
+// anywhere else. A fresh clone writes its files in no particular order, so there
+// a committed CSV differing from its .aot can be the later of the two; git shows
+// that as a change, and restoring the .aot makes it the newest again.
 //
 //     saved last   what happens
 //     the .aot     the CSV is rewritten from it, whatever the CSV said
@@ -14,6 +16,10 @@
 // So an emptied cell empties, a new row arrives and a row it lacks is deleted.
 // A column comes from the .aot alone: one the CSV adds is not read. Rows are
 // keyed by the Example's name, columns by the attribute's, case aside.
+//
+// A spreadsheet holds 15 significant digits, so it writes a longer number back
+// shorter (0.3333333333333333 as 0.333333333333333, a long integer as 1.23457E+16).
+// Nobody edited that cell: it is the same number, and no difference.
 //
 // Unsaved text is no save, so it never wins: a .aot buffer takes the CSV's word
 // on every cell and every row, its own unsaved edits to them included. What the
@@ -26,7 +32,35 @@
 const key = (s) => String(s == null ? "" : s).trim().toLowerCase();
 // what a cell says, as a table holds it: a pipe bent to the broken bar
 const cellOf = (s) => String(s == null ? "" : s).trim().replace(/\|/g, "¦");
-const same = (x, y) => cellOf(x) === cellOf(y);
+
+// A cell's number, as plain digits, or null when it holds none.
+const numberIn = (s) => {
+  const t = String(s).replace(/^(-?)\$/, "$1").replace(/,/g, "");
+  return /^-?\d*\.?\d+(?:e[+-]?\d+)?$/i.test(t) ? t : null;
+};
+const digitsOf = (t) => t.replace(/e.*$/i, "").replace(/[-.]/g, "").replace(/^0+/, "");
+// Whether the second is the first as a spreadsheet can hold it: the first longer
+// than 15 digits, the second no more than 15, and the first rounded to them.
+function sameNumber(long, short) {
+  const a = numberIn(long), b = numberIn(short);
+  if (a === null || b === null || digitsOf(a).length <= 15) return false;
+  const held = digitsOf(b).replace(/0+$/, "").length;
+  if (held > 15) return false;
+  const at = /e/i.test(b) ? Math.max(1, held) : 15;
+  return Number(Number(a).toPrecision(at)) === Number(b);
+}
+// (the .aot's cell first, the CSV's second)
+const same = (x, y) => cellOf(x) === cellOf(y) || sameNumber(cellOf(x), cellOf(y));
+
+// Whether a CSV says what this grid says, cell for cell.
+function saysTheSame(csv, aot) {
+  if (!csv || !aot || csv.length !== aot.length) return false;
+  return csv.every((row, r) => {
+    const other = aot[r];
+    for (let c = 0; c < Math.max(row.length, other.length); c++) if (!same(other[c], row[c])) return false;
+    return true;
+  });
+}
 
 // A grid indexed: { header, cols (lowercased, by position), names (col ->
 // the header as written), rows (name -> { name, cells: col -> text }),
@@ -152,4 +186,4 @@ function csvOverrides(csv, aot) {
   return plan;
 }
 
-module.exports = { csvOverrides, unionGrids, indexGrid };
+module.exports = { csvOverrides, unionGrids, indexGrid, saysTheSame };

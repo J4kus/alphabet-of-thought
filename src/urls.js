@@ -5,8 +5,10 @@
 // the request function is injectable so the tests never touch the wire.
 
 const { isRowText, splitCell } = require("./table");
+const dns = require("dns");
 const http = require("http");
 const https = require("https");
+const net = require("net");
 
 // A URL runs to whitespace, a pipe (it cannot straddle a table cell), or a
 // quote; trailing sentence punctuation is peeled off.
@@ -98,6 +100,62 @@ function findFiles(lines, resolve) {
 // Whether a link (URL or file path) points at an image, by extension.
 const isImage = (s) => /\.(png|jpe?g|gif|svg|webp|bmp|ico)(\?|#|$)/i.test(String(s));
 
+// --- what a hover may contact ---------------------------------------------------
+// A URL in a file is whatever the file's author wrote, so a hover must not be a
+// way to knock on this machine or its network. An address counts as internal
+// when it is on this machine or a private range, and a name when only a local
+// network could answer it. A public name that resolves to an internal address
+// is caught at the lookup, and a redirect to one is checked like any other URL.
+
+function isPrivateIp(ip) {
+  const kind = net.isIP(ip);
+  if (kind === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+      || (a === 100 && b >= 64 && b <= 127); // carrier-grade NAT
+  }
+  if (kind === 6) {
+    const low = ip.toLowerCase();
+    if (low === "::" || low === "::1") return true;
+    // an IPv4 address wearing IPv6: `::ffff:10.0.0.1`, which the URL parser
+    // writes in hex, `::ffff:a00:1`
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(low);
+    if (mapped) return isPrivateIp(mapped[1]);
+    const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(low);
+    if (hex) {
+      const [hi, lo] = [parseInt(hex[1], 16), parseInt(hex[2], 16)];
+      return isPrivateIp(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+    return /^f[cd]/.test(low) || /^fe[89ab]/.test(low); // unique-local, link-local
+  }
+  return false;
+}
+
+const LOCAL_SUFFIX = /\.(localhost|local|internal|intranet|lan|home|corp)$/;
+function isInternalHost(hostname) {
+  const h = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!h) return true;
+  if (net.isIP(h)) return isPrivateIp(h);
+  return h === "localhost" || LOCAL_SUFFIX.test(h) || !h.includes(".");
+}
+
+// (the URL parser has already read `2130706433` and `0x7f.1` as 127.0.0.1)
+function isInternalUrl(url) {
+  try { return isInternalHost(new URL(url).hostname); } catch { return true; }
+}
+
+// The lookup a request makes, refusing a name that resolves to an internal
+// address. Node may ask for every address (`all`), and answers an array then.
+function publicLookup(hostname, options, callback) {
+  dns.lookup(hostname, options, (err, address, family) => {
+    if (err) return callback(err);
+    const found = Array.isArray(address) ? address.map((a) => a.address) : [address];
+    if (found.some(isPrivateIp)) return callback(new Error(`${hostname} is an internal address, so it was not contacted`));
+    callback(null, address, family);
+  });
+}
+
 const TIMEOUT_MS = 3000;
 const MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -110,13 +168,14 @@ function head(url, request, redirects) {
   return new Promise((resolveDone) => {
     let target;
     try { target = new URL(url); } catch { return resolveDone({ error: "not a valid URL" }); }
+    if (isInternalHost(target.hostname)) return resolveDone({ error: "an internal address, so it was not contacted" });
     const mod = target.protocol === "http:" ? http : https;
     const doRequest = request || ((opts, cb) => mod.request(opts, cb));
     let settled = false;
     const done = (result) => { if (!settled) { settled = true; resolveDone(result); } };
     let req;
     try {
-      req = doRequest({ method: "HEAD", host: target.hostname, port: target.port || undefined, path: target.pathname + target.search, protocol: target.protocol }, (res) => {
+      req = doRequest({ method: "HEAD", host: target.hostname, port: target.port || undefined, path: target.pathname + target.search, protocol: target.protocol, lookup: publicLookup }, (res) => {
         const status = res.statusCode;
         if (status >= 300 && status < 400 && res.headers.location && redirects > 0) {
           const next = new URL(res.headers.location, target).toString();
@@ -153,4 +212,4 @@ function metadata(url, request) {
   return promise;
 }
 
-module.exports = { findUrls, findFiles, metadata, isImage, looksLikePath, URL_RE };
+module.exports = { findUrls, findFiles, metadata, isImage, looksLikePath, URL_RE, isInternalUrl, isInternalHost, isPrivateIp };

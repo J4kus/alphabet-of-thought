@@ -4,7 +4,7 @@
 // runs a derivation. Installing a package can run code — a source build runs
 // its setup, and an installed package runs whenever Python starts — so an
 // install happens only when the writer asks for it, after being shown what
-// it will put there, and never as a side effect of Ctrl+Enter. The run then
+// it will put there, and never as a side effect of a calculation. The run then
 // starts the environment's own interpreter directly, exactly as it starts any
 // other Python.
 //

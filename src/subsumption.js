@@ -106,14 +106,18 @@ function attrFeatures(node, concepts, individuals, root, keyOf) {
 }
 
 // The Concepts named inside a Concept's own name (concept-contains-Concept):
-// each longest, non-overlapping run of words that names another Concept.
+// each longest, non-overlapping run of words that names another Concept. A
+// name inside a name is short, so only runs of MAX_NAME_WORDS are tried: a
+// paragraph pasted at the left margin reads as one very long Concept, and
+// trying every run of its words took seconds on every keystroke.
+const MAX_NAME_WORDS = 16;
 function containedConcepts(concept, concepts, keyOf) {
   const out = new Set();
   const ws = [];
   for (const m of concept.name.matchAll(/\S+/g)) ws.push({ start: m.index, end: m.index + m[0].length });
   for (let i = 0; i < ws.length; ) {
     let matched = false;
-    for (let j = ws.length - 1; j >= i; j--) {
+    for (let j = Math.min(ws.length - 1, i + MAX_NAME_WORDS - 1); j >= i; j--) {
       if (i === 0 && j === ws.length - 1) continue; // the whole name is this Concept
       const target = concepts.get(concept.name.slice(ws[i].start, ws[j].end).toLowerCase());
       if (target && target !== concept) {

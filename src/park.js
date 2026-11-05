@@ -649,8 +649,8 @@ function parkedSpans(lines, nodes, rootName, parked) {
 // to this file deserves the review a change to code gets.
 const NOTICE = [
   "// Derivations and constraints parked out of the data by AOT (Ctrl+Shift+`).",
-  "// A derivation may be PYTHON — code the editor runs when asked (Ctrl+Enter,",
-  "// or the key that parks) — so review changes to this file as you would code.",
+  "// A derivation may be PYTHON — code the editor runs when the file calculates",
+  "// and when it parks — so review changes to this file as you would code.",
   "// The values the derivations computed are already written in the .aot;",
   "// the constraints are still checked from here by the editor and verify.js.",
   "// Toggle again in the editor to put them back. Commit this beside the .aot.",

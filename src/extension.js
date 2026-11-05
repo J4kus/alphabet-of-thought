@@ -32,6 +32,7 @@ const lineform = require("./lineform");
 const python = require("./python");
 const uvenv = require("./uvenv");
 const csvsync = require("./csvsync");
+const recalc = require("./recalc");
 
 const DEBOUNCE_MS = 300;
 // past this many Examples the lattice is no longer keystroke-cheap
@@ -204,6 +205,19 @@ function isInside(dir, file) {
 
 const docRootName = (doc) => path.basename(doc.fileName || "").replace(/\.[^.]*$/, "");
 
+// Whether a document is the file itself. The other side of an open diff is a
+// read-only copy of the last commit (a `git:` document) under the same file
+// name, so a lookup by name alone can land on it: it reads old text as if it
+// were the file's, and an edit to it fails in silence. (In a remote window the
+// file's own scheme is vscode-remote.)
+const isRealDoc = (doc) => {
+  const scheme = doc.uri && doc.uri.scheme;
+  return !scheme || scheme === "file" || scheme === "vscode-remote";
+};
+// The document open for a file on disk, or null.
+const openDocFor = (fsPath) => (vscode.workspace.textDocuments || [])
+  .find((d) => d.fileName && isRealDoc(d) && fileKey(d.fileName) === fileKey(fsPath)) || null;
+
 function reindexAot(fsPath, text) {
   try {
     const rootName = path.basename(fsPath).replace(/\.[^.]*$/, "");
@@ -363,8 +377,9 @@ function linkAnalysis(doc) {
   // Only when the text has actually moved, though: the entry is what the
   // repo-wide external index and every merged formula registry are built
   // from, and rebuilding those on an analysis that changed nothing threw
-  // away caches the rest of the repo had not invalidated.
-  if (inWs) {
+  // away caches the rest of the repo had not invalidated. A `git:` copy is not
+  // the file, and must never stand in for it here.
+  if (inWs && isRealDoc(doc)) {
     const key = fileKey(doc.fileName);
     const prev = workspaceIndex.get(key);
     const text = doc.getText();
@@ -455,9 +470,11 @@ function analyse(doc) {
   const inPython = (h) => pythonSpans.some((s) => s.line === h.line && h.startCol >= s.startCol && h.endCol <= s.endCol);
   // spelling is advisory prose-hygiene, independent of the tree's verdict:
   // words longer than four characters that no English dialect (nor the
-  // user's accepted words) knows, off with aot.spellingHints
+  // user's accepted words) knows, off with aot.spellingHints — which the
+  // writer of another language turns off from Ctrl+. (toggleSpelling)
   const config = vscode.workspace.getConfiguration("aot");
-  const hints = config.get("spellingHints", true)
+  const spellingOn = config.get("spellingHints", true);
+  const hints = spellingOn
     ? spelling.check(doc.getText(), accepted).filter((h) => !inPython(h))
     : [];
   // a value naming no Example of the Concept typing its attribute is a gap
@@ -472,7 +489,10 @@ function analyse(doc) {
   const twins = !errors.length ? twinWarnings(doc, root, nodes) : [];
   return {
     errors: errors.concat(deepErrors),
-    warnings: warnings.concat(depWarnings, synonymWarnings(doc, root, nodes), twins),
+    // 'appears plural' is the same English-only guess spelling is (`Huis`,
+    // `Klas`), so the one switch silences both
+    warnings: warnings.filter((w) => spellingOn || !ACCEPT_PLURAL.test(w.message))
+      .concat(depWarnings, synonymWarnings(doc, root, nodes), twins),
     hints,
     links,
     root,
@@ -521,6 +541,7 @@ function decorate(editor, decorationTypes) {
   editor.setDecorations(decorationTypes.concept, concepts);
   editor.setDecorations(decorationTypes.individual, individuals);
   editor.setDecorations(decorationTypes.parked, [...parkedMarks(editor.document), ...pythonMarks(editor.document)]);
+  paintShortNumbers(editor, decorationTypes);
   if (decorationTypes.stale) editor.setDecorations(decorationTypes.stale, pyDims.get(editor.document.uri.toString()) || []);
   // a function a derivation calls that a Python file here defines: underlined
   // as the crosslinks are, since Ctrl+click opens it too
@@ -529,6 +550,92 @@ function decorate(editor, decorationTypes) {
     try { calls = pythonCallLinks(editor.document); } catch { /* an unparseable file links nothing */ }
     editor.setDecorations(decorationTypes.pyLink, calls.map((c) => ({ range: c.range })));
   }
+}
+
+// The computed numbers of a document with what each shows on screen. The file
+// holds every digit, so this is only ever a matter of what is drawn, and the cell
+// a cursor stands in shows all of them, as a spreadsheet's formula bar does. Read
+// once per version of the text, however often the cursor moves.
+const shortSpansByDoc = new Map(); // uri -> { version, spans: [{ line, start, end, text, shown, inTable }] }
+function shortSpans(doc) {
+  const key = doc.uri.toString();
+  const hit = shortSpansByDoc.get(key);
+  if (hit && typeof doc.version === "number" && hit.version === doc.version) return hit.spans;
+  const spans = [];
+  try {
+    const { nodes } = parsedDoc(doc);
+    const lines = doc.getText().split(/\r?\n/);
+    const rootName = docRootName(doc);
+    const add = (line, start, end, inTable) => {
+      const text = String(lines[line] || "").slice(start, end);
+      const shown = table.shortNumber(text);
+      if (shown) spans.push({ line, start, end, text: text.trim(), shown, inTable });
+    };
+    const cellValue = (line, col) => {
+      const cell = table.cells(lines[line] || "")[col];
+      if (cell) add(line, cell.col, cell.col + table.splitCell(cell.text).value.length, true);
+    };
+    for (const h of python.calcHosts(nodes, lines, rootName, parkedConstraintsOf(doc, nodes))) {
+      if (h.kind === "cell") cellValue(h.line - 1, h.cell.col);
+      else if (h.kind === "value") {
+        const raw = lines[h.line - 1] || "";
+        const d = python.valueDerivation(raw);
+        if (d) add(h.line - 1, d.valueStart, d.valueStart + d.value.length, false);
+        else {
+          const colon = raw.indexOf(":");
+          const lead = raw.slice(colon + 1).length - raw.slice(colon + 1).trimStart().length;
+          if (colon !== -1) add(h.line - 1, colon + 1 + lead, raw.trimEnd().length, false);
+        }
+      }
+    }
+    // the rows a formula wrote hold its numbers too
+    const rowsOf = (node) => {
+      for (const r of park.ownedRows(lines, node)) {
+        const count = table.cells(lines[r.line - 1] || "").length;
+        for (let k = 1; k < count; k++) cellValue(r.line - 1, k);
+      }
+    };
+    for (const node of nodes) if (node.kind === KIND.CONCEPT && node.formula !== undefined) rowsOf(node);
+    const generated = generatedConcepts(doc);
+    for (const names of generated.values()) {
+      for (const name of names) {
+        const node = nodes.find((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === name.toLowerCase());
+        if (node && node.formula === undefined) rowsOf(node);
+      }
+    }
+    // and a parked formula's value is still its number
+    for (const s of park.parkedSpans(lines, nodes, rootName, parkedFormulas(doc))) {
+      if (!s.constraint) add(s.line - 1, s.startCol, s.endCol, table.isRowText(lines[s.line - 1] || ""));
+    }
+  } catch { /* an unparseable file shows what it holds */ }
+  shortSpansByDoc.set(key, { version: doc.version, spans });
+  return spans;
+}
+const SHORT_MARGIN = 50; // lines either side of what is on screen
+function paintShortNumbers(editor, decorationTypes) {
+  if (!decorationTypes.shortNumber || !editor.setDecorations) return;
+  const doc = editor.document;
+  if (doc.languageId !== "aot" || !isRealDoc(doc) || !pyConfig().get("shortNumbers", true)) {
+    editor.setDecorations(decorationTypes.shortNumber, []);
+    return;
+  }
+  const cursors = cursorsOf(editor);
+  const visible = editor.visibleRanges;
+  const options = [];
+  for (const s of shortSpans(doc)) {
+    if (visible && visible.length && !visible.some((r) => s.line >= r.start.line - SHORT_MARGIN && s.line <= r.end.line + SHORT_MARGIN)) continue;
+    const at = cellAtPosition(doc, { line: s.line, character: s.start });
+    if (cursors.some((c) => c.line === at.line && c.cell === at.cell)) continue;
+    // padded to the width of what it stands in for, so a table's pipes stay lined up
+    const width = [...s.shown.replace(/\u0305/g, "")].length;
+    const pad = s.inTable ? "\u00a0".repeat(Math.max(0, s.end - s.start - width)) : "";
+    options.push({
+      range: new vscode.Range(s.line, s.start, s.line, s.end),
+      hoverMessage: s.text,
+      renderOptions: { after: { contentText: s.shown + pad } },
+    });
+  }
+  editor.setDecorations(decorationTypes.shortNumber, options);
 }
 
 // A derivation may hold a backtick — in a Python string, `` =f("`A`") `` —
@@ -564,24 +671,25 @@ function parkedMarks(doc) {
   const store = path.basename(parkPath(doc));
   return spans.map((s) => {
     const md = new vscode.MarkdownString();
-    md.isTrusted = true;
+    // the one command these words link to: a file's text can add no other
+    md.isTrusted = { enabledCommands: ["aot.toggleFormulaPark"] };
     if (s.constraint) {
       // a parked constraint marks the name it was written on, and still holds
       md.appendMarkdown(`**Constrained** — ${codeSpan(s.formula)}\n\n`);
-      md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`, and still checked when Python runs: `
+      md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`, and still checked when the file calculates: `
         + "a value that breaks it is flagged exactly as if it were written here. "
-        + "[Put the derivations back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``) to see or change it.");
+        + "[Put the formulas back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``) to see or change it.");
       return {
         range: new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
         hoverMessage: md,
       };
     }
-    md.appendMarkdown(`**${s.concept ? "Written by Python" : "Computed by Python"}** — ${codeSpan(s.formula)}\n\n`);
-    if (s.concept) md.appendMarkdown("Every row of this table is the derivation's. ");
+    md.appendMarkdown(`**Calculated** — ${codeSpan(s.formula)}\n\n`);
+    if (s.concept) md.appendMarkdown("Every row of this table is the formula's. ");
     md.appendMarkdown(`Parked as ${codeSpan(s.address)} in \`${store}\`. `);
-    md.appendMarkdown("A value typed over this one stands only until the derivation comes home and runs again "
-      + "— change the derivation instead: "
-      + "[put the derivations back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``).");
+    md.appendMarkdown("A value typed over this one stands only until the formula comes home and calculates again "
+      + "— change the formula instead: "
+      + "[put the formulas back](command:aot.toggleFormulaPark) (``Ctrl+Shift+` ``).");
     return {
       range: new vscode.Range(s.line - 1, s.startCol, s.line - 1, s.endCol),
       hoverMessage: md,
@@ -1064,6 +1172,11 @@ function linkHoverAt(doc, position) {
 
   const span = urls.findUrls([lineText]).find(at);
   if (!span) return null;
+  // Whoever wrote the file learns nothing from a hover. In a workspace VS Code
+  // does not trust no request goes out and no remote picture loads, and an
+  // address on this machine or its network is never contacted from any hover.
+  // Ctrl+click still opens either: that is the writer's own decision.
+  if (!workspaceTrusted() || urls.isInternalUrl(span.url)) return null;
   const range = rangeOf(span);
   const wantMeta = vscode.workspace.getConfiguration("aot").get("urlMetadata", true);
   if (urls.isImage(span.url)) {
@@ -1135,7 +1248,8 @@ function crossFileHover(doc, analysis, position) {
     return shown.length ? shown.join(", ") : "_none_";
   };
   const md = new vscode.MarkdownString();
-  md.isTrusted = true;
+  // trusted for its links to the peers' lines, and for no command at all
+  md.isTrusted = { enabledCommands: [] };
   const parts = repo.noteParts(doc.lineAt(position.line).text);
   const ch = position.character;
   const over = (s) => s && ch >= s.startCol && ch <= s.endCol;
@@ -1782,7 +1896,7 @@ function workspaceRenameSpans(doc, analysis, text, target) {
 
 // The text a rename edits in another file: its open buffer, else the disk.
 function liveTextOf(fsPath) {
-  const open = (vscode.workspace.textDocuments || []).find((d) => d.fileName && fileKey(d.fileName) === fileKey(fsPath));
+  const open = openDocFor(fsPath);
   if (open) return open.getText();
   try { return fs.readFileSync(fsPath, "utf8"); } catch { return null; }
 }
@@ -2168,6 +2282,20 @@ const codeActionProvider = {
     // Ctrl+K T), the right-click menu and the Command Palette.
     // a Python derivation: run it, stub what it calls, or move it out
     try { actions.push(...pythonActions(doc, range)); } catch { /* none offered */ }
+    // Spelling on or off. On a word it flagged the offer stands beside Replace
+    // and Accept; anywhere else it answers Ctrl+. only, never the lightbulb
+    // that follows the cursor. It has to be offered there: once spelling is
+    // off, no hint is left to open the menu on, and this is the way back.
+    const onFinding = (context.diagnostics || []).some((d) => d.source === "aot"
+      && (ACCEPT_SPELLING.test(d.message) || ACCEPT_PLURAL.test(d.message)));
+    const asked = !!vscode.CodeActionTriggerKind && context.triggerKind === vscode.CodeActionTriggerKind.Invoke;
+    if (onFinding || asked) {
+      const on = vscode.workspace.getConfiguration("aot").get("spellingHints", true);
+      const title = `Turn ${on ? "off" : "on"} spelling checks`;
+      const toggle = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+      toggle.command = { command: "aot.toggleSpelling", title };
+      actions.push(toggle);
+    }
     return actions;
   },
 };
@@ -2443,8 +2571,7 @@ async function setValueEverywhere(conceptName, attr, value) {
     `AOT: '${attr}' set to '${value}' in ${changed} file${changed === 1 ? "" : "s"}`, 5000);
 }
 
-// Every table in the document re-aligned. Nothing is computed: a derivation
-// runs only when asked.
+// Every table in the document re-aligned. Nothing is computed here.
 function alignTables(editor) {
   const doc = editor.document;
   if (doc.languageId !== "aot") return;
@@ -2455,11 +2582,12 @@ function alignTables(editor) {
   });
 }
 
-// AOT: Recompute (F9) — every stale Python derivation and every constraint,
-// run in place: what Ctrl+Enter does anywhere off a derivation.
+// AOT: Calculate Now (F9) — what is out of date, every formula that reads
+// nothing in the file (a date, a random number, a file it loads), any that
+// failed, and every constraint. In manual calculation it is the only trigger.
 function recomputeFormulas(editor) {
   if (editor.document.languageId !== "aot") return;
-  return runPython(editor, { mode: "here", line: -1 });
+  return runPython(editor, { mode: "now" });
 }
 
 // --- parking the derivations (Ctrl+Shift+`) ----------------------------------
@@ -2539,7 +2667,7 @@ async function parkFormulas(editor, store) {
     py = await runPython(editor, { mode: "all", quiet: true });
     if (py.blocked === "refused") return;
     if (py.blocked) {
-      vscode.window.setStatusBarMessage(`AOT: Python not run (${py.blocked === "off" ? "aot.python.enabled is off" : "the workspace is not trusted"}) — its values park as they stand.`, 5000);
+      vscode.window.setStatusBarMessage(`AOT: formulas not calculated (${py.blocked === "off" ? "aot.python.enabled is off" : "the workspace is not trusted"}) — their values park as they stand.`, 5000);
     }
   }
   // the values are written (the run above), the tables drawn, and only then
@@ -2554,7 +2682,7 @@ async function parkFormulas(editor, store) {
   // a bare `=` line comes home above the Concept that stood beneath it:
   // one with none beneath it has nowhere to come home to, so it stays
   if (stayed && stayed.length) {
-    vscode.window.showWarningMessage(`AOT: the bare '=' line${stayed.length === 1 ? ` on line ${stayed[0]} has` : `s on lines ${stayed.join(", ")} have`} no Concept beneath to come home above, so ${stayed.length === 1 ? "it stays" : "they stay"} in the file — run ${stayed.length === 1 ? "it" : "them"} (Ctrl+Enter) to write ${stayed.length === 1 ? "its" : "their"} tables, and then ${stayed.length === 1 ? "it parks" : "they park"} with the rest.`);
+    vscode.window.showWarningMessage(`AOT: the bare '=' line${stayed.length === 1 ? ` on line ${stayed[0]} has` : `s on lines ${stayed.join(", ")} have`} no Concept beneath to come home above, so ${stayed.length === 1 ? "it stays" : "they stay"} in the file — once ${stayed.length === 1 ? "it writes a table, it parks" : "they write their tables, they park"} with the rest.`);
   }
   if (!parked.length) {
     return vscode.window.setStatusBarMessage("AOT: no derivations or constraints to park.", 3000);
@@ -2584,7 +2712,7 @@ async function parkFormulas(editor, store) {
     `AOT: ${what} parked in ${path.basename(store)} — Ctrl+Shift+\` puts them back.`, 5000);
   if (py.failed) {
     vscode.window.showWarningMessage(
-      `AOT: ${py.failed} Python derivation${py.failed === 1 ? "" : "s"} did not run, and parked with ${py.failed === 1 ? "its" : "their"} previous value${py.failed === 1 ? "" : "s"} — see the Problems panel.`);
+      `AOT: ${py.failed} formula${py.failed === 1 ? "" : "s"} did not calculate, and parked with ${py.failed === 1 ? "its" : "their"} previous value${py.failed === 1 ? "" : "s"} — see the Problems panel.`);
   }
 }
 
@@ -2631,17 +2759,17 @@ function toggleFormulaPark(editor) {
   return fs.existsSync(store) ? unparkFormulas(editor, store) : parkFormulas(editor, store);
 }
 
-// --- Python derivations (Ctrl+Enter) -----------------------------------------
-// `=` has two languages behind it (pyshape.js). The formula half runs on
-// every keystroke, in-process, and needs nothing. The Python half runs only
-// when asked — Ctrl+Enter runs the derivation under the cursor with whatever
-// it reads and whatever reads it, in place; the park key runs every one of
-// them fresh before the derivations leave — in one persistent Python process
-// per document (python.js, aot_runtime.py), so a DataFrame one derivation
-// makes is there for the next.
+// --- formulas -----------------------------------------------------------------
+// What stands behind `=` is Python, and it calculates as a spreadsheet does:
+// when a cell is left, a file saved, a CSV arrives (recalc.js says when), each
+// pass running what is out of date and whatever reads it, in place, in one
+// persistent Python process per document (python.js, aot_runtime.py), so a
+// DataFrame one formula makes is there for the next. F9 asks for it by hand, and
+// is the only trigger with aot.calculation set to manual.
 //
 // Running code a document carries is a trust decision, so three gates stand
-// in front of it: aot.python.enabled (off by default), VS Code's workspace
+// in front of it: aot.python.enabled (off until the first formula offers to turn
+// it on, which no repository can do for you), VS Code's workspace
 // trust, and — for the Python files in aot.files, whose top-level code runs
 // the moment they are loaded — consent keyed to a hash of those files, asked
 // again whenever one of them changes. The consent lives in the workspace
@@ -2710,8 +2838,11 @@ function generatedConcepts(doc) {
 function pyHostIndex(doc, hosts) {
   let nodes = [];
   try { nodes = parsedDoc(doc).nodes; } catch { /* no nodes: nothing for a rename to follow */ }
-  return python.hostIndex(hosts, generatedConcepts(doc), nodes);
+  return python.hostIndex(hosts, generatedConcepts(doc), nodes, doc.getText().split(/\r?\n/));
 }
+
+// The constraints a file's store still holds, by the declaration they bound.
+const parkedConstraintsOf = (doc, nodes) => park.parkedConstraints(nodes, docRootName(doc), parkedFormulas(doc));
 
 // --- the repository's Python -------------------------------------------------
 // A derivation reaches the file's sidecar, aot.files/<file>.py, by its names
@@ -2821,9 +2952,9 @@ async function approveFile(file, digest) {
 }
 const isApproved = (file, digest) => !!digest && approvals()[fileKey(file)] === digest;
 
-// Ask about one file a run reached. true when the writer lets it run. A file
-// allowed before and changed since offers the change itself, beside what
-// was allowed.
+// Ask about one file a formula reached. true when the writer lets it run. A file
+// allowed before and changed since offers the change itself, beside what was
+// allowed. Nothing stops for the answer: the values stand as they are until it comes.
 async function askToRun(doc, consent) {
   const file = consent.path;
   const rel = path.relative(aotRoot(doc), file).split(path.sep).join("/");
@@ -2832,19 +2963,40 @@ async function askToRun(doc, consent) {
   const diffable = !!before && fs.existsSync(snapshotOf(before));
   const look = diffable ? "Show Changes" : "Open File";
   const pick = await vscode.window.showWarningMessage(
-    `AOT: run ${rel}? A Python derivation reaches it, and it ${why}. Its top-level code runs the moment it loads, with your permissions — read it first if you did not write it.`,
-    { modal: true }, "Run", look);
-  if (pick === "Run") {
+    `AOT: a formula reaches ${rel}, which ${why}. Its code runs with your permissions as soon as it loads, so read it first if you did not write it.`,
+    "Enable", look);
+  if (pick === "Enable") {
     await approveFile(file, consent.digest);
     return true;
   }
   if (pick === "Show Changes") {
     vscode.commands.executeCommand("vscode.diff", vscode.Uri.file(snapshotOf(before)), vscode.Uri.file(file), `${rel}: as allowed ↔ as it is now`);
-    vscode.window.setStatusBarMessage("AOT: nothing ran — Ctrl+Enter asks again once you have read the change.", 6000);
+    vscode.window.setStatusBarMessage("AOT: nothing ran — press F9 to be asked again once you have read the change.", 6000);
   } else if (pick === "Open File" && vscode.window.showTextDocument) {
     vscode.window.showTextDocument(vscode.Uri.file(file));
   }
   return false;
+}
+
+// The same questions asked by a calculation nobody pressed a key for: once per
+// thing to ask about, never in the way, and the status bar's "Formulas paused"
+// asks again. An answer of yes calculates at once.
+const askedAbout = new Set();
+function askAboutFileOnce(doc, consent) {
+  const key = `${fileKey(consent.path)}\0${consent.digest}`;
+  if (askedAbout.has(key)) return;
+  askedAbout.add(key);
+  askToRun(doc, consent).then((yes) => { if (yes) commitCalc(doc, "enabled"); }, () => {});
+}
+function askAboutCodeOnce(doc, asked) {
+  const key = `${fileKey(doc.fileName)}\0${asked.map((a) => a.key).sort().join()}`;
+  if (askedAbout.has(key)) return;
+  askedAbout.add(key);
+  askToRunCode(doc, asked).then(async (yes) => {
+    if (!yes) return;
+    await approveCode(doc.fileName, asked.map((a) => a.key));
+    commitCalc(doc, "enabled");
+  }, () => {});
 }
 
 // A Python file saved in this editor: its new content is allowed when what it
@@ -2871,7 +3023,7 @@ async function pyDidSave(doc) {
 
 // --- allowing the Python a .aot carries ---------------------------------------
 // A .aot is a program too: every derivation and every constraint's bound in
-// it runs on Ctrl+Enter. So the same rule the Python files follow holds for
+// it runs as it calculates. So the same rule the Python files follow holds for
 // it, piece by piece. Each piece is known by a hash of its text:
 //
 //   - one written in this editor is the writer's own, and runs without a
@@ -2973,27 +3125,33 @@ function aotWillSave(doc) {
     const { own } = codeConsent(doc);
     if (own.length) approveCode(doc.fileName, own);
   } catch { /* a file that does not parse holds nothing to allow */ }
+  // which Concepts the file speaks for as it stands on disk, for the save to
+  // tell which of them it has stopped speaking for (syncAotToCsv)
+  const facts = mirrorFactsOf(doc.fileName);
+  if (facts) ownedBeforeSave.set(fileKey(doc.fileName), facts.grids.map((g) => g.name));
 }
+const ownedBeforeSave = new Map(); // fileKey -> [Concept names]
 
-// Ask about the pieces of a .aot's Python that came from outside. true when
-// the writer lets them run.
+// Ask about the pieces of a .aot's Python that came from outside. true when the
+// writer lets them run. Nothing stops for the answer: the values stand as they
+// are until it comes.
 async function askToRunCode(doc, asked) {
   const rel = relToRepo(doc, doc.fileName);
   const n = (kind) => asked.filter((a) => a.kind === kind).length;
   const parts = [];
-  if (n("derivation")) parts.push(`${n("derivation")} derivation${n("derivation") === 1 ? "" : "s"}`);
-  if (n("bound")) parts.push(`${n("bound")} constraint bound${n("bound") === 1 ? "" : "s"}`);
+  if (n("derivation")) parts.push(`${n("derivation")} formula${n("derivation") === 1 ? "" : "s"}`);
+  if (n("bound")) parts.push(`${n("bound")} constraint${n("bound") === 1 ? "" : "s"}`);
   const first = asked.slice(0, 3).map((a) => `line ${a.line}: ${a.kind === "derivation" ? "=" : ""}${a.text.length > 60 ? a.text.slice(0, 57) + "…" : a.text}`).join("; ");
   const pick = await vscode.window.showWarningMessage(
-    `AOT: run the Python in ${rel}? ${parts.join(" and ")} in it ${asked.length === 1 ? "has" : "have"} not run here before and did not come from this editor — ${first}${asked.length > 3 ? "; …" : ""}. It runs with your permissions: read it first if you did not write it.`,
-    { modal: true }, "Run", "Show Them");
-  if (pick === "Run") return true;
+    `AOT: ${parts.join(" and ")} in ${rel} came from outside this editor — ${first}${asked.length > 3 ? "; …" : ""}. They run with your permissions, so read them first if you did not write them.`,
+    "Enable", "Show Them");
+  if (pick === "Enable") return true;
   if (pick === "Show Them") {
     try {
       const listing = asked.map((a) => `# line ${a.line} (${a.kind})\n${a.kind === "derivation" ? "=" : ""}${a.text}\n`).join("\n");
       const shown = await vscode.workspace.openTextDocument({ content: listing, language: "python" });
       if (vscode.window.showTextDocument) await vscode.window.showTextDocument(shown, { preview: true });
-      vscode.window.setStatusBarMessage("AOT: nothing ran — Ctrl+Enter asks again once you have read them.", 6000);
+      vscode.window.setStatusBarMessage("AOT: nothing ran — press F9 to be asked again once you have read them.", 6000);
     } catch { /* nowhere to show them */ }
   }
   return false;
@@ -3124,29 +3282,157 @@ async function reconsentAfterWrite(file, before) {
 
 // --- the gates --------------------------------------------------------------
 
-// true when this document's Python may run now; otherwise why not — "off" or
-// "untrusted". `quiet` skips the explanations (the park key parks
-// regardless). The files a run reaches are asked about as it reaches them
-// (askToRun) — that question is never quiet.
-async function pythonGate(doc, quiet) {
+// true when this document's formulas may run now; otherwise why not — "off" or
+// "untrusted". `quiet` skips the explanations (the park key parks regardless).
+// A calculation nobody pressed a key for (`auto`) offers to turn formulas on once
+// and says nothing of an untrusted workspace, which is a choice already made. The
+// files a run reaches are asked about as it reaches them (askToRun).
+let offeredFormulas = false;
+function offerFormulas() {
+  const answer = vscode.window.showInformationMessage(
+    "AOT: formulas are off. A formula is Python and runs with your permissions.", "Turn on formulas", "Not now");
+  if (!answer || !answer.then) return;
+  answer.then((pick) => {
+    if (pick === "Turn on formulas") pyConfig().update("python.enabled", true, vscode.ConfigurationTarget.Global);
+  }, () => {});
+}
+async function pythonGate(doc, opts) {
+  const { quiet, auto } = opts || {};
   if (!pythonEnabled()) {
-    if (!quiet) {
-      const pick = await vscode.window.showInformationMessage(
-        "AOT: Python derivations are off. Turn on 'aot.python.enabled' to run them — they run the code this file carries, with your permissions.",
-        "Open Settings");
-      if (pick === "Open Settings") vscode.commands.executeCommand("workbench.action.openSettings", "aot.python");
+    if (!quiet && (!auto || !offeredFormulas)) {
+      offeredFormulas = true;
+      offerFormulas();
     }
     return "off";
   }
   if (!workspaceTrusted()) {
-    if (!quiet) {
+    if (!quiet && !auto) {
       const pick = await vscode.window.showWarningMessage(
-        "AOT: this workspace is not trusted, so the Python its files carry is not run.", "Manage Workspace Trust");
+        "AOT: this workspace is not trusted, so the formulas its files carry do not run.", "Manage Workspace Trust");
       if (pick) vscode.commands.executeCommand("workbench.trust.manage");
     }
     return "untrusted";
   }
   return true;
+}
+
+// Formulas need a Python on the machine. Said once when nobody asked; a key
+// pressed always gets an answer.
+let saidNoPython = false;
+function sayNoPython(doc, message, auto) {
+  if (auto && saidNoPython) return;
+  saidNoPython = true;
+  const missing = /was not found/.test(message);
+  const answer = vscode.window.showErrorMessage(`AOT: ${message}`, ...(missing ? ["Get Python", "Set Up with uv"] : []));
+  if (!missing || !answer || !answer.then) return;
+  answer.then((pick) => {
+    if (pick === "Get Python" && vscode.env && vscode.env.openExternal) vscode.env.openExternal(vscode.Uri.parse("https://www.python.org/downloads/"));
+    else if (pick === "Set Up with uv") vscode.commands.executeCommand("aot.setUpPython");
+  }, () => {});
+}
+
+// What the status bar says of the active document's formulas: nothing while all
+// is well, how far along after half a second of working, and that they are waiting
+// when they are. A click stops a run, or asks again what they are waiting for.
+let calcStatus = null;
+const STATUS_AFTER_MS = 500;
+function setCalcStatus(doc, state) {
+  if (!calcStatus) return;
+  const active = vscode.window.activeTextEditor;
+  if (!active || active.document !== doc) return;
+  if (state === "off" || state === "paused") {
+    calcStatus.text = state === "off" ? "$(circle-slash) Formulas off" : "$(warning) Formulas paused";
+    calcStatus.tooltip = state === "off" ? "Click to turn formulas on" : "Formulas from outside this editor are waiting. Click to look at them.";
+    calcStatus.command = "aot.recomputeFormulas";
+    calcStatus.show();
+  } else calcStatus.hide();
+}
+// Starts the clock on a pass of `total` formulas; call with how many are done,
+// and with null when it ends.
+function startCalcProgress(doc, total) {
+  let done = 0;
+  let shown = false;
+  const paint = () => {
+    const active = vscode.window.activeTextEditor;
+    if (!calcStatus || !active || active.document !== doc) return;
+    shown = true;
+    calcStatus.text = `$(sync~spin) Calculating ${done}/${total}`;
+    calcStatus.tooltip = "Click to stop";
+    calcStatus.command = "aot.stopCalculating";
+    calcStatus.show();
+  };
+  const timer = setTimeout(paint, STATUS_AFTER_MS);
+  if (timer.unref) timer.unref();
+  return (n) => {
+    if (n === null) {
+      clearTimeout(timer);
+      if (shown && calcStatus) calcStatus.hide();
+      return;
+    }
+    done = n;
+    if (shown) paint();
+  };
+}
+function stopCalculating() {
+  const editor = vscode.window.activeTextEditor;
+  const entry = editor && pySessions.get(editor.document.uri.toString());
+  if (!entry) return;
+  entry.stopping = true;
+  pyStop(editor.document.uri.toString(), "stopped");
+}
+
+// --- when a file calculates ----------------------------------------------------
+// recalc.js says when; this is what it is told, and what a pass is for it. A
+// file with no formulas costs nothing here. With aot.calculation set to manual,
+// only F9 calculates.
+const calcSchedulers = new Map(); // uri -> { scheduler, doc }
+const calcManual = () => pyConfig().get("calculation", "automatic") === "manual";
+function schedulerOf(doc) {
+  const key = doc.uri.toString();
+  if (!calcSchedulers.has(key)) {
+    const scheduler = recalc.createScheduler({
+      run: (reasons, isCancelled) => runPython(doc, { mode: "auto", reasons, isCancelled }),
+    });
+    calcSchedulers.set(key, { scheduler, doc });
+  }
+  return calcSchedulers.get(key).scheduler;
+}
+function commitCalc(doc, reason) {
+  if (doc.languageId !== "aot" || !doc.fileName || !isRealDoc(doc) || calcManual() || !pythonWorkIn(doc)) return;
+  schedulerOf(doc).commit(reason);
+}
+// Every other document on screen that has formulas, after one it may read from
+// was saved or the settings changed.
+function commitVisible(reason, except) {
+  const seen = new Set();
+  for (const e of vscode.window.visibleTextEditors || []) {
+    if (e.document === except || seen.has(e.document)) continue;
+    seen.add(e.document);
+    commitCalc(e.document, reason);
+  }
+}
+// A text change: typing waits for the cursor to leave its cell, and anything
+// else commits. An undo commits too, and writes nothing unless a formula now
+// says something different, so the redo it leaves stays good. The extension's own
+// results set nothing off.
+function trackCalc(event) {
+  const doc = event.document;
+  if (doc.languageId !== "aot" || !isRealDoc(doc) || !event.contentChanges.length || ownEdits > 0 || calcManual()) return;
+  if (!pythonWorkIn(doc)) return;
+  const reasons = vscode.TextDocumentChangeReason;
+  const undone = !!reasons && (event.reason === reasons.Undo || event.reason === reasons.Redo);
+  const active = vscode.window.activeTextEditor;
+  if (!undone && active && active.document === doc && recalc.isTyping(event.contentChanges)) {
+    schedulerOf(doc).typed(event.contentChanges.map((c) => cellAtPosition(doc, c.range.start)));
+    return;
+  }
+  schedulerOf(doc).commit(undone ? "undo" : "edit");
+}
+// Whatever waits for a cursor to leave, when the writer has left altogether.
+function commitWaiting(except) {
+  for (const { scheduler, doc } of calcSchedulers.values()) {
+    if (doc !== except && scheduler.isWaiting) scheduler.commit("left");
+  }
 }
 
 // --- the interpreter ----------------------------------------------------------
@@ -3400,7 +3686,12 @@ function pySession(doc) {
 function pyTouch(doc, entry) {
   clearTimeout(entry.idle);
   const ms = pyConfig().get("python.idleTimeoutMs", 300000);
-  entry.idle = setTimeout(() => pyStop(doc.uri.toString(), "idle"), ms);
+  entry.idle = setTimeout(() => {
+    // a file on screen keeps what it has computed: its next calculation should
+    // not have to compute it all again
+    if ((vscode.window.visibleTextEditors || []).some((e) => e.document === doc)) pyTouch(doc, entry);
+    else pyStop(doc.uri.toString(), "idle");
+  }, ms);
   if (entry.idle.unref) entry.idle.unref();
 }
 
@@ -3416,7 +3707,7 @@ function pyStop(key, reason) {
 // needs them. The sidecar is never loaded here, so no code the repository
 // carries runs before it is asked to.
 function pythonWarm(doc, hosts) {
-  if (!hosts.length || !pythonEnabled() || !workspaceTrusted()) return;
+  if (!hosts.length || !isRealDoc(doc) || !pythonEnabled() || !workspaceTrusted()) return;
   const key = doc.uri.toString();
   if (pySessions.has(key)) return;
   let entry;
@@ -3464,39 +3755,17 @@ function constraintChecksIn(doc) {
 // or a constraint to check.
 const pythonWorkIn = (doc) => pythonHostsIn(doc).length > 0 || constraintChecksIn(doc).length > 0;
 
-// --- the run ----------------------------------------------------------------
+// --- the calculation ----------------------------------------------------------
 
-// mode "here": the derivation on `line` (or, off any derivation, every stale
-// one), with its stale upstream and everything downstream — Ctrl+Enter.
-// mode "all": every derivation, fresh — the park key. mode "fresh": the
-// session reset first, then every derivation. Answers { ran, failed,
-// blocked? } — blocked says why nothing ran (a gate).
-async function runPython(editor, opts) {
-  opts = opts || {};
-  const doc = editor.document;
-  if (doc.languageId !== "aot" || !doc.fileName) return { ran: 0, failed: 0 };
+// What a pass and the findings both need to know of a document's formulas: every
+// calculation, what each reads, the order they run in, and each one's run hash.
+function calcPlan(doc) {
   const rootName = docRootName(doc);
   const { root, nodes } = parsedDoc(doc);
   const lines = doc.getText().split(/\r?\n/);
-  const hosts = python.hostsOf(nodes, lines, rootName);
-  const constrained = constraintChecksIn(doc).length > 0;
-  if (!hosts.length && !constrained) {
-    if (!opts.quiet) vscode.window.setStatusBarMessage("AOT: no Python derivations or constraints in this file.", 3000);
-    return { ran: 0, failed: 0 };
-  }
-  const gate = await pythonGate(doc, opts.quiet);
-  if (gate !== true) return { ran: 0, failed: 0, blocked: gate };
-
-  // the Python this file carries that came from outside is asked about
-  // before anything starts; what the writer wrote here runs without asking
-  const code = codeConsent(doc);
-  if (code.own.length) await approveCode(doc.fileName, code.own);
-  if (code.asked.length) {
-    if (!(await askToRunCode(doc, code.asked))) return { ran: 0, failed: 0, blocked: "refused" };
-    await approveCode(doc.fileName, code.asked.map((a) => a.key));
-  }
-
-  const registry = formulaRegistry(doc);
+  const hosts = python.calcHosts(nodes, lines, rootName, parkedConstraintsOf(doc, nodes));
+  let registry;
+  try { registry = formulaRegistry(doc); } catch { registry = undefined; }
   const ctx = { lines, registry, rootName, index: pyHostIndex(doc, hosts) };
   const byAddress = new Map(hosts.map((h) => [h.address, h]));
   const resolved = new Map(hosts.map((h) => {
@@ -3505,14 +3774,113 @@ async function runPython(editor, opts) {
   }));
   const depsOf = (a) => (resolved.get(a) || { deps: [] }).deps;
   const { order, cycles } = python.orderDerivations(hosts, depsOf);
+  const index = pyIndex(doc);
+  const defs = sidecarDefs(doc);
+  const runHashes = new Map();
+  for (const a of order) {
+    const h = byAddress.get(a);
+    runHashes.set(a, python.hostHash(h, resolved.get(a), codeHash(doc, h, index, defs), runHashes));
+  }
+  return { rootName, root, nodes, lines, hosts, ctx, byAddress, resolved, depsOf, order, cycles, runHashes };
+}
+
+// The value a formula last wrote, as a reader reads it, so that a hand changing
+// it is noticed: a value in front of a formula is the formula's.
+const writtenByHand = (h, rec) => (h.kind === "value" || h.kind === "cell")
+  && rec.wrote !== undefined && table.readValue(String(h.value || "")).trim() !== rec.wrote;
+
+// Whether a calculation is out of date. A formula that failed is not, until what
+// it reads or says changes: running it again would only fail again, and a slow
+// one would hold everything behind it each time.
+function outOfDate(h, rec, hash) {
+  if (!rec) return true;
+  if (rec.failed !== undefined) return rec.failed !== hash;
+  return rec.run !== hash || writtenByHand(h, rec);
+}
+
+// The cell a position stands in, as recalc goes by it: the column on a table's
+// row, -1 on any other line.
+function cellAtPosition(doc, pos) {
+  if (pos.line >= doc.lineCount) return { line: pos.line, cell: -1 };
+  const text = doc.lineAt(pos.line).text;
+  return { line: pos.line, cell: table.isRowText(text) ? table.colAt(text, pos.character) : -1 };
+}
+function cursorsOf(editor) {
+  const all = editor.selections && editor.selections.length ? editor.selections : editor.selection ? [editor.selection] : [];
+  return all.map((s) => cellAtPosition(editor.document, s.active));
+}
+// The visible editor a document stands in, if any.
+const editorOf = (doc) => (vscode.window.visibleTextEditors || []).find((e) => e.document === doc) || null;
+
+const BATCH = 64; // formulas sent at once; a new edit is noticed between batches
+const FLUSH_MS = 250; // how often a long pass shows what it has so far
+
+// One pass over a document, from an editor or from the document alone. opts.mode:
+//   "auto"   what is out of date, and asks nothing that would stop the writer
+//   "now"    F9: that, every formula that reads nothing in the file (a date, a
+//            random number, a file it loads), and any that failed
+//   "all"    every formula (the park key)
+//   "fresh"  a new session first, then every formula (Ctrl+Alt+F9)
+// Answers { ran, failed, broken, defined, blocked?, cancelled? }.
+async function runPython(target, opts) {
+  opts = opts || {};
+  const doc = target.document || target;
+  const editor = target.document ? target : editorOf(doc);
+  if (doc.languageId !== "aot" || !doc.fileName || !isRealDoc(doc)) return { ran: 0, failed: 0 };
+  const auto = opts.mode === "auto";
+  const quietly = auto || opts.quiet;
+  if (!pythonWorkIn(doc)) {
+    if (!quietly) vscode.window.setStatusBarMessage("AOT: no formulas in this file.", 3000);
+    return { ran: 0, failed: 0 };
+  }
+  const gate = await pythonGate(doc, { quiet: opts.quiet, auto });
+  if (gate !== true) {
+    setCalcStatus(doc, gate);
+    return { ran: 0, failed: 0, blocked: gate };
+  }
+
+  // the Python this file carries that came from outside waits for a word;
+  // what the writer wrote here runs without asking
+  const code = codeConsent(doc);
+  if (code.own.length) await approveCode(doc.fileName, code.own);
+  if (code.asked.length) {
+    if (auto) {
+      askAboutCodeOnce(doc, code.asked);
+      setCalcStatus(doc, "paused");
+      return { ran: 0, failed: 0, blocked: "consent" };
+    }
+    if (!(await askToRunCode(doc, code.asked))) return { ran: 0, failed: 0, blocked: "refused" };
+    await approveCode(doc.fileName, code.asked.map((a) => a.key));
+  }
+
+  const plan = calcPlan(doc);
+  const { rootName, root, hosts, byAddress, resolved, depsOf, order, cycles, runHashes } = plan;
   const status = statusOf(doc);
-  // every outcome keeps the moment it happened, which the end of its line shows
+  // every outcome keeps the moment it happened, which the hover shows
   const mark = (a, s) => status.set(a, Object.assign({ at: new Date() }, s));
   const srcOf = (a) => python.sourceHash(byAddress.get(a).source);
   for (const loop of cycles) {
     for (const a of loop) {
-      mark(a, { state: "error", source: srcOf(a), message: `a cycle — ${[...loop, loop[0]].join(" → ")} — none of these can run first` });
+      mark(a, { state: "error", source: srcOf(a), message: `circular reference — ${[...loop, loop[0]].join(" → ")}: none of these can run first` });
     }
+  }
+
+  const records = Object.assign({}, runRecords(doc));
+  const stale = (a) => outOfDate(byAddress.get(a), records[a], runHashes.get(a));
+  // what failed stays failed until it changes, or F9 asks again: nothing is run to
+  // find that out, however many things read it
+  const stillFailed = (a) => !!records[a] && records[a].failed !== undefined && records[a].failed === runHashes.get(a);
+  let seeds;
+  if (opts.mode === "all" || opts.mode === "fresh") seeds = order;
+  else if (opts.mode === "now") {
+    seeds = order.filter((a) => stale(a) || (records[a] && records[a].failed !== undefined) || !resolved.get(a).targets.length);
+  } else seeds = order.filter(stale);
+  const checks = constraintChecksIn(doc);
+  if (!seeds.length && !checks.length) {
+    setCalcStatus(doc, null);
+    pythonFindings(doc);
+    if (!quietly) vscode.window.setStatusBarMessage("AOT: every formula is up to date.", 3000);
+    return { ran: 0, failed: 0 };
   }
 
   let entry;
@@ -3521,7 +3889,7 @@ async function runPython(editor, opts) {
     await entry.starting;
   } catch (e) {
     pyStop(doc.uri.toString(), "failed to start");
-    vscode.window.showErrorMessage(`AOT: ${e.message}`);
+    sayNoPython(doc, e.message, auto);
     return { ran: 0, failed: hosts.length, error: e.message };
   }
   const session = entry.session;
@@ -3530,50 +3898,29 @@ async function runPython(editor, opts) {
   if (opts.mode === "fresh") {
     await session.request({ op: "reset" });
     entry.live.clear();
+    entry.checkMemo = new Map();
   }
 
-  // which to run: a derivation is stale when its source, what it reads, or
-  // the code it names changed since it last ran
-  const index = pyIndex(doc);
-  const defs = sidecarDefs(doc);
-  const records = Object.assign({}, runRecords(doc));
-  const runHashes = new Map();
-  for (const a of order) {
-    const r = resolved.get(a);
-    const h = byAddress.get(a);
-    runHashes.set(a, python.runHash(h.source, r.targets, codeHash(doc, h, index, defs), r.deps.map((d) => runHashes.get(d) || "")));
-  }
-  const stale = (a) => !entry.live.has(a) || !records[a] || records[a].run !== runHashes.get(a);
-  let toRun;
-  if (opts.mode === "here") {
-    // a table row may carry several derivations, one per cell: the one the
-    // cursor stands in, or — on the row's name — every one of them
-    const onLine = hosts.filter((h) => h.line - 1 === opts.line);
-    const inCell = onLine.length > 1 && opts.character !== undefined
-      ? onLine.find((h) => {
-        const span = pyCellSpan(lines[opts.line] || "", h);
-        return span && opts.character >= span.start && opts.character <= span.end;
-      })
-      : null;
-    const here = inCell ? [inCell] : onLine;
-    const seeds = here.length ? here.map((h) => h.address) : order.filter(stale);
-    toRun = new Set();
-    for (const s of seeds) for (const a of python.affected(hosts, depsOf, s, stale)) toRun.add(a);
-  } else {
-    toRun = new Set(order);
-  }
-  if (!toRun.size && !constrained) {
-    vscode.window.setStatusBarMessage("AOT: every Python derivation is up to date.", 3000);
-    return { ran: 0, failed: 0 };
-  }
+  // a bound reads what a formula would, so what it reads must be there too
+  const checkPlan = python.checkItems(checks, plan.ctx);
+  const forChecks = [...new Set(checkPlan.flatMap((p) => (p.item ? p.item.targets.flatMap(python.targetDeps) : [])))]
+    .filter((a) => !entry.live.has(a) && byAddress.has(a) && !stillFailed(a));
+  const toRun = seeds.length || forChecks.length
+    ? python.affected(hosts, depsOf, [...seeds, ...forChecks], (a) => !entry.live.has(a) && !stillFailed(a))
+    : new Set();
 
-  // a file the run reaches that has not been allowed: asked about, and once
-  // allowed the runtime is told and the step tried again. A "no" holds for
-  // the rest of this run, so nobody is asked twice about one file.
+  // a file the run reaches that has not been allowed waits for a word; asked for
+  // with F9, the word is waited for, and once allowed the step is tried again
   const refused = new Set();
   const relOf = (file) => path.relative(aotRoot(doc), file).split(path.sep).join("/");
   const allow = async (consent) => {
     if (refused.has(fileKey(consent.path))) return false;
+    if (auto) {
+      refused.add(fileKey(consent.path));
+      askAboutFileOnce(doc, consent);
+      setCalcStatus(doc, "paused");
+      return false;
+    }
     if (!(await askToRun(doc, consent))) {
       refused.add(fileKey(consent.path));
       return false;
@@ -3582,19 +3929,23 @@ async function runPython(editor, opts) {
     return true;
   };
 
-  // the tree, the repository's Python files and which of them may run, and
-  // the sidecar — (re)loaded only when it moved
+  // the tree, the repository's Python files and which of them may run, and the
+  // sidecar — (re)loaded only when it moved. A tree the session already holds is
+  // not sent again.
   const side = sidecarPath(doc);
+  const index = pyIndex(doc);
   for (let attempt = 0; ; attempt++) {
     let sideMtime = null;
     try { sideMtime = fs.statSync(side).mtimeMs; } catch { /* no sidecar */ }
+    const tree = entry.treeVersion === doc.version && typeof doc.version === "number" ? {} : { tree: pyTree(root) };
     try {
-      await session.request({
-        op: "open", file: doc.fileName, root: rootName, aotFiles: aotFilesDir(doc), tree: pyTree(root),
+      await session.request(Object.assign({
+        op: "open", file: doc.fileName, root: rootName, aotFiles: aotFilesDir(doc),
         sidecar: sideMtime === null ? null : side, sidecarMtime: sideMtime,
         repo: aotRoot(doc), pyFiles: index, approved: approvals(),
         install: entry.cmd && entry.cmd.project ? uvenv.installHint(entry.cmd.project, relToRepo(doc, entry.cmd.project)) : null,
-      });
+      }, tree));
+      entry.treeVersion = doc.version;
       pyDiagnostics.delete(vscode.Uri.file(side));
       break;
     } catch (e) {
@@ -3606,8 +3957,8 @@ async function runPython(editor, opts) {
       // where, and run nothing that might call it
       const where = e.file || side;
       const at = Math.max(0, (e.line || 1) - 1);
-      const d = new vscode.Diagnostic(new vscode.Range(at, 0, at, 400), `failed to load — ${e.message}`, vscode.DiagnosticSeverity.Error);
-      d.source = "aot-python";
+      const d = new vscode.Diagnostic(new vscode.Range(at, 0, at, 400), `fix the error at this line — it failed to load: ${e.message}`, vscode.DiagnosticSeverity.Error);
+      d.source = "formula";
       pyDiagnostics.set(vscode.Uri.file(where), [d]);
       vscode.window.showErrorMessage(`AOT: ${relOf(where)} failed to load — ${e.message}`);
       if (!session.alive) pySessions.delete(doc.uri.toString());
@@ -3615,95 +3966,51 @@ async function runPython(editor, opts) {
     }
   }
 
-  for (const a of toRun) status.set(a, Object.assign({}, status.get(a), { state: "running", source: srcOf(a) }));
-  chainHintsChanged.fire();
-  const results = new Map();
+  // what has been computed and not yet written, and what cannot be written yet
+  const wasClean = !doc.isDirty;
+  const results = new Map(); // address -> { out, source, run, record }
   const failed = new Set(cycles.flat());
+  for (const a of order) if (!toRun.has(a) && stillFailed(a)) failed.add(a);
+  const known = new Set(plan.nodes.filter((n) => n.kind === KIND.CONCEPT).map((n) => n.name.toLowerCase()));
+  let wroteConcept = false;
+  const held = [];
+  let wroteAny = false;
+  let definedCount = 0;
   const maxInline = pyConfig().get("python.maxInlineText", 120);
   const versions = pyVersions(entry.hello);
   const started = Date.now();
-  let stopped = null;
-  for (const a of order) {
-    if (!toRun.has(a)) continue;
-    const h = byAddress.get(a);
-    const r = resolved.get(a);
-    const src = srcOf(a);
-    if (stopped) {
-      failed.add(a);
-      mark(a, { state: "skipped", source: src, message: `not run — ${stopped}` });
-      continue;
-    }
-    if (r.errors.length) {
-      failed.add(a);
-      mark(a, { state: "error", source: src, message: r.errors[0] });
-      continue;
-    }
-    const blocker = r.deps.find((d) => failed.has(d)) || r.deps.find((d) => !entry.live.has(d));
-    if (blocker) {
-      failed.add(a);
-      mark(a, { state: "skipped", source: src, message: `not run — ${blocker} ${failed.has(blocker) ? "failed" : "has no value in this session"}` });
-      continue;
-    }
-    try {
-      let resp;
-      for (let attempt = 0; ; attempt++) {
-        try {
-          resp = await session.request({ op: "eval", address: a, code: r.code, targets: r.targets, host: h.kind });
-          break;
-        } catch (e) {
-          if (!e.consent) throw e;
-          if (session.alive && attempt < 10 && (await allow(e.consent))) continue;
-          throw Object.assign(new Error(`${relOf(e.consent.path)} was not allowed to run — Ctrl+Enter asks again`), { file: e.consent.path });
-        }
-      }
-      entry.live.add(a);
-      let out;
-      try { out = python.resultOf(h, resp.result, maxInline); } catch (e) {
-        failed.add(a);
-        mark(a, { state: "error", source: src, message: e.message });
+  let answered = 0;
+  let done = 0;
+  let lastFlush = started;
+  const work = order.filter((a) => toRun.has(a));
+  for (const a of work) status.set(a, Object.assign({}, status.get(a), { state: "running", source: srcOf(a) }));
+  const progress = startCalcProgress(doc, work.length);
+
+  // Each result is found again by its address in the text as it stands now, so a
+  // writer who kept typing while it ran loses nothing. One whose formula has
+  // changed since is dropped, and runs again. One with a cursor in its cell waits
+  // for the cursor to leave, as a spreadsheet leaves a cell being edited alone.
+  const flush = async () => {
+    lastFlush = Date.now();
+    if (!results.size) return;
+    const now = calcPlanHosts(doc);
+    const cursors = auto && editor ? cursorsOf(editor) : [];
+    const ready = new Map();
+    for (const [a, r] of results) {
+      const h = now.get(a);
+      if (!h || python.sourceHash(h.source) !== r.source) continue;
+      const cell = { line: h.line - 1, cell: h.kind === "cell" ? h.cell.col : -1 };
+      if ((h.kind === "cell" || h.kind === "value") && cursors.some((c) => c.line === cell.line && c.cell === cell.cell)) {
+        held.push(cell);
         continue;
       }
-      results.set(a, out);
-      // the record outlasts the session: when it ran, how long it took, what
-      // it wrote — for a bare `=` line, the Concepts, which is what lets
-      // `@Sales` elsewhere read the live table and the rows be tinted as its
-      const at = new Date();
-      // (a Concept with a derivation of its own is that derivation's, never
-      // the bare line's, even when the line returns its name: the line
-      // leaves it alone — no failure, a warning that two places return it)
-      const ownDerived = new Set(hosts.filter((x) => x.kind === "concept").map((x) => x.node.name.toLowerCase()));
-      const returned = out.grids ? out.grids.map((g) => g.name) : undefined;
-      const concepts = returned ? returned.filter((n) => !ownDerived.has(n.toLowerCase())) : undefined;
-      const left = returned ? returned.filter((n) => ownDerived.has(n.toLowerCase())) : [];
-      // the rows it wrote, not the rows of what it left alone
-      const rows = out.grids
-        ? out.grids.filter((g) => !ownDerived.has(g.name.toLowerCase())).reduce((n, g) => n + g.grid.rows.length, 0) : out.count;
-      // a Concept it wrote last time and does not return now stays in the file: say so
-      const dropped = returned && records[a] && Array.isArray(records[a].concepts)
-        ? records[a].concepts.filter((n) => !returned.some((c) => c.toLowerCase() === n.toLowerCase())) : [];
-      records[a] = { source: src, run: runHashes.get(a), at: at.toISOString(), ms: resp.ms, rows, ...(concepts ? { concepts } : {}) };
-      status.set(a, {
-        state: "ok", source: src, ms: resp.ms, rows, stdout: resp.stdout, at, versions,
-        columns: resp.result && resp.result.columns, concepts, dropped, left,
-      });
-    } catch (e) {
-      failed.add(a);
-      entry.live.delete(a);
-      mark(a, { state: "error", source: src, message: e.message, line: e.line });
-      if (!session.alive) {
-        // the process is gone (a timeout, a crash): nothing else runs in it,
-        // and the next run starts a fresh one
-        stopped = "the Python session stopped";
-        pySessions.delete(doc.uri.toString());
-      }
+      ready.set(a, r);
     }
-  }
-  // a record for a derivation that no longer exists is only clutter
-  for (const a of Object.keys(records)) if (!byAddress.has(a)) delete records[a];
-  await saveRunRecords(doc, records);
-
-  if (results.size) {
-    const written = pythonWrite(doc, hosts, results, status);
+    results.clear();
+    if (!ready.size) return;
+    const outs = new Map([...ready].map(([a, r]) => [a, r.out]));
+    const before = doc.getText().split(/\r?\n/);
+    const written = pythonWrite(doc, [...now.values()], outs, status);
     for (const w of written.writes) {
       try {
         fs.mkdirSync(path.dirname(w.abs), { recursive: true });
@@ -3712,64 +4019,281 @@ async function runPython(editor, opts) {
         vscode.window.showErrorMessage(`AOT: could not write ${path.basename(w.abs)} — ${e.message}`);
       }
     }
-    // every table a result widened is square in the same edit
-    await replaceDocumentLines(editor, aligned(doc, written.lines));
+    const next = aligned(doc, before, written.lines);
+    const changed = next.join("\n") !== before.join("\n");
+    if (changed) {
+      for (const [a, r] of ready) if (now.get(a).defined && String(now.get(a).value).trim() !== r.record.wrote) definedCount++;
+      const applied = await applyLines(doc, editor, next);
+      if (applied === false) return; // the text moved under this edit: nothing is recorded, so it runs again
+      wroteAny = true;
+    }
+    for (const [a, r] of ready) records[a] = r.record;
+  };
+
+  const recordFailure = (a, message, skipped) => {
+    records[a] = Object.assign({}, records[a], { failed: runHashes.get(a), error: message, skipped: !!skipped });
+  };
+  const finishItem = (a, msg) => {
+    const h = byAddress.get(a);
+    const src = srcOf(a);
+    progress(++answered);
+    done++;
+    entry.live.add(a);
+    if (msg.many) { // a definition naming what a value may be: it writes nothing
+      records[a] = { source: src, run: runHashes.get(a), at: new Date().toISOString(), ms: msg.ms };
+      status.set(a, { state: "ok", source: src, ms: msg.ms, at: new Date(), versions });
+      return;
+    }
+    let out;
+    try { out = python.resultOf(h, msg.result, maxInline); } catch (e) {
+      done--;
+      failed.add(a);
+      recordFailure(a, e.message);
+      mark(a, { state: "error", source: src, message: e.message });
+      return;
+    }
+    // the record outlasts the session: when it ran, how long it took, what it
+    // wrote — for a bare `=` line, the Concepts, which is what lets `@Sales`
+    // elsewhere read the live table and the rows be tinted as its
+    const at = new Date();
+    // (a Concept with a derivation of its own is that derivation's, never
+    // the bare line's, even when the line returns its name: the line
+    // leaves it alone — no failure, a warning that two places return it)
+    const ownDerived = new Set(hosts.filter((x) => x.kind === "concept").map((x) => x.node.name.toLowerCase()));
+    const returned = out.grids ? out.grids.map((g) => g.name) : undefined;
+    const concepts = returned ? returned.filter((n) => !ownDerived.has(n.toLowerCase())) : undefined;
+    if (concepts && concepts.some((n) => !known.has(n.toLowerCase()))) wroteConcept = true;
+    const left = returned ? returned.filter((n) => ownDerived.has(n.toLowerCase())) : [];
+    // the rows it wrote, not the rows of what it left alone
+    const rows = out.grids
+      ? out.grids.filter((g) => !ownDerived.has(g.name.toLowerCase())).reduce((n, g) => n + g.grid.rows.length, 0) : out.count;
+    // a Concept it wrote last time and does not return now stays in the file: say so
+    const dropped = returned && records[a] && Array.isArray(records[a].concepts)
+      ? records[a].concepts.filter((n) => !returned.some((c) => c.toLowerCase() === n.toLowerCase())) : [];
+    const shown = out.file ? `aot.files/${out.file}` : out.text;
+    results.set(a, {
+      out, source: src, run: runHashes.get(a),
+      record: {
+        source: src, run: runHashes.get(a), at: at.toISOString(), ms: msg.ms, rows,
+        ...(concepts ? { concepts } : {}),
+        ...(shown !== undefined ? { wrote: table.readValue(String(shown)).trim() } : {}),
+      },
+    });
+    status.set(a, {
+      state: "ok", source: src, ms: msg.ms, rows, stdout: msg.stdout, at, versions,
+      columns: msg.result && msg.result.columns, concepts, dropped, left,
+    });
+  };
+  const failItem = (a, msg) => {
+    const src = srcOf(a);
+    progress(++answered);
+    entry.live.delete(a);
+    failed.add(a);
+    // a formula reading one that failed did not fail itself
+    const blocker = (resolved.get(a).deps || []).find((d) => failed.has(d) && d !== a);
+    if (blocker) {
+      recordFailure(a, `not run — ${blocker} failed`, true);
+      mark(a, { state: "skipped", source: src, message: `not run — ${blocker} failed` });
+      return;
+    }
+    const message = python.plainError(msg.error || "the formula failed");
+    recordFailure(a, message);
+    mark(a, { state: "error", source: src, message, raw: msg.error, traceback: msg.traceback, line: msg.line });
+  };
+
+  // The formulas in the order they run, a batch at a time: each answer arrives
+  // as it finishes, a table many of them read is sent once, and a new edit is
+  // noticed between batches.
+  let cancelled = false;
+  let stopped = false;
+  const runItems = async (addresses) => {
+    const targets = [];
+    const shared = new Map();
+    const items = [];
+    const sent = [];
+    for (const a of addresses) {
+      const r = resolved.get(a);
+      const src = srcOf(a);
+      // nothing more runs in this pass: it is still out of date, which is no failure
+      if (stopped) {
+        status.delete(a);
+        continue;
+      }
+      if (r.errors.length) {
+        failed.add(a);
+        recordFailure(a, r.errors[0]);
+        mark(a, { state: "error", source: src, message: r.errors[0] });
+        continue;
+      }
+      const blocker = r.deps.find((d) => failed.has(d));
+      if (blocker) {
+        failed.add(a);
+        recordFailure(a, `not run — ${blocker} failed`, true);
+        mark(a, { state: "skipped", source: src, message: `not run — ${blocker} failed` });
+        continue;
+      }
+      const h = byAddress.get(a);
+      const refs = r.targets.map((t) => {
+        if (!shared.has(t)) {
+          shared.set(t, targets.length);
+          targets.push(t);
+        }
+        return shared.get(t);
+      });
+      items.push(Object.assign({ address: a, code: r.code, refs, host: h.defined ? "defined" : h.kind }, h.defined ? { value: h.value } : {}));
+      sent.push(a);
+    }
+    if (!items.length) return;
+    const heard = new Set();
+    const consents = [];
+    const waiting = new Set();
+    try {
+      await session.request({ op: "evalBatch", targets, items }, undefined, (msg) => {
+        const a = sent[msg.k];
+        heard.add(a);
+        if (msg.consent) {
+          consents.push(msg.consent);
+          waiting.add(a);
+        } else if (msg.ok === false && resolved.get(a).deps.some((d) => waiting.has(d))) {
+          waiting.add(a); // it reads one waiting on a word: it waits too
+        } else if (msg.ok === false) failItem(a, msg);
+        else finishItem(a, msg);
+      });
+    } catch (e) {
+      // the process is gone (a timeout, a crash, a stop): nothing else runs in
+      // it, and the next pass starts a fresh one
+      const current = sent.find((a) => !heard.has(a));
+      if (current && !entry.stopping) failItem(current, { error: e.message });
+      else if (current) status.delete(current);
+      if (!session.alive) {
+        stopped = true;
+        pySessions.delete(doc.uri.toString());
+      }
+      await runItems(sent.filter((a) => !heard.has(a) && a !== current));
+      return;
+    }
+    if (consents.length) {
+      const seen = new Set();
+      let allowedAny = false;
+      for (const c of consents) {
+        if (seen.has(c.path)) continue;
+        seen.add(c.path);
+        if (await allow(c)) allowedAny = true;
+      }
+      const again = [...waiting];
+      if (allowedAny && session.alive) await runItems(again);
+      else {
+        for (const a of again) {
+          failed.add(a);
+          mark(a, { state: "skipped", source: srcOf(a), message: `not run — ${[...seen].map(relOf).join(", ")} was not allowed to run` });
+        }
+      }
+    }
+  };
+  for (let at = 0; at < work.length; at += BATCH) {
+    if (opts.isCancelled && opts.isCancelled()) {
+      cancelled = true;
+      for (const a of work.slice(at)) if ((status.get(a) || {}).state === "running") status.delete(a);
+      break;
+    }
+    await runItems(work.slice(at, at + BATCH));
+    if (Date.now() - lastFlush >= FLUSH_MS) await flush();
   }
-  // the constraints, held to the values as they now stand — Python's fresh
-  // ones among them
-  const held = await checkConstraints(editor, session, allow);
+  await flush();
+  progress(null);
+
+  // a record for a calculation that no longer exists is only clutter
+  for (const a of Object.keys(records)) if (!byAddress.has(a)) delete records[a];
+  await saveRunRecords(doc, records);
+
+  // the bounds, held to the values as they now stand
+  const heldTo = session.alive ? await checkConstraints(doc, session, allow, entry) : { checked: 0, broken: 0, defined: 0, errors: 0 };
   pythonFindings(doc);
   chainHintsChanged.fire();
-  const ran = results.size;
+  setCalcStatus(doc, null);
+  if (held.length && calcSchedulers.has(doc.uri.toString())) calcSchedulers.get(doc.uri.toString()).scheduler.typed(held);
+
+  // Two things this pass could not finish, so another goes on straight away. A
+  // formula that hung or crashed took its session with it: it now waits until it
+  // changes, and the rest go on in a fresh one. And a bare `=` line wrote a Concept
+  // nothing could see when this pass was planned: what reads it can now. A few at
+  // most, so nothing goes round for ever: the next edit picks up anything left.
+  if ((wroteConcept || (stopped && !entry.stopping)) && !cancelled && (opts.continued || 0) < 3) {
+    const more = await runPython(target, Object.assign({}, opts, { mode: "auto", continued: (opts.continued || 0) + 1 }));
+    return {
+      ran: done + more.ran, failed: more.failed, broken: more.broken, defined: definedCount + (more.defined || 0),
+      cancelled: more.cancelled, ...(more.blocked ? { blocked: more.blocked } : {}),
+    };
+  }
+
+  // a save or a CSV arriving is what set this pass off: what it computed goes
+  // to disk with them, unless the file holds work its writer has not saved
+  if (wroteAny && wasClean && opts.reasons && doc.save) {
+    if (opts.reasons.has("csv")) await saveForMirror(doc, "calculated");
+    else if (opts.reasons.has("save")) await doc.save();
+  }
+
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   const parts = [];
-  if (hosts.length) parts.push(`${ran} Python derivation${ran === 1 ? "" : "s"} ran${failed.size ? `, ${failed.size} did not` : ""}`);
-  if (held.checked) parts.push(`${held.checked} constrained value${held.checked === 1 ? "" : "s"} checked${held.broken ? `, ${held.broken} broken` : ""}`);
-  if (held.defined) parts.push(`${held.defined} defined`);
-  if (held.errors) parts.push(`${held.errors} bound${held.errors === 1 ? "" : "s"} failed`);
-  const trouble = failed.size || held.broken || held.errors;
-  vscode.window.setStatusBarMessage(`AOT: ${parts.join("; ") || "nothing to run"}${trouble ? " — see the Problems panel." : ` in ${secs} s.`}`, 5000);
-  return { ran, failed: failed.size, broken: held.broken, defined: held.defined };
+  if (hosts.length) parts.push(`${done} formula${done === 1 ? "" : "s"} calculated${failed.size ? `, ${failed.size} did not` : ""}`);
+  if (heldTo.checked) parts.push(`${heldTo.checked} constrained value${heldTo.checked === 1 ? "" : "s"} checked${heldTo.broken ? `, ${heldTo.broken} broken` : ""}`);
+  if (definedCount) parts.push(`${definedCount} defined`);
+  if (heldTo.errors) parts.push(`${heldTo.errors} bound${heldTo.errors === 1 ? "" : "s"} failed`);
+  const trouble = failed.size || heldTo.broken || heldTo.errors;
+  if (!auto) vscode.window.setStatusBarMessage(`AOT: ${parts.join("; ") || "nothing to calculate"}${trouble ? " — see the Problems panel." : ` in ${secs} s.`}`, 5000);
+  return { ran: done, failed: failed.size, broken: heldTo.broken, defined: definedCount, cancelled };
+}
+
+// The calculations in the text as it stands now, by address.
+function calcPlanHosts(doc) {
+  const { nodes } = parsedDoc(doc);
+  const lines = doc.getText().split(/\r?\n/);
+  const hosts = python.calcHosts(nodes, lines, docRootName(doc), parkedConstraintsOf(doc, nodes));
+  return new Map(hosts.map((h) => [h.address, h]));
 }
 
 // --- the constraints --------------------------------------------------------
-// A constraint's bound is Python, run with the derivations and never
-// otherwise: each value it holds is checked in one batch, a value that breaks
-// it is a warning, and a `==` whose bound is one value writes that value into
-// every value of the attribute that has no derivation of its own. What a
-// check found is remembered, keyed to the text it was about, so an edit to
-// that text retires it until the next run.
+// A constraint's bound is Python, run with the formulas and never otherwise:
+// each value it holds is checked, and a value that breaks it is a warning. A
+// definition (`vat =@price*0.2`) writes its values as a formula does, in its turn
+// among them (python.calcHosts); here it only says whether a value is one of the
+// values it allows. What a check found is remembered, keyed to the text it was
+// about, so an edit to that text retires it until the next pass, and a check whose
+// value and inputs have not changed keeps its answer without running again.
 
 const pyChecks = new Map(); // uri -> [{ line, cell?, text?, needle?, message, severity }]
 
-async function checkConstraints(editor, session, allow) {
-  const doc = editor.document;
+async function checkConstraints(doc, session, allow, entry) {
   const tally = { checked: 0, broken: 0, defined: 0, errors: 0 };
   const findings = [];
   pyChecks.set(doc.uri.toString(), findings);
   const checks = constraintChecksIn(doc);
   if (!checks.length) return tally;
-  const rootName = docRootName(doc);
-  const lines = doc.getText().split(/\r?\n/);
-  let registry;
-  try { registry = formulaRegistry(doc); } catch { registry = undefined; }
-  const hosts = pythonHostsIn(doc);
-  const plan = python.checkItems(checks, { lines, registry, rootName, index: pyHostIndex(doc, hosts) });
-  const sent = plan.filter((p) => p.item);
-  let answers = [];
-  if (sent.length) {
+  const plan = calcPlan(doc);
+  const items = python.checkItems(checks, plan.ctx);
+  const memo = entry.checkMemo || (entry.checkMemo = new Map());
+  const keyOf = (p) => python.hostHash({ source: `${p.item.code}\0${p.item.rel}\0${p.item.value}` }, p.item, "", plan.runHashes);
+  const asked = items.filter((p) => p.item);
+  const keys = new Map(asked.map((p) => [p, keyOf(p)]));
+  const toSend = asked.filter((p) => !memo.has(keys.get(p)));
+  if (toSend.length) {
+    let answers = [];
     for (let attempt = 0; ; attempt++) {
       try {
-        answers = (await session.request({ op: "checks", items: sent.map((p) => p.item) })).results || [];
+        answers = (await session.request({ op: "checks", items: toSend.map((p) => p.item) })).results || [];
         break;
       } catch (e) {
         if (e.consent && session.alive && attempt < 10 && (await allow(e.consent))) continue;
-        answers = sent.map(() => ({ ok: false, error: e.message }));
+        answers = toSend.map(() => ({ ok: false, error: e.message }));
         break;
       }
     }
+    toSend.forEach((p, k) => {
+      const answer = answers[k] || { ok: false, error: "no answer" };
+      if (answer.ok) memo.set(keys.get(p), answer);
+      else p.failure = answer;
+    });
   }
-  const answerOf = new Map(sent.map((p, k) => [p, answers[k] || { ok: false, error: "no answer" }]));
 
   // where a finding stands: on the value, or — for a bound that failed — on
   // the clause of the declaration that wrote it
@@ -3787,35 +4311,19 @@ async function checkConstraints(editor, session, allow) {
     findings.push({ line: p.check.a.line - 1, needle: (p.clause.opText || p.clause.op) + p.clause.formula, message, severity: vscode.DiagnosticSeverity.Error });
   };
   const said = (p) => `'${p.check.a.name} ${p.clause.opText || p.clause.op}${p.clause.formula}'`;
-  const maxInline = pyConfig().get("python.maxInlineText", 120);
-  let next = lines;
   const counted = new Set();
-  for (const p of plan) {
+  for (const p of items) {
     const { check } = p;
     if (!counted.has(check)) { counted.add(check); if (!check.definesOnly) tally.checked++; }
-    if (p.errors.length) { onBound(p, `Python: the bound ${said(p)} — ${p.errors[0]}`); continue; }
-    const r = answerOf.get(p);
-    if (!r.ok) { onBound(p, `Python: the bound ${said(p)} failed — ${r.error}`); continue; }
-    if (r.define && !check.derived) {
-      // one value: the attribute is defined by it
-      let out;
-      try { out = python.resultOf({ kind: check.host.kind, value: check.value, address: "@constraint" }, r.define, maxInline); }
-      catch (e) { onBound(p, `Python: the bound ${said(p)} — ${e.message}`); continue; }
-      if (out.file || out.grid) { onBound(p, `Python: compute one value — ${said(p)} defines a value too large for a line, and a bound computes one value`); continue; }
-      // the result as written (escaped) against the value as read: compared
-      // the same way, or an escaped value would count as changed every run
-      if (table.readValue(out.text) !== check.value) {
-        next = python.writeValue(next, check.host, out.text);
-        tally.defined++;
-      }
-      continue;
-    }
-    if (check.definesOnly || r.holds) continue;
+    if (p.errors.length) { onBound(p, `fix the bound ${said(p)} — ${p.errors[0]}`); continue; }
+    const r = p.failure || memo.get(keys.get(p));
+    if (!r.ok) { onBound(p, `fix the bound ${said(p)} — it failed: ${python.plainError(r.error)}`); continue; }
+    // one value: the attribute is defined by it, and the calculation wrote it
+    if (r.define || r.holds) continue;
     tally.broken++;
     onValue(check, `change the value, or the bound — '${check.value}' breaks ${said(p)}: it is not ${p.clause.op === "==" ? "" : p.clause.op + " "}${r.bound}`,
       vscode.DiagnosticSeverity.Warning);
   }
-  if (next !== lines) await replaceDocumentLines(editor, aligned(doc, next));
   return tally;
 }
 
@@ -3846,7 +4354,7 @@ function checkFindings(doc) {
     }
     if (start === -1) continue;
     const d = new vscode.Diagnostic(new vscode.Range(f.line, start, f.line, start + length), f.message, f.severity);
-    d.source = "aot-python";
+    d.source = "formula";
     out.push(d);
   }
   return out;
@@ -3894,44 +4402,46 @@ function pythonWrite(doc, hosts, results, status) {
   return { lines, writes };
 }
 
-// The lines with every table re-aligned, so a column Python widened is
-// square in the same edit.
-function aligned(doc, lines) {
-  const text = lines.join("\n");
-  try {
-    const edits = table.align(text, formulaRegistry(doc), docRootName(doc));
-    return edits.length ? applyLineEdits(lines, edits) : lines;
-  } catch { return lines; }
+// The lines with the tables a result touched re-aligned, so a column it widened
+// is square in the same edit. Only those: a table being written in elsewhere
+// is left as the writer has it. A rewrite that moved lines has drawn its own.
+function aligned(doc, before, lines) {
+  if (before.length !== lines.length) return lines;
+  const out = lines.slice();
+  const seen = new Set();
+  for (let i = 0; i < out.length; i++) {
+    if (before[i] === out[i] || seen.has(i) || !table.isRowText(out[i])) continue;
+    const block = table.blockAt(out, i);
+    if (!block) continue;
+    for (let l = block.start; l <= block.end; l++) seen.add(l);
+    if (table.headerIndex(block) === -1) continue;
+    const drawn = table.render(block);
+    if (drawn.length === block.end - block.start + 1) out.splice(block.start, drawn.length, ...drawn);
+  }
+  return out;
 }
 
-// Replace only the lines that changed, in one undoable edit, so a cursor
-// outside them stays exactly where it was.
-function replaceDocumentLines(editor, next) {
-  const doc = editor.document;
-  const old = doc.getText().split(/\r?\n/);
-  let a = 0;
-  while (a < old.length && a < next.length && old[a] === next[a]) a++;
-  if (a === old.length && a === next.length) return Promise.resolve(true);
-  let b = 0;
-  while (b < old.length - a && b < next.length - a && old[old.length - 1 - b] === next[next.length - 1 - b]) b++;
+// Land these lines in the document, touching only what they change. In an editor
+// the edit joins the writer's last step, so one Ctrl+Z takes a change back with
+// what it calculated; a document with no editor takes a workspace edit. Answers
+// false when the text moved under the edit, and it did not apply.
+async function applyLines(doc, editor, next) {
+  const edits = recalc.minimalEdits(doc.getText().split(/\r?\n/), next);
+  if (!edits.length) return true;
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const from = a, to = old.length - 1 - b; // old lines from..to (inclusive) go
-  const mid = next.slice(a, next.length - b);
-  return editor.edit((e) => {
-    if (to >= from && mid.length) {
-      e.replace(new vscode.Range(from, 0, to, old[to].length), mid.join(eol));
-    } else if (mid.length) {
-      // a pure insertion before line `from`
-      if (from < old.length) e.insert(new vscode.Position(from, 0), mid.join(eol) + eol);
-      else e.insert(new vscode.Position(old.length - 1, old[old.length - 1].length), eol + mid.join(eol));
-    } else if (to + 1 < old.length) {
-      e.replace(new vscode.Range(from, 0, to + 1, 0), "");
-    } else if (from > 0) {
-      e.replace(new vscode.Range(from - 1, old[from - 1].length, to, old[to].length), "");
-    } else {
-      e.replace(new vscode.Range(0, 0, to, old[to].length), "");
+  const range = (e) => new vscode.Range(e.fromLine, e.fromCh, e.toLine, e.toCh);
+  const text = (e) => (eol === "\n" ? e.text : e.text.replace(/\n/g, eol));
+  ownEdits++;
+  try {
+    if (editor) {
+      return await editor.edit((b) => { for (const e of edits) b.replace(range(e), text(e)); }, { undoStopBefore: false, undoStopAfter: false });
     }
-  });
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(doc.uri, edits.map((e) => vscode.TextEdit.replace(range(e), text(e))));
+    return await vscode.workspace.applyEdit(edit);
+  } finally {
+    ownEdits--;
+  }
 }
 
 // --- what the editor shows --------------------------------------------------
@@ -3943,47 +4453,29 @@ function leftAloneMessage(names) {
   const quoted = names.map((n) => `'${n}'`);
   const list = quoted.length === 1 ? quoted[0] : `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
   return quoted.length === 1
-    ? `return it from one place only — this line returns ${list}, which has a derivation of its own: that one writes its rows, and this line leaves it alone`
-    : `return each from one place only — this line returns ${list}, which have derivations of their own: those write their rows, and this line leaves them alone`;
+    ? `return it from one place only — this line returns ${list}, which has a formula of its own: that one writes its rows, and this line leaves it alone`
+    : `return each from one place only — this line returns ${list}, which have formulas of their own: those write their rows, and this line leaves them alone`;
 }
 
-// The Python findings for a document, into their own collection: a failed
-// run, a reference naming nothing, a cycle, a value that broke its
-// constraint when last checked, a bound that failed, and — as information — a
-// derivation that has not run, or was edited since it did. Also works out
-// which values are older than their derivation, for the dimming.
+// The formula findings for a document, into their own collection: a failed one,
+// a reference naming nothing, a circular reference, a value that broke its
+// constraint when last checked, a bound that failed. A formula out of date fades,
+// and in automatic calculation that is all: it is about to be calculated. Where
+// only a key will calculate it (formulas off, or manual) it also says so.
 function pythonFindings(doc) {
   if (!pyDiagnostics || doc.languageId !== "aot") return;
-  const hosts = pythonHostsIn(doc);
+  if (!isRealDoc(doc)) return pyDiagnostics.delete(doc.uri);
   const out = [];
   const dims = [];
-  if (hosts.length) {
-    const rootName = docRootName(doc);
-    const lines = doc.getText().split(/\r?\n/);
+  if (pythonHostsIn(doc).length || constraintChecksIn(doc).length) {
+    const plan = calcPlan(doc);
+    const { hosts, resolved, cycles, runHashes } = plan;
     const status = statusOf(doc);
     const records = runRecords(doc);
-    let registry;
-    try { registry = formulaRegistry(doc); } catch { registry = undefined; }
-    const ctx = { lines, registry, rootName, index: pyHostIndex(doc, hosts) };
-    const resolved = new Map();
-    for (const h of hosts) {
-      try { resolved.set(h.address, python.resolveHost(h, ctx)); }
-      catch (e) { resolved.set(h.address, { errors: [e.message], deps: [], targets: [] }); }
-    }
-    const depsOf = (a) => (resolved.get(a) || { deps: [] }).deps || [];
-    const { order, cycles } = python.orderDerivations(hosts, depsOf);
     const cyclic = new Map();
     for (const loop of cycles) for (const a of loop) cyclic.set(a, loop);
-    const index = pyIndex(doc);
-    const defs = sidecarDefs(doc);
-    const byAddress = new Map(hosts.map((h) => [h.address, h]));
-    const runHashes = new Map();
-    for (const a of order) {
-      const r = resolved.get(a);
-      const h = byAddress.get(a);
-      runHashes.set(a, python.runHash(h.source, r.targets || [], codeHash(doc, h, index, defs), depsOf(a).map((d) => runHashes.get(d) || "")));
-    }
-    const off = pythonEnabled() ? "" : " (aot.python.enabled is off)";
+    const off = !pythonEnabled();
+    const asKey = off ? "turn on formulas to calculate it" : calcManual() ? "press F9 to calculate it" : null;
     for (const h of hosts) {
       const range = new vscode.Range(h.line - 1, h.startCol, h.line - 1, h.endCol);
       const src = python.sourceHash(h.source);
@@ -3991,25 +4483,25 @@ function pythonFindings(doc) {
       const r = resolved.get(h.address);
       const mk = (message, severity) => {
         const d = new vscode.Diagnostic(range, message, severity);
-        d.source = "aot-python";
+        d.source = "formula";
         return d;
       };
       if (!h.source) continue; // the linter already says a bare '=' is empty
       if (cyclic.has(h.address)) {
         const loop = cyclic.get(h.address);
-        out.push(mk(`remove one of these references — Python cycle (${[...loop, loop[0]].join(" → ")}): none of these can run first`, vscode.DiagnosticSeverity.Error));
+        out.push(mk(`remove one of these references — circular reference (${[...loop, loop[0]].join(" → ")}): none of these can run first`, vscode.DiagnosticSeverity.Error));
         continue;
       }
       if (r.errors && r.errors.length) {
-        out.push(mk(`Python: ${r.errors[0]}`, vscode.DiagnosticSeverity.Error));
+        out.push(mk(`fix this reference — ${r.errors[0]}`, vscode.DiagnosticSeverity.Error));
         continue;
       }
       if (s && s.source === src && s.state === "error") {
-        out.push(mk(`Python failed — ${s.message}`, vscode.DiagnosticSeverity.Error));
+        out.push(mk(`fix this formula — ${s.message}`, vscode.DiagnosticSeverity.Error));
         continue;
       }
       if (s && s.source === src && s.state === "skipped") {
-        out.push(mk(`Python did not run — ${s.message.replace(/^not run — /, "")}`, vscode.DiagnosticSeverity.Warning));
+        out.push(mk(`fix what it reads — it did not calculate: ${s.message.replace(/^not run — /, "")}`, vscode.DiagnosticSeverity.Warning));
         continue;
       }
       // a bare line that returned a Concept whose own derivation writes it
@@ -4019,33 +4511,30 @@ function pythonFindings(doc) {
         continue;
       }
       const rec = records[h.address];
-      if (!rec) {
-        out.push(mk(`press Ctrl+Enter to run it — not run yet${off}`, vscode.DiagnosticSeverity.Information));
+      const hash = runHashes.get(h.address);
+      // what failed when last calculated still says so after a reload
+      if (rec && rec.failed !== undefined && rec.failed === hash && rec.error) {
+        out.push(rec.skipped
+          ? mk(`fix what it reads — it did not calculate: ${rec.error.replace(/^not run — /, "")}`, vscode.DiagnosticSeverity.Warning)
+          : mk(`fix this formula — ${rec.error}`, vscode.DiagnosticSeverity.Error));
         continue;
       }
-      const why = rec.source !== src ? "edited since it last ran"
-        : rec.run !== runHashes.get(h.address) ? "something it reads changed since it last ran" : null;
+      if (h.defined) continue; // one definition, many cells: its value speaks for it
+      if (!rec) {
+        if (asKey) out.push(mk(`${asKey} — not calculated yet${off ? " (aot.python.enabled is off)" : ""}`, vscode.DiagnosticSeverity.Information));
+        continue;
+      }
+      const why = rec.source !== src ? "edited since it last calculated"
+        : rec.run !== hash ? "something it reads changed since it last calculated" : null;
       if (!why) continue;
-      out.push(mk(`press Ctrl+Enter to run it — Python ${why}${off}`, vscode.DiagnosticSeverity.Information));
+      if (asKey) out.push(mk(`${asKey} — ${why}${off ? " (aot.python.enabled is off)" : ""}`, vscode.DiagnosticSeverity.Information));
       const span = pyValueSpan(doc, h);
-      if (span) dims.push({ range: span, hoverMessage: `An older result: this derivation was ${why}. Ctrl+Enter brings it up to date.` });
+      if (span) dims.push({ range: span, hoverMessage: `An older result: this formula was ${why}.` });
     }
   }
   out.push(...checkFindings(doc));
   pyDiagnostics.set(doc.uri, out);
   pyDims.set(doc.uri.toString(), dims);
-}
-
-// The whole of a cell host's cell on its row, pipe to pipe — { start, end },
-// end inclusive, so a cursor standing just before the next divider is still
-// in it — or null for a host that is not a cell. What Ctrl+Enter and hover
-// go by when a row carries several derivations side by side.
-function pyCellSpan(raw, h) {
-  if (h.kind !== "cell") return null;
-  const ds = table.dividers(raw);
-  const k = h.cell.col;
-  // (a host read off this very row always has its cell among its dividers)
-  return k > ds.length ? null : { start: k === 0 ? 0 : ds[k - 1] + 1, end: k < ds.length ? ds[k] : raw.length };
 }
 
 // Where a host's written value stands: the text in front of its derivation.
@@ -4078,10 +4567,8 @@ function pythonMarks(doc) {
   for (const node of parsed.nodes) {
     if (node.kind !== KIND.CONCEPT || node.formula === undefined) continue;
     const md = new vscode.MarkdownString();
-    md.isTrusted = true;
-    md.appendMarkdown(`**Written by Python** — ${codeSpan("=" + node.formula)}\n\n`);
-    md.appendMarkdown(`Every row of '${node.name}' is this derivation's: a row typed or changed here is replaced the next time it runs `
-      + "([Ctrl+Enter](command:aot.runPython)). Change the Python instead.");
+    md.appendMarkdown(`**Calculated** — ${codeSpan("=" + node.formula)}\n\n`);
+    md.appendMarkdown(`Every row of '${mdText(node.name)}' is this formula's: a row typed or changed here is replaced the next time it calculates. Change the formula instead.`);
     for (const r of park.ownedRows(lines, node)) {
       out.push({ range: new vscode.Range(r.line - 1, r.startCol, r.line - 1, r.endCol), hoverMessage: md });
     }
@@ -4094,10 +4581,8 @@ function pythonMarks(doc) {
       const node = parsed.nodes.find((n) => n.kind === KIND.CONCEPT && n.name.toLowerCase() === name.toLowerCase());
       if (!node || node.formula !== undefined) continue;
       const md = new vscode.MarkdownString();
-      md.isTrusted = true;
-      md.appendMarkdown(`**Written by Python** — ${codeSpan("=" + h.source)}, the line on ${h.line}\n\n`);
-      md.appendMarkdown(`Every row of '${node.name}' is that line's: a row typed or changed here is replaced the next time it runs `
-        + "([Ctrl+Enter](command:aot.runPython)). Change the Python instead.");
+      md.appendMarkdown(`**Calculated** — ${codeSpan("=" + h.source)}, the line on ${h.line}\n\n`);
+      md.appendMarkdown(`Every row of '${mdText(node.name)}' is that line's: a row typed or changed here is replaced the next time it calculates. Change the formula instead.`);
       for (const r of park.ownedRows(lines, node)) {
         out.push({ range: new vscode.Range(r.line - 1, r.startCol, r.line - 1, r.endCol), hoverMessage: md });
       }
@@ -4131,25 +4616,27 @@ const ranWhat = (rows, ms) =>
   [rows !== undefined && rows !== null ? `${rows} row${rows === 1 ? "" : "s"}` : "", ms !== undefined && ms !== null ? `${ms} ms` : ""]
     .filter(Boolean).join(" · ");
 
-// How one derivation last ran, as its inlay says it: { state, label,
-// tooltip, ms, rows, at, message } — state one of running, error, skipped,
-// edited, ok — or null when it has never run.
+// What the end of a formula's line says of how it last ran: { state, label,
+// tooltip, ms, rows, at, message }. A formula that calculated says nothing there,
+// as a spreadsheet's cell says nothing; `label` is null and the hover has the
+// details. Only what asks for attention has a label: a failure, one that did not
+// run, and what a bare `=` line wrote or left. null when it has never run.
 function pyRunNote(h, s, rec) {
   const src = python.sourceHash(h.source);
   const when = (at) => (ranAt(at) ? ` · ${ranAt(at)}` : "");
   if (s && s.source === src && s.state !== "ok") {
-    if (s.state === "running") return { state: "running", label: "⟳ running", tooltip: "" };
+    if (s.state === "running") return { state: "running", label: null, tooltip: "" };
     if (s.state === "error") {
       return {
         state: "error", message: s.message, at: s.at,
         label: `✗ ${s.message.length > 60 ? s.message.slice(0, 57) + "…" : s.message}${when(s.at)}`,
-        tooltip: [s.message, s.at ? `failed ${ranStamp(s.at)}` : "", rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n"),
+        tooltip: [s.raw && s.raw !== s.message ? s.raw : s.message, s.traceback || "", s.at ? `failed ${ranStamp(s.at)}` : "", rec ? `last calculated ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n"),
       };
     }
     // skipped: the one state a run marks besides these and ok
     return {
-      state: "skipped", message: s.message, at: s.at, label: `– not run${when(s.at)}`,
-      tooltip: [s.message, rec ? `last ran ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n"),
+      state: "skipped", message: s.message, at: s.at, label: `– did not calculate${when(s.at)}`,
+      tooltip: [s.message, rec ? `last calculated ${ranStamp(rec.at)}` : ""].filter(Boolean).join("\n"),
     };
   }
   if (rec && rec.source === src) {
@@ -4158,55 +4645,42 @@ function pyRunNote(h, s, rec) {
     const fresh = s && s.source === src && s.state === "ok" ? s : null;
     const rows = fresh ? fresh.rows : rec.rows;
     const ms = fresh ? fresh.ms : rec.ms;
-    // a bare `=` line says how many Concepts it wrote, and names any it
-    // wrote before and no longer does — those stay in the file — and any it
-    // returned that a derivation of their own writes, which it left alone
+    // a bare `=` line names any Concept it wrote before and no longer does —
+    // those stay in the file — and any it returned that a derivation of their
+    // own writes, which it left alone
     const concepts = (fresh && fresh.concepts) || rec.concepts;
     const dropped = (fresh && fresh.dropped) || [];
     const left = (fresh && fresh.left) || [];
+    const news = [dropped.length ? `'${dropped[0]}' no longer written` : "", left.length ? `'${left[0]}' left to its own formula` : ""].filter(Boolean);
     const what = [concepts ? `${concepts.length} Concept${concepts.length === 1 ? "" : "s"}` : "", ranWhat(rows, ms)]
       .filter(Boolean).join(" · ");
     return {
       state: "ok", rows, ms, at: rec.at,
-      label: `✓ ${what ? what + " · " : ""}${ranAt(rec.at) || "ran"}${dropped.length ? ` · '${dropped[0]}' no longer written` : ""}`
-        + `${left.length ? ` · '${left[0]}' left to its own derivation` : ""}`,
-      tooltip: [`ran ${ranStamp(rec.at)}`, concepts ? `wrote ${concepts.join(", ")}` : "",
+      label: news.length ? `ⓘ ${news.join(" · ")}` : null,
+      tooltip: [`calculated ${ranStamp(rec.at)}${what ? ` · ${what}` : ""}`, concepts ? `wrote ${concepts.join(", ")}` : "",
         dropped.length ? `no longer written: ${dropped.join(", ")} — still in the file; delete ${dropped.length === 1 ? "it" : "them"} if gone` : "",
-        left.length ? `left alone: ${left.join(", ")} — ${left.length === 1 ? "its own derivation writes its" : "their own derivations write their"} rows` : "",
+        left.length ? `left alone: ${left.join(", ")} — ${left.length === 1 ? "its own formula writes its" : "their own formulas write their"} rows` : "",
         fresh && fresh.versions, fresh && fresh.stdout ? `printed:\n${fresh.stdout}` : ""]
         .filter(Boolean).join("\n"),
     };
   }
-  if (rec) {
-    return {
-      state: "edited", at: rec.at, label: `✎ edited since ${ranAt(rec.at) || "it ran"} — Ctrl+Enter`,
-      tooltip: `last ran ${ranStamp(rec.at)}, before this edit`,
-    };
-  }
+  if (rec) return { state: "edited", at: rec.at, label: null, tooltip: `last calculated ${ranStamp(rec.at)}, before this edit` };
   return null;
 }
 
-// A table row may carry several derivations, one per cell. They share the
-// row's one end, so they share one inlay, and it names the cells: the worst
-// news first (running, a failure, one not run, one edited since), else every
-// cell that ran. The tooltip has a line for each.
+// A table row may carry several formulas, one per cell. They share the row's one
+// end, so they share one inlay, and it names the cells: the worst news first.
+// With nothing to report there is no inlay at all.
 function combinedRunNote(notes) {
   const named = (n) => `${n.cell}: `;
   const time = (at) => (ranAt(at) ? ` · ${ranAt(at)}` : "");
-  const worst = ["running", "error", "skipped", "edited"].map((state) => notes.find((n) => n.state === state)).find(Boolean);
-  let label;
-  if (worst && worst.state === "running") label = "⟳ running";
-  else if (worst && worst.state === "error") {
+  const worst = ["error", "skipped"].map((state) => notes.find((n) => n.state === state)).find(Boolean);
+  let label = null;
+  if (worst && worst.state === "error") {
     const said = `${named(worst)}${worst.message}`;
     label = `✗ ${said.length > 60 ? said.slice(0, 57) + "…" : said}${time(worst.at)}`;
-  } else if (worst && worst.state === "skipped") label = `– ${worst.cell} not run${time(worst.at)}`;
-  else if (worst) label = `✎ ${worst.cell} edited since ${ranAt(worst.at) || "it ran"} — Ctrl+Enter`;
-  else {
-    const ms = notes.reduce((sum, n) => sum + (Number(n.ms) || 0), 0);
-    const latest = notes.map((n) => n.at).filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0];
-    label = `✓ ${notes.map((n) => n.cell).join(", ")} · ${ms} ms${time(latest)}`;
-  }
-  const tooltip = notes.map((n) => `${named(n)}${n.label}${n.tooltip ? `\n    ${n.tooltip.split("\n").join("\n    ")}` : ""}`).join("\n");
+  } else if (worst) label = `– ${worst.cell} did not calculate${time(worst.at)}`;
+  const tooltip = notes.map((n) => `${named(n)}${n.label || n.state}${n.tooltip ? `\n    ${n.tooltip.split("\n").join("\n    ")}` : ""}`).join("\n");
   return { label, tooltip };
 }
 
@@ -4227,6 +4701,7 @@ function pythonInlays(doc, range) {
   const out = [];
   for (const [line, notes] of byLine) {
     const { label, tooltip } = notes.length === 1 ? notes[0] : combinedRunNote(notes);
+    if (!label) continue; // calculated, or calculating: a cell says nothing of that
     const hint = new vscode.InlayHint(doc.lineAt(line).range.end, label);
     hint.paddingLeft = true;
     if (tooltip) hint.tooltip = tooltip;
@@ -4334,14 +4809,14 @@ function pythonHover(doc, position) {
   const s = (pyStatus.get(doc.uri.toString()) || new Map()).get(h.address);
   const rec = runRecords(doc)[h.address];
   const md = new vscode.MarkdownString();
-  md.appendMarkdown(`**Computed by Python** — ${codeSpan("=" + h.source)}\n\n`);
+  md.appendMarkdown(`**Calculated** — ${codeSpan("=" + h.source)}\n\n`);
   if (s && s.state === "ok") {
-    md.appendMarkdown(`Ran ${ranStamp(s.at)} in ${s.ms} ms${s.versions ? ` · ${s.versions}` : ""}.`);
+    md.appendMarkdown(`Calculated ${ranStamp(s.at)} in ${s.ms} ms${s.versions ? ` · ${s.versions}` : ""}.`);
     if (s.stdout) md.appendMarkdown(`\n\nPrinted:\n\n${codeSpan(s.stdout.trim().slice(0, 400))}`);
   } else if (rec) {
-    md.appendMarkdown(`Last ran ${ranStamp(rec.at)}${rec.ms !== undefined ? ` in ${rec.ms} ms` : ""}. Ctrl+Enter runs it again.`);
+    md.appendMarkdown(`Last calculated ${ranStamp(rec.at)}${rec.ms !== undefined ? ` in ${rec.ms} ms` : ""}.`);
   } else {
-    md.appendMarkdown("Not run yet — Ctrl+Enter runs it.");
+    md.appendMarkdown("Not calculated yet.");
   }
   return new vscode.Hover(md, span);
 }
@@ -4414,7 +4889,7 @@ const pythonCompletion = {
     for (const [name, def] of sidecarDefs(doc)) items.push(fnItem(name, def, sidecarPath(doc)));
     for (const name of PY_PRELOADED) {
       const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Module);
-      item.detail = "available in every Python derivation";
+      item.detail = "available in every formula";
       items.push(item);
     }
     for (const [name, where] of repoModuleNames(doc)) {
@@ -4429,21 +4904,13 @@ const pythonCompletion = {
 
 // --- the commands -----------------------------------------------------------
 
-async function runPythonHere(editor) {
-  // a file with no Python keeps Ctrl+Enter's ordinary meaning
-  if (!pythonWorkIn(editor.document)) {
-    return vscode.commands.executeCommand("editor.action.insertLineAfter");
-  }
-  return runPython(editor, { mode: "here", line: editor.selection.active.line, character: editor.selection.active.character });
-}
-
 async function showPythonEnvironment() {
   const editor = vscode.window.activeTextEditor;
   const doc = editor && editor.document;
   if (!doc || doc.languageId !== "aot") {
     return vscode.window.showInformationMessage("AOT: open an .aot file to see the Python it would run with.");
   }
-  if (!pythonEnabled() || !workspaceTrusted()) return pythonGate(doc, false);
+  if (!pythonEnabled() || !workspaceTrusted()) return pythonGate(doc);
   const SET_UP = "Set Up Python Environment";
   const offerSetUp = (pick) => (pick === SET_UP ? vscode.commands.executeCommand("aot.setUpPython") : undefined);
   let entry;
@@ -4587,8 +5054,8 @@ function pythonActions(doc, range) {
   const h = pythonHostsIn(doc).find((x) => x.line - 1 === range.start.line);
   if (!h || !h.source) return [];
   const actions = [];
-  const run = new vscode.CodeAction("Run this Python derivation (Ctrl+Enter)", vscode.CodeActionKind.QuickFix);
-  run.command = { command: "aot.runPython", title: "Run this Python derivation" };
+  const run = new vscode.CodeAction("Calculate now (F9)", vscode.CodeActionKind.QuickFix);
+  run.command = { command: "aot.recomputeFormulas", title: "Calculate now" };
   actions.push(run);
   const file = `aot.files/${path.basename(sidecarPath(doc))}`;
   for (const name of undefinedCalls(doc, h.source)) {
@@ -4596,8 +5063,8 @@ function pythonActions(doc, range) {
     create.command = { command: "aot.createPythonFunction", title: `Create '${name}()'`, arguments: [doc.uri.toString(), name] };
     actions.push(create);
   }
-  const move = new vscode.CodeAction(`Move this Python into ${file}`, vscode.CodeActionKind.RefactorRewrite);
-  move.command = { command: "aot.movePythonToSidecar", title: "Move this Python into the sidecar", arguments: [doc.uri.toString(), h.line - 1] };
+  const move = new vscode.CodeAction(`Move this formula into ${file}`, vscode.CodeActionKind.RefactorRewrite);
+  move.command = { command: "aot.movePythonToSidecar", title: "Move this formula into the sidecar", arguments: [doc.uri.toString(), h.line - 1] };
   actions.push(move);
   return actions;
 }
@@ -4629,6 +5096,8 @@ function conceptAtCursor(root, nodes, lines, line) {
   return null;
 }
 
+let flipDiagnostics = null; // the "aot-flip" collection: why a flip stopped
+
 async function toggleTableForm(editor) {
   const doc = editor.document;
   if (doc.languageId !== "aot") return;
@@ -4641,6 +5110,21 @@ async function toggleTableForm(editor) {
   if (!concept) {
     return vscode.window.showWarningMessage(
       "AOT: put the cursor on a Concept — its line, its table, or one of its Examples — to flip between a table and free text.");
+  }
+  // a shape a table has no place for stops the flip before it loses anything,
+  // and says so on the lines that need the change; the next edit clears it
+  const blocked = derive.flipBlockers(lines, concept, rootName);
+  if (flipDiagnostics) {
+    flipDiagnostics.set(doc.uri, blocked.map((b) => {
+      const at = b.line - 1;
+      const d = new vscode.Diagnostic(doc.lineAt(at).range, b.message, vscode.DiagnosticSeverity.Error);
+      d.source = "aot-flip";
+      return d;
+    }));
+  }
+  if (blocked.length) {
+    vscode.window.setStatusBarMessage(`AOT: '${concept.name}' stays as it is — see the Problems panel for what to change first.`, 6000);
+    return;
   }
   const edit = derive.flipForm(lines, concept, rootName);
   if (!edit) {
@@ -4675,7 +5159,7 @@ async function toggleTableForm(editor) {
 // AOT: Copy Formula to Sibling Examples — the line-form copy-down: the
 // derivation under the cursor lands on the same attribute of every sibling
 // Example (adding the line where the attribute is absent). The copies hold no
-// value until Ctrl+Enter runs them.
+// value until they calculate.
 async function copyFormulaToSiblings(editor) {
   const doc = editor.document;
   if (doc.languageId !== "aot") return;
@@ -4707,6 +5191,13 @@ async function acceptWord(word) {
   const low = String(word).toLowerCase();
   if (words.some((w) => String(w).toLowerCase() === low)) return;
   await config.update("acceptedWords", [...words, low], vscode.ConfigurationTarget.Global);
+}
+
+// Spelling checks on or off, from Ctrl+. (aot.spellingHints, user settings).
+// The configuration change re-lints every open document.
+async function toggleSpelling() {
+  const config = vscode.workspace.getConfiguration("aot");
+  await config.update("spellingHints", !config.get("spellingHints", true), vscode.ConfigurationTarget.Global);
 }
 
 // Record that two Concept names are two ideas (aot.distinctConcepts, user
@@ -4823,7 +5314,7 @@ const aotFilesDir = (doc) => path.join(aotRoot(doc), "aot.files");
 // Every .aot file under a root, skipping heavy and generated folders.
 function scanAotFiles(root) {
   const out = [];
-  const skip = new Set(["node_modules", ".git", "aot.files", "out"]);
+  const skip = new Set(["node_modules", ".git", "aot.files"]);
   const walk = (d) => {
     let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
@@ -4835,13 +5326,6 @@ function scanAotFiles(root) {
   };
   walk(root);
   return out;
-}
-
-// The text of a workspace .aot, preferring the live document when it is the
-// one being saved (so its unsaved edits count).
-function aotText(fsPath, currentDoc) {
-  if (currentDoc && fileKey(fsPath) === fileKey(currentDoc.fileName)) return currentDoc.getText();
-  try { return fs.readFileSync(fsPath, "utf8"); } catch { return null; }
 }
 
 // Every CSV name the repo claims — the shared folder means a CSV is an
@@ -4951,7 +5435,7 @@ function ownersFrom(index, name, { live, current, currentFacts } = {}) {
   const out = [];
   const low = String(name).toLowerCase();
   for (const e of index.get(low) || []) {
-    const open = (vscode.workspace.textDocuments || []).find((d) => d.fileName && fileKey(d.fileName) === fileKey(e.file)) || null;
+    const open = openDocFor(e.file);
     const isCurrent = current && fileKey(current.fileName) === fileKey(e.file);
     const doc = isCurrent ? current : live ? open : null;
     if (!doc) { out.push({ file: e.file, doc: open, grid: e.grid }); continue; }
@@ -4972,10 +5456,12 @@ function writeCsvFile(csvPath, grid) {
   const csv = table.toCsv(grid);
   let onDisk = null;
   try { onDisk = fs.readFileSync(csvPath, "utf8"); } catch { /* none yet */ }
-  if (onDisk !== null && sameCsvText(onDisk, csv)) return true;
-  const openDirty = (vscode.workspace.textDocuments || []).find(
-    (d) => d.fileName && fileKey(d.fileName) === fileKey(csvPath) && d.isDirty);
-  if (openDirty) {
+  if (onDisk !== null && sameCsvText(onDisk, csv)) {
+    mirrorWrote.set(fileKey(csvPath), csv);
+    return true;
+  }
+  const openCsv = openDocFor(csvPath);
+  if (openCsv && openCsv.isDirty) {
     vscode.window.showWarningMessage(`'${path.basename(csvPath)}' has unsaved edits — save or revert it, then save the .aot again to re-mirror.`);
     return false;
   }
@@ -4986,13 +5472,16 @@ function writeCsvFile(csvPath, grid) {
     vscode.window.showWarningMessage(`'${path.basename(csvPath)}' is open in another program — close it and save the .aot again to re-mirror.`);
     return false;
   }
+  mirrorWrote.set(fileKey(csvPath), csv);
   return true;
 }
 
 // A Concept's CSV, written as its .aot files say it — once every one of them
 // is saved: a file with unsaved edits writes it on its own save.
 function writeMirror(root, name) {
-  const owners = ownersFrom(ownerIndex(root), name);
+  const index = ownerIndex(root);
+  if (sharersOfCsv(index, name).length) return false;
+  const owners = ownersFrom(index, name);
   if (!owners.length || owners.some((o) => o.doc && o.doc.isDirty)) return false;
   const grid = csvsync.unionGrids(owners.map((o) => o.grid));
   return grid ? writeCsvFile(path.join(root, "aot.files", csvName(name)), grid) : false;
@@ -5000,8 +5489,14 @@ function writeMirror(root, name) {
 
 // Saving a .aot makes it the file saved last: each Concept it mirrors is
 // written out, over whatever its CSV says.
+//
+// Unless that save is the mirror's own. A CSV folding in saves the .aot it
+// folded into, and that says nothing about the other CSVs of the file: they
+// were edited too, perhaps with the editor closed, and writing over them here
+// would lose those edits before their turn came. So a fold's save settles them
+// by the rule instead (csvSavedLast, which does not count it).
 function syncAotToCsv(doc) {
-  if (doc.languageId !== "aot" || !syncEnabled() || syncManual()) return;
+  if (doc.languageId !== "aot" || !isRealDoc(doc) || !syncEnabled() || syncManual()) return;
   if (!/\.aot$/i.test(doc.fileName)) return;
   const dir = aotFilesDir(doc);
   const root = path.dirname(dir);
@@ -5011,9 +5506,25 @@ function syncAotToCsv(doc) {
   // one idea, one CSV — read once for the whole save
   const facts = mirrorFacts(doc.fileName, doc.getText());
   const names = [...new Map(facts.grids.map((g) => [csvName(g.name).toLowerCase(), g.name])).values()];
-  if (!names.length) return;
   const index = ownerIndex(root);
+  // a Concept this file spoke for until this save: its CSV still lists this
+  // file's rows, and would hand them to the file that spells the rest of it
+  const key = fileKey(doc.fileName);
+  const owned = ownedBeforeSave.get(key);
+  ownedBeforeSave.delete(key);
+  const speaks = new Set(facts.grids.map((g) => g.name.toLowerCase()));
+  for (const name of owned || []) if (!speaks.has(name.toLowerCase())) writeMirror(root, name);
+  const foldSave = foldSaving.has(key);
   for (const name of names) {
+    if (foldSave) {
+      settleSoon(root, name);
+      continue;
+    }
+    // two Concepts writing one file: neither may write over the other
+    if (sharersOfCsv(index, name).length) {
+      warnSharedCsv(index, name);
+      continue;
+    }
     const csvPath = path.join(dir, csvName(name));
     // a Concept several files spell is mirrored whole, every file's rows —
     // the file being saved among them, whatever the index has read of it
@@ -5033,11 +5544,14 @@ function syncAotToCsv(doc) {
 function syncAotSavedElsewhere(uri) {
   const fsPath = uri.fsPath;
   if (!syncEnabled() || syncManual() || !/\.aot$/i.test(fsPath)) return;
+  const before = mirrorCache.get(fsPath);
   const facts = mirrorFactsOf(fsPath);
-  if (!facts || !facts.grids.length) return;
   const root = aotRoot({ fileName: fsPath, uri });
+  writeMirrorsItLeft(root, before, facts);
+  if (!facts || !facts.grids.length) return;
   const index = ownerIndex(root);
   for (const { name } of facts.grids) {
+    if (sharersOfCsv(index, name).length) continue;
     const grid = csvsync.unionGrids(ownersFrom(index, name).map((o) => o.grid));
     if (!grid) continue;
     let onDisk = null;
@@ -5046,30 +5560,98 @@ function syncAotSavedElsewhere(uri) {
   }
 }
 
-// One settle at a time per CSV: a save and the watcher hearing the write it
-// causes must never fold the same cells at once.
-const settling = new Map(); // csv path -> the settle in flight
+// A Concept a file no longer speaks for, or a file gone altogether: its CSV is
+// written from the files that still spell the Concept, so the rows that went
+// are not handed to them at the next catch-up. Answers nothing; a Concept no
+// file speaks for any more is archived by the next save (cleanupOrphans).
+function writeMirrorsItLeft(root, before, after) {
+  if (!before || !before.grids) return;
+  const speaks = new Set(((after && after.grids) || []).map((g) => g.name.toLowerCase()));
+  for (const g of before.grids) if (!speaks.has(g.name.toLowerCase())) writeMirror(root, g.name);
+}
+
+// One settle at a time per repository: a save and the watcher hearing the write
+// it causes must never fold the same cells at once, and two CSVs of one .aot
+// must never edit that file at once.
+const settling = new Map(); // repository root -> the settle in flight
 function settleSoon(root, name, opts) {
-  const k = fileKey(path.join(root, "aot.files", csvName(name)));
+  const k = fileKey(root);
   const next = (settling.get(k) || Promise.resolve()).then(() => settleCsv(root, name, opts)).catch(() => false);
   settling.set(k, next);
   next.then(() => { if (settling.get(k) === next) settling.delete(k); });
   return next;
 }
 
+// The saves the mirror itself made of a .aot, for a CSV folding in. Such a save
+// moves the file's time without anyone having saved anything, so the rule must
+// not count it: another CSV edited before it is still newer than the file as its
+// writer last saved it. Held in memory only, and only while the file's time is
+// still that save's: any later save is a real one again.
+const foldSaves = new Map(); // fileKey -> { before, after }, the times either side
+const foldSaving = new Set(); // fileKey while a fold's save is under way
+const mtimeOf = (file) => { try { return fs.statSync(file).mtimeMs; } catch { return null; } };
+function savedAt(file) {
+  const now = mtimeOf(file);
+  const own = foldSaves.get(fileKey(file));
+  return own && own.after === now ? own.before : now;
+}
+
+// What the mirror itself last wrote to each CSV. A CSV still saying exactly that
+// was saved by nobody, whatever its time says, so it overrides nothing: the
+// mirror's write is always later than the .aot it came from, and a calculation may
+// have moved that .aot on since. Held in memory only.
+const mirrorWrote = new Map(); // fileKey of the CSV -> the text written
+
 // Whether the CSV was saved after every .aot it mirrors. Only saves count, so
 // a document's unsaved edits say nothing here: its file's time is what stands
 // against the CSV's. Two saves in one tick of the clock are a tie, which goes
 // to the .aot unless the CSV is what was just heard saving (`heard`).
 function csvSavedLast(csvPath, owners, heard) {
-  let csvTime;
-  try { csvTime = fs.statSync(csvPath).mtimeMs; } catch { return false; }
+  const csvTime = mtimeOf(csvPath);
+  if (csvTime === null) return false;
   for (const o of owners) {
-    let aotTime;
-    try { aotTime = fs.statSync(o.file).mtimeMs; } catch { continue; } // gone
+    const aotTime = savedAt(o.file);
+    if (aotTime === null) continue; // gone
     if (aotTime > csvTime || (aotTime === csvTime && !heard)) return false;
   }
   return true;
+}
+
+// The Concept a CSV file speaks for, as a name the index answers to. A file
+// name cannot hold `\ / : * ? " < > |`, so `Input/Output` lives in
+// `Input-Output.csv`, and the file's name alone may not be a Concept's: the
+// Concept is the one that would write this file. Where two would (`Input/Output`
+// and `Input-Output`), the first cell of the CSV's header says which. null when
+// no Concept speaks for it.
+function conceptOfCsv(index, stem, csvPath) {
+  const file = `${stem}.csv`.toLowerCase();
+  const hits = [...index.keys()].filter((k) => csvName(k).toLowerCase() === file);
+  if (!hits.length) return null;
+  let low = hits[0];
+  if (hits.length > 1) {
+    let raw = "";
+    try { raw = fs.readFileSync(csvPath, "utf8"); } catch { /* none to read */ }
+    const head = ((table.fromCsv(raw)[0] || [])[0] || "").trim().toLowerCase();
+    if (!hits.includes(head)) return null;
+    low = head;
+  }
+  return String(index.get(low)[0].grid[0][0]);
+}
+
+// The other Concepts that would write this one's CSV file.
+function sharersOfCsv(index, name) {
+  const file = csvName(name).toLowerCase();
+  const low = String(name).toLowerCase();
+  return [...index.keys()].filter((k) => k !== low && csvName(k).toLowerCase() === file);
+}
+
+const sharedCsvSaid = new Set();
+function warnSharedCsv(index, name) {
+  const file = csvName(name);
+  if (sharedCsvSaid.has(file.toLowerCase())) return;
+  sharedCsvSaid.add(file.toLowerCase());
+  const names = [name, ...sharersOfCsv(index, name).map((k) => index.get(k)[0].grid[0][0])].map((n) => `'${n}'`).join(" and ");
+  vscode.window.showWarningMessage(`AOT: rename one — ${names} would both write ${file}, so neither is mirrored until one has a name of its own.`);
 }
 
 // One CSV settled by the one rule (csvsync.js): saved last, the .aot files
@@ -5089,17 +5671,26 @@ async function settleCsv(root, name, opts = {}) {
   if (raw === null) { writeMirror(root, name); return false; }
   const saved = csvsync.unionGrids(ownersFrom(index, name).map((o) => o.grid));
   if (sameCsvText(raw, table.toCsv(saved)) || sameCsvText(raw, table.toCsv(live))) return false;
-  if (!csvSavedLast(csvPath, owners, opts.heard)) { writeMirror(root, name); return false; }
+  // re-saved by a spreadsheet, long numbers shortened and nothing else: left as it
+  // is, so a workbook still open is not fought over it, until the .aot's next save
   const csv = table.fromCsv(raw);
+  if (csvsync.saysTheSame(csv, saved) || csvsync.saysTheSame(csv, live)) return false;
+  const untouched = mirrorWrote.has(fileKey(csvPath)) && sameCsvText(raw, mirrorWrote.get(fileKey(csvPath)));
+  if (untouched || !csvSavedLast(csvPath, owners, opts.heard)) { writeMirror(root, name); return false; }
   if (!csv.length) return false;
+  // a name only a spreadsheet could write reads as the row the .aot holds it as
+  const listed = new Set(live.slice(1).map((r) => String(r[0]).trim().toLowerCase()));
+  for (const r of csv.slice(1)) if (!listed.has(String(r[0]).trim().toLowerCase())) r[0] = table.rowName(r[0]);
   const plan = csvsync.csvOverrides(csv, live);
   const folded = await applyFold(name, owners, plan);
   const deleted = plan.deletions.length ? await deleteRows(root, name, plan.deletions) : false;
   // written back as the .aot files now have it; a buffer with other unsaved
   // edits writes it on its own save
   writeMirror(root, name);
+  if (folded || deleted) foldCounts.set(fileKey(root), (foldCounts.get(fileKey(root)) || 0) + 1);
   return folded || deleted;
 }
+const foldCounts = new Map(); // repository root -> CSVs that have changed a .aot there
 
 // A plan's folds and erasures, each row into the files that list it — a new
 // row into the first. One edit, one undo, per file; a file with no unsaved
@@ -5138,11 +5729,20 @@ async function applyOpsToDoc(doc, ops, what) {
   edit.set(doc.uri, opsToTextEdits(doc, ops));
   await vscode.workspace.applyEdit(edit);
   markBroughtIn(doc, beforeText); // a CSV is written by whoever edited it
-  if (!wasDirty) {
-    const saved = await doc.save();
-    if (saved === false) vscode.window.showWarningMessage(`AOT: ${what} ${path.basename(doc.fileName)}, but could not save it.`);
-  }
+  if (!wasDirty) await saveForMirror(doc, what);
   return true;
+}
+
+// The mirror's own save of a .aot, which the rule does not count (foldSaves).
+async function saveForMirror(doc, what) {
+  const key = fileKey(doc.fileName);
+  const before = savedAt(doc.fileName);
+  foldSaving.add(key);
+  let saved;
+  try { saved = await doc.save(); } finally { foldSaving.delete(key); }
+  if (saved === false) vscode.window.showWarningMessage(`AOT: ${what} ${path.basename(doc.fileName)}, but could not save it.`);
+  const after = mtimeOf(doc.fileName);
+  if (before !== null && after !== null) foldSaves.set(key, { before, after });
 }
 
 // The rows a CSV saved last no longer lists go from the files that list them, a
@@ -5197,7 +5797,9 @@ async function syncCsvIntoAot(uri) {
   const dir = path.dirname(csvPath);
   if (path.basename(dir) !== "aot.files") return false;
   if (path.basename(csvPath).startsWith("_")) return false; // an archived orphan, not synced
-  return settleSoon(path.dirname(dir), path.basename(csvPath).replace(/\.csv$/i, ""), { heard: true });
+  const root = path.dirname(dir);
+  const name = conceptOfCsv(ownerIndex(root), path.basename(csvPath).replace(/\.csv$/i, ""), csvPath);
+  return name ? settleSoon(root, name, { heard: true }) : false;
 }
 
 // One save from Excel is several events — the temp file's rename shows up
@@ -5241,16 +5843,19 @@ async function importCsvFolder(root, opts) {
   try { entries = fs.readdirSync(dir); } catch { /* no folder yet */ }
   for (const entry of entries) {
     if (!/\.csv$/i.test(entry) || entry.startsWith("_")) continue;
-    const name = entry.replace(/\.csv$/i, "");
-    if (index.has(name.toLowerCase())) names.set(name.toLowerCase(), name); // an orphan waits for a save to archive it
+    const name = conceptOfCsv(index, entry.replace(/\.csv$/i, ""), path.join(dir, entry));
+    if (name) names.set(name.toLowerCase(), name); // an orphan waits for a save to archive it
   }
   if (manual) {
     for (const [low, owners] of index) if (!names.has(low)) names.set(low, String(owners[0].grid[0][0]));
   }
-  let folded = 0;
   // one at a time, never in parallel: two CSVs can fold into one .aot, and
-  // each fold edits and saves that document
-  for (const name of names.values()) if (await settleSoon(root, name)) folded++;
+  // each fold edits and saves that document. A save a fold makes may settle
+  // the file's other CSVs before their turn here, so the count is of what
+  // happened rather than of the turns that did it.
+  const already = foldCounts.get(fileKey(root)) || 0;
+  for (const name of names.values()) await settleSoon(root, name);
+  const folded = (foldCounts.get(fileKey(root)) || 0) - already;
   if (folded && !(opts && opts.silent)) {
     vscode.window.setStatusBarMessage(`AOT: ${folded} CSV file${folded === 1 ? "" : "s"} folded into the .aot`, 4000);
   }
@@ -5358,6 +5963,8 @@ function runTableOp(editor, op) {
   const pos = editor.selection.active;
   const block = table.blockAt(lines, pos.line);
   if (!block) return;
+  // several cursors: Tab, Shift+Tab and Enter move every one of them
+  if (MOVE_OPS.has(op) && editor.selections && editor.selections.length > 1) return runTableMoves(editor, op, lines);
   const cursorRow = pos.line - block.start;
   const col = table.colAt(lines[pos.line], pos.character);
   // A selection travels as cells — its two ends' rows (clamped into the
@@ -5393,6 +6000,53 @@ function runTableOp(editor, op) {
       : { line, character };
     editor.selection = new vscode.Selection(from.line, from.character, line, character);
     editor.revealRange(new vscode.Range(line, character, line, character));
+  });
+}
+
+// Tab, Shift+Tab and Enter with several cursors: each cursor moves in its own
+// row. One pass per table, the lowest cursor first, so a row grown for it moves
+// no cursor above; every table is redrawn once, in one edit. With a cursor
+// standing outside any table the key means what it means in any other file,
+// since no one cell is "next" for a cursor that is in none.
+const MOVE_OPS = new Set([table.nextCell, table.prevCell, table.nextRow]);
+const MOVE_KEY = new Map([
+  [table.nextCell, ["tab"]],
+  [table.prevCell, ["outdent"]],
+  [table.nextRow, ["type", { text: "\n" }]],
+]);
+function runTableMoves(editor, op, lines) {
+  const doc = editor.document;
+  const cursors = editor.selections.map((s, at) => ({ at, pos: s.active }));
+  const blocks = new Map(); // block start -> { block, cursors }
+  for (const c of cursors) {
+    const block = table.blockAt(lines, c.pos.line);
+    if (!block || block.rows[c.pos.line - block.start].note) return vscode.commands.executeCommand(...MOVE_KEY.get(op));
+    if (!blocks.has(block.start)) blocks.set(block.start, { block, cursors: [] });
+    blocks.get(block.start).cursors.push(c);
+  }
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const replaced = [];
+  const landed = new Array(cursors.length);
+  let grown = 0; // lines the tables above this one have gained
+  for (const { block, cursors: here } of [...blocks.values()].sort((a, b) => a.block.start - b.block.start)) {
+    const end = block.end;
+    const start = block.start;
+    const lowestFirst = [...here].sort((a, b) => b.pos.line - a.pos.line);
+    const targets = new Map();
+    for (const c of lowestFirst) {
+      const row = c.pos.line - start;
+      targets.set(c.at, op(block, row, table.colAt(lines[c.pos.line], c.pos.character)) || { row, col: 0 });
+    }
+    replaced.push({ range: new vscode.Range(start, 0, end, doc.lineAt(end).text.length), text: table.render(block).join(eol) });
+    for (const [at, target] of targets) {
+      const character = table.cellStart(block, target.col);
+      landed[at] = new vscode.Selection(start + grown + target.row, character, start + grown + target.row, character);
+    }
+    grown += block.rows.length - (end - start + 1);
+  }
+  return editor.edit((b) => { for (const r of replaced) b.replace(r.range, r.text); }).then(() => {
+    editor.selections = landed;
+    editor.revealRange(landed[landed.length - 1]);
   });
 }
 
@@ -6038,6 +6692,13 @@ function activate(context) {
     individual: vscode.window.createTextEditorDecorationType({
       textDecoration: "underline dotted",
     }),
+    // a computed number's digits past the first useful ones: there in the file, and
+    // out of the way on screen, the short form standing in for them (table.shortNumber)
+    shortNumber: vscode.window.createTextEditorDecorationType({
+      letterSpacing: "-1ch",
+      opacity: "0",
+      rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    }),
     // a value whose derivation is parked: the inlay-hint colours, because
     // that is exactly what it is — a number the editor is showing you rather
     // than one you wrote. A tinted span, never added text, so a marked cell
@@ -6063,13 +6724,15 @@ function activate(context) {
   // Python's findings in a collection of their own: a failed run, or one
   // not yet made, is never a verdict on the model, so never in V
   pyDiagnostics = vscode.languages.createDiagnosticCollection("aot-python");
+  // ...and so are the reasons a flip stopped: findings of the flip, not the file
+  flipDiagnostics = vscode.languages.createDiagnosticCollection("aot-flip");
   pyState = context.workspaceState || null;
   // the allowed versions of the Python files, kept beside the workspace's
   // own state rather than in the repository
   const storage = context.storageUri || context.globalStorageUri;
   if (storage && storage.fsPath) pySnapshotRoot = path.join(storage.fsPath, "allowed-python");
   context.subscriptions.push(diagnostics, decorationTypes.concept, decorationTypes.individual,
-    decorationTypes.parked, decorationTypes.stale, decorationTypes.pyLink, renameHintType, pyDiagnostics);
+    decorationTypes.parked, decorationTypes.shortNumber, decorationTypes.stale, decorationTypes.pyLink, renameHintType, pyDiagnostics, flipDiagnostics);
 
   const timers = new Map();
   const refreshSoon = (doc) => {
@@ -6146,6 +6809,8 @@ function activate(context) {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((doc) => refresh(diagnostics, decorationTypes, doc)),
     vscode.workspace.onDidChangeTextDocument((event) => {
+      if (event.document.languageId === "aot") flipDiagnostics.delete(event.document.uri);
+      trackCalc(event); // typing waits for its cell to be left; anything else calculates
       trackTypedRename(event); // a declared name typed over is a rename in progress
       maybeScaffold(event); // a first '|' on an empty line grows a skeleton
       trackEdits(event); // a burst's new findings elsewhere wait (hold.js)
@@ -6159,18 +6824,31 @@ function activate(context) {
       typedRenames.delete(doc.uri.toString());
       renameOffers.delete(doc.uri.toString());
       diagnostics.delete(doc.uri);
+      flipDiagnostics.delete(doc.uri);
       analysisByDoc.delete(doc.uri.toString());
       parsedByDoc.delete(doc.uri.toString());
       registryByDoc.delete(doc.uri.toString());
-      // its Python session goes with it
+      // its Python session goes with it, and its place in the calculation
       pyStop(doc.uri.toString(), "closed");
+      const calc = calcSchedulers.get(doc.uri.toString());
+      if (calc) calc.scheduler.dispose();
+      calcSchedulers.delete(doc.uri.toString());
+      calcOpened.delete(doc.uri.toString());
       pyStatus.delete(doc.uri.toString());
       pyDims.delete(doc.uri.toString());
       pyDiagnostics.delete(doc.uri);
     }),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
-      for (const editor of editors) decorate(editor, decorationTypes);
+      for (const editor of editors) {
+        decorate(editor, decorationTypes);
+        calcOnOpen(editor.document);
+      }
     }),
+    // the short form is drawn for what is on screen, and just past it
+    ...(vscode.window.onDidChangeTextEditorVisibleRanges
+      ? [vscode.window.onDidChangeTextEditorVisibleRanges((event) => paintShortNumbers(event.textEditor, decorationTypes))] : []),
+    // leaving the window for another program commits, as leaving a cell does
+    vscode.window.onDidChangeWindowState((state) => { if (!state.focused) commitWaiting(); }),
     vscode.languages.registerDefinitionProvider({ language: "aot" }, definitionProvider),
     // hovering a Concept (or a crosslink to one) lists its dependency chains;
     // an Example (or a crosslink to one) shows its details and usages
@@ -6232,6 +6910,7 @@ function activate(context) {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix, vscode.CodeActionKind.RefactorRewrite],
     }),
     vscode.commands.registerCommand("aot.acceptWord", acceptWord),
+    vscode.commands.registerCommand("aot.toggleSpelling", toggleSpelling),
     // the two lightbulbs on a synonym warning: fold one name into the other,
     // or record that the two names are two ideas and stop being asked
     vscode.commands.registerCommand("aot.renameConcept", renameConcept),
@@ -6260,10 +6939,12 @@ function activate(context) {
         for (const k of [...pySessions.keys()]) pyStop(k, "the Python settings changed");
       }
       vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
+      // formulas turned on, or calculation back to automatic: catch up now
+      if (event.affectsConfiguration("aot.python") || event.affectsConfiguration("aot.calculation")) commitVisible("settings");
     }),
     // Format Document re-aligns every table's columns, as org-mode's TAB
     // does — each column padded to its widest cell, leftover rules dropped —
-    // and renumbers `N. ` Examples. It computes nothing: that is Ctrl+Enter's.
+    // and renumbers `N. ` Examples. It computes nothing.
     vscode.languages.registerDocumentFormattingEditProvider({ language: "aot" }, {
       provideDocumentFormattingEdits(doc) {
         const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
@@ -6295,15 +6976,12 @@ function activate(context) {
         // is no indent there for a key to mean; a whole table is re-filed
         // under another parent with VS Code's own Ctrl+] / Ctrl+[.
         //
-        // In line form, lines SELECTED are still the indent edit, as
-        // everywhere else in the editor: there the indent IS the nesting.
-        const dir = id === "aot.table.nextCell" ? 1 : id === "aot.table.prevCell" ? -1 : 0;
+        // Off a table Tab and Shift+Tab are VS Code's own, as in any other
+        // file: the keybindings are gated on aot.inTable, and a call from
+        // anywhere else (the Command Palette) answers the same way.
         const line = editor.selection.active.line;
         const onRow = line < editor.document.lineCount && table.isRowText(editor.document.lineAt(line).text);
-        if (dir && !onRow && !editor.selection.isSingleLine) {
-          return vscode.commands.executeCommand(
-            dir > 0 ? "editor.action.indentLines" : "editor.action.outdentLines");
-        }
+        if (!onRow && (id === "aot.table.nextCell" || id === "aot.table.prevCell")) return ownKey(id);
         // a table row takes the table's operation; anywhere else the same key
         // works on the Concept's Examples written as lines
         if (onRow) return runTableOp(editor, op);
@@ -6322,10 +7000,8 @@ function activate(context) {
     vscode.commands.registerTextEditorCommand("aot.copyFormulaToSiblings", copyFormulaToSiblings),
     // Ctrl+Shift+`: the derivations out of the data, and back
     vscode.commands.registerTextEditorCommand("aot.toggleFormulaPark", toggleFormulaPark),
-    // Ctrl+Enter: the Python derivation at the cursor, in place — with what
-    // it reads and what reads it
-    vscode.commands.registerTextEditorCommand("aot.runPython", runPythonHere),
     vscode.commands.registerTextEditorCommand("aot.runPythonFresh", (editor) => runPython(editor, { mode: "fresh" })),
+    vscode.commands.registerCommand("aot.stopCalculating", stopCalculating),
     vscode.commands.registerCommand("aot.showPythonEnvironment", showPythonEnvironment),
     vscode.commands.registerCommand("aot.setUpPython", setUpPython),
     vscode.commands.registerCommand("aot.createPythonFunction", createPythonFunction),
@@ -6351,6 +7027,11 @@ function activate(context) {
         const at = event.textEditor.selection.active;
         if (at.line !== typing.line || at.character < typing.start || at.character > typing.start + typing.length) closeTypedRename(doc);
       }
+      // leaving a cell that was typed in calculates
+      const calc = calcSchedulers.get(doc.uri.toString());
+      if (calc) calc.scheduler.moved(cursorsOf(event.textEditor));
+      // the cell the cursor stands in shows every digit; the one it left, the short form
+      paintShortNumbers(event.textEditor, decorationTypes);
       // standing in a used name shows the F2 nudge; leaving it clears it
       renameHint(event.textEditor);
     }),
@@ -6363,6 +7044,7 @@ function activate(context) {
         if (holdState.has(d.uri.toString())) releaseHold(d);
         if (typedRenames.has(d.uri.toString())) closeTypedRename(d);
       }
+      commitWaiting(editor ? editor.document : undefined);
       updateHoldStatus();
     }),
     // the status item's click: what waits, shown now
@@ -6375,7 +7057,7 @@ function activate(context) {
     // saving persists true numbering and agreement with the rest of the
     // repo: the renumber and reconcile edits ride the save itself, so the
     // file on disk carries sequential `N. ` Examples and whatever a shared
-    // Concept says elsewhere. A save computes nothing — it runs no Python.
+    // Concept says elsewhere.
     vscode.workspace.onWillSaveTextDocument((event) => {
       const doc = event.document;
       // a Python file about to be saved: what it held, so its new content can
@@ -6415,7 +7097,11 @@ function activate(context) {
       // a Python file saved here is the writer's own edit; and every Python
       // value that names it may be stale now
       if (/\.py$/i.test(doc.fileName || "")) {
-        pyDidSave(doc).then(() => relintAll(), () => relintAll());
+        const after = () => {
+          relintAll();
+          commitVisible("code");
+        };
+        pyDidSave(doc).then(after, after);
         return;
       }
       releaseHold(doc);
@@ -6424,9 +7110,14 @@ function activate(context) {
         reindexAot(doc.fileName, doc.getText());
         refreshPeers(doc.fileName);
       }
+      const byMirror = foldSaving.has(fileKey(doc.fileName || ""));
       syncAotToCsv(doc);
       // the stable Gödel numbers, grown by what this save added
       saveGodelRegistry(doc);
+      // a save commits whatever was being typed, and other files on screen may
+      // read this one
+      commitCalc(doc, byMirror ? "csv" : "save");
+      commitVisible("peer", doc);
     }),
   );
   const csvWatcher = vscode.workspace.createFileSystemWatcher("**/aot.files/*.csv");
@@ -6461,6 +7152,7 @@ function activate(context) {
     fileHashCache.delete(uri.fsPath);
     if (listChanged) forgetPyIndex();
     relintAll();
+    commitVisible("code");
   };
   pyWatcher.onDidChange(onPyFsEvent(false));
   pyWatcher.onDidCreate(onPyFsEvent(true));
@@ -6517,6 +7209,10 @@ function activate(context) {
     workspaceExternal = null;
     indexGeneration++;
     refreshPeers(uri.fsPath);
+    // what it spoke for no longer lists its rows
+    const before = mirrorCache.get(uri.fsPath);
+    mirrorCache.delete(uri.fsPath);
+    if (before && syncEnabled() && !syncManual()) writeMirrorsItLeft(aotRoot({ fileName: uri.fsPath, uri }), before, null);
   });
   context.subscriptions.push(aotWatcher);
 
@@ -6524,6 +7220,8 @@ function activate(context) {
   // scrolled out of sight
   if (vscode.window.createStatusBarItem) {
     // what waits while you write, and the click that shows it now
+    calcStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
+    context.subscriptions.push(calcStatus);
     holdStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
     holdStatus.command = "aot.showHeldFindings";
     context.subscriptions.push(holdStatus);
@@ -6533,6 +7231,16 @@ function activate(context) {
 
   updateTableContext();
   updateCellStatus();
+  for (const editor of vscode.window.visibleTextEditors || []) calcOnOpen(editor.document);
+}
+
+// A file coming on screen brings what is out of date up to date, once.
+const calcOpened = new Set();
+function calcOnOpen(doc) {
+  const key = doc.uri && doc.uri.toString();
+  if (!key || calcOpened.has(key) || doc.languageId !== "aot") return;
+  calcOpened.add(key);
+  commitCalc(doc, "open");
 }
 
 // Parse every .aot under the workspace root(s) into the index. Skipped when
@@ -6550,6 +7258,8 @@ function buildWorkspaceIndex() {
 
 // Every Python session ends with the extension.
 function deactivate() {
+  for (const { scheduler } of calcSchedulers.values()) scheduler.dispose();
+  calcSchedulers.clear();
   for (const key of [...pySessions.keys()]) pyStop(key, "the extension stopped");
 }
 
@@ -6561,8 +7271,11 @@ const _test = {
     pyResolve = fn ? (cmd) => cmd : (cmd, base) => python.resolveExecutable(cmd, { base });
   },
   sessions: pySessions,
+  openDocFor,
   runPython,
   ranAt,
+  // the first formula's offer, made once a session, made again for a test
+  forgetOffer: () => { offeredFormulas = false; },
   // what an inlay says of a run, for every state, without staging each run
   pyRunNote,
   combinedRunNote,

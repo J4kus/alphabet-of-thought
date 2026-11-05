@@ -40,6 +40,7 @@ const vscode = {
   Hover: class { constructor(contents, range) { Object.assign(this, { contents, range }); } },
   CodeAction: class { constructor(title, kind) { Object.assign(this, { title, kind }); } },
   CodeActionKind: { QuickFix: "quickfix", RefactorRewrite: "refactor.rewrite" },
+  CodeActionTriggerKind: { Invoke: 1, Automatic: 2 },
   SymbolKind: { Class: 4, Property: 6, Field: 7, Constant: 13, Variable: 12 },
   DocumentSymbol: class {
     constructor(name, detail, kind, range, selectionRange) {
@@ -133,6 +134,7 @@ const vscode = {
     }
   },
   EndOfLine: { LF: 1, CRLF: 2 },
+  TextDocumentChangeReason: { Undo: 1, Redo: 2 },
   DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   commands: {
     registerTextEditorCommand: (id, fn) => { registeredCommands.set(id, fn); return { dispose() {} }; },
@@ -147,9 +149,10 @@ const vscode = {
     _info: [],
     _errors: [],
     createTextEditorDecorationType: (style) => ({ style, dispose() {} }),
-    onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
+    onDidChangeVisibleTextEditors: (fn) => { vscode.window._visibleChanged = fn; return { dispose() {} }; },
     onDidChangeTextEditorSelection: (fn) => { vscode.window._selectionChanged = fn; return { dispose() {} }; },
-    onDidChangeActiveTextEditor: () => ({ dispose() {} }),
+    onDidChangeActiveTextEditor: (fn) => { vscode.window._activeChanged = fn; return { dispose() {} }; },
+    onDidChangeWindowState: (fn) => { vscode.window._windowState = fn; return { dispose() {} }; },
     // the answer a test sets is the button the user "presses"; the items
     // offered are recorded beside the message. An answer keyed to a message
     // (_answers: [{ test: RegExp, answer }]) is pressed for that message
@@ -158,16 +161,24 @@ const vscode = {
     showWarningMessage: (m, ...items) => {
       vscode.window._warnings.push(m);
       vscode.window._warningItems = items.filter((i) => typeof i === "string");
+      vscode.window._warningModal = items.some((i) => i && typeof i === "object" && i.modal);
       const keyed = vscode.window._answers.find((a) => a.test.test(m));
       return Promise.resolve(keyed ? keyed.answer : vscode.window._warningAnswer);
     },
     showInformationMessage: (m, ...rest) => {
       vscode.window._info.push(m);
+      vscode.window._infoItems = rest.filter((i) => typeof i === "string");
       const opts = rest.find((r) => r && typeof r === "object");
       if (opts && opts.detail) vscode.window._infoDetail = opts.detail;
-      return Promise.resolve();
+      const keyed = vscode.window._answers.find((a) => a.test.test(m));
+      return Promise.resolve(keyed ? keyed.answer : undefined);
     },
-    showErrorMessage: (m) => { vscode.window._errors.push(m); return Promise.resolve(); },
+    showErrorMessage: (m, ...items) => {
+      vscode.window._errors.push(m);
+      vscode.window._errorItems = items.filter((i) => typeof i === "string");
+      const keyed = vscode.window._answers.find((a) => a.test.test(m));
+      return Promise.resolve(keyed ? keyed.answer : undefined);
+    },
     setStatusBarMessage: (m) => { vscode.window._status = m; return { dispose() {} }; },
     createStatusBarItem: () => {
       const item = { text: "", tooltip: "", shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} };
@@ -227,7 +238,12 @@ const vscode = {
         get lineCount() { return this.lines.length; },
         getText() { return this.lines.join("\n"); },
         lineAt(i) { return { range: new vscode.Range(i, 0, i, this.lines[i].length), text: this.lines[i] }; },
-        save: async () => fs.writeFileSync(p, doc.lines.join("\n")),
+        // a save fires the save event, as the real one does: what the mirror
+        // does on a save is half of what a fold does
+        save: async () => {
+          fs.writeFileSync(p, doc.lines.join("\n"));
+          if (vscode.workspace._save) vscode.workspace._save(doc);
+        },
       };
       doc.uri = { fsPath: p, toString: () => "file:///" + p, __doc: doc };
       return doc;
@@ -722,11 +738,10 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[1] === "    Ollie|5"
       && editor.selection.active.line === 2 && editor.selection.active.character === 10;
-    // 53 table and derivation commands (AutoSum went with the formula
-    // language; Define Column joined them), plus Ctrl+Enter's run and its
-    // fresh twin
-    console.log(ok && registeredCommands.size === 55
-      ? "PASS (table editor: 55 commands; Tab aligns and moves to the next cell)"
+    // 53 table and formula commands (AutoSum went with the formula language;
+    // Define Column joined them), plus Ctrl+Alt+F9's fresh calculation
+    console.log(ok && registeredCommands.size === 54
+      ? "PASS (table editor: 54 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -734,8 +749,7 @@ const listed = [
 // 5b) Tab travels the cells from ANYWHERE in a row, and never indents one:
 // a table nests through its `parent (thing)` column, so there is no indent
 // a key could mean — with lines selected Tab still moves to the next cell.
-// Line form keeps the editor's own indent on a selection, since there the
-// indent IS the nesting.
+// Off a table it is VS Code's own Tab, selected or not, as in any other file.
 (async () => {
   const lines = [
     "Otter|parent (otter)|size",
@@ -778,16 +792,118 @@ const listed = [
   const noIndent = lines.join("\n") === written
     && !vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines")
     && editor.selection.active.line === 2 && editor.selection.active.character === 6;
-  // line form selected: the editor's indent, as everywhere else
+  // line form: VS Code's own Tab and Shift+Tab, selected or not
   lines.splice(0, lines.length, "Otter", "    - Ollie", "    - Pup");
   editor.selection = new vscode.Selection(1, 0, 2, 0);
   vscode.commands._calls.length = 0;
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const lineIndent = vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines");
-  console.log(kept && toNext && back && noIndent && lineIndent
-    ? "PASS (table editor: Tab travels the cells and indents nothing, selected or not; line form indents a selection)"
-    : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toNext, back, noIndent, lineIndent, sel: editor.selection.a }));
+  const lineTab = vscode.commands._calls.some((c) => c[0] === "tab");
+  vscode.commands._calls.length = 0;
+  registeredCommands.get("aot.table.prevCell")(editor);
+  await new Promise((r) => setImmediate(r));
+  const lineOutdent = vscode.commands._calls.some((c) => c[0] === "outdent");
+  console.log(kept && toNext && back && noIndent && lineTab && lineOutdent
+    ? "PASS (table editor: Tab travels the cells and indents nothing, selected or not; off a table Tab and Shift+Tab are VS Code's own)"
+    : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toNext, back, noIndent, lineTab, lineOutdent, sel: editor.selection.a }));
+})();
+
+// 5b2) the manifest gates Tab and Shift+Tab on a table row, and nowhere else
+{
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+  const when = (key) => manifest.contributes.keybindings.find((k) => k.key === key).when;
+  console.log(/aot\.inTable/.test(when("tab")) && !/aot\.inGrid/.test(when("tab"))
+    && /aot\.inTable/.test(when("shift+tab")) && !/aot\.inGrid/.test(when("shift+tab"))
+    ? "PASS (keys: Tab and Shift+Tab are the table's only on a table row)"
+    : "UNEXPECTED Tab binding " + JSON.stringify([when("tab"), when("shift+tab")]));
+}
+
+// 5b2a) Ctrl+/ writes the language's own `...`, and there is no block comment
+{
+  const config = fs.readFileSync(path.join(__dirname, "..", "language-configuration.json"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  const comments = JSON.parse(config).comments;
+  console.log(comments.lineComment === "..." && !comments.blockComment
+    ? "PASS (keys: Ctrl+/ makes a '...' line)"
+    : "UNEXPECTED comment config " + JSON.stringify(comments));
+}
+
+// 5b2b) a flip that would lose a value stops, changes nothing, and says where;
+// the next edit clears what it said
+(async () => {
+  const lines = ["Order", "    - A1", "        tag: red", "        tag: blue"];
+  const doc = {
+    languageId: "aot", fileName: "c:\\repo\\Stopped.aot", eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///stopped" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  let edited = false;
+  const editor = {
+    document: doc, selection: new vscode.Selection(0, 0, 0, 0),
+    edit: () => { edited = true; return Promise.resolve(true); },
+    revealRange: () => {}, setDecorations: () => {},
+  };
+  await registeredCommands.get("aot.toggleTableForm")(editor);
+  const said = (publishedByName.get("aot-flip") || new Map()).get(doc.uri.toString()) || [];
+  const stopped = !edited && said.length === 2 && said[0].severity === vscode.DiagnosticSeverity.Error
+    && /^keep one value for 'tag' on 'A1' before flipping/.test(said[0].message) && said[0].range.a[0] === 2;
+  vscode.workspace._changed({ document: doc, contentChanges: [] });
+  const cleared = !(publishedByName.get("aot-flip").get(doc.uri.toString()) || []).length;
+  console.log(stopped && cleared
+    ? "PASS (flip: a shape a table has no place for stops it, on the exact lines, until the next edit)"
+    : "UNEXPECTED flip stop " + JSON.stringify({ edited, said: said.map((d) => d.message), cleared }));
+})();
+
+// 5b3) several cursors: Tab, Shift+Tab and Enter move each one in its own row,
+// a row grown at the bottom shifts no cursor above; one off a table hands the
+// key back to VS Code
+(async () => {
+  const start = ["Pet|age|size", "Rex|1  |2", "Tom|3  |4"];
+  let lines = start.slice();
+  const offset = (l, c) => lines.slice(0, l).reduce((n, s) => n + s.length + 1, 0) + c;
+  const doc = {
+    languageId: "aot", fileName: "c:\\repo\\Multi.aot", eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///multi" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  const editor = {
+    document: doc,
+    selection: new vscode.Selection(1, 0, 1, 0),
+    selections: [new vscode.Selection(1, 0, 1, 0), new vscode.Selection(2, 0, 2, 0)],
+    edit: (cb) => {
+      cb({ replace: (range, t) => {
+        const [sl, sc, el, ec] = range.a;
+        const text = lines.join("\n");
+        lines = (text.slice(0, offset(sl, sc)) + t + text.slice(offset(el, ec))).split("\n");
+      } });
+      return Promise.resolve(true);
+    },
+    revealRange: () => {},
+    setDecorations: () => {},
+  };
+  const where = () => editor.selections.map((s) => `${s.active.line}:${s.active.character}`).join();
+  await registeredCommands.get("aot.table.nextCell")(editor);
+  const tabbed = where() === "1:4,2:4" && lines.join("\n") === start.join("\n");
+  editor.selection = editor.selections[0];
+  await registeredCommands.get("aot.table.prevCell")(editor);
+  const backed = where() === "1:0,2:0";
+  editor.selection = editor.selections[0];
+  // Enter on the bottom row grows one row; the cursor above only steps down
+  await registeredCommands.get("aot.table.nextRow")(editor);
+  const entered = where() === "2:0,3:0" && lines.length === 4;
+  // one cursor in free text: the key is VS Code's, and nothing is redrawn
+  lines = ["Pet|age", "Rex|1", "Note"];
+  editor.selection = new vscode.Selection(1, 0, 1, 0);
+  editor.selections = [new vscode.Selection(1, 0, 1, 0), new vscode.Selection(2, 0, 2, 0)];
+  vscode.commands._calls.length = 0;
+  await registeredCommands.get("aot.table.nextCell")(editor);
+  const handedBack = vscode.commands._calls.some((c) => c[0] === "tab");
+  console.log(tabbed && backed && entered && handedBack
+    ? "PASS (table editor: several cursors move together; one off a table hands the key back)"
+    : "UNEXPECTED multi-cursor " + JSON.stringify({ tabbed, backed, entered, handedBack, at: where(), lines }));
 })();
 
 // 5c) a first '|' typed on an otherwise empty line scaffolds a fresh table —
@@ -1107,6 +1223,205 @@ const listed = [
   fs.rmSync(root, { recursive: true, force: true });
 })();
 
+
+// 6b9) the CSV mirror's data-loss cases: every edit in every CSV arrives, with
+// the .aot open or closed, the editor running or not, a diff open or not
+(async () => {
+  const os = require("os");
+  const fresh = (name) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), `aot-${name}-`));
+    fs.mkdirSync(path.join(root, ".git"));
+    const dir = path.join(root, "aot.files");
+    fs.mkdirSync(dir);
+    return { root, dir };
+  };
+  const ago = (file, seconds) => { const t = new Date(Date.now() - seconds * 1000); fs.utimesSync(file, t, t); };
+  const read = (file) => fs.readFileSync(file, "utf8");
+  const sync = (root) => plainCommands.get("aot.importCsvFiles")(root);
+
+  // two CSVs of one .aot edited with the editor closed: both arrive, and
+  // neither is overwritten by the save the other's fold makes
+  {
+    const { root, dir } = fresh("two-csvs");
+    const aot = path.join(root, "Shop.aot");
+    fs.writeFileSync(aot, ["Pet|age", "Rex|1", "", "Toy|price", "Ball|2", ""].join("\n"));
+    fs.writeFileSync(path.join(dir, "Pet.csv"), "Pet,age\nRex,9\n");
+    fs.writeFileSync(path.join(dir, "Toy.csv"), "Toy,price\nBall,7\n");
+    ago(aot, 60);
+    await sync(root);
+    const text = read(aot);
+    console.log(/Rex\|9/.test(text) && /Ball\|7/.test(text)
+      && read(path.join(dir, "Pet.csv")) === "Pet,age\nRex,9\n" && read(path.join(dir, "Toy.csv")) === "Toy,price\nBall,7\n"
+      ? "PASS (csv: two CSVs edited while closed both reach the .aot, and neither is overwritten)"
+      : "UNEXPECTED two csvs " + JSON.stringify({ text, pet: read(path.join(dir, "Pet.csv")), toy: read(path.join(dir, "Toy.csv")) }));
+
+    // the same with the editor running: a script saving both at once
+    fs.writeFileSync(path.join(dir, "Pet.csv"), "Pet,age\nRex,3\n");
+    fs.writeFileSync(path.join(dir, "Toy.csv"), "Toy,price\nBall,4\n");
+    await Promise.all([vscode.workspace._csvChanged({ fsPath: path.join(dir, "Pet.csv") }), vscode.workspace._csvChanged({ fsPath: path.join(dir, "Toy.csv") })]);
+    const live = read(aot);
+    console.log(/Rex\|3/.test(live) && /Ball\|4/.test(live)
+      ? "PASS (csv: two CSVs saved at once with the editor running both arrive)"
+      : "UNEXPECTED two csvs live " + JSON.stringify(live));
+
+    // a person's save of the .aot is a save: it wins over a CSV older than it
+    fs.writeFileSync(path.join(dir, "Pet.csv"), "Pet,age\nRex,100\n");
+    ago(path.join(dir, "Pet.csv"), 60);
+    fs.writeFileSync(aot, live);
+    await sync(root);
+    console.log(/Rex\|3/.test(read(aot)) && read(path.join(dir, "Pet.csv")) === "Pet,age\nRex,3\n"
+      ? "PASS (csv: the rule stands — a .aot a person saved later overrides an older CSV)"
+      : "UNEXPECTED rule " + JSON.stringify({ aot: read(aot), csv: read(path.join(dir, "Pet.csv")) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // an open diff: the read-only `git:` copy of the file is not the file
+  {
+    const { root, dir } = fresh("diff");
+    const aot = path.join(root, "Shop.aot");
+    fs.writeFileSync(aot, ["Pet|age", "Rex|1", ""].join("\n"));
+    fs.writeFileSync(path.join(dir, "Pet.csv"), "Pet,age\nRex,1\n");
+    const old = ["Pet|age", "Rex|0", ""].join("\n");
+    const copy = {
+      languageId: "aot", fileName: aot, eol: vscode.EndOfLine.LF, isDirty: false,
+      uri: { scheme: "git", fsPath: aot, toString: () => "git:/" + aot },
+      lineCount: 3, getText: () => old,
+      lineAt: (i) => { const l = old.split("\n")[i]; return { range: new vscode.Range(i, 0, i, l.length), text: l }; },
+      save: async () => { throw new Error("a git: copy cannot be saved"); },
+    };
+    vscode.workspace.textDocuments.push(copy);
+    const pick = ext._test.openDocFor(aot);
+    fs.writeFileSync(path.join(dir, "Pet.csv"), "Pet,age\nRex,9\n");
+    await vscode.workspace._csvChanged({ fsPath: path.join(dir, "Pet.csv") });
+    vscode.workspace.textDocuments.splice(vscode.workspace.textDocuments.indexOf(copy), 1);
+    console.log(pick === null && /Rex\|9/.test(read(aot)) && read(path.join(dir, "Pet.csv")) === "Pet,age\nRex,9\n"
+      ? "PASS (csv: a diff open on the file changes nothing — the edit reaches the real file, and the CSV keeps it)"
+      : "UNEXPECTED diff " + JSON.stringify({ picked: !!pick, aot: read(aot), csv: read(path.join(dir, "Pet.csv")) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // a line break in an Excel cell stays one cell, and comes back a line break
+  {
+    const { root, dir } = fresh("line-break");
+    const aot = path.join(root, "Notes.aot");
+    fs.writeFileSync(aot, ["Pet|note", "Rex|old", ""].join("\n"));
+    const csv = path.join(dir, "Pet.csv");
+    fs.writeFileSync(csv, 'Pet,note\nRex,"Line 1\nLine 2"\n');
+    await vscode.workspace._csvChanged({ fsPath: csv });
+    const text = read(aot);
+    const parsed = lint(text, "Notes");
+    console.log(/^Rex\|Line 1↵Line 2$/m.test(text) && parsed.errors.length === 0
+      && parsed.nodes.filter((n) => n.kind === 0).length === 1 && read(csv) === 'Pet,note\nRex,"Line 1\nLine 2"\n'
+      ? "PASS (csv: a line break in a cell stays one row, and survives the round trip)"
+      : "UNEXPECTED line break " + JSON.stringify({ text, csv: read(csv) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // a new row's name is data: it stays a row with that name, and never code
+  {
+    const { root, dir } = fresh("row-names");
+    const aot = path.join(root, "Day.aot");
+    fs.writeFileSync(aot, ["Event|room", "Lunch|A", ""].join("\n"));
+    const csv = path.join(dir, "Event.csv");
+    fs.writeFileSync(csv, "Event,room\nLunch,A\n10:30 Standup,B\n=x(),C\nstandup: late,D\n... rest,E\n");
+    await vscode.workspace._csvChanged({ fsPath: csv });
+    const text = read(aot);
+    const parsed = lint(text, "Day");
+    const rows = parsed.nodes.filter((n) => n.kind === 0).map((n) => n.name);
+    const hosts = require("../src/python").hostsOf(parsed.nodes, text.split(/\r?\n/), "Day");
+    console.log(parsed.errors.length === 0 && !hosts.length && rows.join("|") === "Lunch|10:30 Standup|＝x()|standup： late|… rest"
+      && !/^=/m.test(text) && /10:30 Standup,B/.test(read(csv))
+      ? "PASS (csv: a new row's name stays a row, unchanged where it can be, and never becomes code)"
+      : "UNEXPECTED row names " + JSON.stringify({ rows, hosts: hosts.length, errors: parsed.errors.map((e) => e.message), csv: read(csv) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // a name a file name cannot hold: the Concept that writes the file answers
+  {
+    const { root, dir } = fresh("slash");
+    const aot = path.join(root, "Io.aot");
+    fs.writeFileSync(aot, ["Input/Output|rate", "Disk|1", "", "Is it valid?|ok", "A|no", ""].join("\n"));
+    const slash = path.join(dir, "Input-Output.csv"), mark = path.join(dir, "Is it valid-.csv");
+    fs.writeFileSync(slash, "Input/Output,rate\nDisk,5\n");
+    await vscode.workspace._csvChanged({ fsPath: slash });
+    fs.writeFileSync(mark, "Is it valid?,ok\nA,yes\n");
+    ago(aot, 60);
+    await sync(root);
+    const text = read(aot);
+    console.log(/^Disk *\|5$/m.test(text) && /^A *\|yes$/m.test(text) && read(slash) === "Input/Output,rate\nDisk,5\n"
+      ? "PASS (csv: 'Input/Output' and 'Is it valid?' sync through the files their names write)"
+      : "UNEXPECTED slash " + JSON.stringify({ text, csv: read(slash) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // two Concepts one file name: neither writes over the other, and it is said
+  {
+    const { root, dir } = fresh("shared-csv");
+    const aot = path.join(root, "Both.aot");
+    const body = ["Input/Output|rate", "Disk|1", "", "Input-Output|cost", "Tape|2", ""].join("\n");
+    fs.writeFileSync(aot, body);
+    const csv = path.join(dir, "Input-Output.csv");
+    fs.writeFileSync(csv, "keep me\n");
+    vscode.window._warnings.length = 0;
+    vscode.workspace._save(makeDoc(aot, body));
+    console.log(read(csv) === "keep me\n" && vscode.window._warnings.some((w) => /^AOT: rename one — .*would both write Input-Output\.csv/.test(w))
+      ? "PASS (csv: two Concepts writing one file overwrite nothing, and say so)"
+      : "UNEXPECTED shared csv " + JSON.stringify({ csv: read(csv), warned: vscode.window._warnings }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // a model in a folder named `out` is a model like any other
+  {
+    const { root, dir } = fresh("out-folder");
+    fs.mkdirSync(path.join(root, "reports", "out"), { recursive: true });
+    const aot = path.join(root, "reports", "out", "Q3.aot");
+    fs.writeFileSync(aot, ["Quarter|sales", "Q3|1", ""].join("\n"));
+    const csv = path.join(dir, "Quarter.csv");
+    fs.writeFileSync(csv, "Quarter,sales\nQ3,5\n");
+    await vscode.workspace._csvChanged({ fsPath: csv });
+    const other = path.join(root, "Other.aot");
+    fs.writeFileSync(other, "Thing\n    - A\n");
+    vscode.workspace._save(makeDoc(other, "Thing\n    - A\n"));
+    console.log(/^Q3 *\|5$/m.test(read(aot)) && fs.existsSync(csv) && !fs.existsSync(path.join(dir, "_Quarter.csv"))
+      ? "PASS (csv: a model in a folder named 'out' syncs, and its CSV is not archived)"
+      : "UNEXPECTED out folder " + JSON.stringify({ aot: read(aot), dir: fs.readdirSync(dir) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // a Concept taken out of one of two files: its rows stay gone
+  {
+    const { root, dir } = fresh("left-behind");
+    const a = path.join(root, "A.aot"), b = path.join(root, "B.aot");
+    const aBefore = ["Pet|age", "Rex|1", "", "Toy|price", "Ball|2", ""].join("\n");
+    const bText = ["Pet|age", "Tom|2", ""].join("\n");
+    fs.writeFileSync(a, aBefore);
+    fs.writeFileSync(b, bText);
+    vscode.workspace._save(makeDoc(a, aBefore));
+    const csv = path.join(dir, "Pet.csv");
+    const both = read(csv);
+    const aAfter = ["Toy|price", "Ball|2", ""].join("\n");
+    vscode.workspace._willSave({ document: makeDoc(a, aBefore), waitUntil: () => {} });
+    fs.writeFileSync(a, aAfter);
+    vscode.workspace._save(makeDoc(a, aAfter));
+    const written = read(csv);
+    await sync(root);
+    console.log(/Rex/.test(both) && written === "Pet,age\nTom,2\n" && !/Rex/.test(read(b))
+      ? "PASS (csv: a Concept taken out of one of two files leaves its rows gone, and the other file untouched)"
+      : "UNEXPECTED left behind " + JSON.stringify({ both, written, b: read(b) }));
+    // a file deleted altogether, likewise
+    fs.writeFileSync(a, aBefore);
+    vscode.workspace._save(makeDoc(a, aBefore));
+    plainCommands.get("aot.importCsvFiles")(root);
+    await new Promise((r) => setTimeout(r, 20));
+    fs.rmSync(a);
+    vscode.workspace._aotDeleted({ fsPath: a });
+    await sync(root);
+    console.log(read(csv) === "Pet,age\nTom,2\n" && !/Rex/.test(read(b))
+      ? "PASS (csv: a file deleted leaves its rows gone from the CSV it shared)"
+      : "UNEXPECTED deleted " + JSON.stringify({ csv: read(csv), b: read(b) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+})();
 
 // 6c) the mirror reaches line-form Concepts too, exactly as it does
 // tables: the first save writes the CSV unbidden — a Concept listing bare
@@ -2002,6 +2317,46 @@ async function hoistAndReconcile() {
   delete configStore.distinctConcepts;
 }
 
+// 7d0) spelling on or off from Ctrl+.: beside Replace and Accept on a flagged
+// word, and anywhere else only when Ctrl+. asks, never in the lightbulb that
+// follows the cursor. Off, the hints and the English plural guess both stop.
+{
+  const doc = makeDoc("c:\\repo\\Spelt.aot", "Huis\n    - recieve\n");
+  vscode.workspace._open(doc);
+  const diags = published.get(doc.uri.toString()) || [];
+  const hint = diags.find((d) => /is not in the dictionary/.test(d.message));
+  const plural = diags.find((d) => /appears plural/.test(d.message));
+  const titles = (context, range) => codeActionsProvider.provideCodeActions(doc, range, context).map((f) => f.title);
+  const onWord = titles({ diagnostics: [hint] }, hint.range);
+  const onPlural = titles({ diagnostics: [plural] }, plural.range);
+  console.log(hint && plural && onWord.some((t) => /^Replace with 'receive'/.test(t)) && onWord.some((t) => /^Accept 'recieve'/.test(t))
+    && onWord.includes("Turn off spelling checks") && onPlural.includes("Turn off spelling checks") && onPlural.some((t) => /^Accept 'Huis'/.test(t))
+    ? "PASS (spelling: Ctrl+. on a flagged word offers Replace, Accept and the off switch)"
+    : "UNEXPECTED spelling actions " + JSON.stringify({ onWord, onPlural }));
+  const elsewhere = new vscode.Range(0, 0, 0, 0);
+  const automatic = titles({ diagnostics: [], triggerKind: vscode.CodeActionTriggerKind.Automatic }, elsewhere);
+  const asked = titles({ diagnostics: [], triggerKind: vscode.CodeActionTriggerKind.Invoke }, elsewhere);
+  console.log(!automatic.some((t) => /spelling/.test(t)) && asked.includes("Turn off spelling checks")
+    ? "PASS (spelling: elsewhere the switch answers Ctrl+. only, so no lightbulb follows the cursor)"
+    : "UNEXPECTED spelling offer " + JSON.stringify({ automatic, asked }));
+  plainCommands.get("aot.toggleSpelling")();
+  const off = configStore.spellingHints === false;
+  vscode.workspace._open(doc);
+  const quiet = (published.get(doc.uri.toString()) || []).filter((d) => /is not in the dictionary|appears plural/.test(d.message));
+  const backOn = titles({ diagnostics: [], triggerKind: vscode.CodeActionTriggerKind.Invoke }, elsewhere);
+  console.log(off && !quiet.length && backOn.includes("Turn on spelling checks") && !backOn.includes("Turn off spelling checks")
+    ? "PASS (spelling: turned off, the hints and the plural guess stop, and Ctrl+. offers the way back)"
+    : "UNEXPECTED spelling off " + JSON.stringify({ off, quiet: quiet.map((d) => d.message), backOn }));
+  plainCommands.get("aot.toggleSpelling")();
+  vscode.workspace._open(doc);
+  const again = (published.get(doc.uri.toString()) || []).filter((d) => /is not in the dictionary|appears plural/.test(d.message)).length === 2;
+  console.log(configStore.spellingHints === true && again
+    ? "PASS (spelling: turned back on, both return)"
+    : "UNEXPECTED spelling on " + JSON.stringify(configStore.spellingHints));
+  delete configStore.spellingHints;
+  vscode.workspace._close(doc);
+}
+
 // 7d1) the lightbulbs on the repo-wide findings and on an unlisted value read
 // their names back out of the message, so a reworded finding must not take the
 // fix off the bulb. Driven by the messages the checks really produce.
@@ -2119,9 +2474,8 @@ async function hoistAndReconcile() {
 })();
 
 // 7d4) the table keys in free text: an Example's lines are a row, its values
-// the cells — Tab walks them, Ctrl+D fills a value down, Alt+↓ moves the
-// whole Example; on a bare attribute line
-// the key is VS Code's own again
+// the cells — Ctrl+D fills a value down, Alt+↓ moves the whole Example; on a
+// bare attribute line the key is VS Code's own again, and Tab is everywhere
 (async () => {
   let lines = [
     "Person",
@@ -2168,16 +2522,17 @@ async function hoistAndReconcile() {
     ? "PASS (free text: an Example's line takes the table keys; a bare attribute line does not)"
     : "UNEXPECTED grid context " + JSON.stringify({ onExample, onDeclaration }));
 
-  editor.selection = new vscode.Selection(2, 6, 2, 6);
-  await registeredCommands.get("aot.table.nextCell")(editor);
-  const tabbed = editor.selection.active.line === 3 && editor.selection.active.character === 13;
-  editor.selection = new vscode.Selection(1, 4, 1, 4);
-  vscode.commands._calls.length = 0;
-  await registeredCommands.get("aot.table.nextCell")(editor);
-  const ownTab = vscode.commands._calls.some((c) => c[0] === "tab");
-  console.log(tabbed && ownTab
-    ? "PASS (free text: Tab walks from an Example's name to its value; on an attribute it is VS Code's own Tab)"
-    : "UNEXPECTED free-text Tab " + JSON.stringify({ tabbed, ownTab, sel: editor.selection.a }));
+  // on an Example's line and on an attribute alike, Tab is VS Code's own
+  const ownTabAt = async (line, ch) => {
+    editor.selection = new vscode.Selection(line, ch, line, ch);
+    vscode.commands._calls.length = 0;
+    await registeredCommands.get("aot.table.nextCell")(editor);
+    return vscode.commands._calls.some((c) => c[0] === "tab") && editor.selection.active.line === line;
+  };
+  const onExampleTab = await ownTabAt(2, 6), onValueTab = await ownTabAt(3, 13), onAttrTab = await ownTabAt(1, 4);
+  console.log(onExampleTab && onValueTab && onAttrTab
+    ? "PASS (free text: Tab is VS Code's own, on an Example, a value and an attribute)"
+    : "UNEXPECTED free-text Tab " + JSON.stringify({ onExampleTab, onValueTab, onAttrTab, sel: editor.selection.a }));
 
   editor.selection = new vscode.Selection(7, 14, 7, 14); // Bob's city
   await registeredCommands.get("aot.table.fillDown")(editor);
@@ -2388,7 +2743,7 @@ async function hoistAndReconcile() {
     parkDecorated.clear();
     vscode.workspace._open(doc);
     vscode.window.visibleTextEditors = visible;
-    return [...parkDecorated.values()].find((set) => set.some((d) => /\*\*Computed by Python\*\*/.test(d.hoverMessage.value))) || [];
+    return [...parkDecorated.values()].find((set) => set.some((d) => /\*\*Calculated\*\*/.test(d.hoverMessage.value))) || [];
   };
 
   const store = path.join(root, "aot.files", "Ledger.formulas");
@@ -2470,8 +2825,8 @@ async function hoistAndReconcile() {
 })();
 
 // 8) derivations: the span after the '=' is coloured as Python, a value
-// nothing has computed yet draws no verdict from the linter, and Tab
-// computes nothing — only Ctrl+Enter runs Python.
+// nothing has computed yet draws no verdict from the linter, and Tab itself
+// computes nothing.
 {
   const calc = [
     "Order",
@@ -2493,7 +2848,7 @@ async function hoistAndReconcile() {
     ? "PASS (derivation: the linter judges no computed value — that is the run's to say)"
     : "UNEXPECTED formula diagnostics " + JSON.stringify(calcDiags.map((d) => d.message)));
 
-  // Tab aligns and computes nothing: the 15 stays until Python runs
+  // Tab aligns and computes nothing: the 15 stays until the file calculates
   let applied8 = null;
   const editor8 = {
     document: doc8,
@@ -2504,7 +2859,7 @@ async function hoistAndReconcile() {
   registeredCommands.get("aot.table.nextCell")(editor8);
   Promise.resolve().then(() => {
     console.log(applied8 && applied8.includes("15 =@price*2")
-      ? "PASS (derivation: Tab computes nothing — the value waits for Ctrl+Enter)"
+      ? "PASS (derivation: Tab computes nothing itself — the value waits for the file to calculate)"
       : "UNEXPECTED recompute on Tab " + JSON.stringify(applied8));
   });
 }
@@ -2874,9 +3229,9 @@ late(3200, async () => {
     : "UNEXPECTED inlay setting " + JSON.stringify(none));
 }
 
-// 9b2) nothing fills itself in: a derivation is Python, and Python runs only
-// when asked (Ctrl+Enter). Opening a file, leaving a line, a stale table
-// cell — none of them computes a value.
+// 9b2) nothing fills itself in while formulas are off: a formula is Python, which
+// runs only once it is turned on. Opening a file, leaving a line, a stale table
+// cell — with it off, none of them computes a value.
 (async () => {
   const lines = [
     "Order",
@@ -2909,7 +3264,7 @@ late(3200, async () => {
   vscode.window._selectionChanged({ textEditor: editor, selections: [new vscode.Selection(3, 0, 3, 0)] });
   await new Promise((r) => setImmediate(r));
   console.log(lines.join("\n") === before
-    ? "PASS (no fill: opening a file or leaving a line computes nothing — Ctrl+Enter does)"
+    ? "PASS (no fill: with formulas off, opening a file or leaving a line computes nothing)"
     : "UNEXPECTED fill " + JSON.stringify(lines));
   vscode.window.visibleTextEditors.pop();
 })();
@@ -2961,6 +3316,32 @@ late(3200, async () => {
   console.log(hoverUrlImg && /!\[\]\(https:\/\/example\.com\/logo\.png\)/.test(hoverUrlImg.contents.value)
     ? "PASS (hover: an image URL shows the picture)"
     : "UNEXPECTED image url hover " + JSON.stringify(hoverUrlImg && hoverUrlImg.contents.value));
+  // in a workspace VS Code does not trust, a hover loads and contacts nothing
+  configStore.urlMetadata = false;
+  vscode.workspace.isTrusted = false;
+  const untrustedImg = await hoverProvider.provideHover(docF, new vscode.Position(3, 12));
+  vscode.workspace.isTrusted = true;
+  delete configStore.urlMetadata;
+  console.log(!(untrustedImg && /!\[\]\(https:/.test(untrustedImg.contents.value))
+    ? "PASS (hover: an untrusted workspace loads no remote picture)"
+    : "UNEXPECTED untrusted hover " + JSON.stringify(untrustedImg.contents.value));
+  // and no hover anywhere contacts an address on this machine or its network
+  const internal = "Doc\n    logo: http://192.168.1.1/logo.png\n    admin: http://localhost:8080/x";
+  const docI = {
+    languageId: "aot", fileName: aot, eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///internal" },
+    get lineCount() { return internal.split("\n").length; },
+    getText: () => internal,
+    lineAt: (i) => { const l = internal.split("\n")[i]; return { range: new vscode.Range(i, 0, i, l.length), text: l }; },
+  };
+  configStore.urlMetadata = false;
+  const internalImg = await hoverProvider.provideHover(docI, new vscode.Position(1, 18));
+  delete configStore.urlMetadata;
+  const internalUrl = await hoverProvider.provideHover(docI, new vscode.Position(2, 18));
+  const named = (h) => h && /192\.168|localhost/.test(String(h.contents && h.contents.value));
+  console.log(!named(internalImg) && !named(internalUrl)
+    ? "PASS (hover: an internal address is never contacted)"
+    : "UNEXPECTED internal hover " + JSON.stringify([internalImg && internalImg.contents.value, internalUrl && internalUrl.contents.value]));
   fs.rmSync(dir, { recursive: true, force: true });
 })();
 
@@ -3265,7 +3646,7 @@ setTimeout(async () => {
 }
 
 // 12) Python derivations end to end, against a fake runtime — no Python
-// needed: the gates, Ctrl+Enter writing values, a Concept's table, a picture
+// needed: the gates, F9 writing values, a Concept's table, a picture
 // and a long text into aot.files, a failure kept to its own line and what
 // reads it, the findings in a collection of their own, consent for the
 // sidecar asked again after it changes, the park key running Python first,
@@ -3278,6 +3659,7 @@ setTimeout(async () => {
   const before = vscode.workspace.workspaceFolders;
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
   const requests = [];
+  const batches = [];
   let spawns = 0;
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   // the fake keeps the runtime's one rule about the repository's Python: a
@@ -3364,25 +3746,67 @@ setTimeout(async () => {
           ? { ok: true, result: { kind: "number", value: 1 }, ms: 1 } : { ok: false, error: "not the live table the bare line wrote " + JSON.stringify(req.targets) };
       case "_aot_ref(0)*0.2": return { ok: true, result: { kind: "number", value: Number(req.targets[0].text) * 0.2 }, ms: 1 };
       case "_aot_ref(0)-1": return { ok: true, result: { kind: "number", value: Number(req.targets[0].text) - 1 }, ms: 1 };
+      case "_aot_ref(0)*2": return { ok: true, result: { kind: "number", value: Number(String(req.targets[0].text).replace(/,/g, "")) * 2 }, ms: 1 };
+      case '("draft", "sent")': return { ok: true, many: true, ms: 1 };
+      case "_aot_ref(0).sum()": return { ok: true, result: { kind: "number", value: req.targets[0].values.reduce((n, v) => n + Number(v), 0) }, ms: 1 };
+      case "third()": return { ok: true, result: { kind: "number", text: "0.3333333333333333" }, ms: 1 };
+      case "whole()": return { ok: true, result: { kind: "number", text: "12345" }, ms: 1 };
       default: return { ok: false, error: `the fake runtime was not taught ${req.code}` };
     }
   };
   let lastSpawn = null;
+  let duringEval = null; // what happens in the middle of a formula's running, for a test to say
   const fakeRuntime = (cmd, args, opts) => {
     spawns++;
     lastSpawn = { cmd, args, opts };
     const proc = new EventEmitter();
+    // as the runtime does: what reads a formula with no result here does not run at all
+    const results = new Set();
+    let dead = false;
     proc.stdout = new EventEmitter();
     proc.stderr = new EventEmitter();
     proc.stdin = {
       write: (s) => {
         const req = JSON.parse(s);
+        if (req.op === "evalBatch") {
+          // a batch answers a line per formula as each finishes, then says it is done
+          batches.push(req);
+          setImmediate(() => {
+            for (let k = 0; k < req.items.length; k++) {
+              const item = req.items[k];
+              const one = { op: "eval", address: item.address, code: item.code, host: item.host, value: item.value, targets: item.refs.map((i) => req.targets[i]) };
+              const missing = one.targets.find((t) => t.kind === "object" && !results.has(t.address));
+              let said;
+              if (missing) said = { ok: false, error: `LookupError: ${missing.address} has not been computed in this session` };
+              else {
+                requests.push(one);
+                if (duringEval) duringEval(one);
+                if (dead) return;
+                if (one.code === "crash()") {
+                  dead = true;
+                  proc.emit("exit", 1);
+                  return;
+                }
+                said = answer(one);
+              }
+              if (said.ok) results.add(one.address);
+              else results.delete(one.address);
+              proc.stdout.emit("data", JSON.stringify(Object.assign({ id: req.id, partial: true, k }, said)) + "\n");
+            }
+            proc.stdout.emit("data", JSON.stringify({ id: req.id, ok: true, count: req.items.length }) + "\n");
+          });
+          return;
+        }
+        if (req.op === "reset") results.clear();
         requests.push(req);
         setImmediate(() => proc.stdout.emit("data", JSON.stringify(Object.assign({ id: req.id }, answer(req))) + "\n"));
       },
       end() {},
     };
-    proc.kill = () => setImmediate(() => proc.emit("exit", null));
+    proc.kill = () => {
+      dead = true;
+      setImmediate(() => proc.emit("exit", null));
+    };
     return proc;
   };
   ext._test.setSpawn(fakeRuntime);
@@ -3427,9 +3851,11 @@ setTimeout(async () => {
   const pyFindings = (doc) => (publishedByName.get("aot-python") || new Map()).get(doc.uri.toString()) || [];
   const run = (f, line) => {
     f.editor.selection = new vscode.Selection(line, 0, line, 0);
-    return registeredCommands.get("aot.runPython")(f.editor);
+    return registeredCommands.get("aot.recomputeFormulas")(f.editor);
   };
 
+  const visibleBefore = vscode.window.visibleTextEditors;
+  vscode.window.visibleTextEditors = []; // each test here says what is on screen
   try {
     process.env.AOT_TEST_API_TOKEN = "a secret the editor was started with";
     process.env.VSCODE_TEST_HANDLE = "a door back into the editor";
@@ -3450,46 +3876,78 @@ setTimeout(async () => {
     // off by default: nothing runs, nothing starts, and the note says so
     vscode.workspace._open(f.doc);
     const infoFirst = pyFindings(f.doc).filter((d) => d.severity === vscode.DiagnosticSeverity.Information);
-    console.log(infoFirst.length === 8 && infoFirst.every((d) => /^press Ctrl\+Enter to run it — not run yet \(aot\.python\.enabled is off\)$/.test(d.message))
-      && infoFirst.every((d) => d.source === "aot-python")
-      ? "PASS (python: a derivation that has never run is noted as such, in a collection of its own)"
+    console.log(infoFirst.length === 8 && infoFirst.every((d) => /^turn on formulas to calculate it — not calculated yet \(aot\.python\.enabled is off\)$/.test(d.message))
+      && infoFirst.every((d) => d.source === "formula")
+      ? "PASS (python: with formulas off, each one not yet calculated says so, in a collection of its own)"
       : "UNEXPECTED python notes " + JSON.stringify(pyFindings(f.doc).map((d) => d.message)));
     console.log(!(published.get(f.doc.uri.toString()) || []).some((d) => /Python|does not compute/.test(d.message) && d.range.a[0] >= 1 && d.range.a[0] <= 7)
       ? "PASS (python: no Python derivation is a linter error — V never counts them)"
       : "UNEXPECTED python in the linter's findings " + JSON.stringify((published.get(f.doc.uri.toString()) || []).map((d) => d.message)));
+
+    // the first formula offers to turn them on, once; a key pressed always gets an answer
+    const offers = () => vscode.window._info.filter((m) => /^AOT: formulas are off\. A formula is Python and runs with your permissions\.$/.test(m)).length;
+    ext._test.forgetOffer();
+    const offersBefore = offers();
+    const autoOff = await ext._test.runPython(f.doc, { mode: "auto" });
+    const offerItems = vscode.window._infoItems;
+    await ext._test.runPython(f.doc, { mode: "auto" });
+    console.log(autoOff.blocked === "off" && spawns === 0 && ran() === 0 && offers() === offersBefore + 1
+      && JSON.stringify(offerItems) === JSON.stringify(["Turn on formulas", "Not now"])
+      ? "PASS (python: the first formula offers to turn formulas on, once, and nothing starts)"
+      : "UNEXPECTED offer " + JSON.stringify({ autoOff, spawns, offers: offers() - offersBefore, offerItems }));
     const offRun = await run(f, 1);
-    console.log(offRun && offRun.blocked === "off" && spawns === 0 && ran() === 0
-      ? "PASS (python: with aot.python.enabled off, Ctrl+Enter runs nothing and starts nothing)"
+    console.log(offRun && offRun.blocked === "off" && spawns === 0 && ran() === 0 && offers() === offersBefore + 2
+      ? "PASS (python: with formulas off, F9 runs nothing, starts nothing, and offers again)"
       : "UNEXPECTED run while off " + JSON.stringify({ offRun, spawns }));
+    // one click turns them on
+    vscode.window._answers.push({ test: /^AOT: formulas are off/, answer: "Turn on formulas" });
+    await run(f, 1);
+    await new Promise((r) => setImmediate(r));
+    vscode.window._answers.pop();
+    await new Promise((r) => setTimeout(r, 20));
+    console.log(configStore["python.enabled"] === true
+      ? "PASS (python: one click turns formulas on)"
+      : "UNEXPECTED offer not taken " + JSON.stringify(configStore));
+    // (turning them on warms an interpreter, which loads nothing of the repository's)
+    const spawnsOn = spawns;
+    console.log(requests.every((r) => ["hello", "warm"].includes(r.op))
+      ? "PASS (python: the interpreter warmed as formulas turn on runs nothing the file carries)"
+      : "UNEXPECTED warm-up " + JSON.stringify(requests.map((r) => r.op)));
 
     // on, but the workspace untrusted
-    configStore["python.enabled"] = true;
     vscode.workspace.isTrusted = false;
     const untrusted = await run(f, 1);
-    console.log(untrusted && untrusted.blocked === "untrusted" && spawns === 0
+    console.log(untrusted && untrusted.blocked === "untrusted" && spawns === spawnsOn && ran() === 0
       ? "PASS (python: an untrusted workspace runs nothing and starts nothing)"
       : "UNEXPECTED run while untrusted " + JSON.stringify({ untrusted, spawns }));
     vscode.workspace.isTrusted = true;
 
-    // the file's own Python arrived on disk, not written in this editor: it
-    // is asked about before anything starts
+    // the file's own Python arrived on disk, not written in this editor: nothing
+    // stops for it, and it waits for a word, asked once
     vscode.window._warningAnswer = undefined;
     const codeAsked = vscode.window._warnings.length;
+    const pausedFirst = await ext._test.runPython(f.doc, { mode: "auto" });
+    const askedModal = vscode.window._warningModal;
+    await ext._test.runPython(f.doc, { mode: "auto" });
+    console.log(pausedFirst.blocked === "consent" && spawns === spawnsOn && ran() === 0 && vscode.window._warnings.length === codeAsked + 1 && !askedModal
+      && /^AOT: 8 formulas in Ledger\.aot came from outside this editor — line 2: =math\.factorial\(10\); line 3: =frame\(\)/.test(vscode.window._warnings[codeAsked] || "")
+      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Enable", "Show Them"])
+      ? "PASS (python: formulas from outside wait for a word, asked once and in no one's way, and nothing starts)"
+      : "UNEXPECTED .aot consent " + JSON.stringify({ pausedFirst, spawns, askedModal, warnings: vscode.window._warnings.slice(codeAsked), items: vscode.window._warningItems }));
+    // F9 asks again, and no answer is a no
+    const askedAtKey = vscode.window._warnings.length;
     const refusedCode = await run(f, 1);
-    console.log(refusedCode.blocked === "refused" && spawns === 0
-      && /^AOT: run the Python in Ledger\.aot\? 8 derivations in it have not run here before and did not come from this editor — line 2: =math\.factorial\(10\); line 3: =frame\(\)/.test(vscode.window._warnings[codeAsked] || "")
-      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Run", "Show Them"])
-      ? "PASS (python: a .aot's own Python that came from outside is asked about before anything starts — no answer, nothing runs)"
-      : "UNEXPECTED .aot consent " + JSON.stringify({ refusedCode, spawns, warning: vscode.window._warnings[codeAsked] }));
-    vscode.window._warningAnswer = "Run";
+    console.log(refusedCode.blocked === "refused" && spawns === spawnsOn && ran() === 0 && vscode.window._warnings.length === askedAtKey + 1
+      ? "PASS (python: F9 asks about formulas from outside; no answer, nothing runs)"
+      : "UNEXPECTED F9 consent " + JSON.stringify({ refusedCode, spawns }));
+    vscode.window._warningAnswer = "Enable";
 
-    // Ctrl+Enter on one derivation: that one, in place
+    // F9: every formula, what each reads first
     const first = await run(f, 1);
-    console.log(first.ran === 2 && f.lines()[1] === "    n: 3,628,800 =math.factorial(10)"
-      && f.lines()[9] === "    vat: 725,760 =@n*@tax rate"
-      ? "PASS (python: Ctrl+Enter writes the value in front of its derivation, and what reads it runs after it)"
-      : "UNEXPECTED Ctrl+Enter one " + JSON.stringify({ first, lines: f.lines() }));
-
+    console.log(first.ran === 6 && f.lines()[1] === "    n: 3,628,800 =math.factorial(10)"
+      && f.lines().includes("    vat: 725,760 =@n*@tax rate")
+      ? "PASS (python: F9 writes each value in front of its formula, what it reads first)"
+      : "UNEXPECTED first F9 " + JSON.stringify({ first, lines: f.lines() }));
     // what the process is held to goes in with its first request, and the
     // editor's own secrets never reach it
     const helloSent = requests.find((r) => r.op === "hello");
@@ -3499,9 +3957,7 @@ setTimeout(async () => {
       ? "PASS (python: the guards go in with hello — 4 GB, no other programs, credentials protected — and no secret in the environment reaches Python)"
       : "UNEXPECTED guards " + JSON.stringify({ guards: helloSent && helloSent.guards, leaked: Object.keys(env).filter((k) => /AOT_TEST|VSCODE_TEST/.test(k)) }));
 
-    // Ctrl+Enter off any derivation: every stale one, dependencies first
-    const all = await run(f, 0);
-    const L = f.lines();
+    const all = first;    const L = f.lines();
     const chartFile = path.join(root, "aot.files", "Report.chart.png");
     const notesFile = path.join(root, "aot.files", "Report.notes.md");
     // the table IS the Concept: its line becomes the header, derivation and
@@ -3526,94 +3982,120 @@ setTimeout(async () => {
       : "UNEXPECTED notes " + JSON.stringify(L));
     console.log(L.includes("    bad: =boom()") && L.includes("    twice: =@bad.real * 2")
       && !requests.some((r) => r.op === "eval" && /real/.test(r.code))
-      ? "PASS (python: a failure keeps its old value, and what reads it is never sent to run)"
+      ? "PASS (python: a failure keeps its old value, and what reads it never runs)"
       : "UNEXPECTED failure handling " + JSON.stringify(L));
     const findings = pyFindings(f.doc);
     const badLine = L.indexOf("    bad: =boom()");
     const failedD = findings.find((d) => d.range.a[0] === badLine);
     const skippedD = findings.find((d) => d.range.a[0] === badLine + 1);
-    console.log(all.failed === 2 && failedD && failedD.severity === vscode.DiagnosticSeverity.Error && /NameError: name 'boom'/.test(failedD.message)
-      && skippedD && skippedD.severity === vscode.DiagnosticSeverity.Warning && /@Report@bad failed/.test(skippedD.message)
-      ? "PASS (python: the failure is an error on its own line; what reads it says why it did not run)"
-      : "UNEXPECTED failure findings " + JSON.stringify(findings.map((d) => [d.range.a[0], d.severity, d.message])));
-    console.log(lint(f.text(), "Ledger").errors.length === 0
+    console.log(all.failed === 2 && failedD && failedD.severity === vscode.DiagnosticSeverity.Error && failedD.message === "fix this formula — 'boom' isn't a known name"
+      && skippedD && skippedD.severity === vscode.DiagnosticSeverity.Warning && skippedD.message === "fix what it reads — it did not calculate: @Report@bad failed"
+      ? "PASS (python: the failure is an error on its own line, in plain words; what reads it says why it did not calculate)"
+      : "UNEXPECTED failure findings " + JSON.stringify(findings.map((d) => [d.range.a[0], d.severity, d.message])));    console.log(lint(f.text(), "Ledger").errors.length === 0
       ? "PASS (python: the file Python wrote still verifies — V is unchanged)"
       : "UNEXPECTED errors after the run " + JSON.stringify(lint(f.text(), "Ledger").errors.map((e) => e.message)));
 
-    // how each ran, and when, at the end of its line
+    // what calculated says nothing at the end of its line, as a spreadsheet's cell
+    // says nothing; what did not says why, and the details are in the hover
     const hintsNow = () => inlayProvider.provideInlayHints(f.doc, new vscode.Range(0, 0, 40, 0)).map((h) => h.label);
     const hints = hintsNow();
-    console.log(hints.some((label) => /^✓ 2 rows · 5 ms · \d\d:\d\d$/.test(label)) && hints.some((label) => /^✗ NameError.* · \d\d:\d\d$/.test(label))
-      && hints.some((label) => /^✓ 1 ms · \d\d:\d\d$/.test(label))
-      ? "PASS (python: an inlay says how each derivation ran and when — its rows, its time, or what went wrong)"
+    console.log(hints.length === 2 && /^✗ 'boom' isn't a known name · \d\d:\d\d$/.test(hints[0]) && /^– did not calculate · \d\d:\d\d$/.test(hints[1])
+      ? "PASS (python: only what did not calculate says anything at the end of its line)"
       : "UNEXPECTED python inlays " + JSON.stringify(hints));
-    const { ranAt } = ext._test;
+    const valueHover = () => {
+      const hv = hoverProvider.provideHover(f.doc, new vscode.Position(1, 8));
+      return hv && hv.contents ? [].concat(hv.contents).map((c) => c.value || String(c)).join(" ") : "";
+    };
+    console.log(/\*\*Calculated\*\* — `=math\.factorial\(10\)`/.test(valueHover()) && /Calculated \d{4}-\d\d-\d\d \d\d:\d\d:\d\d in 3 ms · python 3\.13\.0/.test(valueHover())
+      ? "PASS (python: the hover on a value says when it calculated, how long it took, and with what)"
+      : "UNEXPECTED value hover " + JSON.stringify(valueHover()));    const { ranAt } = ext._test;
     const now = new Date(2026, 8, 24, 16, 30);
     console.log(ranAt(new Date(2026, 8, 24, 9, 5), now) === "09:05" && ranAt(new Date(2026, 8, 23, 16, 4), now) === "2026-09-23 16:04"
       && ranAt(undefined, now) === "" && ranAt("not a date", now) === ""
       ? "PASS (python: a run today shows its time, an older one its date as the file writes one)"
       : "UNEXPECTED ranAt " + JSON.stringify([ranAt(new Date(2026, 8, 24, 9, 5), now), ranAt(new Date(2026, 8, 23, 16, 4), now)]));
 
-    // what an inlay says, state by state — one derivation, then a row of them
+    // what an inlay says, state by state — one formula, then a row of them
     {
       const { pyRunNote, combinedRunNote } = ext._test;
       const hash = require("../src/python").sourceHash;
       const h = { source: "f()" };
       const rec = { source: hash("f()"), at: new Date().toISOString(), ms: 3 };
       const running = pyRunNote(h, { state: "running", source: hash("f()") }, rec);
-      const failed = pyRunNote(h, { state: "error", source: hash("f()"), message: "NameError: f" }, rec);
+      const failed = pyRunNote(h, { state: "error", source: hash("f()"), message: "'f' isn't a known name", raw: "NameError: f", traceback: "Traceback: f" }, rec);
       const skipped = pyRunNote(h, { state: "skipped", source: hash("f()"), message: "not run — @x failed" }, rec);
-      // (no time of its own: the session's mark carries none here, so the
-      // label has no '· hh:mm', and the tooltip has the record's run alone)
-      console.log(running.label === "⟳ running" && failed.label === "✗ NameError: f" && /^NameError: f\nlast ran [^\n]+$/.test(failed.tooltip)
-        && skipped.label === "– not run" && /^not run — @x failed\nlast ran [^\n]+$/.test(skipped.tooltip)
-        ? "PASS (python inlay: running, failed and not run, each saying when it last ran)"
-        : "UNEXPECTED run notes " + JSON.stringify([running, failed, skipped]));
+      const well = pyRunNote(h, { state: "ok", source: hash("f()"), ms: 3 }, rec);
+      const editedNote = pyRunNote({ source: "g()" }, undefined, rec);
+      console.log(running.label === null && failed.label === "✗ 'f' isn't a known name"
+        && /^NameError: f\nTraceback: f\nlast calculated [^\n]+$/.test(failed.tooltip)
+        && skipped.label === "– did not calculate" && /^not run — @x failed\nlast calculated [^\n]+$/.test(skipped.tooltip)
+        && well.label === null && /^calculated [^\n]+ · 3 ms$/.test(well.tooltip)
+        && editedNote.label === null && /^last calculated [^\n]+, before this edit$/.test(editedNote.tooltip)
+        ? "PASS (python inlay: only a failure and what it held up have a label, in plain words with the traceback behind them)"
+        : "UNEXPECTED run notes " + JSON.stringify([running, failed, skipped, well, editedNote]));
       const at = new Date();
-      const cell = (c, n) => Object.assign({ cell: c, label: "✓", tooltip: "" }, n);
+      const cell = (c, n) => Object.assign({ cell: c, label: null, tooltip: "" }, n);
       const long = "ValueError: " + "x".repeat(80);
       const row = (...notes) => combinedRunNote(notes);
-      const busy = row(cell("a", { state: "ok", ms: 1, at }), cell("b", { state: "running", label: "⟳ running" }));
+      const busy = row(cell("a", { state: "ok" }), cell("b", { state: "running" }));
       const broke = row(cell("a", { state: "error", message: long, at }));
-      const notRun = row(cell("a", { state: "ok", ms: 1, at }), cell("b", { state: "skipped", at, label: "– not run", tooltip: "not run — @x failed" }));
-      const edited = row(cell("a", { state: "ok", ms: 1, at }), cell("b", { state: "edited", at }));
-      const plain = row(cell("a", { state: "ok" }), cell("b", { state: "ok", ms: 2 }));
-      console.log(busy.label === "⟳ running" && busy.tooltip === "a: ✓\nb: ⟳ running"
+      const notRun = row(cell("a", { state: "ok" }), cell("b", { state: "skipped", at, label: "– did not calculate", tooltip: "not run — @x failed" }));
+      const plain = row(cell("a", { state: "ok" }), cell("b", { state: "ok" }));
+      console.log(busy.label === null && busy.tooltip === "a: ok\nb: running"
         && broke.label.startsWith("✗ a: ValueError: xxx") && broke.label.includes("…") && broke.label.length < 75
-        && notRun.label === `– b not run · ${ranAt(at)}` && /^b: – not run\n {4}not run — @x failed$/m.test(notRun.tooltip)
-        && edited.label === `✎ b edited since ${ranAt(at)} — Ctrl+Enter`
-        && plain.label === "✓ a, b · 2 ms"
-        ? "PASS (python inlay: a row's one inlay leads with its worst news — running, a failure cut short, one not run, one edited — else names every cell)"
-        : "UNEXPECTED row notes " + JSON.stringify([busy, broke, notRun, edited, plain].map((x) => x.label)));
+        && notRun.label === `– b did not calculate · ${ranAt(at)}` && /^b: – did not calculate\n {4}not run — @x failed$/m.test(notRun.tooltip)
+        && plain.label === null
+        ? "PASS (python inlay: a row's one inlay leads with its worst news, and with none it is not there)"
+        : "UNEXPECTED row notes " + JSON.stringify([busy, broke, notRun, plain].map((x) => x.label)));
     }
 
-    // nothing left to do: a second Ctrl+Enter off every derivation runs only the failures again
-    const evalsBefore = requests.filter((r) => r.op === "eval").length;
+    // nothing to do: a pass with nothing out of date sends nothing, and what failed
+    // is not tried again, nor what reads it, until something about it changes
+    const evalCount = () => requests.filter((r) => r.op === "eval").length;
+    const evalsBefore = evalCount();
+    const calm = await ext._test.runPython(f.doc, { mode: "auto" });
+    console.log(calm.ran === 0 && evalCount() === evalsBefore
+      ? "PASS (python: a pass runs only what is out of date, and what failed waits until it changes)"
+      : "UNEXPECTED second pass " + JSON.stringify({ calm, sent: requests.filter((r) => r.op === "eval").slice(evalsBefore).map((r) => r.code) }));
+    // F9 tries again what failed, and whatever reads nothing in the file
     await run(f, 0);
     const rerun = requests.filter((r) => r.op === "eval").slice(evalsBefore).map((r) => r.code);
-    console.log(rerun.length === 1 && rerun[0] === "boom()"
-      ? "PASS (python: a fresh derivation is not run again — only what is stale)"
+    console.log(rerun.includes("boom()") && rerun.includes("math.factorial(10)") && rerun.includes("_aot_ref(0)*_aot_ref(1)") && !rerun.some((c) => /real/.test(c))
+      ? "PASS (python: F9 tries again what failed, and what reads nothing in the file; what reads a failure still never runs)"
       : "UNEXPECTED rerun " + JSON.stringify(rerun));
 
-    // the file closed — the session and everything it knew gone — and the
-    // last run's time still shows: it is kept with the run records
+    // the file closed, the session and everything it knew gone: when each last
+    // calculated is kept with the run records, and so is what failed
     vscode.workspace._close(f.doc);
-    const afterClose = hintsNow();
-    console.log(afterClose.some((label) => /^✓ 2 rows · 5 ms · \d\d:\d\d$/.test(label)) && afterClose.some((label) => /^✓ 1 ms · \d\d:\d\d$/.test(label))
-      && !afterClose.some((label) => /^✗/.test(label))
-      ? "PASS (python: when a derivation last ran outlasts its session)"
-      : "UNEXPECTED inlays after close " + JSON.stringify(afterClose));
-
-    // an edit dims the old value and says so, without running anything
-    f.set(f.text().replace("    n: 3,628,800 =math.factorial(10)", "    n: 3,628,800 =math.factorial(10) + 0"));
+    const afterClose = valueHover();
     vscode.workspace._open(f.doc);
-    const edited = pyFindings(f.doc).find((d) => d.range.a[0] === 1);
-    console.log(edited && /edited since it last ran/.test(edited.message) && edited.severity === vscode.DiagnosticSeverity.Information
-      && hintsNow().some((label) => /^✎ edited since \d\d:\d\d — Ctrl\+Enter$/.test(label))
-      ? "PASS (python: a derivation edited since it ran is noted with when it last ran, and nothing runs until asked)"
-      : "UNEXPECTED edited note " + JSON.stringify({ findings: pyFindings(f.doc).map((d) => d.message), hints: hintsNow() }));
-    f.set(f.text().replace(" =math.factorial(10) + 0", " =math.factorial(10)"));
+    const stillSaid = pyFindings(f.doc).map((d) => d.message);
+    console.log(/Last calculated \d{4}-\d\d-\d\d \d\d:\d\d:\d\d in 3 ms\./.test(afterClose)
+      && stillSaid.includes("fix this formula — 'boom' isn't a known name")
+      && stillSaid.includes("fix what it reads — it did not calculate: @Report@bad failed")
+      ? "PASS (python: when a formula last calculated, and what failed, outlast the session)"
+      : "UNEXPECTED after close " + JSON.stringify({ afterClose, stillSaid }));
 
+    // an edit fades the old value and, in automatic calculation, says nothing else:
+    // it is about to be calculated. Where only a key will calculate it, it says so
+    f.set(f.text().replace("    n: 3,628,800 =math.factorial(10)", "    n: 3,628,800 =math.factorial(10) + 0"));
+    const painted = new Map();
+    f.editor.setDecorations = (type, ranges) => painted.set(type, ranges);
+    vscode.window.visibleTextEditors = [f.editor];
+    vscode.workspace._open(f.doc);
+    vscode.window.visibleTextEditors = [];
+    f.editor.setDecorations = () => {};
+    const faded = [...painted.values()].flat().filter((d) => d && /^An older result: this formula was edited since it last calculated\.$/.test(d.hoverMessage || ""));
+    const plainEdit = pyFindings(f.doc).find((d) => d.range.a[0] === 1);
+    configStore.calculation = "manual";
+    vscode.workspace._open(f.doc);
+    const manualEdit = pyFindings(f.doc).find((d) => d.range.a[0] === 1);
+    delete configStore.calculation;
+    console.log(faded.some((d) => d.range.a[0] === 1) && !plainEdit
+      && manualEdit && manualEdit.message === "press F9 to calculate it — edited since it last calculated" && manualEdit.severity === vscode.DiagnosticSeverity.Information
+      ? "PASS (python: an edited formula's old value fades; only in manual calculation does it also say to press F9)"
+      : "UNEXPECTED edited note " + JSON.stringify({ faded: faded.length, plainEdit: plainEdit && plainEdit.message, manualEdit: manualEdit && manualEdit.message }));
+    f.set(f.text().replace(" =math.factorial(10) + 0", " =math.factorial(10)"));
     // the sidecar: asked before it first runs, and again once it changes
     const side = path.join(root, "aot.files", "Ledger.py");
     fs.writeFileSync(side, "def helper():\n    return 1\n");
@@ -3622,12 +4104,12 @@ setTimeout(async () => {
     const evals = requests.filter((r) => r.op === "eval").length;
     const refused = await run(f, 1);
     console.log(refused.blocked === "refused" && vscode.window._warnings.length === warned + 1
-      && /^AOT: run aot\.files\/Ledger\.py\? A Python derivation reaches it, and it has not been run here before/.test(vscode.window._warnings[warned])
-      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Run", "Open File"])
+      && /^AOT: a formula reaches aot\.files\/Ledger\.py, which has not been run here before/.test(vscode.window._warnings[warned])
+      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Enable", "Open File"])
       && requests.filter((r) => r.op === "eval").length === evals
       ? "PASS (python: the sidecar is asked about before it first runs; no answer is a no, and nothing runs)"
       : "UNEXPECTED sidecar consent " + JSON.stringify({ refused, warnings: vscode.window._warnings.slice(warned) }));
-    vscode.window._warningAnswer = "Run";
+    vscode.window._warningAnswer = "Enable";
     const allowed = await run(f, 1);
     const sentSidecar = requests.filter((r) => r.op === "open").pop();
     console.log(allowed.ran >= 1 && sentSidecar && sentSidecar.sidecar === side
@@ -3643,7 +4125,7 @@ setTimeout(async () => {
     const again = await run(f, 1);
     console.log(again.blocked === "refused" && vscode.window._warnings.length === asked + 1
       && /has changed since you last allowed it, and not in this editor/.test(vscode.window._warnings[asked])
-      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Run", "Show Changes"])
+      && JSON.stringify(vscode.window._warningItems) === JSON.stringify(["Enable", "Show Changes"])
       ? "PASS (python: a sidecar changed outside the editor is asked about again)"
       : "UNEXPECTED changed sidecar " + JSON.stringify({ again, warnings: vscode.window._warnings.slice(asked), items: vscode.window._warningItems }));
     // and the change itself is one click away: the version allowed, beside this one
@@ -3655,7 +4137,7 @@ setTimeout(async () => {
       && fs.readFileSync(diff[1].fsPath, "utf8") === "def helper():\n    return 1\n"
       ? "PASS (python: 'Show Changes' opens the version allowed beside the changed one, and runs nothing)"
       : "UNEXPECTED show changes " + JSON.stringify({ looked, diff }));
-    vscode.window._warningAnswer = "Run";
+    vscode.window._warningAnswer = "Enable";
     await run(f, 1);
 
     // any Python file of the repository, named as a module — here one in
@@ -3670,27 +4152,28 @@ setTimeout(async () => {
     await run(g, 0);
     const approveSent = requests.filter((r) => r.op === "approve").slice(approvesBefore);
     console.log(g.lines()[1] === "    rev: 60 =finance.revenue(3)" && g.lines()[2] === "    n: 3,628,800 =math.factorial(10)"
-      && /^AOT: run the Python in Books\.aot\?/.test(vscode.window._warnings[reached] || "")
-      && /^AOT: run tools\/finance\.py\? A Python derivation reaches it/.test(vscode.window._warnings[reached + 1] || "")
+      && /^AOT: 2 formulas in Books\.aot came from outside this editor/.test(vscode.window._warnings[reached] || "")
+      && /^AOT: a formula reaches tools\/finance\.py, which has not been run here before/.test(vscode.window._warnings[reached + 1] || "")
       && approveSent.length === 1 && Object.keys(approveSent[0].files)[0] === finance
       ? "PASS (python: a module anywhere in the repository runs once allowed, asked about by its own path)"
       : "UNEXPECTED repository module " + JSON.stringify({ lines: g.lines(), warnings: vscode.window._warnings.slice(reached), approveSent }));
 
-    // changed on disk, outside the editor: what names it is stale, nothing else is
+    // changed on disk, outside the editor: what names it is out of date, nothing else is
     await new Promise((r) => setTimeout(r, 30));
     fs.writeFileSync(finance, "def revenue(units):\n    return units * 30\n");
     if (vscode.workspace._pyChanged) vscode.workspace._pyChanged({ fsPath: finance });
+    configStore.calculation = "manual";
     vscode.workspace._open(g.doc);
     const gNotes = pyFindings(g.doc);
-    console.log(gNotes.some((d) => d.range.a[0] === 1 && /something it reads changed/.test(d.message)) && !gNotes.some((d) => d.range.a[0] === 2)
-      ? "PASS (python: a module changing makes stale the derivations that name it, and no other)"
+    delete configStore.calculation;
+    console.log(gNotes.some((d) => d.range.a[0] === 1 && /^press F9 to calculate it — something it reads changed since it last calculated$/.test(d.message)) && !gNotes.some((d) => d.range.a[0] === 2)
+      ? "PASS (python: a module changing puts out of date the formulas that name it, and no other)"
       : "UNEXPECTED staleness after a module change " + JSON.stringify(gNotes.map((d) => [d.range.a[0], d.message])));
     const askedAgain = vscode.window._warnings.length;
     await run(g, 1);
-    console.log(/^AOT: run tools\/finance\.py\?.*has changed since you last allowed it, and not in this editor/.test(vscode.window._warnings[askedAgain] || "")
+    console.log(/^AOT: a formula reaches tools\/finance\.py, which has changed since you last allowed it, and not in this editor/.test(vscode.window._warnings[askedAgain] || "")
       ? "PASS (python: a module changed outside the editor is asked about again)"
       : "UNEXPECTED changed module " + JSON.stringify(vscode.window._warnings.slice(askedAgain)));
-
     // saved in this editor: the writer's own edit, never asked about
     const pyDoc = { fileName: finance, languageId: "python", uri: { fsPath: finance, toString: () => "file:///" + finance.replace(/\\/g, "/") }, getText: () => "" };
     await vscode.workspace._willSave({ document: pyDoc, waitUntil: () => {} });
@@ -3703,10 +4186,10 @@ setTimeout(async () => {
     await run(g, 1);
     const gHints = inlayProvider.provideInlayHints(g.doc, new vscode.Range(0, 0, 10, 0)).map((h) => h.label);
     console.log(vscode.window._warnings.length === beforeOwn && g.lines()[1] === "    rev: 60 =finance.revenue(3)"
-      && gHints.some((label) => /^✓/.test(label)) && !gHints.some((label) => /^✗/.test(label))
+      && !gHints.some((label) => /^✗/.test(label))
       ? "PASS (python: a module saved in this editor runs without being asked about)"
       : "UNEXPECTED own edit asked about " + JSON.stringify(vscode.window._warnings.slice(beforeOwn)));
-    vscode.window._warningAnswer = "Run";
+    vscode.window._warningAnswer = "Enable";
 
     // Ctrl+click on the function a derivation calls opens the file it is
     // written in, at its def — the module's, or the one the sidecar imports
@@ -3727,17 +4210,17 @@ setTimeout(async () => {
     g.set(g.text().replace("\n    via: =rev_of(2) + len(@n) + math.floor(1)", ""));
     fs.rmSync(booksSide);
 
-    // what must never run anything: a save, a CSV arriving, a store arriving
+    // a save, a CSV arriving and a store arriving calculate only what is out of
+    // date, and here nothing is
     const quiet = ran();
     await vscode.workspace._willSave({ document: f.doc, waitUntil: (p) => p });
     vscode.workspace._save(f.doc);
     if (vscode.workspace._csvChanged) await vscode.workspace._csvChanged({ fsPath: path.join(root, "aot.files", "Sales.csv") });
     if (vscode.workspace._parkChanged) vscode.workspace._parkChanged({ fsPath: path.join(root, "aot.files", "Ledger.formulas") });
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 120));
     console.log(ran() === quiet
-      ? "PASS (python: a save, a CSV arriving and a store arriving run no Python)"
+      ? "PASS (python: a save, a CSV arriving and a store arriving run nothing when nothing is out of date)"
       : "UNEXPECTED Python ran from a save or a watcher " + JSON.stringify(requests.slice(-4)));
-
     // the park key: Python first, fresh, then the derivations leave
     const evalsAtPark = requests.filter((r) => r.op === "eval").length;
     await registeredCommands.get("aot.toggleFormulaPark")(f.editor);
@@ -3785,7 +4268,7 @@ setTimeout(async () => {
       && cf().some((d) => d.range.a[0] === 10 && d.severity === W && /^change the value, or the bound — '15' breaks 'age >=18': it is not >= 18$/.test(d.message))
       && cf().some((d) => d.range.a[0] === 6 && d.severity === W && /^change the value, or the bound — 'void' breaks 'status =\("draft", "sent"\)': it is not one of 'draft', 'sent'$/.test(d.message))
       && cf().filter((d) => d.severity === W).length === 2
-      ? "PASS (constraints: Ctrl+Enter checks every bound, warns a breach on its value, and fills what a '==' defines)"
+      ? "PASS (constraints: F9 checks every bound, warns a breach on its value, and fills what a '==' defines)"
       : "UNEXPECTED constraint run " + JSON.stringify({ checkedRun, lines: c.lines(), findings: cf().map((d) => [d.range.a, d.message]) }));
     c.set(c.text().replace("        age: 15", "        age: 21"));
     vscode.workspace._open(c.doc);
@@ -3794,7 +4277,7 @@ setTimeout(async () => {
       : "UNEXPECTED stale constraint finding " + JSON.stringify(cf().map((d) => [d.range.a, d.message])));
     c.set(c.text().replace("    age >=18", "    age >=nobody"));
     await run(c, 0);
-    console.log(cf().some((d) => d.range.a[0] === 1 && d.severity === vscode.DiagnosticSeverity.Error && /the bound 'age >=nobody' failed — NameError/.test(d.message))
+    console.log(cf().some((d) => d.range.a[0] === 1 && d.severity === vscode.DiagnosticSeverity.Error && /^fix the bound 'age >=nobody' — it failed: 'nobody' isn't a known name$/.test(d.message))
       && cf().filter((d) => /age >=nobody/.test(d.message)).length === 1
       ? "PASS (constraints: a bound that fails is one error, on the clause that wrote it)"
       : "UNEXPECTED failing bound " + JSON.stringify(cf().map((d) => [d.range.a, d.message])));
@@ -3806,7 +4289,7 @@ setTimeout(async () => {
       const kPath = path.join(root, "Keys.aot");
       const k = live(kPath, ["Keys", "    a: =math.factorial(3)"]);
       vscode.workspace.textDocuments = [f.doc, g.doc, c.doc, k.doc];
-      vscode.window._warningAnswer = "Run";
+      vscode.window._warningAnswer = "Enable";
       await run(k, 1);
       const n0 = vscode.window._warnings.length;
       vscode.window._warningAnswer = undefined; // any question now is a "no"
@@ -3826,13 +4309,13 @@ setTimeout(async () => {
       fs.writeFileSync(kPath, pulled);
       k.set(pulled);
       const refusedPull = await run(k, 2);
-      const pullQuestion = vscode.window._warnings.slice(n0).find((w) => /^AOT: run the Python in Keys\.aot\?/.test(w)) || "";
-      console.log(refusedPull.blocked === "refused" && /1 derivation in it has not run here before/.test(pullQuestion) && /line 3: =__import__\('os'\)\.getpid\(\)/.test(pullQuestion)
+      const pullQuestion = vscode.window._warnings.slice(n0).find((w) => /^AOT: 1 formula in Keys\.aot came from outside this editor/.test(w)) || "";
+      console.log(refusedPull.blocked === "refused" && /line 3: =__import__\('os'\)\.getpid\(\)/.test(pullQuestion)
         ? "PASS (python: a derivation a pull changed is asked about, naming the line and the code, and does not run unanswered)"
         : "UNEXPECTED pulled code " + JSON.stringify({ refusedPull, pullQuestion }));
 
       // parked, the store changed on disk, and brought home: asked about too
-      vscode.window._warningAnswer = "Run";
+      vscode.window._warningAnswer = "Enable";
       await registeredCommands.get("aot.toggleFormulaPark")(k.editor);
       const kStore = path.join(root, "aot.files", "Keys.formulas");
       fs.writeFileSync(kStore, fs.readFileSync(kStore, "utf8").replace("=math.factorial(3)", "=__import__('os').getcwd()"));
@@ -3840,11 +4323,11 @@ setTimeout(async () => {
       vscode.window._warningAnswer = undefined;
       const n1 = vscode.window._warnings.length;
       const refusedStore = await run(k, 1);
-      const storeQuestion = vscode.window._warnings.slice(n1).find((w) => /^AOT: run the Python in Keys\.aot\?/.test(w)) || "";
+      const storeQuestion = vscode.window._warnings.slice(n1).find((w) => /^AOT: \d+ formulas? in Keys\.aot came from outside this editor/.test(w)) || "";
       console.log(k.lines()[1] === "    a: =__import__('os').getcwd()" && refusedStore.blocked === "refused" && /getcwd/.test(storeQuestion)
         ? "PASS (python: a derivation brought home from a store that changed on disk is asked about before it runs)"
         : "UNEXPECTED store code " + JSON.stringify({ lines: k.lines(), refusedStore, storeQuestion }));
-      vscode.window._warningAnswer = "Run";
+      vscode.window._warningAnswer = "Enable";
     }
 
     // AOT: Set Up Python Environment, against a fake uv: the project made in
@@ -3909,7 +4392,7 @@ setTimeout(async () => {
         ? "PASS (uv: an unchanged project installs again without asking)"
         : "UNEXPECTED uv asked again " + JSON.stringify(vscode.window._warnings.slice(askedAfter)));
 
-      vscode.window._warningAnswer = "Run";
+      vscode.window._warningAnswer = "Enable";
       await run(c, 0);
       const opened = requests.filter((r) => r.op === "open").pop();
       console.log(lastSpawn && lastSpawn.cmd === venvExe && lastSpawn.args[0] === "-I" && !lastSpawn.args.includes("-E")
@@ -3939,7 +4422,7 @@ setTimeout(async () => {
       fs.writeFileSync(path.join(afDir, "uv.lock"), fs.readFileSync(path.join(afDir, "uv.lock"), "utf8") + "\n");
       const again = await setUp();
       fs.appendFileSync(path.join(afDir, "pyproject.toml"), "# pulled\n");
-      vscode.window._warningAnswer = "Run";
+      vscode.window._warningAnswer = "Enable";
       const warnedBefore = vscode.window._warnings.length;
       await run(c, 0);
       const drift = vscode.window._warnings.slice(warnedBefore).filter((w) => /changed since the environment was set up/.test(w));
@@ -3955,10 +4438,8 @@ setTimeout(async () => {
       for (const f of ["pyproject.toml", "uv.lock", ".venv"]) fs.rmSync(path.join(afDir, f), { recursive: true, force: true });
     }
 
-    // two derivations side by side in one table row: each cell is its own
-    // derivation — Ctrl+Enter runs the one under the cursor (on the row's
-    // name, all of the row's), the row carries one inlay naming each cell,
-    // and hover answers for the cell it is over
+    // two formulas side by side in one table row: each cell is its own, the row says
+    // nothing while they calculate well, and hover answers for the cell it is over
     {
       const t = live(path.join(root, "Pair.aot"), [
         "Invoice|price|vat        |net",
@@ -3967,30 +4448,16 @@ setTimeout(async () => {
       ]);
       vscode.workspace.textDocuments = [f.doc, t.doc];
       vscode.workspace._open(t.doc);
-      const evalsBefore = requests.filter((r) => r.op === "eval").length;
-      const netCol = t.lines()[1].indexOf("=@price-1") + 3;
-      t.editor.selection = new vscode.Selection(1, netCol, 1, netCol);
-      await registeredCommands.get("aot.runPython")(t.editor);
-      const codes = requests.filter((r) => r.op === "eval").slice(evalsBefore).map((r) => r.code);
+      await registeredCommands.get("aot.recomputeFormulas")(t.editor);
       const rowA = t.lines()[1];
-      console.log(codes.join() === "_aot_ref(0)-1" && /\|99 =@price-1$/.test(rowA) && /\|=@price\*0\.2 *\|/.test(rowA)
-        ? "PASS (python in a table: Ctrl+Enter on the right-hand derivation runs that one, not the left-hand one)"
-        : "UNEXPECTED right-hand run " + JSON.stringify({ codes, rowA }));
-
-      const evalsMid = requests.filter((r) => r.op === "eval").length;
-      t.editor.selection = new vscode.Selection(2, 0, 2, 0); // on B's name
-      await registeredCommands.get("aot.runPython")(t.editor);
-      const rowCodes = requests.filter((r) => r.op === "eval").slice(evalsMid).map((r) => r.code).sort();
       const rowB = t.lines()[2];
-      console.log(rowCodes.join() === "_aot_ref(0)*0.2,_aot_ref(0)-1" && /\|10 =@price\*0\.2 *\|49 =@price-1$/.test(rowB)
-        ? "PASS (python in a table: Ctrl+Enter on a row's name runs every derivation on that row)"
-        : "UNEXPECTED row run " + JSON.stringify({ rowCodes, rowB }));
+      console.log(/\|20 =@price\*0\.2 *\|99 =@price-1$/.test(rowA) && /\|10 =@price\*0\.2 *\|49 =@price-1$/.test(rowB)
+        ? "PASS (python in a table: each formula of a row writes into its own cell)"
+        : "UNEXPECTED row run " + JSON.stringify({ rowA, rowB }));
 
-      const rowHints = inlayProvider.provideInlayHints(t.doc, new vscode.Range(0, 0, 5, 0))
-        .filter((h) => h.position.line === 2);
-      console.log(rowHints.length === 1 && /^✓ vat, net · \d+ ms · \d\d:\d\d$/.test(rowHints[0].label)
-        && /vat/.test(rowHints[0].tooltip) && /net/.test(rowHints[0].tooltip)
-        ? "PASS (python in a table: one inlay per row, naming each cell that ran)"
+      const rowHints = inlayProvider.provideInlayHints(t.doc, new vscode.Range(0, 0, 5, 0)).filter((h) => h.position.line === 2);
+      console.log(rowHints.length === 0
+        ? "PASS (python in a table: a row that calculated says nothing at its end)"
         : "UNEXPECTED row inlays " + JSON.stringify(rowHints.map((h) => [h.label, h.tooltip])));
 
       const hoverAt = (col) => {
@@ -4014,18 +4481,16 @@ setTimeout(async () => {
       t.editor.selection = new vscode.Selection(2, netAt, 2, netAt);
       await registeredCommands.get("aot.table.defineColumn")(t.editor);
       const defined = t.lines().slice(0, 3);
-      t.editor.selection = new vscode.Selection(0, 0, 0, 0);
-      await registeredCommands.get("aot.runPython")(t.editor);
+      await registeredCommands.get("aot.recomputeFormulas")(t.editor);
       const computed = t.lines().slice(0, 3);
+      const expected = ["Invoice|price|vat =@price*0.2|net =@price-1", "A      |100  |20             |99", "B      |50   |10             |49"].join("\n");
       console.log(offered && /Define 'vat' for the whole column \(vat =@price\*0\.2\)/.test(offered.title)
-        && defined.join("\n") === ["Invoice|price|vat =@price*0.2|net =@price-1", "A      |100  |               |99", "B      |50   |10             |49"].join("\n")
-        && computed.join("\n") === ["Invoice|price|vat =@price*0.2|net =@price-1", "A      |100  |20             |99", "B      |50   |10             |49"].join("\n")
-        ? "PASS (python in a table: a column every row derives alike moves to its header as =, and the next run fills its cells)"
+        && defined.join("\n") === expected && computed.join("\n") === expected
+        ? "PASS (python in a table: a column every row derives alike moves to its header as =, and each pass fills its cells)"
         : "UNEXPECTED define column " + JSON.stringify({ offered: offered && offered.title, defined, computed }));
       vscode.workspace._close(t.doc);
       vscode.workspace.textDocuments = [f.doc];
     }
-
     // a bare `=` line writes Concepts: its tables by name, under it at its
     // own indent; what reads one of them gets the live table; the park key
     // takes the line out and puts it back above the first Concept it wrote
@@ -4041,48 +4506,37 @@ setTimeout(async () => {
       ]);
       vscode.workspace.textDocuments = [f.doc, g.doc];
       vscode.workspace._open(g.doc);
-      g.editor.selection = new vscode.Selection(0, 3, 0, 3);
-      await registeredCommands.get("aot.runPython")(g.editor);
+      await registeredCommands.get("aot.recomputeFormulas")(g.editor);
       const wrote = g.lines();
       console.log(wrote.slice(0, 7).join("\n") === ["=load_all()", "Sales|month  |amount", "1    |2026-01|15,000", "", "Region|code", "1     |EU", ""].join("\n")
         && lint(g.text(), "Gen").errors.length === 0
         ? "PASS (python: a bare = line writes each table it returns as a Concept, under it, and the file verifies)"
         : "UNEXPECTED bare = line " + JSON.stringify(wrote));
-      g.editor.selection = new vscode.Selection(0, 0, 0, 0);
       const countLine = () => g.lines().find((l) => /count:/.test(l));
-      g.editor.selection = new vscode.Selection(g.lines().indexOf(countLine()), 6, g.lines().indexOf(countLine()), 6);
-      await registeredCommands.get("aot.runPython")(g.editor);
       console.log(countLine() === "    count: 1 =len(@Sales)"
-        ? "PASS (python: what reads a Concept a bare = line wrote gets that table, live, by its name)"
+        ? "PASS (python: what reads a Concept a bare = line writes is right the first time: it gets that table, live, by its name)"
         : "UNEXPECTED read of a written Concept " + JSON.stringify({ line: countLine(), findings: pyFindings(g.doc).map((d) => d.message) }));
-      const genHint = inlayProvider.provideInlayHints(g.doc, new vscode.Range(0, 0, 20, 0)).find((h) => h.position.line === 0);
-      console.log(genHint && /^✓ 2 Concepts · 2 rows · 4 ms · \d\d:\d\d$/.test(genHint.label) && /wrote Sales, Region/.test(genHint.tooltip)
-        ? "PASS (python: a bare = line's inlay says how many Concepts it wrote, and names them)"
-        : "UNEXPECTED bare = inlay " + JSON.stringify(genHint && [genHint.label, genHint.tooltip]));
 
-      // off any derivation: the second bare line returns a Concept that has a
-      // derivation of its own — left to it, which is no failure: the line ran
-      // and wrote the rest, and a warning says one Concept is returned from
-      // two places — and the third returns nothing at all
-      await run(g, g.lines().indexOf("Summary"));
+      // the second bare line returns a Concept that has a formula of its own — left
+      // to it, which is no failure: the line ran and wrote the rest, and a warning
+      // says one Concept is returned from two places — and the third returns nothing
       const G = g.lines();
       const twoAt = G.indexOf("=two()");
       const twoHint = inlayProvider.provideInlayHints(g.doc, new vscode.Range(0, 0, 40, 0)).find((h) => h.position.line === twoAt);
       const twoFindings = pyFindings(g.doc).filter((d) => d.range.start.line === twoAt);
       console.log(G[twoAt + 1] === "Gen Extra|y" && G.includes("Gen Own =own()|x") && G.some((l) => /^1 +\|its own$/.test(l))
         && !G.some((l) => /from the bare line/.test(l))
-        && twoHint && /^✓ 1 Concept · 1 row · 2 ms · \d\d:\d\d · 'Gen Own' left to its own derivation$/.test(twoHint.label)
-        && /left alone: Gen Own — its own derivation writes its rows/.test(twoHint.tooltip)
+        && twoHint && twoHint.label === "ⓘ 'Gen Own' left to its own formula"
+        && /left alone: Gen Own — its own formula writes its rows/.test(twoHint.tooltip)
         && twoFindings.length === 1 && twoFindings[0].severity === vscode.DiagnosticSeverity.Warning
-        && twoFindings[0].message === "return it from one place only — this line returns 'Gen Own', which has a derivation of its own: that one writes its rows, and this line leaves it alone"
-        && !pyFindings(g.doc).some((d) => /Python failed/.test(d.message))
-        ? "PASS (python: a Concept with its own derivation is left to it — the bare line writes the rest, succeeds, and warns that two places return it)"
+        && twoFindings[0].message === "return it from one place only — this line returns 'Gen Own', which has a formula of its own: that one writes its rows, and this line leaves it alone"
+        && !pyFindings(g.doc).some((d) => /^fix this formula/.test(d.message))
+        ? "PASS (python: a Concept with its own formula is left to it — the bare line writes the rest, succeeds, and warns that two places return it)"
         : "UNEXPECTED bare = conflict " + JSON.stringify({ G, hint: twoHint && [twoHint.label, twoHint.tooltip], findings: pyFindings(g.doc).map((d) => [d.severity, d.message]) }));
       console.log(ext._test.leftAloneMessage(["Fleet", "Depot", "Yard"])
-        === "return each from one place only — this line returns 'Fleet', 'Depot' and 'Yard', which have derivations of their own: those write their rows, and this line leaves them alone"
-        ? "PASS (python: several Concepts left to their own derivations are named in one warning)"
+        === "return each from one place only — this line returns 'Fleet', 'Depot' and 'Yard', which have formulas of their own: those write their rows, and this line leaves them alone"
+        ? "PASS (python: several Concepts left to their own formulas are named in one warning)"
         : "UNEXPECTED left-alone wording " + JSON.stringify(ext._test.leftAloneMessage(["Fleet", "Depot", "Yard"])));
-
       // the tables a bare line wrote are tinted as Python's, with a hover naming the line
       const captured = new Map();
       const visible = vscode.window.visibleTextEditors;
@@ -4118,14 +4572,12 @@ setTimeout(async () => {
       const e = live(path.join(root, "Err.aot"), ["Box|a   |b", "X  |=1+1|=boom()"]);
       vscode.workspace.textDocuments = [f.doc, e.doc];
       vscode.workspace._open(e.doc);
-      e.editor.selection = new vscode.Selection(1, 0, 1, 0);
-      await registeredCommands.get("aot.runPython")(e.editor);
+      await registeredCommands.get("aot.recomputeFormulas")(e.editor);
       const hint = inlayProvider.provideInlayHints(e.doc, new vscode.Range(0, 0, 5, 0)).find((h) => h.position.line === 1);
-      console.log(hint && /^✗ b: NameError: name 'boom' is not defined · \d\d:\d\d$/.test(hint.label)
-        && /^a: ✓/m.test(hint.tooltip) && /^b: ✗ NameError/m.test(hint.tooltip)
+      console.log(hint && /^✗ b: 'boom' isn't a known name · \d\d:\d\d$/.test(hint.label)
+        && /^a: ok/m.test(hint.tooltip) && /^b: ✗ 'boom'/m.test(hint.tooltip)
         ? "PASS (python in a table: a row's one inlay names the cell that failed, and lists every cell)"
-        : "UNEXPECTED row failure inlay " + JSON.stringify(hint && [hint.label, hint.tooltip]));
-      vscode.workspace._close(e.doc);
+        : "UNEXPECTED row failure inlay " + JSON.stringify(hint && [hint.label, hint.tooltip]));      vscode.workspace._close(e.doc);
       vscode.workspace.textDocuments = [f.doc];
     }
 
@@ -4138,9 +4590,8 @@ setTimeout(async () => {
       await run(s, 0);
       await run(s, 0);
       const hint = inlayProvider.provideInlayHints(s.doc, new vscode.Range(0, 0, 20, 0)).find((h) => h.position.line === 0);
-      console.log(hint && /^✓ 1 Concept · 1 row · 1 ms · \d\d:\d\d · 'Old Stock' no longer written$/.test(hint.label)
-        && /no longer written: Old Stock — still in the file; delete it if gone/.test(hint.tooltip) && /printed:\nshrinking/.test(hint.tooltip)
-        && s.lines().includes("Old Stock|n") && s.lines().some((l) => /^1 +\|6$/.test(l))
+      console.log(hint && hint.label === "ⓘ 'Old Stock' no longer written"
+        && /no longer written: Old Stock — still in the file; delete it if gone/.test(hint.tooltip) && /printed:\nshrinking/.test(hint.tooltip)        && s.lines().includes("Old Stock|n") && s.lines().some((l) => /^1 +\|6$/.test(l))
         ? "PASS (python: a Concept a bare line no longer returns stays in the file, and the inlay says so)"
         : "UNEXPECTED dropped Concept " + JSON.stringify({ hint: hint && [hint.label, hint.tooltip], lines: s.lines() }));
       vscode.workspace._close(s.doc);
@@ -4156,7 +4607,7 @@ setTimeout(async () => {
       await registeredCommands.get("aot.toggleFormulaPark")(n.editor);
       // (the first run of a file it did not write asks first: that is a warning too)
       const said = vscode.window._warnings.slice(warned).filter((w) => /bare '=' line/.test(w));
-      console.log(said.length === 1 && /bare '=' lines on lines 1, 3 have no Concept beneath to come home above, so they stay in the file — run them \(Ctrl\+Enter\) to write their tables, and then they park/.test(said[0])
+      console.log(said.length === 1 && /bare '=' lines on lines 1, 3 have no Concept beneath to come home above, so they stay in the file — once they write their tables, they park with the rest/.test(said[0])
         && n.text() === "=({})\n\n=({})"
         ? "PASS (python: bare lines with nowhere to come home to stay, and one warning names them all)"
         : "UNEXPECTED stayed lines " + JSON.stringify({ said, text: n.text() }));
@@ -4174,7 +4625,7 @@ setTimeout(async () => {
       const onCall = hoverProvider.provideHover(fn.doc, new vscode.Position(1, 10));
       const onName = hoverProvider.provideHover(fn.doc, new vscode.Position(1, 4));
       console.log(onCall && /^`double\(x\)` — defined in `aot\.files\/Fn\.py` line 1\n\nTwice x\.$/.test(onCall.contents.value)
-        && !(onName && /defined in `aot\.files|Computed by Python/.test(onName.contents.value || ""))
+        && !(onName && /defined in `aot\.files|\*\*Calculated\*\*/.test(onName.contents.value || ""))
         ? "PASS (python: hover on a function a derivation calls gives its signature, file and docstring)"
         : "UNEXPECTED function hover " + JSON.stringify({ onCall: onCall && onCall.contents.value, onName: onName && onName.contents.value }));
       vscode.workspace._close(fn.doc);
@@ -4212,7 +4663,8 @@ setTimeout(async () => {
         ext._test.setSpawn(fakeRuntime);
       }
       console.log(/^AOT: 'no-such-python-anywhere' was not found — install Python 3\.10 or later, or set aot\.python\.path to its executable$/.test(vscode.window._errors[errorsBefore] || "")
-        ? "PASS (python: an interpreter that is not there is named, and nothing is started)"
+        && JSON.stringify(vscode.window._errorItems) === JSON.stringify(["Get Python", "Set Up with uv"])
+        ? "PASS (python: an interpreter that is not there is named, nothing is started, and it offers to get one)"
         : "UNEXPECTED missing interpreter " + JSON.stringify(vscode.window._errors.slice(errorsBefore)));
       vscode.workspace._close(l.doc);
       vscode.workspace.textDocuments = [f.doc];
@@ -4234,17 +4686,479 @@ setTimeout(async () => {
       vscode.workspace.textDocuments = [f.doc];
     }
 
+    // when a file calculates, as a spreadsheet does. There is no timer: you say you
+    // are done by moving on
+    {
+      const settle = () => new Promise((r) => setTimeout(r, 120)); // a burst gathered, and the fake's answers
+      const evals = () => requests.filter((r) => r.op === "eval").length;
+      const x = live(path.join(root, "Excel.aot"), ["Sheet|a|b", "X    |1|=@a*2", "Y    |5|=@a*2", ""]);
+      vscode.workspace.textDocuments = [f.doc, x.doc];
+      vscode.window.visibleTextEditors = [x.editor];
+      const activeBefore = vscode.window.activeTextEditor;
+      vscode.window.activeTextEditor = x.editor;
+      vscode.window._warningAnswer = "Enable";
+      await registeredCommands.get("aot.recomputeFormulas")(x.editor);
+
+      // the editor's own way of editing: the text changes, the event says so
+      const edit = (line, from, to, text, reason) => {
+        const lines = x.lines();
+        lines[line] = lines[line].slice(0, from) + text + lines[line].slice(to);
+        x.set(lines.join("\n"));
+        vscode.workspace._changed({ document: x.doc, reason, contentChanges: [{ text, range: new vscode.Range(line, from, line, to) }] });
+      };
+      const cursor = (line, ch) => {
+        x.editor.selection = new vscode.Selection(line, ch, line, ch);
+        vscode.window._selectionChanged({ textEditor: x.editor, selections: [x.editor.selection] });
+      };
+      const cellOf = (line, k) => x.lines()[line].split("|")[k].trim();
+      const aEnd = (line) => x.lines()[line].indexOf("|") + 1 + x.lines()[line].split("|")[1].trimEnd().length;
+      const editOptions = [];
+      const realEdit = x.editor.edit;
+      x.editor.edit = (cb, opts) => { editOptions.push(opts); return realEdit(cb, opts); };
+
+      console.log(cellOf(1, 2) === "2 =@a*2" && cellOf(2, 2) === "10 =@a*2"
+        ? "PASS (calculation: F9 fills a table's formulas)"
+        : "UNEXPECTED first calculation " + JSON.stringify(x.lines()));
+
+      // typing in a cell: nothing runs, so a half-written number reaches no formula
+      const before = evals();
+      cursor(1, aEnd(1));
+      edit(1, aEnd(1), aEnd(1), "2");
+      x.editor.selection = new vscode.Selection(1, aEnd(1), 1, aEnd(1));
+      await settle();
+      console.log(evals() === before && cellOf(1, 2) === "2 =@a*2"
+        ? "PASS (calculation: typing in a cell runs nothing)"
+        : "UNEXPECTED ran while typing " + JSON.stringify({ evals: evals() - before, lines: x.lines() }));
+      // moving about inside it is still typing in it
+      cursor(1, aEnd(1) - 1);
+      await settle();
+      console.log(evals() === before
+        ? "PASS (calculation: a cursor moving inside the cell runs nothing)"
+        : "UNEXPECTED ran on a move inside the cell");
+      // leaving it calculates: that row, not the other
+      cursor(2, 0);
+      await settle();
+      console.log(evals() === before + 1 && cellOf(1, 1) === "12" && cellOf(1, 2) === "24 =@a*2" && cellOf(2, 2) === "10 =@a*2"
+        ? "PASS (calculation: leaving the cell calculates what reads it, and nothing else)"
+        : "UNEXPECTED on leaving " + JSON.stringify({ evals: evals() - before, lines: x.lines() }));
+      console.log(editOptions.length && editOptions.every((o) => o && o.undoStopBefore === false && o.undoStopAfter === false)
+        ? "PASS (calculation: a result joins the writer's last edit, so one Ctrl+Z takes both back)"
+        : "UNEXPECTED undo stops " + JSON.stringify(editOptions));
+
+      // anything that is not typing calculates straight away, cursor where it is
+      const beforePaste = evals();
+      {
+        const lines = x.lines();
+        lines.splice(3, 0, "Z    |7|=@a*2");
+        x.set(lines.join("\n"));
+        vscode.workspace._changed({ document: x.doc, contentChanges: [{ text: "Z    |7|=@a*2\n", range: new vscode.Range(3, 0, 3, 0) }] });
+      }
+      await settle();
+      console.log(evals() === beforePaste + 1 && cellOf(3, 2) === "14 =@a*2"
+        ? "PASS (calculation: a paste of lines calculates straight away)"
+        : "UNEXPECTED paste " + JSON.stringify({ evals: evals() - beforePaste, lines: x.lines() }));
+
+      // a save commits what was being typed, and what it computed goes to disk too
+      let saves = 0;
+      x.doc.save = async () => { saves++; return true; };
+      cursor(2, aEnd(2));
+      edit(2, aEnd(2), aEnd(2), "0");
+      x.editor.selection = new vscode.Selection(2, aEnd(2), 2, aEnd(2));
+      await settle();
+      const typedBeforeSave = cellOf(2, 2);
+      await vscode.workspace._willSave({ document: x.doc, waitUntil: () => {} });
+      fs.writeFileSync(x.doc.fileName, x.text());
+      vscode.workspace._save(x.doc);
+      await settle();
+      console.log(typedBeforeSave === "10 =@a*2" && cellOf(2, 1) === "50" && cellOf(2, 2) === "100 =@a*2" && saves === 1
+        ? "PASS (calculation: a save commits the cell being typed in, and what it computed is saved too)"
+        : "UNEXPECTED save " + JSON.stringify({ typedBeforeSave, saves, lines: x.lines() }));
+      delete x.doc.save;
+
+      // switching to another program, or another editor, is leaving too
+      const beforeLeave = evals();
+      cursor(1, aEnd(1));
+      edit(1, aEnd(1), aEnd(1), "3");
+      x.editor.selection = new vscode.Selection(1, aEnd(1), 1, aEnd(1));
+      await settle();
+      const stayed = evals() === beforeLeave;
+      vscode.window._windowState({ focused: false });
+      await settle();
+      console.log(stayed && cellOf(1, 2) === "246 =@a*2" && cellOf(1, 1) === "123"
+        ? "PASS (calculation: switching to another program commits the cell being typed in)"
+        : "UNEXPECTED window leave " + JSON.stringify({ stayed, lines: x.lines() }));
+      edit(1, aEnd(1), aEnd(1), "4");
+      x.editor.selection = new vscode.Selection(1, aEnd(1), 1, aEnd(1));
+      await settle();
+      vscode.window.activeTextEditor = f.editor;
+      vscode.window._activeChanged(f.editor);
+      await settle();
+      vscode.window.activeTextEditor = x.editor;
+      console.log(cellOf(1, 2) === "2,468 =@a*2"
+        ? "PASS (calculation: switching to another editor commits the cell being typed in)"
+        : "UNEXPECTED editor leave " + JSON.stringify(x.lines()));
+
+      // an undo calculates, and writes nothing when the answer is the same, so the
+      // redo it left stays good
+      const editsBeforeUndo = editOptions.length;
+      {
+        const lines = x.lines();
+        lines[1] = lines[1].replace(/\|1234 *\|2,468 =@a\*2/, "|123 |246 =@a*2");
+        x.set(lines.join("\n"));
+        vscode.workspace._changed({ document: x.doc, reason: vscode.TextDocumentChangeReason.Undo, contentChanges: [{ text: "", range: new vscode.Range(1, 8, 1, 9) }] });
+      }
+      await settle();
+      console.log(cellOf(1, 2) === "246 =@a*2" && editOptions.length === editsBeforeUndo
+        ? "PASS (calculation: an undo writes nothing when a formula's answer is unchanged, so redo survives)"
+        : "UNEXPECTED undo " + JSON.stringify({ edits: editOptions.length - editsBeforeUndo, lines: x.lines() }));
+
+      // a cell with a cursor in it is left alone until the cursor leaves it
+      {
+        const bAt = x.lines()[2].lastIndexOf("|") + 1;
+        cursor(2, bAt);
+        edit(2, aEnd(2) - 1, aEnd(2), "1", vscode.TextDocumentChangeReason.Redo);
+        await settle();
+        const heldThere = cellOf(2, 2);
+        cursor(1, 0);
+        await settle();
+        console.log(cellOf(2, 1) === "51" && heldThere === "100 =@a*2" && cellOf(2, 2) === "102 =@a*2"
+          ? "PASS (calculation: a result waits while a cursor stands in its cell, and lands when it leaves)"
+          : "UNEXPECTED held cell " + JSON.stringify({ heldThere, lines: x.lines() }));
+      }
+
+      // manual: only the key calculates
+      configStore.calculation = "manual";
+      const beforeManual = evals();
+      cursor(1, aEnd(1));
+      edit(1, aEnd(1), aEnd(1), "5");
+      x.editor.selection = new vscode.Selection(1, aEnd(1), 1, aEnd(1));
+      cursor(2, 0);
+      await settle();
+      vscode.workspace._save(x.doc);
+      await settle();
+      const manualQuiet = evals() === beforeManual;
+      await registeredCommands.get("aot.recomputeFormulas")(x.editor);
+      console.log(manualQuiet && cellOf(1, 2) === "2,470 =@a*2"
+        ? "PASS (calculation: with aot.calculation manual, only F9 calculates)"
+        : "UNEXPECTED manual " + JSON.stringify({ manualQuiet, lines: x.lines() }));
+      delete configStore.calculation;
+
+      // Ctrl+Alt+F9: a new session, then every formula
+      const resets = () => requests.filter((r) => r.op === "reset").length;
+      const beforeFresh = evals();
+      const resetsBefore = resets();
+      await registeredCommands.get("aot.runPythonFresh")(x.editor);
+      console.log(resets() === resetsBefore + 1 && evals() === beforeFresh + 3
+        ? "PASS (calculation: Ctrl+Alt+F9 clears the session and runs every formula)"
+        : "UNEXPECTED fresh " + JSON.stringify({ resets: resets() - resetsBefore, evals: evals() - beforeFresh }));
+
+      // a file coming on screen: nothing out of date, nothing starts
+      vscode.workspace._close(x.doc);
+      const spawnsAtOpen = spawns;
+      vscode.window._visibleChanged([x.editor]);
+      await settle();
+      console.log(spawns === spawnsAtOpen
+        ? "PASS (calculation: a file opening with nothing out of date starts nothing)"
+        : "UNEXPECTED start on open " + JSON.stringify({ spawned: spawns - spawnsAtOpen }));
+      // and with something out of date, that runs, once
+      vscode.workspace._close(x.doc);
+      {
+        const lines = x.lines();
+        lines[3] = lines[3].replace(/\|7( *)\|/, "|8$1|");
+        x.set(lines.join("\n"));
+      }
+      const evalsAtOpen = evals();
+      vscode.window._visibleChanged([x.editor]);
+      vscode.window._visibleChanged([x.editor]);
+      await settle();
+      console.log(spawns === spawnsAtOpen + 1 && evals() === evalsAtOpen + 1 && cellOf(3, 2) === "16 =@a*2"
+        ? "PASS (calculation: a file opening runs only what is out of date, once)"
+        : "UNEXPECTED open " + JSON.stringify({ evals: evals() - evalsAtOpen, lines: x.lines() }));
+      vscode.workspace._close(x.doc);
+
+      // a long file goes a batch at a time, and a new edit is noticed between them
+      {
+        const rows = Array.from({ length: 70 }, (_, k) => `R${k}|1|=@a*2`);
+        const big = live(path.join(root, "Big.aot"), ["Big|a|b", ...rows]);
+        vscode.workspace.textDocuments = [f.doc, big.doc];
+        await registeredCommands.get("aot.recomputeFormulas")(big.editor);
+        const firstSizes = batches.slice(-2).map((b) => b.items.length);
+        big.set(big.lines().map((l, i) => (i ? l.replace("|1", "|2") : l)).join("\n"));
+        const atCancel = evals();
+        let polled = 0;
+        const stoppedShort = await ext._test.runPython(big.editor, { mode: "auto", isCancelled: () => polled++ > 0 });
+        const ranBeforeCancel = evals() - atCancel;
+        const landed = big.lines().filter((l) => /\|4 =@a\*2/.test(l)).length;
+        const atRest = evals();
+        const rest = await ext._test.runPython(big.editor, { mode: "auto" });
+        console.log(firstSizes.join() === "64,6" && stoppedShort.cancelled === true && ranBeforeCancel === 64 && landed === 64
+          ? "PASS (calculation: a long file goes in batches of 64, and a pass told to stop stops between them, keeping what finished)"
+          : "UNEXPECTED batches " + JSON.stringify({ firstSizes, stoppedShort, ranBeforeCancel, landed }));
+        console.log(rest.ran === 6 && evals() === atRest + 6 && big.lines().filter((l) => /\|4 =@a\*2/.test(l)).length === 70
+          ? "PASS (calculation: the next pass does only what the stopped one did not)"
+          : "UNEXPECTED rest " + JSON.stringify({ rest, ran: evals() - atRest }));
+        vscode.workspace._close(big.doc);
+      }
+
+      // a table many formulas read is sent once
+      {
+        const sh = live(path.join(root, "Shared.aot"), ["T|a|s", "A|1|=@T@a.sum()", "B|2|=@T@a.sum()", "C|3|=@T@a.sum()"]);
+        vscode.workspace.textDocuments = [f.doc, sh.doc];
+        await registeredCommands.get("aot.recomputeFormulas")(sh.editor);
+        const sent = batches[batches.length - 1];
+        console.log(sent.items.length === 3 && sent.targets.length === 1 && sh.lines().slice(1).every((l) => /\|6 =@T@a\.sum\(\)$/.test(l))
+          ? "PASS (calculation: a column read by many formulas goes to Python once)"
+          : "UNEXPECTED shared targets " + JSON.stringify({ items: sent.items.length, targets: sent.targets.length, lines: sh.lines() }));
+        vscode.workspace._close(sh.doc);
+      }
+
+      // the writer kept typing while it ran: each result is found again by address
+      {
+        const m = live(path.join(root, "Moved.aot"), ["Moved", "    a: 2", "    b: =@a*2"]);
+        vscode.workspace.textDocuments = [f.doc, m.doc];
+        duringEval = () => {
+          duringEval = null;
+          const lines = m.lines();
+          lines.splice(1, 0, "    new: 9");
+          m.set(lines.join("\n"));
+        };
+        await registeredCommands.get("aot.recomputeFormulas")(m.editor);
+        console.log(m.lines().join("\n") === ["Moved", "    new: 9", "    a: 2", "    b: 4 =@a*2"].join("\n")
+          ? "PASS (calculation: a line added while it ran moves the result with it)"
+          : "UNEXPECTED moved result " + JSON.stringify(m.lines()));
+        // ...and a result whose formula changed while it ran is dropped, and runs again
+        m.set(m.text().replace("    a: 2", "    a: 3"));
+        duringEval = () => {
+          duringEval = null;
+          m.set(m.text().replace("=@a*2", "=@a-1"));
+        };
+        await ext._test.runPython(m.editor, { mode: "auto" });
+        const dropped = m.lines()[3];
+        await ext._test.runPython(m.editor, { mode: "auto" });
+        console.log(dropped === "    b: 4 =@a-1" && m.lines()[3] === "    b: 2 =@a-1"
+          ? "PASS (calculation: a result whose formula changed while it ran is dropped, and the formula runs again)"
+          : "UNEXPECTED dropped result " + JSON.stringify({ dropped, line: m.lines()[3] }));
+        vscode.workspace._close(m.doc);
+      }
+
+      // a formula that takes its session down: it waits, and the rest go on
+      {
+        const c2 = live(path.join(root, "Crash.aot"), ["Crash", "    a: =1+1", "    b: =crash()", "    c: =math.factorial(10)"]);
+        vscode.workspace.textDocuments = [f.doc, c2.doc];
+        const spawnsAtCrash = spawns;
+        const crashed = await registeredCommands.get("aot.recomputeFormulas")(c2.editor);
+        const crashFinding = pyFindings(c2.doc).find((d) => d.range.a[0] === 2);
+        console.log(c2.lines()[1] === "    a: 2 =1+1" && c2.lines()[3] === "    c: 3,628,800 =math.factorial(10)" && crashed.failed === 1 && spawns === spawnsAtCrash + 2
+          && crashFinding && /^fix this formula — /.test(crashFinding.message)
+          ? "PASS (calculation: a formula that crashes its session is that formula's failure, and the rest go on in a fresh one)"
+          : "UNEXPECTED crash " + JSON.stringify({ crashed, lines: c2.lines(), findings: pyFindings(c2.doc).map((d) => d.message) }));
+        const atCrash = evals();
+        await ext._test.runPython(c2.editor, { mode: "auto" });
+        console.log(evals() === atCrash
+          ? "PASS (calculation: a formula that crashed is not tried again until it changes)"
+          : "UNEXPECTED crash retried " + JSON.stringify(requests.slice(-3)));
+        vscode.workspace._close(c2.doc);
+      }
+
+      // Stop: what has not run stays out of date, and no one is told it failed
+      {
+        const st = live(path.join(root, "Stop.aot"), ["Stop", "    a: =1+1", "    b: =math.factorial(10)"]);
+        vscode.workspace.textDocuments = [f.doc, st.doc];
+        vscode.window.activeTextEditor = st.editor;
+        duringEval = () => {
+          duringEval = null;
+          plainCommands.get("aot.stopCalculating")();
+        };
+        await registeredCommands.get("aot.recomputeFormulas")(st.editor);
+        const stoppedSaid = pyFindings(st.doc).filter((d) => d.severity !== vscode.DiagnosticSeverity.Information);
+        const textAtStop = st.lines().slice(1).join();
+        const next = await ext._test.runPython(st.editor, { mode: "auto" });
+        console.log(!stoppedSaid.length && textAtStop === "    a: =1+1,    b: =math.factorial(10)" && next.ran === 2 && st.lines()[1] === "    a: 2 =1+1"
+          ? "PASS (calculation: Stop leaves what it did not reach out of date, says nothing failed, and the next pass runs it)"
+          : "UNEXPECTED stop " + JSON.stringify({ stoppedSaid: stoppedSaid.map((d) => d.message), textAtStop, next, lines: st.lines() }));
+        vscode.window.activeTextEditor = x.editor;
+        vscode.workspace._close(st.doc);
+      }
+
+      // a CSV edit arriving: the .aot takes it, calculates, and goes back to disk
+      // with what it computed
+      {
+        const p = path.join(root, "Mirror.aot");
+        fs.writeFileSync(p, ["Stock|qty|twice =@qty*2", "A    |1  |", "B    |2  |", ""].join("\n"));
+        const doc = await vscode.workspace.openTextDocument(p);
+        vscode.workspace.textDocuments = [f.doc, doc];
+        vscode.window.visibleTextEditors = [];
+        vscode.workspace._open(doc);
+        await ext._test.runPython(doc, { mode: "now" });
+        const firstWrote = doc.lines.slice(0, 3).join("\n");
+        await doc.save();
+        await settle();
+        const csv = path.join(root, "aot.files", "Stock.csv");
+        const mirrored = fs.existsSync(csv) ? fs.readFileSync(csv, "utf8") : "";
+        await new Promise((r) => setTimeout(r, 30));
+        fs.writeFileSync(csv, "Stock,qty,twice\nA,10,2\nB,2,4\n");
+        await vscode.workspace._csvChanged({ fsPath: csv });
+        await settle();
+        const disk = fs.readFileSync(p, "utf8").split(/\r?\n/);
+        console.log(firstWrote === ["Stock|qty|twice =@qty*2", "A    |1  |2", "B    |2  |4"].join("\n") && mirrored === "Stock,qty,twice\nA,1,2\nB,2,4\n"
+          && /^A +\|10 *\|20 *$/.test(disk[1]) && /^B +\|2 *\|4 *$/.test(disk[2])
+          ? "PASS (calculation: a CSV edit arriving calculates its .aot, and what it computed is saved)"
+          : "UNEXPECTED csv arriving " + JSON.stringify({ firstWrote, mirrored, disk, doc: doc.lines, findings: pyFindings(doc).map((d) => d.message) }));
+        // the CSV follows, with every digit
+        console.log(fs.readFileSync(csv, "utf8") === "Stock,qty,twice\nA,10,20\nB,2,4\n"
+          ? "PASS (calculation: the CSV takes what was calculated from it)"
+          : "UNEXPECTED csv after calculation " + JSON.stringify(fs.readFileSync(csv, "utf8")));
+        vscode.workspace._close(doc);
+
+        // two CSVs of one file arriving together: both are heard, and each table calculates
+        const p2 = path.join(root, "Mirror2.aot");
+        fs.writeFileSync(p2, ["Coal|ton|twice =@ton*2", "A   |1  |", "", "Wood|ton|twice =@ton*2", "B   |3  |", ""].join("\n"));
+        const doc2 = await vscode.workspace.openTextDocument(p2);
+        vscode.workspace.textDocuments = [f.doc, doc2];
+        vscode.workspace._open(doc2);
+        await ext._test.runPython(doc2, { mode: "now" });
+        await doc2.save();
+        await settle();
+        await new Promise((r) => setTimeout(r, 30));
+        const coal = path.join(root, "aot.files", "Coal.csv");
+        const wood = path.join(root, "aot.files", "Wood.csv");
+        fs.writeFileSync(coal, "Coal,ton,twice\nA,10,2\n");
+        fs.writeFileSync(wood, "Wood,ton,twice\nB,30,6\n");
+        await Promise.all([vscode.workspace._csvChanged({ fsPath: coal }), vscode.workspace._csvChanged({ fsPath: wood })]);
+        await settle();
+        const both = fs.readFileSync(p2, "utf8").split(/\r?\n/);
+        console.log(/^A +\|10 *\|20 *$/.test(both[1]) && /^B +\|30 *\|60 *$/.test(both[4])
+          && fs.readFileSync(coal, "utf8") === "Coal,ton,twice\nA,10,20\n" && fs.readFileSync(wood, "utf8") === "Wood,ton,twice\nB,30,60\n"
+          ? "PASS (calculation: two CSVs arriving together are both heard, each table calculates, and each CSV takes the results)"
+          : "UNEXPECTED two csvs arriving " + JSON.stringify({ both, coal: fs.readFileSync(coal, "utf8"), wood: fs.readFileSync(wood, "utf8") }));
+        // a spreadsheet re-saving long numbers shorter has edited nothing
+        {
+          const pl = path.join(root, "Long.aot");
+          fs.writeFileSync(pl, ["Ratio|v", "A    |0.3333333333333333", "B    |5", ""].join("\n"));
+          const docLong = await vscode.workspace.openTextDocument(pl);
+          vscode.workspace.textDocuments = [f.doc, doc2, docLong];
+          vscode.workspace._open(docLong);
+          await docLong.save();
+          await settle();
+          await new Promise((r) => setTimeout(r, 30));
+          const ratio = path.join(root, "aot.files", "Ratio.csv");
+          fs.writeFileSync(ratio, "Ratio,v\nA,0.333333333333333\nB,5\n");
+          await vscode.workspace._csvChanged({ fsPath: ratio });
+          await settle();
+          console.log(fs.readFileSync(pl, "utf8").split(/\r?\n/)[1] === "A    |0.3333333333333333" && fs.readFileSync(ratio, "utf8") === "Ratio,v\nA,0.333333333333333\nB,5\n"
+            ? "PASS (csv mirror: a CSV re-saved at 15 digits is no edit: the .aot keeps every digit, and the file is left as it is)"
+            : "UNEXPECTED 15 digits " + JSON.stringify({ aot: fs.readFileSync(pl, "utf8"), csv: fs.readFileSync(ratio, "utf8") }));
+          // and a real edit beside it still arrives
+          await new Promise((r) => setTimeout(r, 30));
+          fs.writeFileSync(ratio, "Ratio,v\nA,0.333333333333333\nB,6\n");
+          await vscode.workspace._csvChanged({ fsPath: ratio });
+          await settle();
+          const longLines = fs.readFileSync(pl, "utf8").split(/\r?\n/);
+          console.log(longLines[1] === "A    |0.3333333333333333" && /^B +\|6 *$/.test(longLines[2])
+            ? "PASS (csv mirror: an edit beside a shortened number arrives, and the long number keeps every digit)"
+            : "UNEXPECTED edit beside 15 digits " + JSON.stringify(longLines));
+          vscode.workspace._close(docLong);
+          vscode.workspace.textDocuments = [f.doc, doc2];
+        }
+        // ...and an edit made after all that is still an edit
+        await new Promise((r) => setTimeout(r, 30));
+        fs.writeFileSync(coal, "Coal,ton,twice\nA,5,20\n");
+        await vscode.workspace._csvChanged({ fsPath: coal });
+        await settle();
+        const later = fs.readFileSync(p2, "utf8").split(/\r?\n/);
+        console.log(/^A +\|5 *\|10 *$/.test(later[1]) && fs.readFileSync(coal, "utf8") === "Coal,ton,twice\nA,5,10\n"
+          ? "PASS (calculation: a CSV edited after a calculation is still an edit)"
+          : "UNEXPECTED later csv edit " + JSON.stringify({ later, coal: fs.readFileSync(coal, "utf8") }));
+        vscode.workspace._close(doc2);
+      }
+
+      // a file holding work its writer has not saved is calculated, and not saved
+      {
+        const d = live(path.join(root, "Dirty.aot"), ["Dirty", "    a: 2", "    b: =@a*2"]);
+        vscode.workspace.textDocuments = [f.doc, d.doc];
+        await registeredCommands.get("aot.recomputeFormulas")(d.editor);
+        let saved = 0;
+        d.doc.save = async () => { saved++; return true; };
+        d.doc.isDirty = true;
+        d.set(d.text().replace("a: 2", "a: 3"));
+        await ext._test.runPython(d.editor, { mode: "auto", reasons: new Set(["csv"]) });
+        console.log(d.lines()[2] === "    b: 6 =@a*2" && saved === 0
+          ? "PASS (calculation: a file with unsaved work is calculated and left unsaved)"
+          : "UNEXPECTED dirty " + JSON.stringify({ saved, lines: d.lines() }));
+        vscode.workspace._close(d.doc);
+      }
+
+      // what a number shows: the file holds every digit, the screen the short form,
+      // and the cell a cursor stands in all of it
+      {
+        const sn = live(path.join(root, "Short.aot"), ["Ratio|v         |typed", "A    |=third()  |0.3333333333333333", "B    |=whole()  |1", "", "lone: =third()", "plain: 0.3333333333333333", ""]);
+        vscode.workspace.textDocuments = [f.doc, sn.doc];
+        vscode.window.visibleTextEditors = [sn.editor];
+        await registeredCommands.get("aot.recomputeFormulas")(sn.editor);
+        const painted2 = new Map();
+        sn.editor.setDecorations = (type, opts) => painted2.set(type, opts);
+        const paint = (line, ch) => {
+          sn.editor.selection = new vscode.Selection(line, ch, line, ch);
+          vscode.window._selectionChanged({ textEditor: sn.editor, selections: [sn.editor.selection] });
+          return [...painted2.values()].flat().filter((o) => o && o.renderOptions && o.renderOptions.after);
+        };
+        const shortAway = paint(3, 0);
+        const cellShort = shortAway.find((o) => o.range.a[0] === 1);
+        const loneShort = shortAway.find((o) => o.range.a[0] === 4);
+        const width = sn.lines()[1].split("|")[1].length;
+        console.log(sn.lines()[1].includes("0.3333333333333333 =third()") && sn.lines()[2].includes("12,345 =whole()")
+          && shortAway.length === 2 && cellShort && loneShort
+          && cellShort.renderOptions.after.contentText.replace(/\u00a0+$/, "") === "0.3\u0305"
+          && loneShort.renderOptions.after.contentText === "0.3\u0305"
+          && cellShort.hoverMessage === "0.3333333333333333"
+          ? "PASS (short numbers: a computed value shows its short form, and a typed one never does)"
+          : "UNEXPECTED short forms " + JSON.stringify({ lines: sn.lines(), shortAway: shortAway.map((o) => [o.range.a, o.renderOptions.after.contentText]), width }));
+        console.log(cellShort && [...cellShort.renderOptions.after.contentText.replace(/\u0305/g, "")].length === cellShort.range.a[3] - cellShort.range.a[1]
+          ? "PASS (short numbers: in a table the short form is padded to the width it stands in for, so the pipes stay lined up)"
+          : "UNEXPECTED padding " + JSON.stringify(cellShort && [cellShort.renderOptions.after.contentText, cellShort.range.a]));
+        const inCell = paint(1, sn.lines()[1].indexOf("|") + 2);
+        console.log(!inCell.some((o) => o.range.a[0] === 1) && inCell.some((o) => o.range.a[0] === 4)
+          ? "PASS (short numbers: the cell a cursor stands in shows every digit)"
+          : "UNEXPECTED cursor in a short cell " + JSON.stringify(inCell.map((o) => o.range.a)));
+        configStore.shortNumbers = false;
+        const offNow = paint(3, 0);
+        delete configStore.shortNumbers;
+        console.log(!offNow.length
+          ? "PASS (short numbers: aot.shortNumbers off shows every digit everywhere)"
+          : "UNEXPECTED short numbers off " + JSON.stringify(offNow.length));
+        await vscode.workspace._willSave({ document: sn.doc, waitUntil: () => {} });
+        fs.writeFileSync(sn.doc.fileName, sn.text());
+        vscode.workspace._save(sn.doc);
+        await settle();
+        const ratioCsv = path.join(root, "aot.files", "Ratio.csv");
+        console.log(fs.existsSync(ratioCsv) && /^A,0\.3333333333333333,0\.3333333333333333$/m.test(fs.readFileSync(ratioCsv, "utf8"))
+          ? "PASS (short numbers: the CSV gets every digit)"
+          : "UNEXPECTED csv digits " + JSON.stringify(fs.existsSync(ratioCsv) && fs.readFileSync(ratioCsv, "utf8")));
+        vscode.workspace._close(sn.doc);
+      }
+
+      vscode.window.activeTextEditor = activeBefore;
+      vscode.window.visibleTextEditors = [];
+      vscode.workspace.textDocuments = [f.doc];
+    }
     await hoistAndReconcile();
     await gitMergeEdges();
     vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
 
-    // a file with no Python keeps Ctrl+Enter's own meaning
+    // Ctrl+Enter is VS Code's own again: nothing here binds it, and no command stands behind it
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+    const bound = manifest.contributes.keybindings;
+    console.log(!bound.some((k) => /^(ctrl|cmd)\+enter$/.test(k.key || "") || /^(ctrl|cmd)\+enter$/.test(k.mac || "")) && !registeredCommands.has("aot.runPython")
+      && bound.some((k) => k.key === "f9" && k.command === "aot.recomputeFormulas") && bound.some((k) => k.key === "ctrl+alt+f9" && k.command === "aot.runPythonFresh")
+      ? "PASS (calculation: F9 and Ctrl+Alt+F9 calculate, and Ctrl+Enter is VS Code's own)"
+      : "UNEXPECTED keys " + JSON.stringify(bound.filter((k) => /enter|f9/.test(k.key || ""))));
+    // a file with no formulas: F9 has nothing to do, and starts nothing
     const plain = live(path.join(root, "Plain.aot"), ["Plain", "    a: 1"]);
-    vscode.commands._calls.length = 0;
-    await run(plain, 1);
-    console.log(vscode.commands._calls.some((c) => c[0] === "editor.action.insertLineAfter")
-      ? "PASS (python: in a file with no Python, Ctrl+Enter inserts a line as it always did)"
-      : "UNEXPECTED Ctrl+Enter without Python " + JSON.stringify(vscode.commands._calls));
+    const spawnsAtPlain = spawns;
+    const plainRun = await run(plain, 1);
+    console.log(plainRun.ran === 0 && !plainRun.blocked && spawns === spawnsAtPlain
+      ? "PASS (python: in a file with no formulas, F9 starts nothing)"
+      : "UNEXPECTED F9 without formulas " + JSON.stringify({ plainRun, spawned: spawns - spawnsAtPlain }));
 
     ext.deactivate();
     console.log(ext._test.sessions.size === 0
@@ -4257,6 +5171,7 @@ setTimeout(async () => {
     vscode.window._warningAnswer = undefined;
     vscode.workspace.textDocuments = [];
     vscode.workspace.workspaceFolders = before;
+    vscode.window.visibleTextEditors = visibleBefore;
     ext._test.setSpawn(null);
     fs.rmSync(root, { recursive: true, force: true });
   }

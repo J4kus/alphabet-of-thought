@@ -436,5 +436,57 @@ const JAKUS = {
     /    note: a == b/.test(text) && note && note.value === "a = b" && note.formula === undefined);
 }
 
+// ---------------------------------------------------------------------------
+// a row is no line to hang a value under, and the ops a save applies never
+// overlap: VS Code rejects a whole edit when any two of its ranges do
+// ---------------------------------------------------------------------------
+{
+  const opsFor = (files, file) => {
+    const entries = Object.entries(files).map(([f, text]) => {
+      const rootName = f.replace(/\.[^.]*$/, "");
+      return { file: f, text, rootName, ...lint(text, rootName) };
+    });
+    const mine = entries.find((e) => e.file === file);
+    return { mine, ops: repo.reconcileFile(file, repo.occurrences(entries), mine.text.split("\n"), mine.rootName, undefined, mine.root) };
+  };
+  const span = (op) => {
+    if (op.type === "block") return [op.from, op.to];
+    if (op.type === "insert") return [op.afterLine, op.afterLine - 1]; // between two lines
+    return [op.line - 1, op.line - 1];
+  };
+  const overlap = (ops) => ops.some((a, i) => ops.some((b, j) => {
+    if (i >= j) return false;
+    const [af, at] = span(a), [bf, bt] = span(b);
+    if (at < af && bt < bf) return af === bf; // two inserts at one place
+    if (at < af) return af > bf && af <= bt; // an insert strictly inside a replaced range
+    if (bt < bf) return bf > af && bf <= at;
+    return af <= bt && bf <= at;
+  }));
+  const here = aot("Trip|cost", "Bus|10", "Rail|20", "");
+  const shapes = [
+    ["a table here, lines in the peer", aot("Trip", "    cost", "    - Bus", "        note: late", "    - Air", "        cost: 99", "")],
+    ["a table in both files", aot("Trip|cost|note", "Bus|10|late", "Air|99|", "")],
+    ["a table here, a table in the peer naming no shared row", aot("Trip|note", "Air|x", "")],
+  ];
+  for (const [name, peer] of shapes) {
+    const { mine, ops } = opsFor({ "a.aot": here, "b.aot": peer }, "a.aot");
+    const written = repo.applyOps(mine.text.split("\n"), ops);
+    const back = lint(written.join("\n"), "a");
+    check(`reconcile: ${name} — no ops overlap`, !overlap(ops));
+    check(`reconcile: ${name} — the result is a file with no error in it`, back.errors.length === 0);
+    check(`reconcile: ${name} — no row is written twice`,
+      back.nodes.filter((n) => n.kind === KIND.INDIVIDUAL && n.name === "Bus").length === 1);
+  }
+  const { mine, ops } = opsFor({ "a.aot": here, "b.aot": shapes[0][1] }, "a.aot");
+  const written = repo.applyOps(mine.text.split("\n"), ops).join("\n");
+  check("reconcile: a value a peer gives a row goes in that row's cell, under a new column",
+    /^Trip\|cost\|note$/m.test(written) && /^Bus \|10 +\|late$/m.test(written) && !/^\s+note: late/m.test(written));
+  const lineHere = aot("Trip", "    cost", "    - Bus", "        cost: 10", "");
+  const fromTable = opsFor({ "a.aot": lineHere, "b.aot": aot("Trip|note", "Bus|late", "") }, "a.aot");
+  const lineWritten = repo.applyOps(fromTable.mine.text.split("\n"), fromTable.ops).join("\n");
+  check("reconcile: a line-form Example still takes a value line",
+    /- Bus\n\s+cost: 10\n\s+note: late/.test(lineWritten) && lint(lineWritten, "a").errors.length === 0);
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

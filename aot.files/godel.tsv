@@ -356,6 +356,14 @@ a	readers block writers	2383
 a	seen in	2389
 a	tackles	2393
 a	validated	2399
+a	worker pool	2411
+a	worker	2417
+a	input priniciple	2423
+a	output worker	2437
+a	input principle	2441
+a	input causation	2447
+a	causation	2459
+a	test	2467
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -517,6 +525,8 @@ v	because	53	an == whose bound computes one value is what the value is, so the r
 v	because	54	on an attribute '=' says what every value of it is (1.12 wrote '=='); the case is escaped here, its equals sign doubled, so this file still verifies
 v	because	55	a space then one equals sign starts a derivation, so a literal one is doubled; a run of them reads one shorter (a == b reads a = b)
 v	because	56	an = whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
+v	because	57	the file holds every digit and the screen the short form, so a total of computed values is never off by what was rounded away
+v	because	58	there is one language behind the equals sign, and it runs when the file calculates
 v	begin	2	(
 v	begin	3	...
 v	beneficiary	2	Aristotle
@@ -611,6 +621,14 @@ v	case	82	Run Command: code ==x
 v	case	83	Sales ==
 v	case	84	a == b
 v	case	85	rows ==f()
+v	case	86	12
+v	case	87	3.141592653589793
+v	case	88	F9 anywhere in a file
+v	case	89	a calculation after the session ended, idle or stopped
+v	case	90	a second calculation with nothing changed
+v	case	91	change a number and move off its cell
+v	case	92	the hover on any computed value
+v	case	93	typing in a cell, a cursor moving inside it
 v	change log entry	2	1.3.0
 v	characters	2	lowercase
 v	chart	2	aot.files/rationale graph.chart.Example.png
@@ -834,6 +852,20 @@ v	expected	171	Washer goes back to what the CSV says and Screw goes from this fi
 v	expected	172	nothing syncs until Ctrl+K Y; the first time the CSV was saved last, so here Nut reads 8 and Bolt goes back to what the CSV says; the second time this file was saved last, so the CSV has Nut 3 and Bolt goes back to what this file says; no notice either time
 v	expected	173	nothing warns and nothing moves in the Outline, since the parent cell is what files Sapling under Apple; Format Document draws the row flush with the others again
 v	expected	174	the link opens the CSV; after each CSV save this file changes and saves itself; Bolt reads 6, then 5 again, and the count cell of Washer is empty
+v	expected	175	10, then an error on the next line once run, saying w isn't a known name
+v	expected	176	3.141592653589793 in the file once run, shown as 3.141... with every digit back when the cursor stands in it
+v	expected	177	7 once run; hello is shown in the hover, never written into the file
+v	expected	178	7 stays, the line says division by zero, and after says it did not calculate because case failed; neither is tried again until it changes or F9 asks
+v	expected	179	a notice naming the sidecar by its path, with Enable; no answer means nothing runs, and nothing waits for one
+v	expected	180	after aot.python.timeoutMs, 15 seconds, the session stops and the line says it timed out; it then waits until it changes, and the rest go on in a fresh session
+v	expected	181	everything out of date, whatever reads nothing in the file, and anything that failed; then every constraint is checked. Ctrl+Enter is VS Code's own
+v	expected	182	faded until it calculates; then an error on its line in plain words, never in V
+v	expected	183	its value fades until the cursor leaves it; with aot.calculation set to manual it also says to press F9, and only F9 runs it
+v	expected	184	no Python runs until the cursor leaves the cell, or a save or a switch of editor commits it
+v	expected	185	nothing runs and nothing starts; the first formula offers to turn them on, each says it is not calculated yet, and no constraint is checked
+v	expected	186	nothing runs; a formula runs only when its source, its inputs or the sidecar changed
+v	expected	187	what reads it runs, in place, and nothing else; then its constraints are checked
+v	expected	188	when it calculated, to the second, how long it took and with what; the end of the line says nothing while all is well
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot
@@ -997,6 +1029,7 @@ v	maximum bit count	2	infinite
 v	maximum number of elements	2	1
 v	maximum worker pool	2	1
 v	maximum worker pool	3	many
+v	maximum worker pool	4	permit count
 v	measurement interval	2	per decision
 v	measurement operation used	2	Formula
 v	measurement operation used	3	Grading
@@ -1382,6 +1415,28 @@ v	cost	21	storage for old versions
 v	cost	22	storage, stale answers
 v	cost	23	straight-line control flow
 v	cost	24	time spent waiting
+v	cost	25	exposure to race conditions and deadlocks
+v	cost	26	extra load from duplicate requests  with multiple nodes with same data
+v	cost	27	has lock
+v	cost	28	a missed signal leaves the waiter hanging
+v	cost	29	design effort to keep parties apart
+v	cost	30	every new need goes through the interface
+v	cost	31	everyone waits for the slowest task
+v	cost	32	extra load from duplicate requests, multiple nodes with same data
+v	cost	33	handing work over and collecting the result
+v	cost	34	lock contention on the shared queue
+v	cost	35	lost if my process dies
+v	cost	36	must recheck the state on every wake
+v	cost	37	must release once per acquire
+v	cost	38	network calls and partial failure
+v	cost	39	one more system to run and a hop to reach it
+v	cost	40	one worker idles while another is swamped
+v	cost	41	overhead of switching between tasks
+v	cost	42	resources must be kept equivalent
+v	cost	43	some of what is paid for goes unused
+v	cost	44	tasks wait for a free permit
+v	cost	45	the stricter outcome is given up
+v	cost	46	weaker guarantees
 v	sage	2	Socrates
 v	spread	2	20
 v	spread	3	200
@@ -1428,6 +1483,40 @@ v	how	19	reuse coordination another party already paid for
 v	how	20	speculate then reconcile on rare miss
 v	how	21	stop guaranteeing delivery
 v	how	22	tasks wait for each other
+v	how	23	do the work alongside, on another worker with memory shared in pool of workers with a thread or process
+v	how	24	a signal from another task
+v	how	25	do the work with external instrument while the worker moves on
+v	how	26	each reader gets its own version and don't block or validate writes unless it is on commit
+v	how	27	every task to arrive
+v	how	28	hand dependency with the wrong party over and pay for it
+v	how	29	need tied to one resource
+v	how	30	remove bottleneck
+v	how	31	requirement stricter than needed
+v	how	32	shared state to change
+v	how	33	the holder to release, unless it is you
+v	how	34	too few resources
+v	how	35	dependency held by the wrong party, so hand it over and pay for it
+v	how	36	do the work alongside on another worker, pool size not known up front, threads share memory and processes don't
+v	how	37	do the work with external instrument while the worker moves on, a wrapped co routine suspends until its awaited event
+v	how	38	each reader gets its own version, readers don't block writers, writes are validated only on commit, no locks
+v	how	39	each worker owns its share of the work, no lock
+v	how	40	keep the buffer in my own process
+v	how	41	keep the state private behind an interface
+v	how	42	let a separate system hold the buffer
+v	how	43	need tied to one resource, so let any fitting resource serve it
+v	how	44	one worker interleaves tasks to remove bottleneck
+v	how	45	put the state in a service only it can touch
+v	how	46	requirement stricter than needed, so accept good enough
+v	how	47	shared state, so remove it or pay less for it
+v	how	48	speculate without a lock then reconcile on rare miss
+v	how	49	take a permit to run, permit count caps the workers
+v	how	50	too few resources, so make them cheap enough to spare
+v	how	51	wait for a signal from another task
+v	how	52	wait for every task to arrive
+v	how	53	wait for shared state to change
+v	how	54	wait for the holder to release, unless it is you
+v	how	55	work on the bottleneck, so move it off
+v	how	56	workers take the next task from one shared queue
 v	needs	2	multiple nodes with same data
 v	readers block writers	2	no
 v	seen in	2	Async
@@ -1452,6 +1541,29 @@ v	seen in	20	request coalescing
 v	seen in	21	stateless services
 v	seen in	22	tri-party repo
 v	seen in	23	write-behind cache
+v	seen in	24	async
+v	seen in	25	dns
+v	seen in	26	erlang actors
+v	seen in	27	parallel
+v	seen in	28	sql server in-memory oltp
+v	seen in	29	approximate query processing
+v	seen in	30	background jobs
+v	seen in	31	commodity server clusters
+v	seen in	32	connection pool limit
+v	seen in	33	eventually consistent stores
+v	seen in	34	fungible commodities
+v	seen in	35	java synchronized blocks
+v	seen in	36	kafka partition consumers
+v	seen in	37	map and reduce phases
+v	seen in	38	node.js event loop
+v	seen in	39	producer-consumer queue
+v	seen in	40	python asyncio
+v	seen in	41	python threading
+v	seen in	42	safety stock
+v	seen in	43	shared-nothing architecture
+v	seen in	44	thread pool executor
+v	seen in	45	web server worker pool
+v	seen in	46	windows event objects
 v	tackles	2	dependency held by the wrong party
 v	tackles	3	need tied to one resource
 v	tackles	4	requirement stricter than needed
@@ -1459,3 +1571,8 @@ v	tackles	5	shared state
 v	tackles	6	too few resources
 v	tackles	7	work on the bottleneck
 v	validated	2	on commit only
+v	worker pool	2	1
+v	worker pool	3	many
+v	worker pool	4	permit count
+v	test	2	2026-11-05 08:57
+v	test	3	<dict 1 key>

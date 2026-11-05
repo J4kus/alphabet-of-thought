@@ -20,7 +20,7 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation, defaultColon, isParentColumn } = require("./table");
+const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation, defaultColon, isParentColumn, startsLower, startsUpper, startsCaseless } = require("./table");
 const { bigPrimes } = require("./primes");
 
 const INDENT = 4;
@@ -118,9 +118,12 @@ function classify(text) {
     alias = text.slice(open + 1, -1).trim() || null;
     text = text.slice(0, open).trim();
   }
-  if (text && text[0] >= "a" && text[0] <= "z") {
+  if (text && startsLower(text)) {
     return value !== null ? { kind: DEFAULT, name: text, value, alias } : { kind: ATTRIBUTE, name: text, value: null, alias };
   }
+  // a script with no capitals has no case to say which it is, so the shape
+  // does: a term with a value is an attribute's, a bare term a Concept
+  if (text && value !== null && startsCaseless(text)) return { kind: DEFAULT, name: text, value, alias };
   return { kind: CONCEPT, name: text, value, alias };
 }
 
@@ -158,9 +161,12 @@ function parse(text, rootName, report) {
       closeTable(); // a blank line ends a table, as in org
       return;
     }
-    if (content.includes("\t")) {
+    // only the indentation is the language's: a tab further along is a
+    // character of the value, as it is in a line pasted from a spreadsheet
+    const leading = /^[ \t]*/.exec(content)[0];
+    if (leading.includes("\t")) {
       report.error(line, "replace the tab in the indentation with spaces — AOT indents with spaces only, four per level");
-      content = content.replace(/\t/g, " ".repeat(INDENT));
+      content = leading.replace(/\t/g, " ".repeat(INDENT)) + content.slice(leading.length);
     }
     const spaces = content.length - content.replace(/^ +/, "").length;
     // A row of an open table stands at its table's depth, however far it is
@@ -199,7 +205,11 @@ function parse(text, rootName, report) {
     // other.aot:12' under a grid says what the grid is missing, never what
     // its last row is missing). A row that needs a Map of its own is
     // written in line form, where it has a line to hang one under.
-    const tableMap = !!table && !isRow && depth > table.depth && trimmed.startsWith("...");
+    //
+    // One level with the rows it is the same: the line Ctrl+/ makes of a row
+    // (`... Rail|20`). It is out of the model and the table goes on past it,
+    // as it does past a divider.
+    const tableMap = !!table && !isRow && depth >= table.depth && trimmed.startsWith("...");
     if (table && !tableMap && (!isRow || depth < table.depth)) closeTable();
     // A derivation with nothing before its '=' — `=load_all()` on a line of
     // its own — writes Concepts: its Python returns tables by name, and each
@@ -307,7 +317,7 @@ function parse(text, rootName, report) {
               parent.valueCol = cDefaultCol;
             }
           }
-        } else if (cName[0] >= "a" && cName[0] <= "z") {
+        } else if (startsLower(cName)) {
           // (a 'name: value' line whose value holds a pipe never reaches
           // here: the colon before its first pipe keeps it a line —
           // table.isRowText)
@@ -376,7 +386,7 @@ function parse(text, rootName, report) {
               structural(cell, dAlias, dAliasCol);
               continue;
             }
-            if (dName[0] >= "A" && dName[0] <= "Z") {
+            if (startsUpper(dName)) {
               report.error(line, `lowercase column '${dName}' — it is capitalised, but a table column names an attribute of '${owner.name}', and attributes are lowercase`,
                 { startCol: cell.col, endCol: cell.col + cell.text.length });
             }
@@ -427,7 +437,7 @@ function parse(text, rootName, report) {
             structural(cell, alias, aliasCol);
             continue;
           }
-          if (name[0] >= "A" && name[0] <= "Z") {
+          if (startsUpper(name)) {
             report.error(line, `lowercase column '${name}' — it is capitalised, but a table column names an attribute of '${owner.name}', and attributes are lowercase`,
               { startCol: cell.col, endCol: cell.col + cell.text.length });
           }
@@ -514,7 +524,7 @@ function parse(text, rootName, report) {
     {
       const con = splitConstraint(trimmed);
       const head = con.eq === -1 ? "" : con.value;
-      if (head && !head.includes(":") && head[0] >= "a" && head[0] <= "z") {
+      if (head && !head.includes(":") && (startsLower(head) || startsCaseless(head))) {
         constraints = con.constraints.map((b) => ({ op: b.op, opText: b.opText, formula: b.formula, opCol: spaces + b.eq }));
         trimmed = head;
       }
@@ -535,7 +545,11 @@ function parse(text, rootName, report) {
         trimmed = d.head;
       }
     }
-    const { kind, name, value, alias } = classify(trimmed);
+    const read = classify(trimmed);
+    const { name, value, alias } = read;
+    // a bound holds an attribute's values, so in a script with no capitals it
+    // is what says the term is one
+    const kind = constraints && read.kind === CONCEPT && startsCaseless(name) ? ATTRIBUTE : read.kind;
     if (derivation && kind !== CONCEPT) {
       report.error(line, derivation.formula
         ? `write the definition as Python, or add a colon to make it the value's own derivation: '${name}: =${derivation.formula}' — '${name} =${derivation.formula}' does not read as Python, so it defines nothing; on an attribute, '=' defines every value it takes ('${name} =@price*0.2')`

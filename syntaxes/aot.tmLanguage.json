@@ -5,22 +5,33 @@
 	"patterns": [
 		{
             "comment": "table row: any line carrying a divider with no colon before it, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. A colon before the first pipe makes a 'name: value' line whose value holds the pipe, which the line rules below colour — unless the line is capitalised: 'Currency: EUR|symbol' is a table's header, its first cell the Concept and the default it states. An '=' inside a word ('a=b') is a letter of the cell; only a space-preceded one opens Python (a Concept's derivation in the first header cell). The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
-            "begin": "^(?=(?:(?:[^|:=]|(?<!\\s)=)*(?:\\s=(?!=)[^|]*)?|\\s*[A-Z](?:[^|:=]|(?<!\\s)=)*:[^|]*)\\|)",
+            "begin": "^(?!\\s*\\.{3})(?=(?:(?:[^|:=]|(?<!\\s)=)*(?:\\s=(?!=)[^|]*)?|\\s*[\\p{Lu}\\p{Lt}\\p{N}](?:[^|:=]|(?<!\\s)=)*:[^|]*)\\|)",
             "end": "$",
             "patterns": [
-                { "comment": "a header whose first cell states the Concept's default: 'Currency: EUR|symbol'", "match": "^(\\s*[A-Z](?:[^|:(=]|(?<!\\s)=)*?)\\s*(\\([^)|]*\\))?\\s*(:)([^|]*)", "captures": { "1": { "name": "entity.name.type.concept.aot" }, "2": { "name": "entity.other.attribute-name.alias.aot" }, "3": { "name": "string.unquoted.value.aot" }, "4": { "name": "string.unquoted.value.aot" } } },
+                { "comment": "a header whose first cell states the Concept's default: 'Currency: EUR|symbol'", "match": "^(\\s*[\\p{Lu}\\p{Lt}\\p{N}](?:[^|:(=]|(?<!\\s)=)*?)\\s*(\\([^)|]*\\))?\\s*(:)([^|]*)", "captures": { "1": { "name": "entity.name.type.concept.aot" }, "2": { "name": "entity.other.attribute-name.alias.aot" }, "3": { "name": "string.unquoted.value.aot" }, "4": { "name": "string.unquoted.value.aot" } } },
                 { "comment": "a table whose Python wrote it: the Concept and its derivation in the first header cell", "match": "^(\\s*[^|=\\s][^|=]*?)(\\s=(?!=)[^|]*)", "captures": { "1": { "name": "entity.name.type.concept.aot" }, "2": { "name": "meta.embedded.inline.python.aot" } } },
+                { "comment": "a first cell not starting with a lowercase letter: a capital, a number ('1. Trip', '3D Print') or a script with no capitals ('日本語')", "match": "^(\\s*)((?!\\p{Ll}|-+(?:[\\s|]|$))[^|\\s(:=`][^|(:=`]*)", "captures": { "2": { "name": "entity.name.type.concept.aot" } } },
                 { "match": "[|]|(?<![^\\s|])-+(?![^\\s|])", "name": "punctuation.definition.table.aot" },
                 { "match": "`[^`]*`", "name": "markup.inline.raw.literal.aot" },
                 { "match": "\\([^)|]*\\)", "name": "entity.other.attribute-name.alias.aot" },
-                { "match": "[A-Z](?:[^|(:\"'`]|'(?=[A-Za-z]))*", "name": "entity.name.type.concept.aot" },
-                { "match": "\\b[a-z]\\w*\\b", "name": "variable.other.property.aot" }
+                { "match": "[\\p{Lu}\\p{Lt}](?:[^|(:\"'`]|'(?=\\p{L}))*", "name": "entity.name.type.concept.aot" },
+                { "match": "\\b\\p{Ll}\\w*\\b", "name": "variable.other.property.aot" }
             ]
         },
 		{
+            "comment": "a script with no capitals has no case to tell the two apart, so the shape does: a term with a colon is an attribute's ('名前: 太郎')",
+            "match": "^(\\s*)([\\p{Lo}\\p{Lm}][^:(|=]*?)(?=\\s*(?:\\([^)]*\\)\\s*)?:)",
+            "captures": { "2": { "name": "variable.other.property.aot" } }
+        },
+        {
+            "comment": "Concept at the start of a line, in any alphabet: a number ('1. Trip', '3D Print') or a script with no capitals ('日本語') opens one as a capital does. Anything else a line can open with has a rule of its own below",
+            "match": "^(\\s*)((?!\\p{Ll}|-|\\.{3}|=|~|\\()\\S(?:(?!\\s=(?!=))[^(:\"'`]|'(?=\\p{L}))*)(?=[(:\"`]|'(?!\\p{L})|\\s=(?!=)|$)",
+            "captures": { "2": { "name": "entity.name.type.concept.aot" } }
+        },
+        {
             "comment": "Concept: a type / class, the structural backbone. A quote ends the name, but an apostrophe inside a word is a letter of it — 'Aristotle's Ethics' is one name, so a ' followed by a letter is consumed rather than closing the run. A derivation ends it too: in 'Sales =by_month(@raw)' the Concept is 'Sales' and the rest is the Python that writes its table",
             "name": "entity.name.type.concept.aot",
-            "match": "[A-Z](?:(?!\\s=(?!=))[^(:\"'`]|'(?=[A-Za-z]))*(?=[(:\"`]|'(?![A-Za-z])|\\s=(?!=)|$)"
+            "match": "[\\p{Lu}\\p{Lt}](?:(?!\\s=(?!=))[^(:\"'`]|'(?=\\p{L}))*(?=[(:\"`]|'(?!\\p{L})|\\s=(?!=)|$)"
         },
         {
             "comment": "derivation on a line with no value: a Concept's Python ('Sales =by_month(@raw)'), claimed whole so none of its names reads as a Concept or an attribute. A value's derivation stands after its colon and is coloured with the value; the extension's semantic tokens tell formula from Python on both",
@@ -30,7 +41,7 @@
         {
             "comment": "attribute: a property / slot",
             "name": "variable.other.property.aot",
-            "match": "\\b[a-z]\\w*\\b"
+            "match": "\\b\\p{Ll}\\w*\\b"
         },
         {
             "comment": "value: the data after a colon. A run of '=' at its start or after a space is the escape for a literal '=' ('a == b' reads 'a = b'), shown as one; a lone space-preceded '=' opens the value's derivation, which the extension's semantic tokens paint as Python over this",

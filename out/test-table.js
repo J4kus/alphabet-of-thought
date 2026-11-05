@@ -461,13 +461,42 @@ const fresh = () => blockAt(doc, 2);
   }
 
   check("formatValue: keeps the $ and thousands commas of the old value",
-    formatValue(1500, "$1,000") === "$1,500" && formatValue(20, "") === "20" && formatValue(1.256, "") === "1.26");
+    formatValue(1500, "$1,000") === "$1,500" && formatValue(20, "") === "20" && formatValue(1.256, "") === "1.256");
   // every computed number carries thousands separators, whatever the old
   // value looked like
   check("formatValue: a computed number always carries thousands separators",
     formatValue(1215.6, "1215.6") === "1,215.6" && formatValue(184540, "") === "184,540"
     && formatValue(-3200.25, "") === "-3,200.25" && formatValue(3628800, "7") === "3,628,800"
-    && formatValue(-0.001, "") === "0" && formatValue(999, "") === "999");
+    && formatValue(-0.001, "") === "-0.001" && formatValue(999, "") === "999" && formatValue(-0, "") === "0");
+  check("formatValue: every digit, with nothing rounded and no scientific notation",
+    formatValue(1 / 3, "") === "0.3333333333333333" && formatValue(0.1 + 0.2, "") === "0.30000000000000004"
+    && formatValue(1e-7, "") === "0.0000001" && formatValue(1 / 250, "") === "0.004" && formatValue(1e21, "") === "1,000,000,000,000,000,000,000");
+  const { formatNumberText, shortNumber } = require("../src/table");
+  check("formatNumberText: a number's own text keeps every digit",
+    formatNumberText("12345678901234567", "") === "12,345,678,901,234,567" && formatNumberText("0.30000000000000004", "$9") === "$0.30000000000000004"
+    && formatNumberText("-1234.5", "") === "-1,234.5" && formatNumberText("-0", "") === "0" && formatNumberText("1".padEnd(5001, "0"), "").length === 5001 + 1666);
+  // the rule for what a cell shows, in its order
+  for (const [written, shown] of [
+    // 1. a whole number: every digit
+    ["1,180,591,620,717,411,303,424", null], ["40", null], ["0", null],
+    // 2. 15 significant digits take off a double's noise
+    ["0.30000000000000004", "0.3"], ["0.7999999999999999", "0.8"], ["13.224999999999998", "13.225"], ["2.9999999999999996", "3"],
+    // 3. three decimals or fewer, not counting zeros straight after the point
+    ["13.225", null], ["0.004", null], ["0.0000001", null], ["1.5", null], ["1,215.6", null], ["1.0000001", null],
+    // 4. a repeating block, once, overlined
+    ["0.3333333333333333", "0.3̅"], ["0.6666666666666666", "0.6̅"], ["0.8333333333333334", "0.83̅"],
+    ["0.08333333333333333", "0.083̅"], ["0.09090909090909091", "0.0̅9̅"], ["0.037037037037037035", "0.0̅3̅7̅"],
+    ["333.3333333333333", "333.3̅"], ["1,000,000.3333333333", "1,000,000.3̅"],
+    // 5. anything else: the zeros, three digits, cut, then ...
+    ["0.363466035246486", "0.363..."], ["1234.56789", "1,234.567..."], ["0.000123456", "0.000123..."], ["5.0004321", "5.000432..."],
+    ["0.14285714285714285", "0.142..."], ["0.1111", "0.111..."], ["0.100000000000001", "0.100..."], ["0.199999999999999", "0.199..."], ["0.6789", "0.678..."],
+    // a sign and a $ stay in front
+    ["$0.363466", "$0.363..."], ["-0.3333333333333333", "-0.3̅"], ["-1234.56789", "-1,234.567..."],
+    // and what is no number is none of its business
+    ["abc", null], ["2026-01-31", null], ["0.5%", null], ["", null],
+  ]) {
+    check(`shortNumber: ${written || "(empty)"} shows ${shown === null ? "as written" : shown}`, shortNumber(written) === shown);
+  }
 
   check("align: pads a derivation's cell like any other, computing nothing",
     (() => {
@@ -702,8 +731,8 @@ const fresh = () => blockAt(doc, 2);
   check("toCsv: quotes only what needs it",
     toCsv([["name", "note"], ["Acme", 'a, "b"\nc']]) === 'name,note\nAcme,"a, ""b""\nc"\n');
   const grid = fromCsv('name,note\r\nAcme,"a, ""b""\nc"\r\n');
-  check("fromCsv: quoted commas, doubled quotes and newlines survive",
-    grid.length === 2 && grid[1][1] === 'a, "b"\nc');
+  check("fromCsv: quoted commas, doubled quotes and newlines survive, one row being one line",
+    grid.length === 2 && grid[1][1] === 'a, "b"↵c');
   check("fromCsv: a pipe is bent to a broken bar", fromCsv("a|b,c")[0][0] === "a¦b");
   check("fromCsv round-trips toCsv",
     JSON.stringify(fromCsv(toCsv([["a", "b"], ["1", "x,y"]]))) === JSON.stringify([["a", "b"], ["1", "x,y"]]));
@@ -921,6 +950,85 @@ const fresh = () => blockAt(doc, 2);
     x.rows[2].cells[2] === "=@price*2");
   check("columnTerm: a header cell's name without its alias or constraint",
     columnTerm("price (cost) >=0") === "price" && columnTerm("tax rate") === "tax rate");
+}
+
+// ---------------------------------------------------------------------------
+// a name in any alphabet, opening with a number, or holding a colon behind one
+// ---------------------------------------------------------------------------
+{
+  const t = require("../src/table");
+  check("row: a capital of any alphabet or a number holds a colon before the first pipe",
+    t.isRowText("Éclair: EUR|x") && t.isRowText("Цена: EUR|x") && t.isRowText("10:30 Standup|room") && t.isRowText("1. Trip: EUR|x"));
+  check("row: a lowercase colon, and an Example's, still make a value line",
+    !t.isRowText("rule: a | b") && !t.isRowText("ête: a | b") && !t.isRowText("- Ann: x|y"));
+  for (const name of ["1. Trip", "Éclair", "3D Print", "日本語"]) {
+    const [found] = t.tablesOf([`${name}|cost`, "Bus|10"], "Model");
+    check(`tablesOf: '${name}' names its own table`, found && found.name === name && found.nameLine === 1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// a line break in a CSV cell: one cell here, a real line break there
+// ---------------------------------------------------------------------------
+{
+  const t = require("../src/table");
+  const csv = 'Pet,note\nRex,"Line 1\nLine 2"\nTom,"a\r\nb"\n';
+  const grid = t.fromCsv(csv);
+  check("fromCsv: a line break in a quoted cell is held as ↵, whatever its ending",
+    grid.length === 3 && grid[1][1] === "Line 1↵Line 2" && grid[2][1] === "a↵b");
+  check("toCsv: ↵ is a real line break again, and the cell is quoted",
+    t.toCsv(grid) === 'Pet,note\nRex,"Line 1\nLine 2"\nTom,"a\nb"\n');
+  check("round trip: what toCsv wrote reads back the same", JSON.stringify(t.fromCsv(t.toCsv(grid))) === JSON.stringify(grid));
+}
+
+// ---------------------------------------------------------------------------
+// a row's name: unchanged where it reads back as itself, inert where it would not
+// ---------------------------------------------------------------------------
+{
+  const t = require("../src/table");
+  for (const name of ["Rex", "10:30 Standup", "Éclair: x", "a=b", "3D Print", "- dash"]) {
+    check(`rowName: '${name}' stays as it is`, t.rowName(name) === name);
+  }
+  check("rowName: a formula is inert", t.rowName("=x()") === "＝x()" && t.rowName("x =evil()") === "x ＝evil()");
+  check("rowName: a lowercase colon would make a value line", t.rowName("standup: late") === "standup： late");
+  check("rowName: '...' would make a Map", t.rowName("... rest") === "… rest");
+  check("rowName: all dashes would make a divider", !t.isSeparator(`${t.rowName("---")}|`));
+  check("rowName: empty stays empty, and it reads back as itself", t.rowName("  ") === "" && t.rowName(t.rowName("=x()")) === "＝x()");
+}
+
+// ---------------------------------------------------------------------------
+// a `...` line in a table: a row no more, the table one table, the line in its
+// place through every redraw
+// ---------------------------------------------------------------------------
+{
+  const t = require("../src/table");
+  const lines = ["Trip|cost", "Bus |10", "... Rail|20", "Air |30"];
+  check("'...': never a row, pipes and all", !t.isRowText("... Rail|20") && !t.isRowText("    ... Rail|20"));
+  check("'...': on the line itself there is no table to act on", t.blockAt(lines, 2) === null);
+  const block = t.blockAt(lines, 0);
+  check("'...': between two rows the block goes on past it", block.start === 0 && block.end === 3 && t.blockAt(lines, 3).start === 0);
+  check("'...': it holds no cells, and every data-row reader skips it",
+    block.rows[2].sep && block.rows[2].note === "... Rail|20" && t.dataRowsOf(block).map((r) => r.cells[0]).join() === "Bus,Air");
+  check("'...': drawn back exactly as written", t.render(block).join("\n") === lines.join("\n"));
+  check("'...': re-aligning changes nothing", t.align(lines.join("\n")).length === 0);
+  check("'...': not a divider", t.breaksOf(block).length === 0);
+  const [found] = t.tablesOf(lines, "Model");
+  check("'...': tablesOf holds the rows without it, and says where it stood",
+    found.rows.map((r) => r[0]).join() === "Bus,Air" && found.rowLines.join() === "2,4" && found.notes[0].before === 1);
+  const moved = t.blockAt(lines, 0);
+  const target = t.nextRow(moved, 1, 0);
+  check("'...': Enter steps over it", target.row === 3);
+  const wide = t.blockAt(["Trip|cost", "Bus|10", "... Rail is a very long line of words|20", "Air|30"], 0);
+  check("'...': it widens no column", t.widthsOf(wide).join() === "4,4");
+  const edge = t.blockAt(["Trip|cost", "Bus|10", "    ... 2 more in b.aot:3"], 0);
+  check("'...': one past the last row stands outside the block", edge.end === 1);
+  const before = t.blockAt(["... note", "Trip|cost", "Bus|10"], 1);
+  check("'...': one before the first row stands outside it", before.start === 1);
+  const shallow = t.blockAt(["    Pet|age", "    Rex|3", "... rest", "    Other|x"], 1);
+  check("'...': one shallower than the rows ends the table", shallow.end === 1);
+  const up = t.updateTable(lines, "Trip", ["Trip", "cost"], [["Bus", "11"], ["Air", "31"]], "Model");
+  check("'...': a table rewritten from a grid keeps it between the same rows",
+    up.block.join("\n") === ["Trip|cost", "Bus |11", "... Rail|20", "Air |31"].join("\n"));
 }
 
 

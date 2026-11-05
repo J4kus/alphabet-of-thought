@@ -121,18 +121,6 @@ function occurrences(entries) {
 // definitions in one file are rule 9's business, not this module's.
 const peersOf = (occ, all) => all.filter((o) => o.file !== occ.file);
 
-// The repo-wide extension: every Example listed for a name, with the file and
-// line each was found in. Feeds the hover and the note's count.
-function unionExamples(all) {
-  const out = [];
-  for (const occ of all) {
-    for (const ex of examplesOf(occ.node)) {
-      out.push({ name: ex.name, file: occ.file, line: ex.line, node: ex });
-    }
-  }
-  return out;
-}
-
 // --- the `...` line ---------------------------------------------------------
 
 // The note this occurrence should carry, or null when no peer lists an
@@ -405,7 +393,9 @@ function reconcileOps(lines, occ, peers, rootName, registry) {
       for (const [key, attr] of declared(theirEx)) {
         if (have.has(key)) continue;
         have.set(key, attr);
-        if (ours.cell) {
+        // an Example written as a table row has no line to hang a value line
+        // under: its value goes in a cell, under a column the table gains
+        if (ours.nameCol !== undefined) {
           const at = rowFill.get(fold(ours.name)) || new Map();
           at.set(key, attr.value == null ? "" : writtenValue(attr.value));
           rowFill.set(fold(ours.name), at);
@@ -538,7 +528,7 @@ function applyOps(lines, ops) {
 }
 
 module.exports = {
-  occurrences, peersOf, unionExamples, findings,
+  occurrences, peersOf, findings,
   reconcileOps, reconcileFile, applyOps,
   noteFor, noteSpans, noteParts, maintainedNotes, declared, effective, genusOf,
   NOTE_RE,
