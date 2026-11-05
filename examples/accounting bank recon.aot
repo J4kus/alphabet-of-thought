@@ -5,4 +5,4 @@
         - Transactions Are Reconciled Correctly
         - Incorrectly Reconciled Transactions Are Trivially Flagged (un-allocated expense)
         - Future Transactions Are Reconciled With Automated Banking Rules
-        - Do Monthly Processing (Monthly Work Currently Done By Jaco)
+        - Do Monthly Processing (Monthly Work Currently Done By The Team)

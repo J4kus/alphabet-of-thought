@@ -49,7 +49,7 @@ Two files, one person, no diagnostic:
 - Motivation
     Jakus
         role: financial controller
-        - Do Monthly Processing (Monthly Work Currently Done By Jaco)
+        - Do Monthly Processing (Monthly Work Currently Done By The Team)
         ... 4 more in bank recon.aot:2
 ```
 ```aot

@@ -1,0 +1,147 @@
+{
+  "Length": {
+    "measures": { "length": 1 },
+    "units": [
+      ["0.001", "mm", "millimetre", "millimetres", "millimeter", "millimeters"],
+      ["0.01", "cm", "centimetre", "centimetres", "centimeter", "centimeters"],
+      ["1", "m", "metre", "metres", "meter", "meters"],
+      ["1000", "km", "KM", "Km", "kms", "kilometre", "kilometres", "kilometer", "kilometers"],
+      ["0.0254", "in", "inch", "inches"],
+      ["0.3048", "ft", "foot", "feet"],
+      ["0.9144", "yd", "yard", "yards"],
+      ["1609.344", "mi", "mile", "miles"],
+      ["1852", "nmi"]
+    ]
+  },
+  "Area": {
+    "measures": { "length": 2 },
+    "units": [
+      ["1", "sqm"],
+      ["0.09290304", "sqft"],
+      ["10000", "ha", "hectare", "hectares"],
+      ["4046.8564224", "acre", "acres"]
+    ]
+  },
+  "Volume": {
+    "measures": { "length": 3 },
+    "units": [
+      ["0.000001", "ml", "mL", "millilitre", "millilitres", "milliliter", "milliliters"],
+      ["0.00001", "cl", "cL"],
+      ["0.0001", "dl", "dL"],
+      ["0.001", "l", "L", "litre", "litres", "liter", "liters"],
+      ["1", "kl", "kL"],
+      ["0.003785411784", "gal", "gallon", "gallons"]
+    ]
+  },
+  "Mass": {
+    "measures": { "mass": 1 },
+    "units": [
+      ["0.000001", "mg", "milligram", "milligrams"],
+      ["0.001", "g", "gram", "grams"],
+      ["1", "kg", "KG", "Kg", "kilogram", "kilograms"],
+      ["1000", "t", "tonne", "tonnes"],
+      ["0.028349523125", "oz", "ounce", "ounces"],
+      ["0.45359237", "lb", "lbs", "pound", "pounds"]
+    ]
+  },
+  "Time": {
+    "measures": { "time": 1 },
+    "units": [
+      ["0.001", "ms", "millisecond", "milliseconds"],
+      ["1", "s", "sec", "secs", "second", "seconds"],
+      ["60", "min", "mins", "minute", "minutes"],
+      ["3600", "h", "hr", "hrs", "hour", "hours"],
+      ["86400", "d", "day", "days"],
+      ["604800", "wk", "wks", "week", "weeks"]
+    ]
+  },
+  "Calendar": {
+    "measures": { "calendar": 1 },
+    "units": [
+      ["1", "mth", "mths", "month", "months"],
+      ["3", "qtr", "qtrs", "quarter", "quarters"],
+      ["12", "yr", "yrs", "year", "years"]
+    ]
+  },
+  "Speed": {
+    "measures": { "length": 1, "time": -1 },
+    "units": [
+      ["0.44704", "mph"],
+      ["5/18", "kph"],
+      ["463/900", "kn", "knot", "knots"]
+    ]
+  },
+  "Energy": {
+    "measures": { "mass": 1, "length": 2, "time": -2 },
+    "units": [
+      ["1", "J", "joule", "joules"],
+      ["1000", "kJ"],
+      ["1000000", "MJ"],
+      ["1000000000", "GJ"],
+      ["3600", "Wh"],
+      ["3600000", "kWh"],
+      ["3600000000", "MWh"],
+      ["3600000000000", "GWh"],
+      ["4.184", "cal"],
+      ["4184", "kcal"]
+    ]
+  },
+  "Power": {
+    "measures": { "mass": 1, "length": 2, "time": -3 },
+    "units": [
+      ["1", "W", "watt", "watts"],
+      ["1000", "kW"],
+      ["1000000", "MW"],
+      ["1000000000", "GW"],
+      ["745.69987158227022", "hp"]
+    ]
+  },
+  "Data": {
+    "measures": { "data": 1 },
+    "units": [
+      ["1/8", "bit", "bits"],
+      ["1", "B", "byte", "bytes"],
+      ["1000", "kB", "KB"],
+      ["1000000", "MB"],
+      ["1000000000", "GB"],
+      ["1000000000000", "TB"],
+      ["1000000000000000", "PB"],
+      ["1024", "KiB"],
+      ["1048576", "MiB"],
+      ["1073741824", "GiB"],
+      ["1099511627776", "TiB"]
+    ]
+  },
+  "Currency": {
+    "each": true,
+    "units": [
+      ["1", "$", "dollar", "dollars"],
+      ["1", "USD"],
+      ["1", "€", "EUR", "euro", "euros"],
+      ["1", "£", "GBP"],
+      ["1", "¥", "JPY", "yen"],
+      ["1", "R", "ZAR", "rand", "rands"],
+      ["1", "AUD"],
+      ["1", "BRL"],
+      ["1", "CAD"],
+      ["1", "CHF"],
+      ["1", "CNY"],
+      ["1", "DKK"],
+      ["1", "HKD"],
+      ["1", "INR"],
+      ["1", "KRW"],
+      ["1", "MXN"],
+      ["1", "NOK"],
+      ["1", "NZD"],
+      ["1", "PLN"],
+      ["1", "SEK"],
+      ["1", "SGD"],
+      ["1", "TRY"]
+    ]
+  },
+  "Ratio": {
+    "units": [
+      ["0.01", "%", "percent"]
+    ]
+  }
+}

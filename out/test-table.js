@@ -368,10 +368,12 @@ const fresh = () => blockAt(doc, 2);
     && splitConstraint('status ="active"').op === "=="
     && splitConstraint("150 <= 200").op === "<=");
   check("splitConstraint: prose comparisons stay plain terms",
-    splitConstraint("10 < 20 knots").eq === -1
-    && splitConstraint("wind speed > none noted").eq === -1
-    && splitConstraint("age >= 18 years").eq === -1
+    splitConstraint("wind speed > none noted").eq === -1
+    && splitConstraint("age >= 18 years old").eq === -1
     && splitConstraint("plain term").op === null);
+  check("splitConstraint: a number with its unit is a bound",
+    splitConstraint("age >= 18 years").constraints[0].formula.trim() === "18 years"
+    && splitConstraint("speed <=40 km/h").constraints[0].formula === "40 km/h");
   check("splitConstraint: 'is <word>' phrases stay plain attribute names",
     splitConstraint("birth date is date").eq === -1
     && splitConstraint("car is red").eq === -1);

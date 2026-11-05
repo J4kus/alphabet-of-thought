@@ -6,8 +6,9 @@
 // `speed` bounded by `none noted`. Nothing may run Python to find out — the
 // declaration is read on every keystroke — so the text decides: a bound is
 // believed when its brackets and strings close and no two operands stand
-// side by side with nothing between them (`none noted`, `18 years`). An
-// `@` reference is one operand however many words its name holds.
+// side by side with nothing between them (`none noted`). An `@` reference is one
+// operand however many words its name holds, and so is a number with its unit:
+// `18 years`, `5 km/h`, `30%`.
 //
 // Pure: no I/O, no requires.
 
@@ -67,6 +68,12 @@ function readsAsExpression(src) {
       while (j < s.length && /[0-9._a-zA-Z]/.test(s[j])) j++;
       if (!take()) return false;
       i = j;
+      // a number's own percent sign, straight after it, or its unit
+      if (s[i] === "%") i++;
+      else {
+        const unit = /^ +((?:\p{L}|[°$€£¥])+)(?:[²³]|\^-?\d+|\d)?(?:\/(?:\p{L}|[°$€£¥])+(?:[²³]|\^-?\d+|\d)?)*/u.exec(s.slice(i));
+        if (unit && !KEYWORDS.has(unit[1])) i += unit[0].length;
+      }
       continue;
     }
     if (isIdentStart(ch)) {

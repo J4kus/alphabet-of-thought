@@ -26,9 +26,9 @@ const armstrong = require("./src/armstrong");
 const table = require("./src/table");
 const derive = require("./src/derive");
 const repo = require("./src/repo");
-
-// past this many Examples the lattice is no longer cheap; matches the extension
-const MAX_FCA_OBJECTS = 200;
+const gates = require("./src/gates");
+const { unlistedValues } = require("./src/crosslinks");
+const { walkAot, repoRootOf } = gates;
 
 function find(root, nodes, name) {
   const match = [root, ...nodes].find((n) => n.name === name);
@@ -43,35 +43,6 @@ function pathOf(node) {
   const parts = [];
   for (; node; node = node.parent) parts.push(node.name);
   return parts.join(" < ");
-}
-
-// Every .aot under `dir`, skipping the noise directories — shared by the
-// --workspace duplicate scan and the cross-table registry.
-function walkAot(dir) {
-  const files = [];
-  const skip = new Set(["node_modules", ".git", "aot.files"]);
-  const walk = (d) => {
-    let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-    for (const e of entries) {
-      const p = path.join(d, e.name);
-      if (e.isDirectory()) { if (!skip.has(e.name) && !e.name.endsWith(".tables") && !e.name.startsWith("tables.")) walk(p); }
-      else if (/\.aot$/i.test(e.name)) files.push(p);
-    }
-  };
-  walk(dir);
-  return files;
-}
-
-// The repository a path sits in: the nearest folder above it holding a .git
-// (the extension's own rule), or null outside any repository.
-function repoRootOf(startDir) {
-  let dir = path.resolve(startDir);
-  for (;;) {
-    if (fs.existsSync(path.join(dir, ".git"))) return dir;
-    const up = path.dirname(dir);
-    if (up === dir) return null;
-    dir = up;
-  }
 }
 
 // The stable Gödel numbers the repository keeps (aot.files/godel.tsv at its
@@ -306,7 +277,7 @@ function main() {
   }
   const rootName = path.basename(file).replace(/\.[^.]*$/, "");
   const text = readFile(file);
-  const { root, nodes, errors, warnings, subsumption } = lint(text, rootName);
+  const { root, nodes, errors, warnings, subsumption, deepErrors, depWarnings, notes } = gates.judge(text, rootName);
 
   let i;
   if ((i = args.indexOf("--ask")) !== -1) {
@@ -449,38 +420,29 @@ function main() {
   }
 
   for (const { line, message } of errors) console.log(`${file}:${line}: error: ${message}`);
-  // The FCA audit (drift / exhaustion) and the content-identical Gödel clash are
-  // errors counted in V; the inferred functional dependencies are warnings (not
-  // counted in V). All of them mean nothing over a tree that does not yet verify,
-  // so they run only once the syntactic/subsumption pass is clean. The content
-  // clash surfaces only the strong case; `--clashes` reports both strengths,
-  // `--fd` the full set of inferred dependencies. The gates and filters match
-  // the extension's analyse() exactly, so the CLI verdict is the editor's.
-  let deepErrors = [];
-  let depWarnings = [];
-  if (!errors.length) {
-    const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
-    if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
-      deepErrors = suggest(root, nodes).findings;
-      depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied);
-    }
-    deepErrors = deepErrors.concat(godel.clashes(root, nodes).findings.filter((f) => f.kind === "content"));
-    // a value every child states belongs on the parent; a default every
-    // child overrides is in force for nothing — warnings, as in the editor
-    depWarnings = depWarnings.concat(godel.hoists(root, nodes));
-  }
   // Derivations and constraint bounds are Python, and this never runs
   // Python: a CI job that verified a pull request by running its code would
-  // run whatever its author wrote. What the values say is the text's; the
-  // editor's calculation is what computes and checks them.
+  // run whatever its author wrote. What the values say is the text's;
+  // check.js and the editor's calculation are what compute and check them.
   for (const { line, message } of deepErrors) console.log(`${file}:${line}: error: ${message}`);
   for (const { line, message } of warnings) console.log(`${file}:${line}: warning: ${message}`);
   for (const { line, message } of depWarnings) console.log(`${file}:${line}: warning: ${message}`);
+  for (const { line, message } of notes) console.log(`${file}:${line}: warning: ${message}`);
+  // a value naming a row nothing lists is a gap in the model: said, not counted
+  if (!errors.length) {
+    for (const u of unlistedValues(text, root, nodes)) console.log(`${file}:${u.line}: warning: ${u.message}`);
+  }
   const v = errors.length + deepErrors.length;
   const largest = nodes.length ? `, largest prime ${nodes[nodes.length - 1].prime}` : "";
   console.log(`\n${nodes.length} nodes, ${nodes.length} edges${largest}, violations V = ${v}`);
   console.log(`subsumption: ${subsumption.edges} derived is-a edges, hierarchy ${subsumption.consistent ? "consistent" : "inconsistent"}`);
   console.log(`V = 0: ${v === 0 ? "true — the file verifies" : "FALSE"}`);
+  // "verifies" is about the structure, and a reader must not take it for the numbers
+  const { formulas, rules } = gates.uncalculated(nodes, text.split(/\r?\n/), rootName);
+  if (formulas || rules) {
+    const count = (n, word) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+    console.log(`${[formulas ? count(formulas, "formula") : "", rules ? count(rules, "rule") : ""].filter(Boolean).join(" and ")} not calculated here — run check.js`);
+  }
   process.exit(v ? 1 : 0);
 }
 

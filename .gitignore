@@ -1,3 +1,9 @@
 node_modules
 *.vsix
 *.csv
+# this working copy's own, never the public repository's
+.claude/
+.tmp-check/
+smoke-tmp.js
+__pycache__/
+alpha old*.png

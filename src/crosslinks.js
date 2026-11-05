@@ -41,6 +41,7 @@
 
 const { KIND } = require("./linter");
 const { valueType, numberless, splitCell } = require("./table"); // a leaf module; no cycle
+const { isUnit } = require("./units");
 
 // How many characters a value takes on its line — escapes and all, so a
 // doubled `==` counts twice — from `start`, where the value begins. A
@@ -155,8 +156,7 @@ function typeDefault(node, concepts) {
 // context, a Concept's scope, the CSV mirror. A type written in another
 // file is not followed here: a default holds in the file that states it.
 const conceptsByRoot = new WeakMap();
-function typeDefaultOf(node) {
-  if (!node) return null;
+function fileConcepts(node) {
   let root = node;
   while (root.parent) root = root.parent;
   let concepts = conceptsByRoot.get(root);
@@ -167,7 +167,63 @@ function typeDefaultOf(node) {
     concepts = index(root, all).concepts;
     conceptsByRoot.set(root, concepts);
   }
-  return typeDefault(node, concepts);
+  return concepts;
+}
+function typeDefaultOf(node) {
+  return node ? typeDefault(node, fileConcepts(node)) : null;
+}
+
+// --- units ------------------------------------------------------------------
+// `distance (km)` is an attribute typed through its alias, as `type (category)`
+// is: `km` is a Concept every file has, in the built-in hierarchy of units
+// (units.js). The file's own Concept of that name wins, as its own names always
+// do, and is a unit when it is filed under a Concept called Unit: that is how a
+// file adds one of its own. An alias naming neither is only another name.
+
+// The unit an alias names, as written, in the file `node` stands in; else null.
+function unitNamed(alias, node) {
+  if (!alias) return null;
+  const own = node ? fileConcepts(node).get(String(alias).toLowerCase()) : null;
+  if (own) {
+    for (let p = own; p; p = p.parent) if (numberless(p.name).toLowerCase() === "unit") return alias;
+    return null;
+  }
+  return isUnit(alias) ? alias : null;
+}
+
+// Each owner's aliases by attribute name, worked out once for the parse: a Concept
+// with thousands of rows is not walked again for every value read under it.
+const aliasesByOwner = new WeakMap();
+function aliasesOn(owner) {
+  let found = aliasesByOwner.get(owner);
+  if (!found) {
+    found = new Map();
+    for (const c of owner.children || []) {
+      if ((c.kind === KIND.ATTRIBUTE || c.kind === KIND.DEFAULT) && c.alias && !found.has(c.name.toLowerCase())) {
+        found.set(c.name.toLowerCase(), c.alias);
+      }
+    }
+    aliasesByOwner.set(owner, found);
+  }
+  return found;
+}
+
+// The unit an attribute or a value is in: its own alias, else the nearest
+// declaration of that name above it. `distance: 120` under a Concept declaring
+// `distance (km)` is in km. Null when no alias on the way names a unit.
+function unitOf(node) {
+  if (!node || !node.name) return null;
+  const own = node.alias ? unitNamed(node.alias, node) : null;
+  if (own) return own;
+  const key = node.name.toLowerCase();
+  for (let p = node.parent; p; p = p.parent) {
+    const alias = aliasesOn(p).get(key);
+    if (alias) {
+      const unit = unitNamed(alias, p);
+      if (unit) return unit;
+    }
+  }
+  return null;
 }
 
 // Whether an Example is one of a Concept's own — an Example *of the Concept*,
@@ -309,6 +365,8 @@ function unlistedValues(text, root, nodes, external) {
   for (const node of nodes) {
     if (node.kind !== KIND.DEFAULT || !node.value || node.formula !== undefined) continue;
     if (TRUTH_VALUES.has(node.value.trim().toLowerCase())) continue;
+    // `...` says the value is still to come, as it says everywhere else
+    if (node.value.trim() === "...") continue;
     const type = conceptType(node, concepts);
     if (!type) continue;
     // the type's default is a value it vouches for, Example or not
@@ -611,5 +669,5 @@ function resolve(text, root, nodes, external) {
 module.exports = {
   resolve, index, externalIndex, conceptType, wordStarts, instantiates,
   exampleOfConcept, individualsIndex, valueTarget, listedTarget, owningConcept,
-  unlistedValues, listedExamples, typeDefault, typeDefaultOf,
+  unlistedValues, listedExamples, typeDefault, typeDefaultOf, unitOf, unitNamed,
 };

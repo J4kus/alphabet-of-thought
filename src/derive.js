@@ -31,9 +31,9 @@ const {
   tablesOf, updateTable, readValue, writtenValue, render, isRowText,
   numberless, columnTerm, defaultColon, parentHeader, parentsOf,
   parentColumnOf: headerParentColumn,
-  blockAt, cells, colAt, cellStart, dividers, rowsBetween, rowName,
+  blockAt, cells, colAt, cellStart, dividers, rowsBetween, rowName, withUnit,
 } = require("./table");
-const { typeDefaultOf } = require("./crosslinks");
+const { typeDefaultOf, unitOf, unitNamed } = require("./crosslinks");
 
 // The maintained `...` line, told from anything you wrote by its own shape.
 // Only a Map whose note matches this is ever rewritten or removed (repo.js);
@@ -94,21 +94,28 @@ function kindAbove(node) {
   return k || null;
 }
 
+// Every kind above a node, the nearest first: what it inherits, and from where.
+function kindsAbove(node) {
+  const out = [];
+  for (let k = kindAbove(node); k; k = kindAbove(k)) out.push(k);
+  return out;
+}
+
 // The evaluation context for one host. `current` maps a DEFAULT node to
 // its value-in-progress, so the recompute fixpoint sees fresh values.
 // `registry` (optional) lets a line-form formula reach a foreign table's
 // cell/column by name, exactly as a table cell can — `@Order@price@Acme`.
 function makeCtx(d, current, registry) {
   const { host, examples } = scopeOf(d);
-  // The Concept the Examples sit under. Its own values are the defaults an
+  // The kinds above, the nearest first. Their own values are the defaults an
   // Example silent on an attribute inherits, so a formula (or a `==`
   // definition) on a value under an Example may name them beside its own
-  // siblings — `=@price*@tax rate` with `tax rate: 0.2` on the Concept.
-  // This is the reading a grid cell already gets through its enclosing
-  // scope (table.js's `outer`); the line form answers it the same way. A
-  // sub-Example's kind is the Concept above the Examples it sits under,
+  // siblings — `=@price*@tax rate` with `tax rate: 0.2` on the Concept, or on
+  // any kind above that. This is the reading a grid cell already gets through
+  // its enclosing scope (table.js's `outer`); the line form answers it the same
+  // way. A sub-Example's kind is the Concept above the Examples it sits under,
   // never the Example it sits under (kindAbove).
-  const owner = d.parent && d.parent.kind === KIND.INDIVIDUAL ? kindAbove(d.parent) : null;
+  const kinds = d.parent ? kindsAbove(d.parent) : [];
   const names = new Map(); // lowercased key -> canonical attribute id
   const declFor = new Map(); // canonical id -> the nearest declaration, for its type
   const addName = (n) => {
@@ -127,7 +134,7 @@ function makeCtx(d, current, registry) {
   const kids = host ? host.children.filter((c) => c.kind === KIND.INDIVIDUAL && !examples.includes(c)) : [];
   (d.parent ? d.parent.children : []).forEach(addName);
   for (const ex of examples) ex.children.forEach(addName);
-  if (owner) owner.children.forEach(addName);
+  for (const kind of kinds) kind.children.forEach(addName);
   for (const kid of kids) kid.children.forEach(addName);
   const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
   const rowCands = [...examples, ...kids].map((ex) => ({ key: ex.name.toLowerCase(), id: ex }));
@@ -138,11 +145,17 @@ function makeCtx(d, current, registry) {
       (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
       && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id)));
     if (!hit) return undefined;
-    return hit.kind === KIND.DEFAULT ? current(hit) : "";
+    return hit.kind === KIND.DEFAULT ? withUnit(current(hit), unitOf(hit)) : "";
   };
-  // the Concept's own value for the attribute — what a silent Example
+  // the nearest kind's own value for the attribute — what a silent Example
   // inherits — else the default of the Concept that types the attribute
-  const inherited = (id) => (owner ? valueOn(owner, id) : undefined);
+  const inherited = (id) => {
+    for (const kind of kinds) {
+      const v = valueOn(kind, id);
+      if (v !== undefined && v !== "") return v;
+    }
+    return undefined;
+  };
   const typed = (id) => {
     const td = typeDefaultOf(declFor.get(id));
     return td ? td.value : undefined;
@@ -190,12 +203,13 @@ function makeCtx(d, current, registry) {
 // Concept whose Examples are numbers (`- 1`, `- 35`) needs.
 //
 // The rows are every Example in the Concept's scope, sub-Examples included,
-// depth-first — the rows the CSV mirror writes (scopeRowsOf) — so `@Thing`
-// holds `- Child` as well as `- Parent`. Where they nest, the grid carries
-// the tree in a `parent` column exactly as the mirror does, so a DataFrame
-// and the CSV read the same.
+// and the rows of the kinds beneath it, depth-first (rollupRowsOf): if Acme is
+// a kind of Deal's row, `@Deal` lists it. So `@Thing` holds `- Child` as well as
+// `- Parent`. Where they nest, the grid carries the tree in a `parent` column
+// exactly as the mirror does, and where a row comes from a kind beneath, a `kind`
+// column says which, so a DataFrame can group by it.
 function conceptScope(concept) {
-  const examples = scopeRowsOf(concept);
+  const examples = rollupRowsOf(concept);
   const names = new Map();   // lowercased name or alias -> canonical id
   const display = new Map(); // canonical id -> the name as written
   const addAttrs = (owner) => {
@@ -208,29 +222,53 @@ function conceptScope(concept) {
   };
   addAttrs(concept);
   for (const ex of examples) addAttrs(ex);
+  // a kind beneath may declare a column none of its rows has filled in yet
+  const subKinds = (n) => n.children.filter((c) => c.kind === KIND.CONCEPT).flatMap((c) => [c, ...subKinds(c)]);
+  subKinds(concept).forEach(addAttrs);
   const tree = parentColumnOf(concept, examples, names);
   // the `parent` column is a column like any other where the scope nests
   if (tree.addParent) names.set(PARENT_COLUMN, PARENT_COLUMN);
+  // and so is `kind`, where the rows come from more than one
+  const addKind = examples.some((ex) => kindAbove(ex) !== concept) && !names.has(KIND_COLUMN);
+  if (addKind) names.set(KIND_COLUMN, KIND_COLUMN);
+  // a value is read from any kind above, so those names answer too, though
+  // they are no columns of this Concept's
+  for (const kind of kindsAbove(concept)) {
+    for (const c of kind.children) {
+      if (c.kind !== KIND.DEFAULT && c.kind !== KIND.ATTRIBUTE) continue;
+      const key = c.name.toLowerCase();
+      if (!names.has(key)) names.set(key, key);
+      if (c.alias && !names.has(c.alias.toLowerCase())) names.set(c.alias.toLowerCase(), key);
+    }
+  }
   const nameCands = [...names.entries()].map(([key, id]) => ({ key, id }));
   const rowCands = examples.map((ex, r) => ({ key: ex.name.toLowerCase(), id: r }));
+  const matches = (c, id) => (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
+    && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id));
   const valueOn = (owner, id) => {
-    const hit = owner.children.find((c) =>
-      (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
-      && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id)));
-    return hit && hit.kind === KIND.DEFAULT ? hit.value || "" : undefined;
+    const hit = owner.children.find((c) => matches(c, id));
+    return hit && hit.kind === KIND.DEFAULT ? withUnit(hit.value || "", unitOf(hit)) : undefined;
+  };
+  // what an Example silent on an attribute reads: the nearest kind's own value.
+  // An Example above lends nothing: a part inherits nothing from its whole.
+  const inheritedFrom = (start, id) => {
+    for (const kind of start) {
+      const v = valueOn(kind, id);
+      if (v !== undefined) return v;
+    }
+    return undefined;
   };
   // the default of the Concept that types an attribute, read off its first
   // declaration in the scope (`Currency: EUR` for a `currency`)
   const declOf = (id) => {
     for (const owner of [concept, ...examples]) {
-      const hit = owner.children.find((c) => (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE)
-        && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id)));
+      const hit = owner.children.find((c) => matches(c, id));
       if (hit) return hit;
     }
     return null;
   };
   const typeDefault = (id) => {
-    if (id === PARENT_COLUMN) return undefined;
+    if (id === PARENT_COLUMN || id === KIND_COLUMN) return undefined;
     const td = typeDefaultOf(declOf(id));
     return td ? td.value : undefined;
   };
@@ -240,7 +278,8 @@ function conceptScope(concept) {
     const own = valueOn(ex, id);
     if (own !== undefined && (own !== "" || id !== PARENT_COLUMN)) return own;
     if (id === PARENT_COLUMN && (tree.addParent || tree.owned)) return tree.parentOf(ex);
-    const inherited = valueOn(concept, id); // the Concept's default
+    if (id === KIND_COLUMN && addKind) return kindAbove(ex).name;
+    const inherited = inheritedFrom(kindsAbove(ex), id);
     if (inherited !== undefined) return inherited;
     const fromType = typeDefault(id); // the type's
     return fromType === undefined ? "" : fromType;
@@ -258,24 +297,29 @@ function conceptScope(concept) {
     // a Concept's aggregates already range over every Example, so a lookup
     // reads the same column — named apart because the local scopes differ
     columnAll: (c) => examples.map((_, r) => valueAt(r, c)),
-    // The Concept's *own* value for an attribute — the default it states on
-    // its own line — or undefined where it states none. A grid has no such
-    // reading (a table is rows and nothing else), which is why only a
-    // Concept offers it: `@Measurement@alias` means the value Measurement
-    // itself carries, the same one its Examples would inherit.
-    self: (c) => valueOn(concept, c),
+    // The value the Concept itself carries for an attribute — the default it
+    // states on its own line, else the nearest kind above's — or undefined
+    // where none does. A grid has no such reading (a table is rows and nothing
+    // else), which is why only a Concept offers it: `@Measurement@alias` means
+    // the value Measurement itself carries, the same one its Examples inherit.
+    self: (c) => inheritedFrom([concept, ...kindsAbove(concept)], c),
     // what an Example silent on the attribute reads when the Concept states
     // nothing either: the default of the Concept that types it — the reading
     // a grid's empty cell gets through table.tableCtx's `outer`
     typeDefault,
+    // the unit an alias names in this file, and the one a column's name is
+    // declared in: what a table reads its plain numbers in (table.tableReader)
+    unitNamed: (alias) => unitNamed(alias, concept),
+    unitOf: (id) => unitOf({ name: id, alias: null, parent: concept }),
     // the same Examples as a grid — the first column is headed by the
     // Concept and names its Examples, as the CSV mirror writes a table's,
     // so a line-form Concept mirrors like any other
     grid: () => [
-      [concept.name, ...(tree.addParent ? [PARENT_COLUMN] : []), ...display.values()],
+      [concept.name, ...(tree.addParent ? [PARENT_COLUMN] : []), ...(addKind ? [KIND_COLUMN] : []), ...display.values()],
       ...examples.map((ex, r) => [
         ex.name,
         ...(tree.addParent ? [tree.parentOf(ex)] : []),
+        ...(addKind ? [valueAt(r, KIND_COLUMN)] : []),
         ...[...display.keys()].map((id) => valueAt(r, id)),
       ]),
     ],
@@ -302,16 +346,16 @@ function parentColumnOf(scopeNode, rows, names) {
 // both and a table needs no registry of its own (unified in 1.6).
 //
 // A Concept is worth registering when it has something to answer with, which
-// is either of the two things a Concept can hold: **Examples** (the rows a
-// reference reaches with `@Integer@35@is prime`) or **values of its own**
-// (the defaults a reference reaches with `@Measurement@alias`). A Concept
-// with neither — a bare name, or one holding only sub-Concepts — answers
-// nothing, so it stays out. A line of another kind that holds Examples — an
-// Example or Attribute a table is filed under ('- test 1' with a grid
-// beneath it) — registers too, so `@test 1@…` keeps resolving; a Concept
-// wins a shared name.
+// is what a Concept can hold: **Examples** (the rows a reference reaches with
+// `@Integer@35@is prime`), its kinds' Examples among them, or **values of its
+// own** (the defaults a reference reaches with `@Measurement@alias`). A Concept
+// with neither — a bare name — answers nothing, so it stays out. A line of
+// another kind that holds Examples — an Example or Attribute a table is filed
+// under ('- test 1' with a grid beneath it) — registers too, so `@test 1@…` keeps
+// resolving; a Concept wins a shared name.
 const answersSomething = (n) => n.children.some((c) =>
-  c.kind === KIND.INDIVIDUAL || (c.kind === KIND.DEFAULT && c.value));
+  c.kind === KIND.INDIVIDUAL || (c.kind === KIND.DEFAULT && c.value)
+  || (c.kind === KIND.CONCEPT && answersSomething(c)));
 
 function conceptRegistry(root, nodes) {
   const map = new Map();
@@ -368,14 +412,17 @@ function spanOf(lines, node) {
 // Answers { a, constraints } — the declaration and the chain that holds,
 // written clauses first — or null.
 function constraintOf(d, parked) {
+  // an alias is another name for the attribute, unless it names its unit: two
+  // columns in km are two columns
+  const sameName = (n) => (n.alias && !unitNamed(n.alias, n) ? n.alias.toLowerCase() : null);
   const keys = [d.name.toLowerCase()];
-  if (d.alias) keys.push(d.alias.toLowerCase());
+  if (sameName(d)) keys.push(sameName(d));
   for (let p = d.parent; p; p = p.parent) {
     for (const c of p.children) {
       if (c.kind !== KIND.ATTRIBUTE) continue;
       const hidden = parked && parked.get(c);
       if (!c.constraints && !hidden) continue;
-      if (keys.includes(c.name.toLowerCase()) || (c.alias && keys.includes(c.alias.toLowerCase()))) {
+      if (keys.includes(c.name.toLowerCase()) || (sameName(c) && keys.includes(sameName(c)))) {
         return { a: c, constraints: [...(c.constraints || []), ...(hidden || [])] };
       }
     }
@@ -771,6 +818,22 @@ function scopeRowsOf(concept) {
   return out;
 }
 
+// The same with the kinds beneath it: what `@Deal` reads, its own rows and every
+// kind of Deal's, in the order they are written. The CSV mirror keeps to
+// scopeRowsOf, so a row lives in one CSV, that of its own kind.
+function rollupRowsOf(concept) {
+  const out = [];
+  const walk = (n) => {
+    for (const c of n.children) {
+      if (isAttrKind(c)) continue;
+      if (c.kind === KIND.INDIVIDUAL) out.push(c);
+      walk(c);
+    }
+  };
+  walk(concept);
+  return out;
+}
+
 // One union grid per Concept: { name, node, header, rows }. Every Concept
 // with Examples grids the same way — a table, a '- ' list, or both are one
 // idea in two spellings, so the mirror never asks which one wrote the rows.
@@ -778,17 +841,25 @@ function scopeRowsOf(concept) {
 // every column: it is an attribute of the Example, naming the Example it
 // sits under.
 const PARENT_COLUMN = "parent";
+// And the column naming the kind a row belongs to, where `@Concept` gathers the
+// rows of the kinds beneath it.
+const KIND_COLUMN = "kind";
 
 function mirrorGrids(root, nodes) {
   const out = [];
   for (const concept of [root, ...nodes].filter((n) => n && n.kind === KIND.CONCEPT)) {
     const scopeRows = scopeRowsOf(concept);
     const names = new Map(); // lowercased -> the name as first written
+    // a column with a unit says so in its heading, `distance (km)`, since its
+    // cells are plain numbers, which is what lets a spreadsheet sum them
     const addNames = (owner) => {
       for (const c of owner.children) {
         if (!isAttrKind(c) || !c.name) continue;
         const k = c.name.toLowerCase();
-        if (!names.has(k)) names.set(k, c.name);
+        if (!names.has(k)) {
+          const unit = unitOf(c);
+          names.set(k, unit ? `${c.name} (${unit})` : c.name);
+        }
       }
     };
     addNames(concept);
@@ -859,12 +930,14 @@ function mirrorGrids(root, nodes) {
 // to, block } (0-based inclusive lines) for a touched table, redrawn
 // aligned exactly as updateTable redraws one, and { type: "delete", line }.
 function updateScope(lines, root, nodes, concept, header, csvRows, rootName, opts = {}) {
+  // a CSV's column is its attribute's name, whatever unit its heading says
+  header = header.map((h, k) => (k === 0 ? h : columnTerm(h)));
   // the values to empty, by Example and column (case aside)
   const wipe = new Map();
   for (const e of opts.erase || []) {
     const row = String(e.row || "").trim().toLowerCase();
     if (!wipe.has(row)) wipe.set(row, new Set());
-    wipe.get(row).add(String(e.col || "").trim().toLowerCase());
+    wipe.get(row).add(columnTerm(e.col).trim().toLowerCase());
   }
   // a CSV is data, written by whoever edited it: nothing it carries becomes
   // code here, so an `=` that would open a derivation arrives escaped, `\=`
@@ -1671,7 +1744,7 @@ function hoistOps(lines, root, nodes, parentLine, attr, value, rootName, registr
 
 module.exports = {
   hoistOps,
-  derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, makeCtx, scopeOf, kindAbove,
+  derivationSpans, copyToSiblings, hostsOf, constraintOf, definitionOf, makeCtx, scopeOf, kindAbove, kindsAbove, rollupRowsOf,
   referencesAt, conceptScope, conceptRegistry, addExample, updateExamples,
   mirrorGrids, updateScope, deleteExamples,
   lastLineOf, headerColName, renumberExamples, renumberConcepts, NOTE_RE,

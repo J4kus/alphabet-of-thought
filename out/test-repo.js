@@ -47,7 +47,7 @@ const JAKUS = {
   "monthly close.aot": aot(
     "- Motivation",
     "    Jakus",
-    "        - Do Monthly Processing (Monthly Work Currently Done By Jaco)",
+    "        - Do Monthly Processing (Monthly Work Currently Done By The Team)",
   ),
   "bank recon.aot": aot(
     "- Motivation",
@@ -74,7 +74,7 @@ const JAKUS = {
   check("no peer's Example is copied in — the extension stays split",
     !/All Transactions Are Reconciled/.test(close.text));
   check("this file's own Example is untouched",
-    /- Do Monthly Processing \(Monthly Work Currently Done By Jaco\)/.test(close.text));
+    /- Do Monthly Processing \(Monthly Work Currently Done By The Team\)/.test(close.text));
 
   const recon = reconciled(JAKUS, "bank recon.aot");
   check("the peer's own `...` counts the other way",
@@ -284,13 +284,13 @@ const JAKUS = {
 // ---------------------------------------------------------------------------
 {
   const files = {
-    "a.aot": aot("Team", "    Jakus", "        - Close The Books", "            owner: Jaco"),
+    "a.aot": aot("Team", "    Jakus", "        - Close The Books", "            owner: Sam"),
     "b.aot": aot("Team", "    Jakus", "        - Close The Books", "            due: monthly"),
   };
   const a = reconciled(files, "a.aot");
   check("a shared Example gains the attribute the peer gave it",
     a.text.split("\n").includes("            due: monthly"));
-  check("and keeps its own", a.text.includes("owner: Jaco"));
+  check("and keeps its own", a.text.includes("owner: Sam"));
   check("a shared Example is not an error", errorsIn(files, "a.aot").length === 0);
 }
 

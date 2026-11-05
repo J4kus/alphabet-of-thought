@@ -32,6 +32,7 @@ import collections
 import contextlib
 import datetime as _dt
 import decimal
+import fractions
 import functools
 import importlib
 import importlib.machinery
@@ -208,15 +209,731 @@ def _loaded(module):
     return sys.modules.get(module)
 
 
+# --- the units ---------------------------------------------------------------
+# `120 km` is a number with a unit, and a formula calculates with it: a speed
+# comes out of a distance over a time, `5 km + 500 m` is `5.5 km`, and `3 kg + 2 km`
+# is an error rather than a number. The built-in units and the hierarchy they sit
+# in are in units.json, beside this file, which the editor reads too; any other
+# word is a unit of its own that matches only itself, singular or plural.
+#
+# A Quantity is deliberately not a float. numpy and pandas take a float's value
+# and drop whatever else it carries, so a `.median()` of one would quietly lose
+# the unit, and a column in two units would come out wrong with no error.
+
+_SYMBOLS = "$€£¥R"
+_SUPERS = {"²": 2, "³": 3}
+# the base of each kind of thing, marked so no word of a file can be taken for one
+_BASE_MARK = "\0"
+
+
+def _load_units():
+    """{word: (factor, dims)}, and the same by lowercase for words of three
+    letters or more: `Hours` is `hours` and `kwh` is `kWh`, but `M` is never `m`."""
+    exact, folded = {}, {}
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "units.json"), encoding="utf-8") as fh:
+            table = json.load(fh)
+    except (OSError, ValueError):
+        return exact, folded
+    for entry in table.values():
+        measures = tuple(sorted((_BASE_MARK + base, power) for base, power in entry.get("measures", {}).items()))
+        for row in entry["units"]:
+            factor = fractions.Fraction(row[0])
+            # each currency is a thing of its own: nothing converts it to another
+            dims = ((_BASE_MARK + row[1], 1),) if entry.get("each") else measures
+            for name in row[1:]:
+                exact[name] = (factor, dims)
+                if len(name) >= 3:
+                    folded[name.lower()] = (factor, dims)
+    return exact, folded
+
+
+_UNITS, _UNITS_FOLDED = _load_units()
+
+
+def _known(word):
+    return _UNITS.get(word) or (_UNITS_FOLDED.get(word.lower()) if len(word) >= 3 else None)
+
+
+def _singular(word):
+    """A word as one of it: `clients` and `client` are one unit. `len > 3` so
+    that a short word (`gas`, `bus`) is left as it is."""
+    if len(word) > 3:
+        low = word.lower()
+        if low.endswith("ies"):
+            return word[:-3] + "y"
+        if low.endswith(("ches", "shes", "xes", "sses", "zes")):
+            return word[:-2]
+        if low.endswith("s") and not low.endswith("ss"):
+            return word[:-1]
+    return word
+
+
+def _atom(word):
+    """(factor, dims) of one unit word."""
+    hit = _known(word)
+    if hit is not None:
+        return hit
+    return (fractions.Fraction(1), ((_singular(word).lower(), 1),))
+
+
+_MEASURES = {}
+
+
+def _measure(unit):
+    """(factor, dims) of a unit: `km/h` is 5/18 of a metre per second."""
+    hit = _MEASURES.get(unit)
+    if hit is None:
+        factor = fractions.Fraction(1)
+        dims = {}
+        for word, power in unit:
+            f, d = _atom(word)
+            factor *= f ** power
+            for base, p in d:
+                dims[base] = dims.get(base, 0) + p * power
+        hit = (factor, tuple(sorted((b, p) for b, p in dims.items() if p)))
+        _MEASURES[unit] = hit
+    return hit
+
+
+# (a superscript is a word character to `\w`, and a power here, never a letter)
+_UNIT_WORD = re.compile(r"^((?:[^\W\d_²³¹]|[°$€£¥])+)(?:\^(-?\d+)|([²³])|(\d))?$")
+_UNIT_SEP = re.compile(r"([/*·])")
+
+
+def _parse_unit(text):
+    """A unit as written, as ((word, power), ...): `km/h`, `$/kg`, `kg*m/s^2`,
+    `m²`, `m2`. None when the text is no unit."""
+    parts = _UNIT_SEP.split(str(text).strip())
+    out = []
+    power = 1
+    for k, piece in enumerate(parts):
+        if k % 2:
+            power = -1 if piece == "/" else 1
+            continue
+        if k == 0 and len(parts) > 1 and piece in ("", "1"):  # `1/h`
+            continue
+        m = _UNIT_WORD.match(piece)
+        if not m:
+            return None
+        word, caret, sup, digit = m.groups()
+        # a bare digit is a power only on a unit it knows: m2, never CO2
+        if digit and not _known(word):
+            return None
+        p = int(caret) if caret else _SUPERS[sup] if sup else int(digit) if digit else 1
+        if p:
+            out.append((word, power * p))
+    if not out:
+        return None
+    merged = []
+    for word, p in out:
+        for i, (w, q) in enumerate(merged):
+            if w == word:
+                merged[i] = (w, q + p)
+                break
+        else:
+            merged.append((word, p))
+    merged = tuple(x for x in merged if x[1])
+    return merged or None
+
+
+def _combine(left, right):
+    """Two units multiplied: (the unit, the ratio the numbers take on the way).
+    Words measuring one thing merge into the first, so a kilometre over a metre is
+    a pure number and an hour cancels a minute."""
+    out = list(left)
+    ratio = fractions.Fraction(1)
+    for word, power in right:
+        f, d = _atom(word)
+        for i, (w, p) in enumerate(out):
+            g, e = _atom(w)
+            if e == d:
+                ratio *= (f / g) ** power
+                out[i] = (w, p + power)
+                break
+        else:
+            out.append((word, power))
+    return tuple(x for x in out if x[1]), ratio
+
+
+def _label(unit):
+    """A unit as the file writes it: `km/h`, `$/client`, `m²`. Words below the line
+    read as one of them, a currency comes first."""
+    def word(name, power):
+        power = abs(power)
+        return name + ({2: "²", 3: "³"}.get(power) or (f"^{power}" if power != 1 else ""))
+    top = [u for u in unit if u[1] > 0]
+    top.sort(key=lambda u: 0 if u[0] in _SYMBOLS else 1)
+    head = "*".join(word(n, p) for n, p in top) or "1"
+    return head + "".join("/" + word(_singular(n), p) for n, p in unit if p < 0)
+
+
+def _scale(v, ratio):
+    """A number times an exact ratio, with no float's noise: a kilometre is 1,000
+    metres, so 1.1 km is 1100 m and never 1100.0000000000002."""
+    if ratio == 1:
+        return v
+    if isinstance(v, decimal.Decimal):
+        return v * ratio.numerator / ratio.denominator
+    exact = fractions.Fraction(repr(v)) if isinstance(v, float) else fractions.Fraction(v)
+    out = exact * ratio
+    return int(out) if isinstance(v, int) and out.denominator == 1 else float(out)
+
+
+def _group(text):
+    sign = "-" if text.startswith("-") else ""
+    body = text.lstrip("-")
+    whole, dot, frac = body.partition(".")
+    return f"{sign}{int(whole):,}{dot}{frac}"
+
+
+def _compose(digits, label):
+    """A number and its unit as the file writes them: `$1,204`, `-$5`, `$10/kg`,
+    `120 km`."""
+    if re.match(r"^[$€£¥R](?=$|[/*·])", label):
+        sign = "-" if digits.startswith("-") else ""
+        return f"{sign}{label[0]}{digits.lstrip('-')}{label[1:]}"
+    return f"{digits} {label}"
+
+
+class UnitError(TypeError):
+    """Two numbers whose units do not go together. Never read as text: `5 km > 3`
+    is a mistake to show, not two strings to compare."""
+
+
+_PAST = {"add": "added", "subtract": "subtracted", "compare": "compared"}
+
+
+class Quantity:
+    """A number and its unit: what `120 km` or `$10/kg` is in a formula. It
+    multiplies and divides with anything; it adds, subtracts and compares only
+    with what it converts to, and with 0. A value that merely looks like one
+    (`12 Monkeys`) still reads as the text it is, until it is calculated with."""
+
+    __slots__ = ("value", "_unit", "_text")
+    # numpy leaves the arithmetic to this class rather than taking it apart
+    __array_ufunc__ = None
+    __array_priority__ = 1000
+
+    def __init__(self, value, unit, text=None):
+        self.value = _scalar(value)
+        self._unit = unit
+        self._text = text
+
+    @property
+    def unit(self):
+        return _label(self._unit)
+
+    def to(self, unit):
+        """This quantity in another unit: `q.to("mi")`."""
+        target = _parse_unit(unit)
+        if target is None:
+            raise ValueError(f"write a unit such as 'km' or 'km/h' — '{unit}' does not read as one")
+        return Quantity(self._in(target, f"change the unit — {self} can't be written in {unit}: they don't convert"), target)
+
+    def _in(self, unit, message=None):
+        """The number in another unit."""
+        if unit == self._unit:
+            return self.value
+        f, d = _measure(self._unit)
+        g, e = _measure(unit)
+        if d != e:
+            raise UnitError(message or f"use one unit for both — {self} and {_label(unit)} don't convert into each other")
+        return _scale(self.value, f / g)
+
+    def _like(self, other, doing):
+        """`other` as a number in this unit, for + - and comparing, or None when
+        it is nothing a number could be."""
+        other = _scalar(other)
+        if isinstance(other, Quantity):
+            return other._in(self._unit, f"use one unit for both — {self} and {other} don't convert into each other, so they can't be {_PAST[doing]}")
+        if isinstance(other, (int, float, decimal.Decimal)):
+            if other == 0:
+                return 0
+            if isinstance(other, float) and math.isnan(other):
+                return other
+            return self._plain(other, doing)
+        if isinstance(other, _CellText) and doing != "compare":
+            raise TypeError(f"change the value, or leave it out of the formula — '{other}' is text, so it can't be {_PAST[doing]} to {self}"
+                            if doing == "add" else f"change the value, or leave it out of the formula — '{other}' is text, so it can't be {_PAST[doing]} from {self}")
+        return None
+
+    def _plain(self, other, doing):
+        shown = _compose(_group(_number_text(other)), self.unit)
+        raise UnitError(f"write the unit on {_number_text(other)}, as in {shown} — {self} has a unit and {_number_text(other)} has none, so they can't be {_PAST[doing]}")
+
+    def _dates(self, other, sign):
+        """A date or a span of time moved by this many seconds, hours or days."""
+        if not isinstance(other, (_dt.date, _dt.timedelta)):
+            return None
+        f, d = _measure(self._unit)
+        if d != ((_BASE_MARK + "time", 1),):
+            raise UnitError(f"write a number of days or hours — {self} isn't a length of time a date can move by")
+        return other + sign * _dt.timedelta(seconds=float(_scale(self.value, f)))
+
+    # adding and subtracting
+
+    def __add__(self, other):
+        moved = self._dates(other, 1)
+        if moved is not None:
+            return moved
+        if type(other) is str:  # text in a formula: this reads as the text it is
+            return str(self) + other
+        n = self._like(other, "add")
+        return NotImplemented if n is None else Quantity(self.value + n, self._unit)
+
+    def __radd__(self, other):
+        moved = self._dates(other, 1)
+        if moved is not None:
+            return moved
+        if type(other) is str:
+            return other + str(self)
+        n = self._like(other, "add")
+        return NotImplemented if n is None else Quantity(n + self.value, self._unit)
+
+    def __sub__(self, other):
+        n = self._like(other, "subtract")
+        return NotImplemented if n is None else Quantity(self.value - n, self._unit)
+
+    def __rsub__(self, other):
+        moved = self._dates(other, -1)
+        if moved is not None:
+            return moved
+        n = self._like(other, "subtract")
+        return NotImplemented if n is None else Quantity(n - self.value, self._unit)
+
+    # multiplying and dividing: a unit multiplies with its number
+
+    def _times(self, other, power):
+        """self * other, or self / other. A pure result is a plain number."""
+        other = _scalar(other)
+        if isinstance(other, Quantity):
+            unit, ratio = _combine(self._unit, tuple((w, p * power) for w, p in other._unit))
+            value = self.value * other.value if power > 0 else self.value / other.value
+            value = _scale(value, ratio)
+            return Quantity(value, unit) if unit else value
+        if isinstance(other, (int, float, decimal.Decimal)):
+            return Quantity(self.value * other if power > 0 else self.value / other, self._unit)
+        return NotImplemented
+
+    def _each(self, array, f):
+        out = [None if _is_missing(v) else f(v) for v in array.tolist()]
+        return _quantity_array()(out) if _loaded("pandas") else _object_array(out)
+
+    def __mul__(self, other):
+        if _is(other, "numpy", "ndarray"):
+            return self._each(other, lambda v: self * v)
+        return self._times(other, 1)
+
+    def __rmul__(self, other):
+        if _is(other, "numpy", "ndarray"):
+            return self._each(other, lambda v: self * v)
+        return self._times(other, 1)
+
+    def __truediv__(self, other):
+        if _is(other, "numpy", "ndarray"):
+            return self._each(other, lambda v: self / v)
+        return self._times(other, -1)
+
+    def __rtruediv__(self, other):
+        if _is(other, "numpy", "ndarray"):
+            return self._each(other, lambda v: v / self)
+        other = _scalar(other)
+        if not isinstance(other, (int, float, decimal.Decimal)):
+            return NotImplemented
+        return Quantity(other / self.value, tuple((w, -p) for w, p in self._unit))
+
+    def __pow__(self, power):
+        power = _scalar(power)
+        if not isinstance(power, (int, float)):
+            return NotImplemented
+        unit = []
+        for word, p in self._unit:
+            q = p * power
+            if q != int(q):
+                raise UnitError(f"take this power of a number without a unit — {self} has no power {power} that is still a unit")
+            unit.append((word, int(q)))
+        unit = tuple(u for u in unit if u[1])
+        value = self.value ** power
+        return Quantity(value, unit) if unit else value
+
+    def __neg__(self):
+        return Quantity(-self.value, self._unit)
+
+    def __pos__(self):
+        return self
+
+    def __abs__(self):
+        return Quantity(abs(self.value), self._unit)
+
+    def __round__(self, digits=None):
+        return Quantity(round(self.value, digits), self._unit)
+
+    def __floor__(self):
+        return Quantity(math.floor(self.value), self._unit)
+
+    def __ceil__(self):
+        return Quantity(math.ceil(self.value), self._unit)
+
+    def __trunc__(self):
+        return Quantity(math.trunc(self.value), self._unit)
+
+    # comparing
+
+    def __eq__(self, other):
+        other = _scalar(other)
+        if isinstance(other, Quantity):
+            try:
+                return self.value == other._in(self._unit)
+            except UnitError:
+                return False
+        if isinstance(other, str):
+            return str(self) == other
+        if isinstance(other, (int, float, decimal.Decimal)):
+            return other == 0 and self.value == 0
+        return NotImplemented
+
+    def __ne__(self, other):
+        same = self.__eq__(other)
+        return same if same is NotImplemented else not same
+
+    def __lt__(self, other):
+        n = self._like(other, "compare")
+        return NotImplemented if n is None else self.value < n
+
+    def __le__(self, other):
+        n = self._like(other, "compare")
+        return NotImplemented if n is None else self.value <= n
+
+    def __gt__(self, other):
+        n = self._like(other, "compare")
+        return NotImplemented if n is None else self.value > n
+
+    def __ge__(self, other):
+        n = self._like(other, "compare")
+        return NotImplemented if n is None else self.value >= n
+
+    # by its text: a value that only looks like a quantity is still looked up as
+    # the text it is, `{"R100": 1}[@code]`
+    def __hash__(self):
+        return hash(str(self))
+
+    def __bool__(self):
+        return bool(self.value)
+
+    def __float__(self):
+        raise TypeError(f"use .value for the plain number — {self} has a unit, and this needs a number without one")
+
+    __int__ = __float__
+    __complex__ = __float__
+
+    def __str__(self):
+        if self._text is not None:
+            return self._text
+        return _compose(_group(_number_text(self.value)), self.unit)
+
+    __repr__ = __str__
+
+    def __format__(self, spec):
+        return _compose(format(self.value, spec), self.unit) if spec else str(self)
+
+    def __getattr__(self, name):
+        # what text can do: `@code.startswith("R")`. Never a dunder, or numpy and
+        # pandas would take this for a sequence.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(str(self), name)
+
+
+class _CellText(str):
+    """Text read from a file. A string in Python repeats when multiplied, so `n/a`
+    × 2 would be `n/an/a` and `€20,000` × -14 an empty value, each with no error.
+    Here that is the visible failure a spreadsheet gives. Text still joins: only
+    two values that both start like numbers refuse to, since `1.2M` + `450k` is a
+    sum that came out as `1.2M450k`."""
+
+    def __mul__(self, other):
+        raise TypeError(f"change the value, or leave it out of the formula — '{self}' is text, so it can't be multiplied")
+
+    __rmul__ = __mul__
+
+    def __add__(self, other):
+        if isinstance(other, _CellText) and _STARTS_NUMERIC.match(self) and _STARTS_NUMERIC.match(other):
+            raise TypeError(f"write them as plain numbers — '{self}' and '{other}' are text, so they can't be added")
+        return str.__add__(self, other)
+
+
+_CellText.__name__ = "text"
+_STARTS_NUMERIC = re.compile(r"^[-+(]?[$€£¥R]?\s?\d")
+
+
+def _object_array(values):
+    np = importlib.import_module("numpy")
+    out = np.empty(len(values), dtype=object)
+    for i, v in enumerate(values):
+        out[i] = v
+    return out
+
+
+_QUANTITY_ARRAY = {}
+
+
+def _quantity_array():
+    """The pandas column type for values with units, made the first time one is
+    needed: so a file without units never reaches it, and pandas stays lazy."""
+    made = _QUANTITY_ARRAY.get("class")
+    if made is not None:
+        return made
+    np = importlib.import_module("numpy")
+    pd = importlib.import_module("pandas")
+    from pandas.api.extensions import ExtensionArray, ExtensionDtype, register_extension_dtype, take as pd_take
+
+    class QuantityDtype(ExtensionDtype):
+        name = "quantity"
+        type = Quantity
+        na_value = None
+        kind = "O"
+
+        @classmethod
+        def construct_array_type(cls):
+            return QuantityArray
+
+        @classmethod
+        def construct_from_string(cls, string):
+            if string == cls.name:
+                return cls()
+            raise TypeError(f"Cannot construct a 'QuantityDtype' from '{string}'")
+
+    class QuantityArray(ExtensionArray):
+        def __init__(self, values):
+            self._a = np.empty(len(values), dtype=object)
+            for i, v in enumerate(values):
+                self._a[i] = None if _is_missing(_scalar(v)) else _scalar(v)
+
+        dtype = property(lambda self: QuantityDtype())
+        nbytes = property(lambda self: self._a.nbytes)
+
+        @classmethod
+        def _from_sequence(cls, scalars, *, dtype=None, copy=False):
+            return cls(list(scalars))
+
+        @classmethod
+        def _from_factorized(cls, values, original):
+            return cls(list(values))
+
+        @classmethod
+        def _concat_same_type(cls, arrays):
+            return cls([v for a in arrays for v in a._a])
+
+        def __getitem__(self, item):
+            hit = self._a[item]
+            return QuantityArray(list(hit)) if isinstance(hit, np.ndarray) else hit
+
+        def __setitem__(self, item, value):
+            self._a[item] = value._a if isinstance(value, QuantityArray) else value
+
+        def __len__(self):
+            return len(self._a)
+
+        def __array__(self, dtype=None, copy=None):
+            return self._a if dtype is None or dtype == object else self._a.astype(dtype)
+
+        def isna(self):
+            return np.array([v is None for v in self._a], dtype=bool)
+
+        def take(self, indices, *, allow_fill=False, fill_value=None):
+            return QuantityArray(list(pd_take(self._a, indices, allow_fill=allow_fill, fill_value=fill_value)))
+
+        def copy(self):
+            return QuantityArray(list(self._a))
+
+        def _values_for_factorize(self):
+            return self._a, None
+
+        def _values_for_argsort(self):
+            first = next((v for v in self._a if isinstance(v, Quantity)), None)
+            return np.array([np.nan if v is None else float(v._in(first._unit) if isinstance(v, Quantity) else v)
+                             for v in self._a], dtype=float)
+
+        def _reduce(self, name, *, skipna=True, keepdims=False, **kwargs):
+            values = [v for v in self._a if v is not None]
+            if not values or (not skipna and len(values) != len(self._a)):
+                result = None
+            elif name == "sum":
+                result = sum(values)
+            elif name == "mean":
+                result = sum(values) / len(values)
+            elif name == "min":
+                result = min(values)
+            elif name == "max":
+                result = max(values)
+            elif name == "median":
+                ordered = sorted(values)
+                mid = len(ordered) // 2
+                result = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+            elif name in ("var", "std"):
+                ddof = kwargs.get("ddof", 1)
+                if len(values) <= ddof:
+                    result = None
+                else:
+                    mean = sum(values) / len(values)
+                    result = sum((v - mean) * (v - mean) for v in values) / (len(values) - ddof)
+                    if name == "std":
+                        result = result ** 0.5
+            elif name == "any":
+                result = any(values)
+            elif name == "all":
+                result = all(values)
+            else:
+                raise TypeError(f"{name} isn't defined for numbers with units — use .value for the plain numbers")
+            return QuantityArray([result]) if keepdims else result
+
+        def _accumulate(self, name, *, skipna=True, **kwargs):
+            pick = {"cumsum": lambda a, b: a + b, "cummin": min, "cummax": max}.get(name)
+            if pick is None:
+                raise TypeError(f"{name} isn't defined for numbers with units — use .value for the plain numbers")
+            out = []
+            running = None
+            for v in self._a:
+                if v is not None:
+                    running = v if running is None else pick(running, v)
+                out.append(None if v is None else running)
+            return QuantityArray(out)
+
+        def round(self, decimals=0, *args, **kwargs):
+            return QuantityArray([None if v is None else round(v, decimals) for v in self._a])
+
+        def __abs__(self):
+            return QuantityArray([None if v is None else abs(v) for v in self._a])
+
+        def __neg__(self):
+            return QuantityArray([None if v is None else -v for v in self._a])
+
+        def _rights(self, other):
+            if isinstance(other, (QuantityArray, list, np.ndarray, pd.Series, pd.Index)):
+                return [None if _is_missing(_scalar(v)) else v for v in other]
+            return [other] * len(self)
+
+        def _compare(self, other, op):
+            return np.array([a is not None and b is not None and bool(op(a, b))
+                             for a, b in zip(self._a, self._rights(other))], dtype=bool)
+
+        def __lt__(self, other):
+            return self._compare(other, lambda a, b: a < b)
+
+        def __le__(self, other):
+            return self._compare(other, lambda a, b: a <= b)
+
+        def __gt__(self, other):
+            return self._compare(other, lambda a, b: a > b)
+
+        def __ge__(self, other):
+            return self._compare(other, lambda a, b: a >= b)
+
+        def __eq__(self, other):
+            return self._compare(other, lambda a, b: a == b)
+
+        def __ne__(self, other):
+            return ~self._compare(other, lambda a, b: a == b)
+
+        def _calc(self, other, f):
+            values = [None if a is None or b is None else f(a, b) for a, b in zip(self._a, self._rights(other))]
+            # units that cancelled in every row are plain numbers again
+            if any(isinstance(v, Quantity) for v in values) or not any(v is not None for v in values):
+                return QuantityArray(values)
+            return np.array([np.nan if v is None else v for v in values], dtype=float)
+
+        def __add__(self, other):
+            return self._calc(other, lambda a, b: a + b)
+
+        def __radd__(self, other):
+            return self._calc(other, lambda a, b: b + a)
+
+        def __sub__(self, other):
+            return self._calc(other, lambda a, b: a - b)
+
+        def __rsub__(self, other):
+            return self._calc(other, lambda a, b: b - a)
+
+        def __mul__(self, other):
+            return self._calc(other, lambda a, b: a * b)
+
+        def __rmul__(self, other):
+            return self._calc(other, lambda a, b: b * a)
+
+        def __truediv__(self, other):
+            return self._calc(other, lambda a, b: a / b)
+
+        def __rtruediv__(self, other):
+            return self._calc(other, lambda a, b: b / a)
+
+    register_extension_dtype(QuantityDtype)
+    _QUANTITY_ARRAY["class"] = QuantityArray
+    return QuantityArray
+
+
 # --- values in ---------------------------------------------------------------
 # A value arrives as the text the file holds and is read the way the file
 # means it — strictly: the whole text must be a number for it to be one, so
 # `2026-01` stays text rather than becoming 2026.
+#
+#     30%                    0.3, as a spreadsheet reads it
+#     (1,000)                -1000, as an accountant writes it
+#     $1,204  €5  R1,204     a number with its currency
+#     120 km  46 clients     a number and one word: a unit, whatever the word
+#     120km  40km/h          glued on: only a unit it knows, so `3D` and `12A` stay text
+#     $10/kg                 a currency per something
+#
+# Anything else is text. `1.2M`, `1.204,50` and `15/01/2026` are, and arithmetic
+# on them fails where you can see it rather than repeating the text.
 
-_NUM = re.compile(r"^[-+]?\$?[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$")
-_INT = re.compile(r"^[-+]?\d+$")
+_DIGITS = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+_VALUE = re.compile(rf"^([-+]?)(?:([{_SYMBOLS}]) ?)?([-+]?)({_DIGITS})(.*)$", re.S)
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?$")
+
+
+def _read_number(s):
+    """The number a whole text says, with its unit, or None when it says none."""
+    if s.startswith("(") and s.endswith(")"):
+        inner = s[1:-1].strip()
+        if inner[:1] in ("-", "+"):
+            return None
+        n = _read_number(inner)
+        if isinstance(n, Quantity):
+            return Quantity(-n.value, n._unit, s)
+        return None if n is None else -n
+    m = _VALUE.match(s)
+    if not m:
+        return None
+    sign, symbol, late, digits, tail = m.groups()
+    if sign and late:
+        return None
+    plain = digits.replace(",", "")
+    n = float(plain) if "." in plain else int(plain)
+    negative = "-" in (sign, late)
+    if negative:
+        n = -n
+    if symbol:
+        if not tail:
+            return Quantity(n, ((symbol, 1),), s)
+        if tail[0] not in "/*·":
+            return None
+        unit = _parse_unit(symbol + tail)
+        return None if unit is None else Quantity(n, unit, s)
+    if not tail:
+        return n
+    word = tail.strip()
+    if word == "%" or word.lower() == "percent":
+        share = float(decimal.Decimal(plain).scaleb(-2))
+        return -share if negative else share
+    unit = _parse_unit(word)
+    if unit is None:
+        return None
+    # glued on it must be a unit it knows: `3D` and `2nd` are no quantities
+    if tail == word and not all(_known(w) for w, _ in unit):
+        return None
+    return Quantity(n, unit, s)
 
 
 def _typed(text):
@@ -230,24 +947,65 @@ def _typed(text):
         return True
     if low in ("no", "false"):
         return False
-    if _NUM.match(s):
-        t = s.replace("$", "").replace(",", "").replace("%", "")
-        try:
-            return int(t) if _INT.match(t) else float(t)
-        except ValueError:
-            return s
+    number = _read_number(s)
+    if number is not None:
+        return number
     if _DATE.match(s):
         try:
             return _dt.date.fromisoformat(s)
         except ValueError:
-            return s
+            return _CellText(s)
     if _DATETIME.match(s):
         try:
             return _dt.datetime.fromisoformat(s.replace(" ", "T"))
         except ValueError:
-            return s
+            return _CellText(s)
     # one row is one line of the file, so a line break in a cell is written ↵
-    return s.replace("↵", "\n")
+    return _CellText(s.replace("↵", "\n"))
+
+
+def _literal(text):
+    """A number with a unit written in a formula or a bound: `$5,000`, `5 km`, `30%`."""
+    n = _read_number(str(text).strip())
+    if n is None:
+        raise ValueError(f"'{text}' doesn't read as a number with a unit")
+    return n
+
+
+def _cell_unit(text):
+    """The unit a cell's text says it holds: "%" for a percent, a unit for `120 km`
+    or for a unit standing alone, as in `speed: mph =@distance/@time`, else None.
+    Alone it must be one this knows, so a word waiting for its value (`pending`)
+    names nothing."""
+    s = "" if text is None else str(text).strip()
+    if not s:
+        return None
+    if s == "%" or s.lower() == "percent":
+        return "%"
+    n = _read_number(s)
+    if isinstance(n, Quantity):
+        return n._unit
+    if n is not None:
+        return "%" if s.rstrip(" )").endswith("%") or s.lower().rstrip(" )").endswith("percent") else None
+    unit = _parse_unit(s)
+    return unit if unit is not None and any(_known(w) for w, _ in unit) else None
+
+
+def _landed(v, own, column):
+    """A result as it stands in its cell: (the number, the unit's label). The cell's
+    own unit wins, then its column's, and a result in another unit of the same kind
+    is converted. A plain number takes the unit the cell names; a percent cell holds
+    a share, so 0.7 stands as 70%."""
+    form = _cell_unit(own) or _cell_unit(column)
+    if isinstance(v, Quantity):
+        if form == "%":
+            raise UnitError(f"change the formula, or the cell's unit — the formula gives {v.unit}, and this cell holds a percent")
+        if form is None:
+            return v.value, v.unit
+        return v._in(form, f"change the formula, or the cell's unit — the formula gives {v.unit}, and this cell says {_label(form)}"), _label(form)
+    if form == "%":
+        return _scale(v, fractions.Fraction(100)), "%"
+    return v, (_label(form) if form is not None else "")
 
 
 def _read(cell):
@@ -300,12 +1058,24 @@ def _frame_from(header, names, rows):
     except ImportError:
         return [dict([(header[0], n)] + list(zip(cols, d))) for n, d in zip(names, data)]
     df = pd.DataFrame(data, columns=cols, index=pd.Index(names, name=header[0]))
-    # a column of dates is a datetime column, so `.dt` works on it
-    for c in cols:
-        values = [v for v in df[c].tolist() if v is not None]
+    for k, c in enumerate(cols):
+        # from what was read: pandas' own string column keeps no text of ours
+        whole = [row[k] if k < len(row) else None for row in data]
+        values = [v for v in whole if not _is_missing(v)]
+        # a column of dates is a datetime column, so `.dt` works on it
         if values and all(isinstance(v, (_dt.date, _dt.datetime)) for v in values):
             df[c] = pd.to_datetime(df[c])
+        elif _has_units(values):
+            df[c] = _quantity_array()(whole)
+        elif any(isinstance(v, _CellText) for v in values):
+            df[c] = pd.Series(whole, index=df.index, dtype=object)
     return df
+
+
+def _has_units(values):
+    """Whether a column is numbers with units: text among them leaves it a column
+    of objects, where a sum across the text fails as it should."""
+    return any(isinstance(v, Quantity) for v in values) and not any(isinstance(v, str) for v in values)
 
 
 def _series_from(name, index, values):
@@ -314,7 +1084,13 @@ def _series_from(name, index, values):
         pd = importlib.import_module("pandas")
     except ImportError:
         return _Column(typed)
-    return pd.Series(typed, index=list(index) if index else None, name=name)
+    index = list(index) if index else None
+    present = [v for v in typed if not _is_missing(v)]
+    if _has_units(present):
+        return pd.Series(_quantity_array()(typed), index=index, name=name)
+    if any(isinstance(v, _CellText) for v in present):
+        return pd.Series(typed, index=index, name=name, dtype=object)
+    return pd.Series(typed, index=index, name=name)
 
 
 def _norm(name):
@@ -422,6 +1198,10 @@ def _cell(v):
         return None
     if isinstance(v, decimal.Decimal) and not v.is_finite():
         return None
+    if isinstance(v, Quantity):
+        if isinstance(v.value, float) and not math.isfinite(v.value):
+            return None
+        return {"$n": _number_text(v.value), "$u": v.unit}
     if isinstance(v, (int, float, decimal.Decimal)):
         return {"$n": _number_text(v)}
     if isinstance(v, (_dt.date, _dt.datetime)):
@@ -567,9 +1347,10 @@ def _member(obj, key):
     raise KeyError(f"'{key}' is not one of the Concepts it wrote")
 
 
-def _envelope(v, host):
+def _envelope(v, host, cell=None):
     """What the file receives for a result — the classification the editor
-    writes from. The result itself stays in the registry untouched."""
+    writes from. The result itself stays in the registry untouched. `cell` is
+    the formula's request: what its cell says now, and its column's unit."""
     if host == "generator":
         items = _generated(v)
         if items is None:
@@ -608,10 +1389,11 @@ def _envelope(v, host):
         return {"kind": "text", "text": ""}
     if isinstance(v, bool):
         return {"kind": "text", "text": "Yes" if v else "No"}
-    if isinstance(v, (int, float, decimal.Decimal)):
-        if (isinstance(v, float) and math.isinf(v)) or (isinstance(v, decimal.Decimal) and v.is_infinite()):
+    if isinstance(v, (int, float, decimal.Decimal, Quantity)):
+        number, unit = _landed(v, (cell or {}).get("value"), (cell or {}).get("unit"))
+        if (isinstance(number, float) and math.isinf(number)) or (isinstance(number, decimal.Decimal) and number.is_infinite()):
             raise ValueError("the result is infinite")
-        return {"kind": "number", "text": _number_text(v)}
+        return {"kind": "number", "text": _number_text(number), "unit": unit}
     if isinstance(v, (_dt.date, _dt.datetime)):
         return {"kind": "text", "text": _iso(v)}
     if isinstance(v, str):
@@ -711,6 +1493,15 @@ class _Api:
     def text(self, value):
         """Write `value` as text, however long — a long text becomes a .md file."""
         return _Text(value)
+
+    def quantity(self, value, unit=None):
+        """A number with a unit: aot.quantity(5, "km"), or aot.quantity("5 km")."""
+        if unit is None:
+            return _literal(value)
+        parsed = _parse_unit(unit)
+        if parsed is None:
+            raise ValueError(f"write a unit such as 'km' or 'km/h' — '{unit}' does not read as one")
+        return Quantity(value, parsed)
 
     def grid(self, header, rows):
         """A table from a header and rows: header[0] labels the names column."""
@@ -1053,6 +1844,7 @@ def _scope(targets):
     scope["aot"] = _api
     scope.update(_sidecar["names"])
     scope["_aot_ref"] = lambda k: _target(targets[k])
+    scope["_aot_q"] = _literal
     return scope
 
 
@@ -1082,14 +1874,31 @@ def _as_text(v):
     return "" if v is None else str(v)
 
 
-def _holds(rel, value, bound):
+def _holds(rel, value, bound, column=None):
     """Whether a value keeps a bound: as the two are, else — a number held to
-    text, say — as the text each is written as."""
+    text, say — as the text each is written as. Two numbers whose units do not go
+    together are an error, which no reading as text may hide. `column` is the
+    unit of a column whose bound is a number written straight, which is then in
+    that unit: `distance (km) <=500`, `discount (%) <=35`."""
     a, b = _scalar(value), _scalar(bound)
     if isinstance(b, str):
-        b = _typed(b) if _NUM.match(b.strip()) or _DATE.match(b.strip()) else b
+        s = b.strip()
+        n = _read_number(s)
+        b = n if n is not None else _typed(b) if _DATE.match(s) else str(b)
+    if column and isinstance(b, (int, float, decimal.Decimal)) and not isinstance(b, bool):
+        unit = _cell_unit(column)
+        if unit == "%":
+            b = _scale(b, fractions.Fraction(1, 100))
+        elif unit is not None:
+            b = Quantity(b, unit)
+    # `==` never raises in Python, so it says the rule itself
+    for q, other in ((a, b), (b, a)):
+        if isinstance(q, Quantity) and isinstance(other, (int, float, decimal.Decimal)) and not isinstance(other, bool):
+            q._like(other, "compare")
     try:
         return bool(_OPS[rel](a, b))
+    except UnitError:
+        raise
     except TypeError:
         return bool(_OPS[rel](_as_text(a), _as_text(b)))
 
@@ -1099,8 +1908,10 @@ def _describe(v):
     if many is not None:
         return "one of " + ", ".join(_describe(x) for x in many)
     v = _scalar(v)
+    if isinstance(v, Quantity):
+        return str(v)
     if isinstance(v, str):
-        return repr(v)
+        return repr(str(v))
     if isinstance(v, (_dt.date, _dt.datetime)):
         return _iso(v)
     if isinstance(v, bool):
@@ -1129,10 +1940,13 @@ def _check(req):
     rel = req.get("rel")
     many = _alternatives(bound)
     value = _typed(req.get("value"))
-    holds = any(_holds(rel, value, b) for b in (many if many is not None else [bound]))
-    out = {"ok": True, "holds": holds, "bound": _describe(bound)}
-    if rel == "==" and many is None:
-        out["define"] = _envelope(bound, "value")
+    try:
+        holds = any(_holds(rel, value, b, req.get("unit")) for b in (many if many is not None else [bound]))
+        out = {"ok": True, "holds": holds, "bound": _describe(bound)}
+        if rel == "==" and many is None:
+            out["define"] = _envelope(bound, "value")
+    except BaseException as e:
+        return _error(e)
     return out
 
 
@@ -1380,10 +2194,10 @@ def _eval_one(item, shared):
                 _registry[address] = _typed(item.get("value"))
                 return {"ok": True, "many": True, "ms": round((time.perf_counter() - started) * 1000)}
             _registry[address] = value
-            envelope = _envelope(value, "value")
+            envelope = _envelope(value, "value", item)
         else:
             _registry[address] = value
-            envelope = _envelope(value, item.get("host"))
+            envelope = _envelope(value, item.get("host"), item)
     except SystemExit:
         _registry.pop(address, None)
         return {"ok": False, "error": "the expression asked Python to exit — a formula computes a value"}

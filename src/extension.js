@@ -13,10 +13,12 @@ const crypto = require("crypto");
 const childProcess = require("child_process");
 const { lint, KIND } = require("./linter");
 const {
-  resolve, owningConcept, externalIndex, unlistedValues,
+  resolve, owningConcept, externalIndex, unlistedValues, unitOf,
   index: crosslinkIndex, conceptType, listedExamples,
 } = require("./crosslinks");
 const table = require("./table");
+const units = require("./units");
+const gates = require("./gates");
 const { suggest } = require("./fca");
 const godel = require("./godel");
 const { clashes } = godel;
@@ -441,6 +443,8 @@ function analyse(doc) {
   let depWarnings = [];
   const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
   if (!errors.length) {
+    // one long table must not switch the row checks off without a word
+    if (objects > MAX_FCA_OBJECTS) depWarnings.push({ line: 1, message: gates.rowLimitNote(objects) });
     if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
       deepErrors = suggest(root, nodes).findings;
       // inferred functional dependencies (derivable / equivalent attributes).
@@ -774,6 +778,7 @@ function refresh(diagnostics, decorationTypes, doc) {
     }
   }
   diagnostics.set(doc.uri, publish);
+  verdicts.set(doc.uri.toString(), errors.length);
   updateHoldStatus();
   // the Python findings live apart from the linter's: none of them is a
   // verdict on the model, so none of them is in V
@@ -1337,6 +1342,25 @@ function appendCsvLink(md, doc, concept) {
   return true;
 }
 
+// A built-in unit named by an alias: where it sits in the hierarchy, and what it is
+// worth. `distance (km)` types `distance` by `km` as `type (category)` types `type`
+// by `Category`, but `km` is written in no file for a hover to show.
+function unitHover(doc, position) {
+  const raw = doc.lineAt(position.line).text;
+  const open = raw.lastIndexOf("(", position.character);
+  const close = raw.indexOf(")", position.character);
+  if (open === -1 || close === -1) return null;
+  const alias = raw.slice(open + 1, close).trim();
+  if (!alias || /[|()]/.test(alias)) return null;
+  const { nodes } = parsedDoc(doc);
+  const node = nodes.find((n) => n.line === position.line + 1 && n.alias === alias && (n.kind === KIND.DEFAULT || n.kind === KIND.ATTRIBUTE));
+  if (!node || unitOf(node) !== alias) return null;
+  const said = (units.wordsOf(alias) || []).map((w) => units.describe(w)).filter(Boolean);
+  const md = new vscode.MarkdownString();
+  md.appendMarkdown(`${said.map((d) => `A built-in unit: ${d}`).join("  \n") || `A unit this file declares.`}  \nA plain number in \`${node.name}\` is in \`${alias}\`; a cell with a unit of its own is converted.`);
+  return new vscode.Hover(md, new vscode.Range(position.line, open + 1, position.line, close));
+}
+
 const hoverProvider = {
   provideHover(doc, position) {
     // a URL or file path answers (metadata / picture) before anything else
@@ -1345,6 +1369,8 @@ const hoverProvider = {
     // inside a Python derivation: the function it calls, or what computed its value
     const py = pythonHover(doc, position);
     if (py) return py;
+    const unit = unitHover(doc, position);
+    if (unit) return unit;
     const analysis = analysisByDoc.get(doc.uri.toString()) || analyse(doc);
     // a maintained `...` line answers with the whole extension: what this
     // file lists and what every peer lists, each one a place you can go
@@ -2781,7 +2807,6 @@ function toggleFormulaPark(editor) {
 // failure is a verdict on a machine, not on the model — so every Python
 // finding goes to a collection of its own.
 
-const PY_KIND_NAMES = ["Example", "Default Value", "Concept", "attribute", "Map"];
 const PY_RUNS_KEY = "aot.python.runs";
 // the Python files the writer has allowed to run, each by the hash of the
 // content allowed: fileKey -> sha256
@@ -3335,6 +3360,10 @@ function sayNoPython(doc, message, auto) {
 // is well, how far along after half a second of working, and that they are waiting
 // when they are. A click stops a run, or asks again what they are waiting for.
 let calcStatus = null;
+let checkStatus = null;
+const verdicts = new Map();   // uri -> the violations last published (V)
+const calcCounts = new Map(); // uri -> { failed, flagged, uncalculated }
+const pyReplaced = new Map(); // uri -> Map(address -> { wrote, message })
 const STATUS_AFTER_MS = 500;
 function setCalcStatus(doc, state) {
   if (!calcStatus) return;
@@ -3718,10 +3747,7 @@ function pythonWarm(doc, hosts) {
     .catch(() => pyStop(key, "warm-up failed"));
 }
 
-const pyTree = (node) => ({
-  line: node.line, kind: PY_KIND_NAMES[node.kind], name: node.name, value: node.value,
-  alias: node.alias || null, children: node.children.map(pyTree),
-});
+const pyTree = python.treeOf;
 
 function statusOf(doc) {
   const key = doc.uri.toString();
@@ -4009,6 +4035,19 @@ async function runPython(target, opts) {
     results.clear();
     if (!ready.size) return;
     const outs = new Map([...ready].map(([a, r]) => [a, r.out]));
+    // a value somebody typed that this replaces, as opposed to one this formula
+    // wrote last time: what a plug comes to, and the reader should hear of it
+    const typedOver = new Map();
+    for (const [a, r] of ready) {
+      const h = now.get(a);
+      if ((h.kind !== "value" && h.kind !== "cell") || r.out.text === undefined) continue;
+      const was = table.readValue(String(h.value || "")).trim();
+      if (!was || python.onlyAUnit(was) || python.sameResult(was, r.out.text, h.unit)) continue;
+      const rec = records[a];
+      if (rec && rec.wrote === was) continue;
+      const wrote = table.readValue(String(r.out.text)).trim();
+      typedOver.set(a, { wrote, message: `find out where '${was}' came from — its formula gives ${wrote}, so that is what the cell now says` });
+    }
     const before = doc.getText().split(/\r?\n/);
     const written = pythonWrite(doc, [...now.values()], outs, status);
     for (const w of written.writes) {
@@ -4026,6 +4065,11 @@ async function runPython(target, opts) {
       const applied = await applyLines(doc, editor, next);
       if (applied === false) return; // the text moved under this edit: nothing is recorded, so it runs again
       wroteAny = true;
+      if (typedOver.size) {
+        const key = doc.uri.toString();
+        if (!pyReplaced.has(key)) pyReplaced.set(key, new Map());
+        for (const [a, r] of typedOver) pyReplaced.get(key).set(a, r);
+      }
     }
     for (const [a, r] of ready) records[a] = r.record;
   };
@@ -4140,7 +4184,7 @@ async function runPython(target, opts) {
         }
         return shared.get(t);
       });
-      items.push(Object.assign({ address: a, code: r.code, refs, host: h.defined ? "defined" : h.kind }, h.defined ? { value: h.value } : {}));
+      items.push(python.evalItem(h, r, refs));
       sent.push(a);
     }
     if (!items.length) return;
@@ -4310,7 +4354,7 @@ async function checkConstraints(doc, session, allow, entry) {
     // found on its line as written: `=` where the writer wrote one, though it means `==`
     findings.push({ line: p.check.a.line - 1, needle: (p.clause.opText || p.clause.op) + p.clause.formula, message, severity: vscode.DiagnosticSeverity.Error });
   };
-  const said = (p) => `'${p.check.a.name} ${p.clause.opText || p.clause.op}${p.clause.formula}'`;
+  const said = python.boundSaid;
   const counted = new Set();
   for (const p of items) {
     const { check } = p;
@@ -4321,8 +4365,7 @@ async function checkConstraints(doc, session, allow, entry) {
     // one value: the attribute is defined by it, and the calculation wrote it
     if (r.define || r.holds) continue;
     tally.broken++;
-    onValue(check, `change the value, or the bound — '${check.value}' breaks ${said(p)}: it is not ${p.clause.op === "==" ? "" : p.clause.op + " "}${r.bound}`,
-      vscode.DiagnosticSeverity.Warning);
+    onValue(check, python.breachMessage(p, r), vscode.DiagnosticSeverity.Warning);
   }
   return tally;
 }
@@ -4533,8 +4576,72 @@ function pythonFindings(doc) {
     }
   }
   out.push(...checkFindings(doc));
+  // a value a formula replaced: said while the cell still reads what replaced it
+  const replaced = pyReplaced.get(doc.uri.toString());
+  if (replaced && replaced.size) {
+    const now = calcPlanHosts(doc);
+    for (const [address, r] of replaced) {
+      const h = now.get(address);
+      if (!h || table.readValue(String(h.value || "")).trim() !== r.wrote) {
+        replaced.delete(address);
+        continue;
+      }
+      const span = pyValueSpan(doc, h) || new vscode.Range(h.line - 1, h.startCol, h.line - 1, h.endCol);
+      const d = new vscode.Diagnostic(span, r.message, vscode.DiagnosticSeverity.Warning);
+      d.source = "formula";
+      out.push(d);
+    }
+  }
   pyDiagnostics.set(doc.uri, out);
   pyDims.set(doc.uri.toString(), dims);
+  calcCounts.set(doc.uri.toString(), {
+    failed: out.filter((d) => d.severity === vscode.DiagnosticSeverity.Error).length,
+    flagged: out.filter((d) => d.severity === vscode.DiagnosticSeverity.Warning).length,
+    uncalculated: calcUnfinished(doc),
+  });
+  paintCheckStatus();
+}
+
+// Whether a file has formulas or rules that have not been calculated as it stands:
+// formulas off or paused, or something out of date. A clean count over numbers
+// nobody checked would be a false all-clear.
+function calcUnfinished(doc) {
+  if (!pythonWorkIn(doc)) return false;
+  if (!pythonEnabled() || !workspaceTrusted()) return true;
+  const plan = calcPlan(doc);
+  const records = runRecords(doc);
+  if (plan.order.some((a) => outOfDate(plan.byAddress.get(a), records[a], plan.runHashes.get(a)))) return true;
+  return constraintChecksIn(doc).length > 0 && !pyChecks.has(doc.uri.toString());
+}
+
+// The master check: one count of everything wrong with the file in front of you,
+// its violations and its calculation together.
+function paintCheckStatus() {
+  if (!checkStatus) return;
+  const editor = vscode.window.activeTextEditor;
+  const doc = editor && editor.document;
+  if (!doc || doc.languageId !== "aot") {
+    checkStatus.hide();
+    return;
+  }
+  const key = doc.uri.toString();
+  const v = verdicts.get(key) || 0;
+  const calc = calcCounts.get(key) || { failed: 0, flagged: 0, uncalculated: false };
+  const total = v + calc.failed + calc.flagged;
+  const count = (n, word) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+  const tail = calc.uncalculated ? " · formulas not calculated" : "";
+  checkStatus.text = total
+    ? `$(error) ${count(total, "problem")}${tail}`
+    : `$(${calc.uncalculated ? "warning" : "check"}) 0 problems${tail}`;
+  checkStatus.tooltip = [
+    `Violations (V): ${v}`,
+    `Formulas that failed: ${calc.failed}`,
+    `Broken rules and values to look at: ${calc.flagged}`,
+    ...(calc.uncalculated ? ["Formulas not calculated: these counts say nothing about those numbers yet."] : []),
+    "Click for the Problems panel.",
+  ].join("\n");
+  checkStatus.command = "workbench.actions.view.problems";
+  checkStatus.show();
 }
 
 // Where a host's written value stands: the text in front of its derivation.
@@ -6837,6 +6944,10 @@ function activate(context) {
       pyStatus.delete(doc.uri.toString());
       pyDims.delete(doc.uri.toString());
       pyDiagnostics.delete(doc.uri);
+      pyReplaced.delete(doc.uri.toString());
+      calcCounts.delete(doc.uri.toString());
+      verdicts.delete(doc.uri.toString());
+      paintCheckStatus();
     }),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) {
@@ -7046,6 +7157,7 @@ function activate(context) {
       }
       commitWaiting(editor ? editor.document : undefined);
       updateHoldStatus();
+      paintCheckStatus();
     }),
     // the status item's click: what waits, shown now
     vscode.commands.registerCommand("aot.showHeldFindings", () => {
@@ -7219,6 +7331,9 @@ function activate(context) {
   // the cell address, for when the header row and the name column have both
   // scrolled out of sight
   if (vscode.window.createStatusBarItem) {
+    // the one count of everything wrong with the file in front of you
+    checkStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 51);
+    context.subscriptions.push(checkStatus);
     // what waits while you write, and the click that shows it now
     calcStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
     context.subscriptions.push(calcStatus);
@@ -7266,6 +7381,12 @@ function deactivate() {
 // The tests run the editor's Python half against a fake runtime: a spawn
 // function of their own, and the live sessions to look at.
 const _test = {
+  // the master check as it stands for a document, after its findings are read again
+  checkStatusOf: (doc) => {
+    pythonFindings(doc);
+    paintCheckStatus();
+    return checkStatus;
+  },
   setSpawn: (fn) => {
     pySpawn = fn || childProcess.spawn;
     pyResolve = fn ? (cmd) => cmd : (cmd, base) => python.resolveExecutable(cmd, { base });

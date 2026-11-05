@@ -61,6 +61,7 @@
 // It holds no cells, says nothing to the model, and every key steps over it.
 
 const { readsAsExpression } = require("./pyshape");
+const { isUnit, wordsOf } = require("./units");
 
 // Case says what a term is, and case belongs to every alphabet that has it, so
 // these read Unicode's letter classes rather than a to z: `ête`, `één` and
@@ -654,7 +655,7 @@ function sortRows(block, row, col) {
   while (b < block.rows.length - 1 && !block.rows[b + 1].sep) b++;
   if (a === b) return null;
   const key = (r) => readValue(splitCell((r.cells[col] || "").trim()).value);
-  const num = (r) => parseFloat(key(r).replace(/[$,%\s]/g, ""));
+  const num = (r) => numericValue(key(r));
   const run = block.rows.slice(a, b + 1);
   // A row names its parent rather than standing under it, so the run sorts
   // as the flat list it is and the tree comes through whole: a child sorted
@@ -1019,6 +1020,15 @@ function columnTerm(cell) {
   return name;
 }
 
+// A header cell's (alias), or null: what types the column, `km` in `distance (km)`.
+function columnAlias(cell) {
+  const text = String(cell || "");
+  const colon = defaultColon(text);
+  const name = colon !== -1 ? text.slice(0, colon).trim() : splitConstraint(text).value;
+  if (!name.endsWith(")") || !name.includes("(")) return null;
+  return name.slice(name.lastIndexOf("(") + 1, -1).trim() || null;
+}
+
 // C-c |: turn plain delimited lines (tab-, comma- or multi-space-separated)
 // into a table — first line the header, with the separator drawn beneath it.
 // The header's first cell names the Concept (kept as written), the rest name
@@ -1215,7 +1225,15 @@ function valueType(v) {
   return "text";
 }
 
-const numericValue = (text) => parseFloat(String(text).replace(/[$,%\s]/g, ""));
+// A value's number, for a sort or a comparison of kinds: its currency, separators
+// and percent sign aside, brackets a negative. `120 km` is 120 here: the arithmetic
+// of units is the formula engine's.
+const numericValue = (text) => {
+  const t = String(text).trim();
+  const bracketed = /^\(.*\)$/.test(t);
+  const n = parseFloat((bracketed ? t.slice(1, -1) : t).replace(/^([-+]?)R(?=[\d\s])/, "$1").replace(/[$€£¥,%\s]/g, ""));
+  return bracketed ? -n : n;
+};
 
 // The longest case-insensitive name match at the head of `rest`, over
 // [{ key, id }] candidates (keys lowercased). The character after the
@@ -1251,28 +1269,79 @@ function longestMatch(rest, candidates) {
   return best;
 }
 
+// A number and its unit, as the file writes them: `$1,204`, `$10/kg`, `30%`, `120 km`.
+const composed = (digits, unit, glued) => {
+  if (!unit) return digits;
+  if (/^[$€£¥R](?=$|[/*·])/.test(unit)) return `${unit[0]}${digits}${unit.slice(1)}`;
+  return unit === "%" || glued ? `${digits}${unit}` : `${digits} ${unit}`;
+};
+
+// How a cell writes its number: its unit, whether that is glued on (`5km`), and
+// whether a negative stands in brackets. A text that is no number has no form.
+const WRITTEN_NUMBER = /^([-+]?)([$€£¥R]?) ?([-+]?)((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(.*)$/su;
+function writtenForm(old) {
+  const t = String(old == null ? "" : old).trim();
+  const brackets = /^\(.*\)$/.test(t);
+  const m = WRITTEN_NUMBER.exec(brackets ? t.slice(1, -1).trim() : t);
+  const none = { unit: "", glued: false, brackets: false, number: false };
+  if (!m) return none;
+  const tail = m[5];
+  const word = tail.trim();
+  let unit = "";
+  if (m[2]) {
+    if (word && !/^[/*·]/.test(tail)) return none;
+    unit = m[2] + tail;
+  } else if (word === "%") unit = "%";
+  else if (word) {
+    if (!wordsOf(word) || (tail === word && !isUnit(word))) return none;
+    unit = word;
+  }
+  return { unit, glued: !m[2] && !!tail && tail === word && word !== "%", brackets, number: true };
+}
+
 // Render a computed result. A number is written with every digit it has and
-// thousands separators (`1,215.6`, `0.30000000000000004`), keeping a leading $
-// the old value carried: the file is what the CSV, git and other files read, so
-// it holds the value itself, and shortNumber says what the screen shows of it.
+// thousands separators (`1,215.6`, `0.30000000000000004`), in the unit the
+// runtime sends: the file is what the CSV, git and other files read, so it holds
+// the value itself, and shortNumber says what the screen shows of it. The unit is
+// spelled as the cell spells it, and a negative where the cell brackets one stands
+// in brackets. With no word from the runtime the cell's own unit stands.
 // A string is written as it is, with any '|' bent to a broken bar (a pipe cannot
 // live inside a pipe table). A value somebody typed is never passed through
 // here, so a typed year or ID keeps the digits it was written with.
 //
 // `v` is a JavaScript number or, as the runtime sends one so that no digit is
 // lost on the way, the number's own text.
-function formatNumberText(text, old) {
+function formatNumberText(text, old, unit) {
   const m = /^(-?)(\d+)(?:\.(\d+))?$/.exec(String(text).trim());
   if (!m) throw new Error("the result is not a number");
   const whole = m[2].replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const zero = /^0*$/.test(m[2]) && /^0*$/.test(m[3] || "");
-  return `${m[1] && !zero ? "-" : ""}${String(old || "").trim().startsWith("$") ? "$" : ""}${whole}${m[3] ? `.${m[3]}` : ""}`;
+  const form = writtenForm(old);
+  const label = unit === undefined ? form.unit : unit;
+  const body = composed(`${whole}${m[3] ? `.${m[3]}` : ""}`, label, form.glued && form.unit === label);
+  if (!m[1] || zero) return body;
+  return form.brackets ? `(${body})` : `-${body}`;
 }
-function formatValue(v, old) {
+function formatValue(v, old, unit) {
   if (typeof v === "string") return v.replace(/\|/g, "¦");
   if (!isFinite(v)) throw new Error("the result is not a number");
   const digits = v.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
-  return formatNumberText(digits, old);
+  return formatNumberText(digits, old, unit);
+}
+
+// A value as a formula reads it: a plain number under a column with a unit is in
+// that unit, so `120` under `distance (km)` reads `120 km`. A value with a unit of
+// its own, and anything that is no number, stays as it is.
+const PLAIN_NUMBER = /^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/;
+function withUnit(text, unit) {
+  const t = String(text == null ? "" : text).trim();
+  if (!unit || !t) return text;
+  const bracketed = /^\(.*\)$/.test(t);
+  const inner = bracketed ? t.slice(1, -1).trim() : t;
+  if (!PLAIN_NUMBER.test(inner)) return text;
+  const sign = /^[-+]/.test(inner) ? inner[0] : "";
+  const body = sign + composed(inner.slice(sign.length), unit, false);
+  return bracketed ? `(${body})` : body;
 }
 
 // What the screen shows of a computed number. The file holds every digit; a
@@ -1293,15 +1362,18 @@ function formatValue(v, old) {
 //   5. Anything else shows the zeros straight after the point, then 3 digits,
 //      cut rather than rounded, then "...": 0.363..., 1,234.567..., 0.000123...
 //
-// A sign and a $ stay in front. Answers the text to show, or null when that is
-// the text as written, so there is nothing to replace.
+// A sign and a currency stay in front, a unit behind, and brackets around.
+// Answers the text to show, or null when that is the text as written, so there is
+// nothing to replace.
 const OVERLINE = "̅";
 const MIN_REPEAT_DIGITS = 5, MIN_REPEATS = 3, MAX_BLOCK = 3, SHOWN_DIGITS = 3;
 function shortNumber(written) {
   const t = String(written).trim();
-  const m = /^(-?\$?-?)((?:\d{1,3}(?:,\d{3})+|\d+))(?:\.(\d+))?$/.exec(t);
+  const bracketed = /^\(.*\)$/.test(t);
+  const m = /^(-?[$€£¥R]?-?)((?:\d{1,3}(?:,\d{3})+|\d+))(?:\.(\d+))?(%|\s*(?:\p{L}|[°$€£¥/])\S*)?$/u.exec(bracketed ? t.slice(1, -1).trim() : t);
   if (!m || !m[3]) return null; // not a number, or a whole one (rule 1)
-  const sign = m[1];
+  const sign = `${bracketed ? "(" : ""}${m[1]}`;
+  const after = `${m[4] || ""}${bracketed ? ")" : ""}`;
   const whole = m[2].replace(/,/g, "");
   const value = Number(`${whole}.${m[3]}`);
   if (!isFinite(value)) return null;
@@ -1311,10 +1383,10 @@ function shortNumber(written) {
   const [int, frac = ""] = fixed.split(".");
   const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const show = (text) => (text === t ? null : text);
-  if (!frac) return show(`${sign}${grouped}`);
+  if (!frac) return show(`${sign}${grouped}${after}`);
   // rule 3
   const zeros = /^0*/.exec(frac)[0].length;
-  if (frac.length - zeros <= SHOWN_DIGITS) return show(`${sign}${grouped}.${frac}`);
+  if (frac.length - zeros <= SHOWN_DIGITS) return show(`${sign}${grouped}.${frac}${after}`);
   // rule 4, over all the digits the 15 give, before any trailing zero went
   const significant = value.toPrecision(15);
   const body = (significant.split(".")[1] || "").replace(/^(.*)$/, (s) => s.slice(0, -1));
@@ -1328,12 +1400,12 @@ function shortNumber(written) {
       for (let k = 0; k < tail.length; k++) if (tail[k] !== block[k % size]) { holds = false; break; }
       if (holds) {
         const lined = [...block].map((d) => d + OVERLINE).join("");
-        return `${sign}${grouped}.${body.slice(0, from)}${lined}`;
+        return `${sign}${grouped}.${body.slice(0, from)}${lined}${after}`;
       }
     }
   }
   // rule 5
-  return `${sign}${grouped}.${frac.slice(0, zeros + SHOWN_DIGITS)}...`;
+  return `${sign}${grouped}.${frac.slice(0, zeros + SHOWN_DIGITS)}...${after}`;
 }
 
 // The data rows of a table block: everything under the header.
@@ -1449,6 +1521,19 @@ function tableReader(rows, header, registry, outer) {
     if (own !== undefined) return own;
     return outer.typeDefault ? outer.typeDefault(key) : undefined;
   };
+  // the unit a column's numbers are in: the alias its header writes, else what
+  // the Concept declares for that name. Worked out once per column.
+  const units = new Map();
+  const unitAt = (c) => {
+    if (units.has(c)) return units.get(c);
+    const cell = (header || [])[c - 1];
+    const alias = cell ? columnAlias(cell) : null;
+    let unit = null;
+    if (alias) unit = outer && outer.unitNamed ? outer.unitNamed(alias) : (isUnit(alias) ? alias : null);
+    if (!unit && outer && outer.unitOf && cell) unit = outer.unitOf(columnTerm(cell).toLowerCase()) || null;
+    units.set(c, unit);
+    return unit;
+  };
   // read through the parent: the Example's own value, else the parent's
   // stated default, else empty
   const throughOuter = (key, exampleName) => {
@@ -1461,13 +1546,20 @@ function tableReader(rows, header, registry, outer) {
   // an Example silent on an attribute means in the line form)
   const read = (r, c) => {
     const v = raw(r, c);
-    if (String(v).trim() !== "" || !outer) return v;
+    if (String(v).trim() !== "") return withUnit(v, unitAt(c));
+    if (!outer) return v;
     const key = outerCol(c);
     const own = key !== null ? inheritedOf(key) : undefined;
     return own === undefined ? v : own;
   };
   return (row) => ({
-    matchColumn: (rest) => longestMatch(rest, names) || (outer ? outer.matchColumn(rest) : null),
+    // the longest name wins, the grid's on a tie: `@discount cap` is the default
+    // beside a `discount` column, and `@discount` is the column
+    matchColumn: (rest) => {
+      const local = longestMatch(rest, names);
+      const far = outer ? outer.matchColumn(rest) : null;
+      return far && (!local || far.length > local.length) ? far : local;
+    },
     matchRow: (rest) => {
       const local = longestMatch(rest, rowNames);
       if (local || !outer) return local;
@@ -1872,7 +1964,7 @@ module.exports = {
   headerTerm, isParentColumn, parentColumnOf, parentHeader, PARENT_TERM,
   copyCell, moveCell, copyRow, copyColumn,
   jumpCell, cornerCell, fill, fillDown, fillRight, copyFormulaFromAbove, copyValueFromAbove,
-  columnTerm, defaultColon,
+  columnTerm, columnAlias, defaultColon, withUnit, writtenForm,
   padCell, headerIndex,
   cleanName, tablesOf, toCsv, fromCsv, updateTable, LINE_BREAK, inertName, rowName,
   splitCell, splitConstraint, STORED_OPS, formatValue, formatNumberText, shortNumber,

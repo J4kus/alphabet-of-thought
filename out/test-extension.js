@@ -2043,6 +2043,22 @@ if (process.platform === "win32" || process.platform === "darwin") {
     .some((f) => f.command && f.command.command === "aot.hoistValue")
     ? "PASS (hoists: a stale squiggle, or another tool's, offers no move)"
     : "UNEXPECTED stale hoist action");
+  // a built-in unit has no line in any file, so the hover says what it is
+  const docKm = makeDoc("c:\\repo\\Journeys.aot", ["Trip|distance (km)|note (remark)", "A|120|x", "Leg", "    time (km/h)"].join("\n"));
+  const kmHover = hoverProvider.provideHover(docKm, new vscode.Position(0, 16));
+  const kmText = kmHover && kmHover.contents.value;
+  console.log(kmText && /A built-in unit: Unit ▸ Length ▸ km\. 1 km = 1000 m\./.test(kmText) && /A plain number in `distance` is in `km`/.test(kmText)
+    ? "PASS (hover: a unit in an alias says where it sits in the hierarchy, and what it is worth)"
+    : "UNEXPECTED unit hover " + JSON.stringify(kmText));
+  const compound = hoverProvider.provideHover(docKm, new vscode.Position(3, 12));
+  const compoundText = compound && compound.contents.value;
+  console.log(compoundText && /Unit ▸ Length ▸ km/.test(compoundText) && /Unit ▸ Time ▸ h/.test(compoundText)
+    ? "PASS (hover: a compound unit names each part)"
+    : "UNEXPECTED compound unit hover " + JSON.stringify(compoundText));
+  const plainAlias = hoverProvider.provideHover(docKm, new vscode.Position(0, 29));
+  console.log(!(plainAlias && plainAlias.contents && /built-in unit/.test(plainAlias.contents.value || ""))
+    ? "PASS (hover: an alias naming no unit is told nothing of units)"
+    : "UNEXPECTED alias hover " + JSON.stringify(plainAlias));
   const car = hoverProvider.provideHover(docV, new vscode.Position(1, 5));
   const carText = car && car.contents.value;
   console.log(carText && /\*\*Content\*\*/.test(carText) && /Nearest sibling: 'Van' \(line 5\), 1 slot apart — `~ doors: 3 \| 5`/.test(carText)
@@ -4267,9 +4283,41 @@ setTimeout(async () => {
       && c.lines()[8] === "        grade: 6" && c.lines()[13] === "        grade: 2,408"
       && cf().some((d) => d.range.a[0] === 10 && d.severity === W && /^change the value, or the bound — '15' breaks 'age >=18': it is not >= 18$/.test(d.message))
       && cf().some((d) => d.range.a[0] === 6 && d.severity === W && /^change the value, or the bound — 'void' breaks 'status =\("draft", "sent"\)': it is not one of 'draft', 'sent'$/.test(d.message))
-      && cf().filter((d) => d.severity === W).length === 2
+      // and the `grade: 5` somebody typed, replaced, says so
+      && cf().some((d) => d.range.a[0] === 13 && d.severity === W && /^find out where '5' came from — its formula gives 2,408/.test(d.message))
+      && cf().filter((d) => d.severity === W).length === 3
       ? "PASS (constraints: F9 checks every bound, warns a breach on its value, and fills what a '==' defines)"
       : "UNEXPECTED constraint run " + JSON.stringify({ checkedRun, lines: c.lines(), findings: cf().map((d) => [d.range.a, d.message]) }));
+    // the master check: one count of everything wrong with the file in front of you
+    {
+      const was = vscode.window.activeTextEditor;
+      vscode.window.activeTextEditor = c.editor;
+      const st = ext._test.checkStatusOf(c.doc);
+      console.log(st.shown && /^\$\(error\) 3 problems$/.test(st.text) && /Violations \(V\): 0/.test(st.tooltip) && /values to look at: 3/.test(st.tooltip)
+        ? "PASS (status: two broken rules and a replaced value are 3 problems, though V is 0)"
+        : "UNEXPECTED status " + JSON.stringify(st));
+      configStore["python.enabled"] = false;
+      const off = ext._test.checkStatusOf(c.doc);
+      console.log(/formulas not calculated/.test(off.text) && /say nothing about those numbers/.test(off.tooltip)
+        ? "PASS (status: with formulas off it says they were not calculated, so it can't look clean)"
+        : "UNEXPECTED status with formulas off " + JSON.stringify(off));
+      configStore["python.enabled"] = true;
+      const plainDoc = live(path.join(root, "Quiet.aot"), ["Quiet", "    a: 1"]);
+      vscode.window.activeTextEditor = plainDoc.editor;
+      const quiet = ext._test.checkStatusOf(plainDoc.doc);
+      console.log(/^\$\(check\) 0 problems$/.test(quiet.text)
+        ? "PASS (status: a file with nothing wrong and nothing to calculate says 0 problems)"
+        : "UNEXPECTED quiet status " + JSON.stringify(quiet));
+      vscode.window.activeTextEditor = was;
+      ext._test.checkStatusOf(c.doc);
+    }
+    // a replaced value's warning goes when its cell is edited
+    c.set(c.text().replace("        grade: 2,408", "        grade: 2,409"));
+    vscode.workspace._open(c.doc);
+    console.log(!cf().some((d) => /find out where/.test(d.message))
+      ? "PASS (constraints: a replaced value's warning goes when the cell is edited)"
+      : "UNEXPECTED replaced warning " + JSON.stringify(cf().map((d) => d.message)));
+    c.set(c.text().replace("        grade: 2,409", "        grade: 2,408"));
     c.set(c.text().replace("        age: 15", "        age: 21"));
     vscode.workspace._open(c.doc);
     console.log(!cf().some((d) => d.range.a[0] === 10) && cf().some((d) => d.range.a[0] === 6)

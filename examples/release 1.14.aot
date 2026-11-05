@@ -1,0 +1,95 @@
+Release Check
+    area
+    try
+    expected
+    - C01 A Percent Is A Share
+        area: numbers
+        try: turn formulas on and leave the discount cell in Deal below
+        expected: the net of Acme is $70,000 and of Kite €17,000
+    - C02 A Column Takes Its Unit Through Its Alias
+        area: units
+        try: hover the km in Trip's distance (km) heading
+        expected: it says Unit, Length, km, and that 1 km is 1000 m; a formula reads 120 as 120 km
+    - C03 A Cell's Own Unit Wins
+        area: units
+        try: look at the speed of B in Trip below
+        expected: 75 mi over 1 h is 120.7008 in the column's km/h
+    - C04 A Unit Alone Chooses The Cell's
+        area: units
+        try: clear the number in front of the mile total in Trip Summary, leaving mi, and leave the line
+        expected: the total comes back in miles
+    - C05 A Wrong Kind Is An Error
+        area: units
+        try: write 5 kg in front of the formula on total in Trip Summary
+        expected: the line says the formula gives km and this cell says kg, and the cell keeps what it said
+    - C06 A Plain Number Needs The Unit
+        area: units
+        try: change the formula on total in Trip Summary to add 5
+        expected: it says to write the unit on 5, as in 5 km; adding 5 km works
+    - C07 The CSV Stays A Number
+        area: units
+        try: save, and open aot.files/Trip.csv in a spreadsheet
+        expected: the heading says distance (km), and 120 is a number the spreadsheet sums
+    - C08 A Roll-Up Counts Every Kind
+        area: inheritance
+        try: look at total net in Deal Summary
+        expected: $87,000, the rows of both kinds, and by kind names each
+    - C09 A Default Reads From Any Kind Above
+        area: inheritance
+        try: look at the limit of Deep below
+        expected: it reads the 100 two levels up
+    - C10 A Replaced Value Says So
+        area: checks
+        try: type 99999 over the net of Kite and leave the cell
+        expected: net goes back to €17,000, and a warning stays on the cell until you edit it or close the file
+    - C11 The Status Bar Adds It Up
+        area: checks
+        try: make a discount break its rule, then turn formulas off
+        expected: the status bar counts the problem though V is 0, then says formulas not calculated
+    - C12 Text Refuses Arithmetic
+        area: numbers
+        try: type n/a over the list price of Acme and leave the cell
+        expected: the net says n/a is text, so it can't be multiplied, and keeps its value
+    - C13 The Check That Can Fail
+        area: checks
+        try: in a terminal, run node check.js on this file, then type a wrong number in front of a formula and run it again
+        expected: 0 problems and exit 0, then that number, what its formula gives, and exit 1
+    - C14 Verify Runs Nothing
+        area: checks
+        try: in a terminal, run node verify.js on this file
+        expected: it verifies, then says how many formulas and rules it did not calculate
+
+Deal
+    discount <=@max discount
+    net =@list price*(1-@discount)
+    ... more kinds to come
+    Enterprise Deal
+        max discount: 35%
+        Enterprise Deal|list price|discount|net
+        Acme           |$100,000  |30%     |$70,000
+    Standard Deal
+        max discount: 20%
+        Standard Deal|list price|discount|net
+        Kite         |€20,000   |15%     |€17,000
+
+Deal Summary
+    enterprise net: $70,000 =@Enterprise Deal@net.sum()
+    rows: 2 =len(@Deal)
+
+Trip|distance (km)|time (h)|speed (km/h) =@distance/@time
+A   |120          |1.5     |80
+B   |75 mi        |1       |120.7008
+
+Trip Summary
+    total: 240.7008 km =@Trip@distance.sum()
+    mile total: 149.56454306848008 mi =@Trip@distance.sum()
+
+Shelf
+    limit: 100
+    ... more shelves to come
+    Long Shelf
+        ... more shelves to come
+        Oak Shelf
+            - Deep
+                load: 5
+                within: Yes =@load<=@limit

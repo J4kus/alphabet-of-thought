@@ -36,6 +36,8 @@ const table = require("./table");
 const derive = require("./derive");
 const park = require("./park");
 const { readsAsExpression } = require("./pyshape");
+const { unitOf } = require("./crosslinks");
+const units = require("./units");
 
 const PROTOCOL = 1;
 
@@ -72,8 +74,10 @@ function hostsOf(nodes, lines, rootName) {
     out.push({
       kind: "value", address: park.addressOf(node, rootName), source: d.source,
       line: node.line, startCol: d.startCol, endCol: d.endCol, value: d.value, node,
+      unit: unitOf(node),
     });
   }
+  const unitAt = cellUnits(nodes, lines);
   for (const [address, where] of park.cellIndex(lines, nodes, rootName)) {
     const raw = lines[where.line - 1] || "";
     const cell = table.cells(raw)[where.col];
@@ -85,6 +89,7 @@ function hostsOf(nodes, lines, rootName) {
       kind: "cell", address, source, line: where.line,
       startCol: cell.col + split.eq, endCol: cell.col + cell.text.length,
       value: split.value, cell: { line: where.line, col: where.col },
+      unit: unitAt(where.line, where.col),
     });
   }
   // a Concept's own: on its line, or — once it has written its table — in
@@ -111,6 +116,25 @@ function hostsOf(nodes, lines, rootName) {
 // A bare `=` line's address: its place among the file's bare lines.
 const generatorAddress = (k) => `@=${k + 1}`;
 
+// The unit of a grid cell, by its line (1-based) and column: its header's alias,
+// else what the Concept above declares for that name. Null where there is none.
+function cellUnits(nodes, lines) {
+  const blocks = blockFinder(lines);
+  let exampleAt = null;
+  return (line, col) => {
+    if (!exampleAt) {
+      exampleAt = new Map();
+      for (const n of nodes) if (n.kind === KIND.INDIVIDUAL && !exampleAt.has(n.line)) exampleAt.set(n.line, n);
+    }
+    const block = blocks(line - 1);
+    const head = block ? table.headerIndex(block) : -1;
+    const example = exampleAt.get(line);
+    if (head === -1 || !example) return null;
+    const cell = block.rows[head].cells[col] || "";
+    return unitOf({ name: table.columnTerm(cell), alias: table.columnAlias(cell), parent: example });
+  };
+}
+
 // Every calculation in a file: its derivations, and one for each value a
 // column's or an attribute's definition computes (`price =@qty*2`). A definition
 // is a formula like any other, so it takes its turn among them, and what reads
@@ -125,7 +149,7 @@ function calcHosts(nodes, lines, rootName, parked) {
     const clause = check.chain.find((c) => c.op === "==");
     if (!clause) continue;
     const raw = lines[check.host.line - 1] || "";
-    const defined = { defined: true, source: clause.formula, line: check.host.line, value: check.value };
+    const defined = { defined: true, source: clause.formula, line: check.host.line, value: check.value, unit: check.unit };
     if (check.host.kind === "cell") {
       const address = addressAt.get(`${check.host.cell.line}:${check.host.cell.col}`);
       const cell = table.cells(raw)[check.host.cell.col];
@@ -178,7 +202,7 @@ function constraintChecks(nodes, lines, parked) {
     seen.add(`${d.line}:${host.cell ? host.cell.col : "v"}`);
     // a cell's own derivation is marked `derived` (a line's carries `formula`):
     // either way it is the nearer word, and a `==` definition never writes over it
-    out.push({ host, value: d.value || "", derived: d.formula !== undefined || !!d.derived, a: held.a, chain: held.constraints });
+    out.push({ host, value: d.value || "", derived: d.formula !== undefined || !!d.derived, a: held.a, chain: held.constraints, unit: unitOf(d) || unitOf(held.a) });
   }
   // a column a header defines with `==` fills its empty cells too: they are
   // no node, so they are found from the grid
@@ -197,12 +221,16 @@ function constraintChecks(nodes, lines, parked) {
       const split = table.splitCell(text);
       out.push({
         host: { kind: "cell", line, cell: { line, col } }, value: split.value, derived: split.eq !== -1, a, chain,
-        definesOnly: true,
+        definesOnly: true, unit: unitOf(a),
       });
     });
   }
   return out;
 }
+
+// A bound that is a number written straight: on a column with a unit, it is in
+// that unit, `distance (km) <=500`. One that computes anything says its own.
+const BARE_NUMBER = /^\s*[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*$/;
 
 // The requests a run sends for the checks: one per clause with something to
 // say — an empty value is held to nothing, but a `==` may still define it —
@@ -222,7 +250,11 @@ function checkItems(checks, ctx) {
       const errors = r.errors || [];
       out.push({
         check, clause, k, errors,
-        item: errors.length ? null : { address: "constraint", code: r.code, targets: r.targets, rel: clause.op, value: check.value },
+        item: errors.length ? null : {
+          address: "constraint", code: r.code, targets: r.targets, rel: clause.op,
+          value: table.withUnit(check.value, check.unit),
+          ...(check.unit && BARE_NUMBER.test(clause.formula) ? { unit: check.unit } : {}),
+        },
       });
     });
   }
@@ -285,6 +317,80 @@ function referenceStarts(src) {
     }
     if (ch === " ") { i++; continue; }
     operand = ch === ")" || ch === "]" || ch === "}";
+    i++;
+  }
+  return out;
+}
+
+// The numbers with units written in a formula, each as { start, length }: `5 km`,
+// `$5,000`, `R500`, `$5/kg`, `30%`, `1,000 km`. Python has no such thing, so each is
+// a syntax error as it stands, and resolveHost hands it to the runtime instead. A
+// string or a comment holds none, and neither does a reference. `7 % 3`, with its
+// space, stays Python's remainder, and a word of Python's own (`5 if x else 6`) is
+// no unit. No spaces inside a unit: `5 km / rate` is 5 km divided by a rate.
+const UNIT_WORD = "(?:\\p{L}|[°$€£¥])+(?:[²³]|\\^-?\\d+|\\d)?";
+const LITERAL_UNIT = new RegExp(`^[ \\t]+(${UNIT_WORD}(?:/${UNIT_WORD})*)`, "u");
+const LITERAL_SYMBOL = new RegExp(`^[$€£¥](?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?(?:/${UNIT_WORD})*`, "u");
+const LITERAL_RAND = /^R(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\p{L}\p{N}_])/u;
+const LITERAL_NUMBER = /^(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d*)?|\.\d+)/;
+const OPENS_OPERAND = /^[\p{L}\p{N}_(]/u;
+function quantityLiterals(src, references) {
+  const out = [];
+  const ends = new Map((references || []).map((r) => [r.start, r.start + r.length]));
+  let i = 0;
+  while (i < src.length) {
+    if (ends.has(i)) { i = ends.get(i); continue; }
+    const ch = src[i];
+    if (ch === "#") break;
+    if (ch === "'" || ch === "\"") {
+      const triple = src.startsWith(ch.repeat(3), i);
+      const close = triple ? ch.repeat(3) : ch;
+      let j = i + close.length;
+      while (j < src.length && !src.startsWith(close, j)) j += src[j] === "\\" ? 2 : 1;
+      i = Math.min(src.length, j + close.length);
+      continue;
+    }
+    const rest = src.slice(i);
+    if ("$€£¥".includes(ch)) {
+      const m = LITERAL_SYMBOL.exec(rest);
+      if (m) { out.push({ start: i, length: m[0].length }); i += m[0].length; continue; }
+      i++;
+      continue;
+    }
+    if (/[\p{L}_]/u.test(ch)) {
+      const m = ch === "R" && src[i - 1] !== "." ? LITERAL_RAND.exec(rest) : null;
+      if (m) { out.push({ start: i, length: m[0].length }); i += m[0].length; continue; }
+      let j = i;
+      while (j < src.length && /[\p{L}\p{N}_]/u.test(src[j])) j++;
+      i = j;
+      continue;
+    }
+    if (/[0-9]/.test(ch) || (ch === "." && /[0-9]/.test(src[i + 1] || ""))) {
+      const m = LITERAL_NUMBER.exec(rest);
+      const after = rest.slice(m[0].length);
+      // glued on to anything is Python's own (`1e5`, `0x10`, `5j`) or a mistake of
+      // its own to report
+      if (/^[\p{L}\p{N}_]/u.test(after)) {
+        let j = i + m[0].length;
+        while (j < src.length && /[\p{L}\p{N}_.]/u.test(src[j])) j++;
+        i = j;
+        continue;
+      }
+      if (after[0] === "%" && !OPENS_OPERAND.test(after.slice(1, 2)) && after[1] !== "@" && after[1] !== "=") {
+        out.push({ start: i, length: m[0].length + 1 });
+        i += m[0].length + 1;
+        continue;
+      }
+      const unit = LITERAL_UNIT.exec(after);
+      const word = unit && /^(?:\p{L}|[°$€£¥])+/u.exec(unit[1])[0];
+      if (unit && !PY_KEYWORDS.has(word) && after[unit[0].length] !== "(") {
+        out.push({ start: i, length: m[0].length + unit[0].length });
+        i += m[0].length + unit[0].length;
+        continue;
+      }
+      i += m[0].length;
+      continue;
+    }
     i++;
   }
   return out;
@@ -560,11 +666,11 @@ function lineResolver(host, registry, index) {
     ? { kind: KIND.DEFAULT, name: "", parent: host.kind === "concept" ? host.node.parent : host.gen.parent, children: [] }
     : host.node;
   const ctx = derive.makeCtx(anchor, (n) => n.value || "", registry);
-  const owner = anchor.parent && anchor.parent.kind === KIND.INDIVIDUAL ? derive.kindAbove(anchor.parent) : null;
+  const kinds = anchor.parent ? derive.kindsAbove(anchor.parent) : [];
   // the attribute node a local name reads — the host's own owner first, then
-  // the Concept whose default an Example inherits
+  // the kinds whose defaults an Example inherits, the nearest first
   const nodeFor = (id) => {
-    for (const where of [anchor.parent, owner]) {
+    for (const where of [anchor.parent, ...kinds]) {
       if (!where) continue;
       const hit = where.children.find((c) => c.kind === KIND.DEFAULT
         && (c.name.toLowerCase() === id || (c.alias && c.alias.toLowerCase() === id)));
@@ -573,9 +679,9 @@ function lineResolver(host, registry, index) {
     return null;
   };
   // every declaration a local attribute name means — on the owner, its
-  // sibling Examples and the Concept above — for a rename to follow
+  // sibling Examples and the kinds above — for a rename to follow
   const { examples } = derive.scopeOf(anchor);
-  const owners = [...new Set([anchor.parent, owner, ...examples])].filter(Boolean);
+  const owners = [...new Set([anchor.parent, ...kinds, ...examples])].filter(Boolean);
   const attrsNamed = (id) => owners.flatMap((o) => o.children.filter((c) =>
     (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE) && c.name.toLowerCase() === id));
   // a named Example's value: its formula's live result where one computes it
@@ -779,7 +885,7 @@ function resolveHost(host, ctx) {
   const errors = [];
   const spans = [];
   const names = []; // each name a reference holds, and what it resolved to
-  let code = "";
+  const refs = []; // { start, length, k }
   let last = 0;
   for (const { start } of referenceStarts(src)) {
     if (start < last) continue;
@@ -790,14 +896,26 @@ function resolveHost(host, ctx) {
       errors.push(`name something that exists — ${name} names nothing here: no attribute, Example or Concept is called that`);
       continue;
     }
-    code += src.slice(last, start) + `_aot_ref(${targets.length})`;
+    refs.push({ start, length: hit.length, k: targets.length });
     targets.push(hit.target);
     spans.push({ start, length: hit.length, text: src.slice(start, start + hit.length) });
     for (const n of hit.names || []) names.push(Object.assign({ start: n.offset, text: src.slice(n.offset, n.offset + n.length) }, n));
     for (const d of targetDeps(hit.target)) deps.add(d);
     last = start + hit.length;
   }
-  code += src.slice(last);
+  // the source with each reference and each number with a unit handed to the
+  // runtime, the rest of it Python's own
+  const pieces = [
+    ...refs.map((r) => ({ start: r.start, length: r.length, code: `_aot_ref(${r.k})` })),
+    ...quantityLiterals(src, refs).map((q) => ({ start: q.start, length: q.length, code: `_aot_q(${JSON.stringify(src.slice(q.start, q.start + q.length))})` })),
+  ].sort((a, b) => a.start - b.start);
+  let code = "";
+  let at = 0;
+  for (const p of pieces) {
+    code += src.slice(at, p.start) + p.code;
+    at = p.start + p.length;
+  }
+  code += src.slice(at);
   return { code, targets, deps: [...deps], errors, spans, names };
 }
 
@@ -953,7 +1071,56 @@ function hostHash(host, r, code, hashes) {
     upstreamMemo.set(t, { hashes, digest });
     return digest;
   });
-  return runHash(host.source, r.targets || [], code, upstream);
+  // a column's unit is what its formula's result is written in, so a change to it
+  // is a change to the calculation
+  return runHash(host.unit ? `${host.source}\0${host.unit}` : host.source, r.targets || [], code, upstream);
+}
+
+// Whether a value written in front of a formula is what the formula gives: the
+// same text, or the same number in the same unit to 15 significant digits, a
+// float's noise aside. A plain number under a column with a unit is in that unit.
+function sameResult(written, computed, unit) {
+  const a = String(table.withUnit(table.readValue(String(written == null ? "" : written)).trim(), unit)).trim();
+  const b = String(table.withUnit(table.readValue(String(computed == null ? "" : computed)).trim(), unit)).trim();
+  if (a === b) return true;
+  const x = table.writtenForm(a), y = table.writtenForm(b);
+  if (!x.number || !y.number || x.unit !== y.unit) return false;
+  return Number(table.numericValue(a).toPrecision(15)) === Number(table.numericValue(b).toPrecision(15));
+}
+
+// Whether a text in front of a formula holds no number yet, only the unit it is to
+// be written in: `speed: mph =@distance/@time`.
+const onlyAUnit = (text) => {
+  const t = String(text || "").trim();
+  return t === "%" || (!/^[-+(]?[$€£¥R]?\s?\d/.test(t) && units.isUnit(t));
+};
+
+// A bound as its declaration writes it, and what a value that breaks it is told.
+const boundSaid = (p) => `'${p.check.a.name} ${p.clause.opText || p.clause.op}${p.clause.formula}'`;
+const breachMessage = (p, r) => `change the value, or the bound — '${p.check.value}' breaks ${boundSaid(p)}: it is not ${p.clause.op === "==" ? "" : `${p.clause.op} `}${r.bound}`;
+
+// Whether a text carries anything that runs, from its nodes alone.
+const hasFormulas = (nodes, text) => {
+  const lines = String(text).split(/\r?\n/);
+  return calcHosts(nodes, lines, "x").length > 0 || constraintChecks(nodes, lines).length > 0;
+};
+
+// The tree a Python file sees through `aot`: each value as a formula reads it.
+const KIND_NAMES = ["Example", "Default Value", "Concept", "attribute", "Map"];
+const treeOf = (node) => ({
+  line: node.line, kind: KIND_NAMES[node.kind], name: node.name,
+  value: node.kind === KIND.DEFAULT ? table.withUnit(node.value, unitOf(node)) : node.value,
+  alias: node.alias || null, children: node.children.map(treeOf),
+});
+
+// What the runtime is asked for one formula: its code, what it reads, and what its
+// cell and column say now, so a result lands in their unit.
+function evalItem(host, resolved, refs) {
+  return Object.assign(
+    { address: host.address, code: resolved.code, refs, host: host.defined ? "defined" : host.kind },
+    host.kind === "value" || host.kind === "cell" ? { value: host.value } : {},
+    host.unit ? { unit: host.unit } : {},
+  );
 }
 
 // Just the source: whether a derivation was edited since it last ran.
@@ -1180,6 +1347,8 @@ function plainError(message) {
   const m = String(message || "");
   let x;
   if ((x = /^NameError: name '(.+?)' is not defined/.exec(m))) return `'${x[1]}' isn't a known name`;
+  // a function that wants a plain number, handed one with a unit
+  if (!/\.value/.test(m) && /'Quantity'/.test(m)) return "use .value for the plain number — this number has a unit, and what reads it wants one without";
   if (/^ZeroDivisionError\b/.test(m)) return "division by zero";
   if ((x = /^KeyError: ([^]*)$/.exec(m))) return `${x[1]} isn't there`;
   if ((x = /^SyntaxError: ([^(]*)/.exec(m))) return `this isn't a formula yet: ${x[1].trim()}`;
@@ -1207,8 +1376,8 @@ function outputStem(address) {
 
 // A number as the language writes a computed one: the runtime sends its text, so
 // that no digit is lost on the way.
-const formatNumber = (n, old) => (typeof n === "number" ? table.formatValue(n, old || "") : table.formatNumberText(n, old || ""));
-// A grid cell's number, as the runtime sends one: { $n: its text }.
+const formatNumber = (n, old, unit) => (typeof n === "number" ? table.formatValue(n, old || "", unit) : table.formatNumberText(n, old || "", unit));
+// A grid cell's number, as the runtime sends one: { $n: its text, $u: its unit }.
 const numberIn = (v) => (v && typeof v === "object" && v.$n !== undefined ? v.$n : undefined);
 
 // --- what a result may write ----------------------------------------------------
@@ -1261,7 +1430,7 @@ function cellText(v) {
   if (v === null || v === undefined) return "";
   const n = numberIn(v);
   if (typeof v === "number" || n !== undefined) {
-    try { return formatNumber(n !== undefined ? n : v, ""); } catch { return String(n !== undefined ? n : v); }
+    try { return formatNumber(n !== undefined ? n : v, "", (n !== undefined && v.$u) || ""); } catch { return String(n !== undefined ? n : v); }
   }
   return inertValue(String(v).replace(/\r\n|\r|\n/g, table.LINE_BREAK).replace(/\|/g, "¦"));
 }
@@ -1490,6 +1659,9 @@ function writeValue(lines, host, text) {
   return out;
 }
 
+// Whether a result's unit is the column's, however it spells a percent.
+const sameUnit = (a, b) => !!a && !!b && (a === b || (a === "%" && (units.builtIn(b) || {}).kind === "Ratio"));
+
 // What one result says to write, before any file is touched:
 // { text } for a value, { file, bytes | body, text } for an image or long
 // text (the value becomes the file's path), { grid } for a Concept's table.
@@ -1519,7 +1691,8 @@ function resultOf(host, result, maxInlineText) {
     return { grid: gridOf(r, host.node.name), count: (r.rows || []).length };
   }
   switch (r.kind) {
-    case "number": return { text: formatNumber(r.text !== undefined ? r.text : r.value, host.value) };
+    // in the column's unit the header says so, and the cell holds the number alone
+    case "number": return { text: formatNumber(r.text !== undefined ? r.text : r.value, host.value, sameUnit(r.unit, host.unit) ? "" : r.unit) };
     case "text": {
       const s = String(r.text || "");
       refuseSecret(s);
@@ -1541,7 +1714,7 @@ function resultOf(host, result, maxInlineText) {
 
 module.exports = {
   PROTOCOL, readsAsExpression,
-  hostsOf, calcHosts, hostIndex, constraintChecks, checkItems, referenceStarts, callSites, resolveHost, valueDerivation, moduleFiles, referencedModules,
+  hostsOf, calcHosts, hostIndex, constraintChecks, checkItems, referenceStarts, quantityLiterals, evalItem, sameResult, onlyAUnit, boundSaid, breachMessage, hasFormulas, treeOf, callSites, resolveHost, valueDerivation, moduleFiles, referencedModules,
   orderDerivations, affected, runHash, hostHash, sourceHash, targetDeps, plainError,
   inertValue, inertName, looksSecret,
   Session, spawnMessage, resolveExecutable, scrubbedEnv, defaultPythons, blasThreads, outputStem, resultOf, gridOf, writeGrid, writeValue, cellText,

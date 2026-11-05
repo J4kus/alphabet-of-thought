@@ -1,17 +1,31 @@
 {
   "name": "alphabet-of-thought",
   "displayName": "alphabet of thought",
-  "description": "distill your creativity into code",
+  "description": "A plain-text spreadsheet for VS Code. Python formulas, rules that run as you edit, and tables that stay CSV.",
   "keywords": [
-    "aot",
-    "alphabet of thought",
-    "programming language",
-    "syntax highlighting",
-    "code editor",
-    "ideas"
+    "spreadsheet",
+    "csv",
+    "excel",
+    "plain text",
+    "python",
+    "pandas",
+    "formulas",
+    "data validation",
+    "analytics",
+    "data analysis",
+    "financial model",
+    "llm",
+    "ai",
+    "org mode",
+    "linter",
+    "aot"
   ],
   "license": "MIT",
-  "version": "1.13.5",
+  "homepage": "https://github.com/J4kus/alphabet-of-thought#readme",
+  "bugs": {
+    "url": "https://github.com/J4kus/alphabet-of-thought/issues"
+  },
+  "version": "1.14.0",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -19,7 +33,8 @@
   },
   "categories": [
     "Programming Languages",
-    "Linters"
+    "Linters",
+    "Data Science"
   ],
   "main": "./src/extension.js",
   "activationEvents": [
@@ -42,7 +57,7 @@
     }
   },
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js && node out/test-csvsync.js && node out/test-messages.js && node out/test-recalc.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js && node out/test-csvsync.js && node out/test-messages.js && node out/test-recalc.js && node out/test-units.js && node out/test-mistakes.js && node out/test-check.js"
   },
   "contributes": {
     "configurationDefaults": {

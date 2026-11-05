@@ -527,6 +527,7 @@ v	because	55	a space then one equals sign starts a derivation, so a literal one 
 v	because	56	an = whose bound computes one value is what the value is, so the run writes it into every value that has no derivation of its own
 v	because	57	the file holds every digit and the screen the short form, so a total of computed values is never off by what was rounded away
 v	because	58	there is one language behind the equals sign, and it runs when the file calculates
+v	because	59	a value arrives typed, and only a whole number is a number; the dollar sign is its unit and the comma is read away
 v	begin	2	(
 v	begin	3	...
 v	beneficiary	2	Aristotle
@@ -629,6 +630,8 @@ v	case	90	a second calculation with nothing changed
 v	case	91	change a number and move off its cell
 v	case	92	the hover on any computed value
 v	case	93	typing in a cell, a cursor moving inside it
+v	case	94	$1,205
+v	case	95	$1,500
 v	change log entry	2	1.3.0
 v	characters	2	lowercase
 v	chart	2	aot.files/rationale graph.chart.Example.png
@@ -866,6 +869,7 @@ v	expected	185	nothing runs and nothing starts; the first formula offers to turn
 v	expected	186	nothing runs; a formula runs only when its source, its inputs or the sidecar changed
 v	expected	187	what reads it runs, in place, and nothing else; then its constraints are checked
 v	expected	188	when it calculated, to the second, how long it took and with what; the end of the line says nothing while all is well
+v	expected	189	$1,205 once run
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot

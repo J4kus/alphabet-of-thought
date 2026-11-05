@@ -1,0 +1,8 @@
+Customer
+    discount
+    - Acme
+        discount: 10%
+        discount: 15%
+    - Bolt
+        tag: red
+        tag: blue

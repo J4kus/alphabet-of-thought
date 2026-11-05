@@ -4,6 +4,30 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.14.0] - 2026-11-05
+
+- **Numbers read the way an analyst writes them.** `30%` is `0.3`, and a `%` cell shows its result as a percent, so `$100,000` less `30%` is `$70,000`, where it was `-2,900,000` with no error. `€`, `£`, `¥` and `R` read as currencies, and `(1,000)` as negative.
+  - *Breaking:* a formula relying on `30%` being `30` now gets `0.3`.
+- **Text in arithmetic is a visible error.** `n/a` × 2 was `n/an/a`, and `€20,000` × -14 an empty value, each with no error. `1.2M`, `450k`, `1.204,50` and `15/01/2026` stay text and say so.
+- **Units of measure.** Any number followed by one word has a unit: `120 km`, `46 clients`, `$10/kg`. `120 km / 2 h` is `60 km/h`, `$10/kg * 3 kg` is `$30`, and `5 km + 500 m` is `5.5 km`. About 80 units are built in, in a hierarchy, and convert within their kind. They keep through `.sum()`, `.mean()`, `.median()`, `.min()`, `.max()`, `.std()` and `groupby`. See [Numbers and units](README.md#numbers-and-units).
+  - **A column takes its unit through its normal alias**, `distance (km)`, with plain numbers beneath, so its CSV still sums in Excel. The heading says `distance (km)`.
+  - **A result lands in its cell's unit**, and a cell holding only a unit chooses it: `speed: mph =@distance/@time`. A result of the wrong kind is an error.
+  - **In a formula or a rule:** `=@price + $5,000`, `=@distance + 5 km`, `=@price*30%`, `=@start + 30 days`, `distance <=500 km`.
+  - *Breaking:* a plain number added to or compared with a unit is an error, except `0`. `@price + 100` on a `$` value, and a rule like `price <=100` over `$50`, now say to write the unit. That is what catches `$100,000 - 30%`.
+  - *Breaking:* `age >= 18 years` is now a rule, not a name. `speed > none noted` stays prose.
+  - *Consequence:* an alias that is also a unit is a unit, so `height (h)` means hours.
+- **`@Concept` includes the rows of the kinds beneath it**, with a `kind` column. `@Deal@net.sum()` counted only the rows filed directly under Deal, so it could give `5` for `87,005` with no error.
+  - *Breaking:* a total on a parent kind can change, to the right number.
+  - A value is read from any kind above, the nearest first, where only one level was. The longest name wins across a column and a default, so `@discount cap` beside a `discount` column reads the default.
+- **`node check.js`: the check that can fail on the numbers.** Every file, every agreement between files, every formula and every rule, exiting `1` on a failed formula, a broken rule, or a value differing from what its formula computes. It runs the code in those files, so it is for your own files and trusted branches. `verify.js` still runs nothing, and now says what it did not calculate. See [The calculating check](README.md#the-calculating-check).
+- **The status bar adds it all up:** `0 problems` or `3 problems`, violations and calculation together, and `formulas not calculated` when they weren't.
+- **A value a formula replaces says so**, rather than being corrected in silence.
+- **The same Example with two values across files is an error** (rule 22), in lines or in a table. **Two numbers on one attribute of one Example are an error** (rule 26). Two texts stay allowed.
+- **The tools say when row checks stopped** at 200 rows in a file, rather than going quiet.
+- The message for a repeated row no longer says "with the same value" when the values differ.
+- **The listing:** the description, keywords and categories say what it does, and it links its home page and issues.
+- See [docs/features-1.14.md](docs/features-1.14.md).
+
 ## [Unreleased]
 
 - **Formulas calculate the way a spreadsheet does.** Change a number, move on, and every total is right. Leaving a cell, a paste, a fill, an undo, a save, switching editor or program, and a CSV arriving all calculate; typing in a cell does not. There is no timer.

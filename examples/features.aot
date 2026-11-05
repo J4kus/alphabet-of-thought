@@ -71,6 +71,6 @@
             base: gadget
             code: GADGET =upper(@base)
 - Documentation
-    repository page: https://github.com/Jakus23/alphabet-of-thought
+    repository page: https://github.com/J4kus/alphabet-of-thought
     readme file: README.md
     change log entry: 1.3.0

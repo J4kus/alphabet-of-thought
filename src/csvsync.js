@@ -30,12 +30,15 @@
 // times and applies the plan.
 
 const key = (s) => String(s == null ? "" : s).trim().toLowerCase();
+// a column by its attribute's name: `distance (km)` is `distance`, whether or not
+// a spreadsheet kept the unit in its heading
+const colKey = (s) => key(s).replace(/\s*\([^()]*\)$/, "");
 // what a cell says, as a table holds it: a pipe bent to the broken bar
 const cellOf = (s) => String(s == null ? "" : s).trim().replace(/\|/g, "¦");
 
 // A cell's number, as plain digits, or null when it holds none.
 const numberIn = (s) => {
-  const t = String(s).replace(/^(-?)\$/, "$1").replace(/,/g, "");
+  const t = String(s).replace(/^(-?)[$€£¥R]/, "$1").replace(/%$/, "").replace(/,/g, "");
   return /^-?\d*\.?\d+(?:e[+-]?\d+)?$/i.test(t) ? t : null;
 };
 const digitsOf = (t) => t.replace(/e.*$/i, "").replace(/[-.]/g, "").replace(/^0+/, "");
@@ -68,7 +71,7 @@ function saysTheSame(csv, aot) {
 function indexGrid(grid) {
   if (!grid || !grid.length || !grid[0]) return null;
   const header = grid[0];
-  const cols = header.slice(1).map(key);
+  const cols = header.slice(1).map(colKey);
   const names = new Map();
   cols.forEach((c, i) => { if (c && !names.has(c)) names.set(c, String(header[i + 1]).trim()); });
   const rows = new Map();
@@ -104,13 +107,13 @@ function unionGrids(grids) {
   const colAt = new Map();
   for (const g of list) {
     g[0].slice(1).forEach((h) => {
-      const k = key(h);
+      const k = colKey(h);
       if (k && !colAt.has(k)) { colAt.set(k, header.length); header.push(String(h).trim()); }
     });
   }
   const rows = new Map();
   for (const g of list) {
-    const cols = g[0].slice(1).map(key);
+    const cols = g[0].slice(1).map(colKey);
     for (const r of g.slice(1)) {
       const k = key(r[0]);
       if (!k) continue;

@@ -66,7 +66,7 @@ Read it like this:
 2. **Create a file.** Name it after the subject: `Human.aot`, `Sales.aot`. The **file name is the root Concept** — do not repeat it as the first line; the file's top-level lines are already its children.
 3. **Pick a real subject.** Take something you currently explain badly in a document — your team's metrics, a domain model, a process with a known bottleneck — and pick the matching [rationale](#the-four-rationales) as a skeleton.
 4. **Write indented plain text using only four kinds of line** (see the [language reference](#language-reference)). Start with natural Concepts and build up from facts, or normalise an existing data structure and derive relations from it. Either way, the move is the same: generate the facts first, then branch out.
-5. **Fix squiggles until `V = 0`.** The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point. (The same check runs from the terminal: `node verify.js <file.aot>`.)
+5. **Fix squiggles until `V = 0`.** The places where you can't decide on a parent are the places where you didn't actually know what you meant — which is the point. (The same check runs from the terminal: `node verify.js <file.aot>`. `node check.js` also calculates every formula and rule.)
 6. **Ask an AI to explain what you wrote.** Paste the file into an LLM and ask for an explanation. You'll be amazed at what you learn about something you thought you knew. (See [Using Alpha with an LLM](#using-alpha-with-an-llm).)
 
 ## Case study: a quarterly business review
@@ -323,7 +323,7 @@ Four places in the language make this concrete:
 | **Advisory findings never count in `V`** | Spelling hints, Example hints, FCA suggestions, dependency findings — everything that says *you might be missing something* is a hint or a warning, never an error. Only the file's own contradictions reach `V`. |
 | **Attributes are optional by default** | An attribute declared on a Concept and left unvalued on an Example is `present but unvalued`, a first-class state (exponent 1), not a hole to be filled before the file will pass. |
 
-What incompleteness never excuses is **contradiction**. One attribute carrying two values, one Concept filed under two kinds, an `and` in a Concept name, a dependency cycle — those are errors wherever they appear, `...` or no `...`, because they are not gaps. A gap is a place you have not been yet; a contradiction is a place that cannot exist.
+What incompleteness never excuses is **contradiction**. One attribute carrying two numbers on one Example, or two values across files, one Concept filed under two kinds, an `and` in a Concept name, a dependency cycle — those are errors wherever they appear, `...` or no `...`, because they are not gaps. A gap is a place you have not been yet; a contradiction is a place that cannot exist.
 
 The practical consequence is the working style Alpha is built for: **write the part you know, mark the part you don't, and keep the file green the whole way**. A model that had to be finished before it was correct would never be started.
 
@@ -348,6 +348,7 @@ Single inheritance answers what an idea *is*; crosslinks answer what it *refers 
 | **concept-contains-Concept** | A Concept whose name — or `(alias)` — contains a run of words naming another Concept or another Concept's alias (case-insensitive); each longest, non-overlapping run links, but the whole name never does. An alias that is wholly another Concept's name links whole instead, and is an error (rule 11). | solid | `Independent Node` → the `Node` Concept; `Human (Natural Person)` → `Person` |
 | **value-is-an-Example** | A value that matches an Example name (case-insensitive, like every link). A table's parent cell links the row it names. | dotted | `human: Socrates` → `- Socrates` |
 | **value-is-a-default** | A value equal to its type's default (`currency: EUR` beside `Currency: EUR`). | dotted | `currency: EUR` → `Currency: EUR` |
+| **attribute-is-a-unit** | An attribute whose `(alias)` names a [unit](#numbers-and-units), which every file already has. | none: hover says what it is | `distance (km)` → Unit ▸ Length ▸ km |
 
 #### Composition
 
@@ -356,6 +357,8 @@ Attributes are sometimes atomic values, but Alpha also allows an attribute to be
 #### Attribute alias
 
 A relational attribute referencing another Concept uses that Concept's name, written lowercase: an attribute `human` on `City of Residence` links to the `Human` Concept automatically.
+
+An `(alias)` types an attribute the same way, by the Concept it names: `type (category)` is typed by `Category`. A [unit](#numbers-and-units) is such a Concept that every file already has, so `distance (km)` is typed by `km`, and a plain number in it is in kilometres.
 
 #### Concept differentia
 
@@ -378,7 +381,7 @@ Measurement
     age integer: 5       <- hinted: not an Example of Integer (1, 35)
 ```
 
-This is a **gap in the model, not a contradiction in it**, so it hints exactly as spelling does — on its own span and on hover, never in the Problems panel, never in `V` — and turns off with `aot.exampleHints`. An attribute may mention a Concept without being valued by one, so three things keep the hint to values that were genuinely trying to name an Example:
+This is a **gap in the model, not a contradiction in it**, so it hints exactly as spelling does — on its own span and on hover, never in the Problems panel, never in `V` — and turns off with `aot.exampleHints`. `verify.js` prints it as a warning, and [`check.js`](#the-calculating-check) fails on it when the list is in the same file. A list in another file is that file's partial sample, so there it stays a warning. An attribute may mention a Concept without being valued by one, so three things keep the hint to values that were genuinely trying to name an Example:
 
 - **The Concept must list Examples.** One that lists none states an open vocabulary, where any value is fair — `name: Socrates` is prose, not a claim against a listed set.
 - **The value must be the same kind of value its Examples are.** `maximum worker pool: 1` measures the pool; it does not name one of Role/Asset/Function, and a number never could. `age integer: 5` *is* a number among the numbers 1 and 35, so it genuinely misses.
@@ -683,20 +686,68 @@ Before its first run, the last Concept was the line `Sales =by_month(@raw)`. The
 
 | Reference | Names | Arrives as |
 |-----------|-------|-----------|
-| `@price`, `@basket size` | The same Example's (or row's) attribute. This is the longest case-insensitive match, spaces allowed, an `(alias)` too. On an Example, a value its Concept states is read when the Example states none | The value, typed **strictly**: `$1,204` is `1204`, `2026-09-22` a `date`, `Yes`/`No` a `bool`, empty `None`. `2026-01` is not a whole number, so it stays text |
+| `@price`, `@basket size` | The same Example's (or row's) attribute. This is the longest case-insensitive match, spaces allowed, an `(alias)` too. On an Example, a value its Concept states is read when the Example states none | The value, typed **strictly**: `30%` is `0.3`, `$1,204` is 1,204 dollars and `120 km` 120 kilometres (see [Numbers and units](#numbers-and-units)), `2026-09-22` a `date`, `Yes`/`No` a `bool`, empty `None`. `2026-01` is not a whole number, so it stays text |
 | `@price@Acme` / `@Acme@price` | The named sibling Example's value, in either order — or, from a value on an Example, one of the sub-Examples beneath it | The value |
 | `@Order@price@Acme` | Another Concept's cell: the Concept first, then a column and an Example in either order. It may live in any `.aot` in the workspace; the current file's own names win a shared name | The value |
 | `@Measurement@alias` | A Concept's **own** value, the default its Examples inherit | The value |
-| `@Order` | A Concept, with its Examples written as rows or as `- ` lines — **sub-Examples included**, depth-first | A **DataFrame** (a list of dicts without pandas); a column of dates is a datetime column. Where the Examples nest, a `parent` column names the row each one sits under, exactly as the [CSV mirror](#the-csv-mirror) writes it |
+| `@Order` | A Concept, with its Examples written as rows or as `- ` lines — **sub-Examples included**, depth-first, and **the rows of the kinds beneath it** | A **DataFrame** (a list of dicts without pandas); a column of dates is a datetime column. Where the Examples nest, a `parent` column names the row each one sits under, exactly as the [CSV mirror](#the-csv-mirror) writes it. Where rows come from kinds beneath, a `kind` column names each one's, so `@Deal@net.sum()` is every deal's and `@Deal.groupby("kind")` splits them |
 | `@Order@price` | A Concept's column | A **Series** |
 | `@Acme` | A sibling Example, or a sub-Example of the value's own Example | A `dict` of its values |
 | `@raw`, `@Sales` | Another derivation | Its **live result**: the DataFrame itself, not its summary. It runs first when it is stale |
 
 - **A reference to a computed cell reads what the formula computed**, every digit, never the text in the cell. That goes for a column, a row and a whole table too, so three `=1/3` cells total 1, and a total of a column of formulas is right the first time. A cell reading a column it stands in is a circular reference, as in a spreadsheet.
+- **A value is read from any kind above**, the nearest first, as an Example silent on an attribute inherits it. **The longest name wins** across a column and a default: `@discount cap` beside a `discount` column is the default.
 - **The local reading is tried first.** A Concept's name gets its turn when the local reading names nothing, or when the Concept reading goes further. In `@Integer@is prime`, `integer` may also be a local alias, but only the Concept Integer has an `is prime`.
 - **A number after `@` names an Example** (`- 35`), never a column position.
 - **An `@` inside a string or a comment is text.** An `@` straight after an operand is Python's matrix operator.
 - **Typing `@` pops a completion** of the columns, then the Examples, then the repository's Concepts. A rename, by F2 or by typing over a name, follows through every reference, in every file.
+
+#### Numbers and units
+
+A value is read the way an analyst writes it, and the whole text must be a number for it to be one:
+
+| Written | Reads as |
+|---|---|
+| `30%` | `0.3`, as a spreadsheet reads it. A cell that says `%` shows its result as a percent |
+| `$1,204`, `€5`, `£5`, `¥5`, `R1,204` | A number in that currency |
+| `(1,000)`, `($1,000)` | Negative, as an accountant writes it. A cell that brackets a negative keeps doing so |
+| `120 km`, `46 clients`, `3 m²`, `40 km/h`, `$10/kg` | A number with a unit |
+| `120km`, `5kg` | The same, glued on, for a unit Alpha knows. `3D`, `12A` and `2nd` stay text |
+| `1.2M`, `450k`, `1.204,50`, `15/01/2026`, `n/a` | **Text.** Arithmetic on text is a visible error, never `n/an/a` |
+
+**Any number followed by one word has a unit**, so `46 clients` needs no setup. About 80 units are built in, in a hierarchy: **Unit ▸ Length ▸ km**. Two units convert when they measure the same thing: length, area, volume, mass, time, speed, energy, power, data. `month`, `quarter` and `year` convert to each other but not to days, since a month is no fixed number of them. A currency converts to no other, and `$` and `USD` are two units. Any other word matches only itself, singular or plural. `°C` and `°F` do not convert yet.
+
+A unit multiplies and divides with anything. It adds, subtracts and compares only with what it converts to:
+
+| Formula | Gives |
+|---|---|
+| `120 km / 2 h` | `60 km/h` |
+| `$10/kg * 3 kg` | `$30` |
+| `5 km + 500 m` | `5.5 km` |
+| `10 km / 1000 m` | `10`: a unit that cancels leaves a plain number |
+| `$100,000 * (1 - 30%)` | `$70,000` |
+| `$100 + 5`, `5 km > 3` | An error saying to write the unit: `$100 + $5`. Only `0` needs none |
+| `$100,000 - 30%` | The same error, which is the point: `0.3` is no amount of money |
+| `$5 + €5`, `3 kg + 2 km` | An error: they don't convert |
+
+**A column takes its unit through its normal alias**, `distance (km)`, because an alias types an attribute by the Concept it names. The cells stay plain numbers, so the CSV mirror still sums in Excel, with `distance (km)` as its heading:
+
+```aot
+Trip|distance (km)|time (h)|speed (km/h) =@distance/@time
+A   |120          |1.5     |80
+B   |75 mi        |1       |120.7008
+```
+
+- **A cell's own unit wins**, and is converted. `75 mi` above is 120.7 km to whatever adds it up.
+- **The same goes for an attribute on its line**: `distance (km)` on a Concept puts every `distance: 120` beneath it in km.
+- **A result lands in its cell's unit.** A cell that says `5 m` shows `120 km` as `120,000 m`. A cell holding only a unit Alpha knows chooses it before the first calculation: `speed: mph =@distance/@time`. A result of the wrong kind is an error, and a plain number takes the unit the cell names.
+- **A number written straight in a column's rule is in its unit**: `distance (km) <=500`, `discount (%) <=35`. Anywhere else, write it: `distance <=500 km`.
+- **The file's own Concept of that name wins**, as its own names always do: with a Concept `Hour` in the file, `start (hour)` is typed by that. A Concept filed under one called `Unit` is a unit of the file's own, which a column can use: `size (fte)`.
+- **Consequence:** an alias that is also a unit is a unit. `height (h)` means hours, so a short name for `height` has to be another word.
+
+**In a formula or a rule** write them as you would anywhere: `=@price + $5,000`, `=@distance + 5 km`, `=@price*30%`, `=@start + 30 days`, `distance <=500 km`. No spaces inside a unit, so `5 km / rate` divides 5 km by a rate. `7 % 3`, with a space, stays the remainder.
+
+**A column with units is still a column:** `.sum()`, `.mean()`, `.median()`, `.min()`, `.max()`, `.std()`, `.cumsum()`, sorting, filtering, `merge` and `groupby(...).sum()` or `.mean()` keep the unit. `groupby(...).std()` is an error rather than a number. `@a.value` is the plain number and `@a.unit` its unit, `@a.to("mi")` converts, and `aot.quantity(5, "km")` makes one in a Python file. `float(@a)` and `math.sqrt(@a)` are errors until you write `.value`, because a function that takes a plain number would otherwise lose the unit without saying so. A value that only looks like a quantity (`12 Monkeys`, a code like `R100`) still behaves as the text it is, until it is calculated with.
 
 #### Constraints
 
@@ -708,7 +759,7 @@ Before its first run, the last Concept was the line `Sales =by_month(@raw)`. The
 - **A breach is a warning** on the offending value, under the source `formula`, and never counts in `V`. It stands until the value is edited or the next calculation. A bound that cannot compute is one error, on the clause that wrote it.
 - **An empty value asserts nothing**, so it is held to nothing.
 - **Values never carry bounds.** `age: 25 >=18` is just the value `25 >=18`.
-- **Prose is safe.** `speed > none noted` and `age >= 18 years` stay plain names, because a bound is believed only when the text after the operator reads as a Python expression, without running it: brackets and strings closed, no two words side by side ([`src/pyshape.js`](src/pyshape.js)).
+- **Prose is safe.** `speed > none noted` and `age >= 18 years old` stay plain names, because a bound is believed only when the text after the operator reads as a Python expression, without running it: brackets and strings closed, no two words side by side ([`src/pyshape.js`](src/pyshape.js)). A number and its unit are one thing, so `age >= 18 years` is a bound.
 
 **`=` naming one value defines.** A `>=` says a value must be *at least* something. An `=` on the attribute whose bound computes **one value** says what the value **is**, so it derives every value of that attribute, written once where the attribute is declared:
 
@@ -756,7 +807,7 @@ An ordering against a collection holds when the value meets any of its members: 
 
 | Result | Written |
 |--------|---------|
-| A number | `3,628,800`: separated, **every digit**, no scientific notation, keeping a `$` from the value it replaces. See [How a number shows](#how-a-number-shows) |
+| A number | `3,628,800`: separated, **every digit**, no scientific notation, in the unit its cell names or the one it comes with. See [Numbers and units](#numbers-and-units) and [How a number shows](#how-a-number-shows) |
 | A date, a datetime | `2026-09-22`, `2026-09-22 14:30` |
 | `True` / `False` | `Yes` / `No` |
 | `None`, NaN | An empty value |
@@ -795,7 +846,7 @@ The rule, in this order:
 
 **Rule 4 exactly.** Ignore the last of the 15 digits, since it may be rounded. A block of 1 to 3 digits repeats if it runs through the end, covers at least the last 5 digits and comes at least 3 times. A block of all `0`s or all `9`s does not count. That is why 1/7, with its six-digit block, falls to rule 5.
 
-A sign or a `$` stays in front of the short form. **With the cursor in the cell you see every digit**, as in a spreadsheet's formula bar, and the hover and copying give every digit too. In a table the short form is padded, so the pipes stay lined up. A computed column stays as wide as its longest stored number, and GitHub shows all the digits. `aot.shortNumbers` set to `false` shows every digit everywhere.
+A sign or a currency stays in front of the short form, a unit behind it, and brackets around it. **With the cursor in the cell you see every digit**, as in a spreadsheet's formula bar, and the hover and copying give every digit too. In a table the short form is padded, so the pipes stay lined up. A computed column stays as wide as its longest stored number, and GitHub shows all the digits. `aot.shortNumbers` set to `false` shows every digit everywhere.
 
 #### Running
 
@@ -876,6 +927,8 @@ A uv environment is started **isolated** (`-I`): no `PYTHON*` variables, no user
 #### In the editor
 
 - **Every formula finding has a source of its own** (`formula`), and **none counts in `V`**: a failed formula or a broken bound is a verdict on a calculation, not on the model. With formulas off or in manual calculation, one that is out of date says so, as information.
+- **The status bar adds it all up**: `$(check) 0 problems` or `$(error) 3 problems`, violations and calculation together, with the breakdown in its tooltip and the Problems panel on a click. While formulas are off, paused or out of date it says `formulas not calculated`, so it can't look clean over numbers nobody checked.
+- **A value a formula replaces says so.** When a formula overwrites a number somebody typed, as opposed to one it wrote itself, a warning stays on the cell until you edit it or close the file: `find out where '99,999' came from — its formula gives 35,000, so that is what the cell now says`.
 - **A formula that calculated says nothing at the end of its line**, as a spreadsheet's cell says nothing. Only what needs you does: `✗ 'units' isn't a known name · 16:04`, `– did not calculate · 16:04`, `ⓘ 'Old' no longer written`.
   - Common errors read plainly (`'su' isn't a known name`, `division by zero`), with Python's own message and traceback in the tooltip.
   - A table row holding several formulas has **one** inlay, naming the first cell in trouble: `✗ net: 'x' isn't a known name · 16:04`. Its tooltip has a line for each cell, and hover on a cell's value says what computed that cell.
@@ -919,7 +972,7 @@ aot.files/Ledger.formulas
     @Invoice@vat@INV-2: =@price*0.2
 ```
 
-**The parked file still stands on its own.** Every value is present, so it still says exactly what it said. The derivations are done with, since their results are already written in the data. The **constraints are not**: a bound computes nothing that could stand in its place, so taking it out of the file would silently switch it off. So **a parked constraint is still checked**. The editor reads the constraints back out of the store, and each run holds every value to them exactly as when they stood on the declaration: `price: -5` still warns, now as a breach of the *parked* bound. A parked `==` definition still defines. `verify.js` runs no Python, so it checks neither. Nothing in the CSV mirror or the cross-file reconcile knows the store exists.
+**The parked file still stands on its own.** Every value is present, so it still says exactly what it said. The derivations are done with, since their results are already written in the data. The **constraints are not**: a bound computes nothing that could stand in its place, so taking it out of the file would silently switch it off. So **a parked constraint is still checked**. The editor reads the constraints back out of the store, and each run holds every value to them exactly as when they stood on the declaration: `price: -5` still warns, now as a breach of the *parked* bound. A parked `==` definition still defines. `verify.js` runs no Python, so it checks neither; [`check.js`](#the-calculating-check) checks a parked bound. Nothing in the CSV mirror or the cross-file reconcile knows the store exists.
 
 **Each derivation is addressed with the `@` path the language already uses.** `@Invoice@vat@INV-1` is the `vat` of the Example `INV-1` of the Concept `Invoice`. [A table and a `- ` list are one idea in two spellings](#tables-are-pure-shorthand), so that one address finds the Example whichever way it is written.
 
@@ -982,7 +1035,7 @@ Python's own refusals are its audit hooks. They stop the calls that make them, n
 - **A result that looks like a credential is not written.** That covers a private key, and AWS, GitHub, Slack, Anthropic, OpenAI-style or Google keys and tokens. What is written into the file is committed and pushed, so such a result is refused with a message saying why.
 
 **What it does not do**
-- **`verify.js` never runs Python**, so a CI job checking a pull request cannot be made to. Nor should CI run `uv sync` for a pull request it has not reviewed. The `.formulas` store says it may hold Python.
+- **`verify.js` never runs Python**, so a CI job checking a pull request cannot be made to. [`check.js`](#the-calculating-check) does run it, and running it is the consent, so it is for your own files and trusted branches only. Nor should CI run `uv sync` for a pull request it has not reviewed. The `.formulas` store says it may hold Python.
 - **What it costs:** "the file stands on its own" holds in letter, since every value is written and `V` judges them. But a Python value's provenance is no longer checkable from the text alone. The run records the interpreter and library versions, and the hover shows them.
 - **Real containment is not done here.** Running the process in a container or an operating-system sandbox, with no network and a read-only repository, is the only way to hold code that is written to escape. Until then, the switch, workspace trust and the questions above are the protection.
 
@@ -1125,7 +1178,7 @@ The VS Code extension adds syntax colouring for `.aot` files and an arithmetic l
 
 The extension maps its findings to two severities: **errors** squiggle red and **warnings** squiggle yellow. Only errors count toward the violation total `V`; the file **verifies** when `V = 0`.
 
-The same referee runs headless: `node verify.js <file.aot>` performs the identical check from the terminal — same rules, same gates, same `V` — and exits `0` exactly when the file verifies, so it drops straight into CI or an agent loop. See [The command line](#the-command-line).
+The same referee runs headless: `node verify.js <file.aot>` performs the identical check from the terminal — same rules, same gates, same `V` — and exits `0` exactly when the file verifies, so it drops straight into CI or an agent loop. **`V` is about structure.** A value in front of a formula and a value under a rule are only checked when something calculates them: the editor, or [`node check.js`](#the-calculating-check). See [The command line](#the-command-line).
 
 ### Settings
 
@@ -1176,6 +1229,7 @@ The same referee runs headless: `node verify.js <file.aot>` performs the identic
 | 12 | **Well-placed derivations** | A definition on a bare attribute that does not read as Python (`note = some words` — it defines nothing; add the colon to make it the value's own derivation), a derived default (`Currency: EUR =pick()`, or `tax rate: =x` in a header — a default is stated), a Concept's `=` with nothing after it, a lone `=` on a line of its own, or a bound with no attribute in front of it (`==("a", "b")`). What a derivation or a bound *computes* is never the linter's to judge: it is [Python](#python), which runs only when asked, and its findings — a failure, a breached constraint — are in a collection of their own that never counts in `V`. |
 | 24 | **A part is not its whole** | A sub-Example carrying the name of an Example it sits under — directly or further up, in `- ` lines or table rows, case and numbering aside. One name cannot be both the whole and its part, and every path that names it (`@Order@total@X@X`, the CSV mirror's `parent` column naming its own row) would say nothing. The error is on the child, pointing at the parent. |
 | 25 | **A parent cell names a row** | A table's [`parent (thing)`](#tables) cell naming no row of its table, naming its own row, or one of a circle of rows each naming the next — a circle has no top, so none of its rows has a place in the tree. Each such row stays a row of the table's own Concept. Also: a second parent column, or one carrying a default or a bound. |
+| 26 | **A number has one value** | One attribute set to two different numbers on one node: `discount: 10%` and `discount: 15%`. Several texts on one attribute stay allowed (`tag: a`, `tag: b`), and a value with a unit Alpha doesn't know counts as text (`film: 12 Monkeys`). |
 
 Rules 1–12 and 24 are the syntactic and arithmetic checks (`src/linter.js`). On top of them, a **subsumption reasoner** (`src/subsumption.js`, after Description Logics' EL) re-derives the Concept hierarchy a *second* time — not from where each line is written, but from the facts each Concept declares (its attributes, values, the Concepts it crosslinks to, and any value's inherited ancestry) — and holds the written tree to it. A Concept's definition is read as a conjunction of those facts; `C is-a D` holds when D's whole definition is satisfied by C. A `...` Map child marks a Concept *open* (its facts are necessary but not yet sufficient), which excuses it from these checks. Placements the derived order contradicts are errors, also counted in `V`:
 
@@ -1188,7 +1242,7 @@ Rules 1–12 and 24 are the syntactic and arithmetic checks (`src/linter.js`). O
 
 A genus must rest on at least two declared attribute names — one shared word is coincidence, not a kind.
 
-On top of rules 1–16, a third tier of errors comes from the **Formal Concept Analysis audit** (`src/fca.js`) and the **Gödel numbering** (`src/godel.js`). A lattice or a content comparison over a broken tree means nothing, so these run **only once rules 1–16 are clean**; the FCA rules additionally need **between 2 and 200 Examples**. When they fire they are violations counted in `V` — the file does not verify until they are resolved:
+On top of rules 1–16, a third tier of errors comes from the **Formal Concept Analysis audit** (`src/fca.js`) and the **Gödel numbering** (`src/godel.js`). A lattice or a content comparison over a broken tree means nothing, so these run **only once rules 1–16 are clean**; the FCA rules additionally need **between 2 and 200 Examples**, and past 200 a warning says they stopped. When they fire they are violations counted in `V` — the file does not verify until they are resolved:
 
 | # | Rule | What triggers it |
 |---|------|------------------|
@@ -1209,7 +1263,7 @@ Two more come from the **repo** (`src/repo.js` — see [Concepts across files](#
 
 | # | Rule | What triggers it |
 |---|------|------------------|
-| 22 | **Contradicted value** | The same Concept, written in two files, carries two values for one attribute — `Jakus` with `role: analyst` here and `role: bookkeeper` there. One name means one thing, so it cannot mean both. Reported on every side, at the line that disagrees, each pointing at the others. One side saying nothing about the attribute is **not** this rule — silence is filled in on save, not flagged. |
+| 22 | **Contradicted value** | The same Concept, written in two files, carries two values for one attribute — `Jakus` with `role: analyst` here and `role: bookkeeper` there — or the same Example of it does, in lines or in a table: `Acme` with `discount: 10%` here and `15%` there. One name means one thing, so it cannot mean both. Reported on every side, at the line that disagrees, each pointing at the others. One side saying nothing about the attribute is **not** this rule — silence is filled in on save, not flagged. |
 | 23 | **Contradicted kind** | The same Concept filed under two different kinds — `Jakus` under `Motivation` here and `Team` there. A Concept is one kind. Only the *nearest* named ancestor is compared (how deeply each file nests its own subject is its own business), and a Concept at the top of one file contradicts nothing: that is silence again, not a second kind. |
 
 ### Warnings — yellow squiggle, in the Problems panel, but not counted in `V`
@@ -1353,6 +1407,38 @@ The flags turn the arithmetic into queries:
 
 Two views are CLI-exclusive: `--suggest`'s `confirmed` line (the lattice agreeing with your tree is worth seeing, but it is not a squiggle), and the full `--fd` / `--clashes` sets (the editor surfaces only the confident, strong cases).
 
+### The calculating check
+
+`verify.js` judges what a file says, and runs nothing. `check.js` goes on and calculates:
+
+```
+$ node check.js "Q3 Revenue.aot"
+check.js runs the formulas in these files and any Python they name, with your permissions.
+Q3 Revenue.aot:13: error: change the value, or the formula — '$99,999' is written here, and its formula gives '$35,000'
+Q3 Revenue.aot:13: error: change the value, or the bound — '30%' breaks 'discount <=@max discount': it is not <= 0.2
+
+1 file: violations V = 0, 0 contradictions between files, 0 values naming no row
+formulas: 4 calculated, 0 failed, 1 differ from what is written, 0 not written yet
+rules: 8 values checked, 1 broken, 0 could not be checked
+2 problems
+$ echo $?
+1
+```
+
+`node check.js [file or folder]` is one command for everything: every file, every agreement between files, every formula and every rule. Given one file it reports on that file, reading the rest of its repository, since a formula may reach any of it. It **exits `1`** on any of these:
+
+- a violation (`V`), or a contradiction between files;
+- a value naming a row its file's own list does not hold;
+- a formula that fails, or a rule that does;
+- a broken rule;
+- a value differing from what its formula computes, to 15 significant digits.
+
+An empty cell in front of a formula, or one holding only a unit, is a note: the formula has not written yet. A chart or a long text is only checked for running, and so is what a bare `=` line writes. It exits `2` when it could not look: no such path, no `.aot` files, no Python. It never writes to a file.
+
+What it cannot see is a typed number with nothing stating what it should be. `total: 60000` with no formula is just a value, and so is `influence: Green` against a missed target. State the relationship, with a formula or a rule, and they are caught. **It can't tell you a number is true.** It tells you when your model disagrees with itself, with a rule you wrote, or with another file.
+
+**Running it runs the code in those files**, with your permissions, and that is its one consent: so never on a pull request you have not read. Python starts as the editor starts it: no other program may start, the places credentials are kept are refused, and the secrets in the environment are withheld. `--python <path>` chooses the interpreter; otherwise it is `python` on PATH, never one in the repository.
+
 ### Merging with git
 
 A line merge sees text; two people who edit one Concept see an idea. **AOT: Set Up Git Merge for .aot Files** makes git merge an `.aot` by meaning:
@@ -1385,6 +1471,7 @@ The prose above describes the rules; a handful of files in [`examples/`](example
 
 - [`examples/godel.aot`](examples/godel.aot) and [`examples/godel twins.aot`](examples/godel%20twins.aot) verify at `V = 0` and carry the Gödel warnings on purpose: a value every child states (`Vehicle`'s `wheels: 4`, `Payment`'s `EUR` column), a default no child keeps (`Drink`), and `Kettle` / `Boiler`, one content under two names. Hover `Pet`'s kinds for their content.
 - [`examples/release 1.12.aot`](examples/release%201.12.aot) is 1.12's hands-on checklist as a file — entries A01–A32, each saying what to do in the editor and what you should see — and verifies at `V = 0` with its three Gödel warnings; [`examples/release 1.12 peer.aot`](examples/release%201.12%20peer.aot) is its other file for the cross-file entries; [`examples/release 1.12 errors.aot`](examples/release%201.12%20errors.aot) must fail at `V = 5` (an Example named like the Example it sits under, a lone `=`, a bound with no attribute).
+- [`examples/release 1.14.aot`](examples/release%201.14.aot) is 1.14's checklist — entries C01–C14 — and verifies at `V = 0`. [`examples/release 1.14 errors.aot`](examples/release%201.14%20errors.aot) must fail at `V = 2`: two numbers on one attribute (rule 26), once on each line.
 - [`examples/release 1.13.aot`](examples/release%201.13.aot) is 1.13's checklist — entries B01–B19 — and verifies at `V = 0`. [`examples/release 1.13 errors.aot`](examples/release%201.13%20errors.aot) must fail at `V = 7`: a parent cell naming no row, one naming its own row, two rows naming each other (rule 25), a derived Concept default, a definition that does not read as Python, and a derived header default (rule 12).
 
 A change to the linter is correct when it flags every planted violation in the first two files and nothing in the clean pair. The check is one command per file: `node verify.js examples/thought.aot` must exit `0`, `node verify.js examples/lint.aot` must not — and `node out/test-<module>.js` runs each module's smoke tests.
@@ -1499,7 +1586,10 @@ Alpha's discipline pays off most when more than one mind works the same model:
 
 | Path | What it is |
 |------|------------|
-| [`verify.js`](verify.js) | [The command line](#the-command-line): whole-file check with exit code, plus the query flags |
+| [`verify.js`](verify.js) | [The command line](#the-command-line): whole-file check with exit code, plus the query flags. Runs nothing |
+| [`check.js`](check.js) | [The calculating check](#the-calculating-check): every file, every agreement, every formula and every rule, with an exit code |
+| [`src/gates.js`](src/gates.js) | The gates a verdict on one file goes through, shared by both commands |
+| [`src/units.json`](src/units.json), [`src/units.js`](src/units.js) | The built-in [units](#numbers-and-units) and the hierarchy they sit in, read by the editor and the formula engine alike |
 | [`src/linter.js`](src/linter.js) | Syntactic and arithmetic checks (error rules 1–12, 24 and 25) |
 | [`src/primes.js`](src/primes.js) | The primes every number is made of: one cached Sieve of Eratosthenes, sized by the Rosser–Schoenfeld bound |
 | [`src/subsumption.js`](src/subsumption.js) | Subsumption reasoner (error rules 13–16) |
@@ -1529,10 +1619,11 @@ Alpha's discipline pays off most when more than one mind works the same model:
 | [`examples/accounting monthly close.aot`](examples/accounting%20monthly%20close.aot), [`examples/accounting bank recon.aot`](examples/accounting%20bank%20recon.aot) | One Concept written in two files: the same definition in both, the Examples split, a maintained `...` line in each |
 | [`examples/godel.aot`](examples/godel.aot), [`examples/godel twins.aot`](examples/godel%20twins.aot) | The Gödel warnings to try by hand, in two files that verify |
 | [`examples/python edge cases.aot`](examples/python%20edge%20cases.aot) | The [Python](#python) edge cases, each with what should happen — live where running it is harmless, escaped where it would break the file — with its sidecar in `aot.files` |
-| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all nineteen, `test-merge.js` a real git merge when there is a `git`; `test-python.js` runs the real Python runtime when there is a `python` on PATH, and `test-uv.js` the real uv when there is a `uv`, and each skips it when there is not) |
+| [`out/test-*.js`](out/) | Per-module smoke tests, plain Node scripts (`npm test` runs all twenty-two, `test-merge.js` a real git merge when there is a `git`; `test-python.js` runs the real Python runtime when there is a `python` on PATH, and `test-uv.js` the real uv when there is a `uv`, and each skips it when there is not) |
 | [`docs/features-1.1-1.2.md`](docs/features-1.1-1.2.md) | Per-feature reference for the 1.1 → 1.2 line: what changed, a snippet to exercise it, and its edge cases |
 | [`docs/features-1.3-1.5.md`](docs/features-1.3-1.5.md) | The same for 1.3 → 1.5: how each feature worked *before*, a snippet for the case that works and the neighbouring one that does not, and the test that holds it |
 | [`docs/features-1.6.md`](docs/features-1.6.md) | The same for 1.6: tables and free text as one notation — the unified registry, the outer scope, the union CSV mirror, chained constraints |
+| [`docs/features-1.14.md`](docs/features-1.14.md) | The same for 1.14: numbers as an analyst writes them, units of measure, roll-ups, and the check that can fail on a number |
 | [`docs/features-1.13.md`](docs/features-1.13.md) | The same for 1.13: flat tables and the parent column, dividers, the flip that keeps your place, the CSV mirror's last-save rule, rename by typing, findings that wait while you write, Concept defaults, `=` and `==` |
 | [`docs/godel-numbers.md`](docs/godel-numbers.md) | How the Gödel numbers are computed as exponent vectors: the method, the measurements, and the alternatives turned down |
 | [`docs/features-1.12.md`](docs/features-1.12.md) | The same for 1.12: Python across sub-Examples, table rows and bare `=` lines; the column keys; stable Gödel numbers, the hover, the Gödel warnings, the rename-aware diff and the git merge driver — with a merge walkthrough |

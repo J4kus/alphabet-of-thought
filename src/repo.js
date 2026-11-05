@@ -39,6 +39,18 @@ const MAX_FILES = 3; // then `, …`, and the rest of the list moves to the hove
 const fold = (name) => numberless(name).trim().toLowerCase();
 const isAttr = (c) => c.kind === KIND.ATTRIBUTE || c.kind === KIND.DEFAULT;
 const examplesOf = (node) => node.children.filter((c) => c.kind === KIND.INDIVIDUAL);
+// A Concept's Examples by folded name, once per parse: comparing two long tables
+// must not walk one for every row of the other.
+const examplesMemo = new WeakMap();
+function examplesByName(node) {
+  let found = examplesMemo.get(node);
+  if (!found) {
+    found = new Map();
+    for (const e of examplesOf(node)) if (!found.has(fold(e.name))) found.set(fold(e.name), e);
+    examplesMemo.set(node, found);
+  }
+  return found;
+}
 
 // Every maintained `...` in a Concept's own scope, in document order —
 // including any that landed on a row rather than on the Concept, which is
@@ -257,6 +269,33 @@ function findings(file, all, opts) {
             related: [where(p)],
           });
           break; // one report per attribute, naming the first peer that differs
+        }
+      }
+
+      // one Example written in two files, saying two things about one attribute:
+      // the same equivocation, a row down. Which Examples a file lists is its own
+      // business; what an Example it shares says is not.
+      for (const ex of examplesOf(occ.node)) {
+        for (const p of peers) {
+          const their = examplesByName(p.node).get(fold(ex.name));
+          if (!their) continue;
+          let reported = false;
+          for (const [key, ours] of declared(ex)) {
+            if (ours.kind !== KIND.DEFAULT || ours.value == null) continue;
+            const theirs = declared(their).get(key);
+            if (!theirs || theirs.kind !== KIND.DEFAULT || theirs.value == null) continue;
+            if (String(ours.value).trim().toLowerCase() === String(theirs.value).trim().toLowerCase()) continue;
+            errors.push({
+              line: ours.line,
+              message: `pick the value that is right and write it in both, or rename one of the two if they are different things — `
+                + `'${ex.name}' of '${occ.node.name}' sets '${ours.name}' to '${ours.value}' here but `
+                + `'${theirs.value}' in ${path.basename(p.file)}:${theirs.line}, and one name is one thing, `
+                + `so it cannot carry two values for one attribute`,
+              related: [{ file: p.file, line: theirs.line, message: `'${ex.name}' also written here` }],
+            });
+            reported = true;
+          }
+          if (reported) break; // one report per Example, naming the first peer that differs
         }
       }
 

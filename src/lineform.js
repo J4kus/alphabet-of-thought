@@ -41,7 +41,7 @@
 // Pure: no vscode, no I/O. The caller parses, applies, and places the cursor.
 
 const { KIND, INDENT } = require("./linter");
-const { isRowText, splitCell, splitConstraint, readValue, numberless } = require("./table");
+const { isRowText, splitCell, splitConstraint, readValue, numberless, numericValue } = require("./table");
 const { lastLineOf } = require("./derive");
 
 const { INDIVIDUAL, DEFAULT, CONCEPT, ATTRIBUTE } = KIND;
@@ -421,7 +421,7 @@ function sortRows(g) {
   const sibs = subRowsOf(g.row.parent, g.lines);
   if (sibs.length < 2) return null;
   const sortKey = (r) => readValue(splitCell(cellText(g, r, g.col)).value);
-  const num = (r) => parseFloat(sortKey(r).replace(/[$,%\s]/g, ""));
+  const num = (r) => numericValue(sortKey(r));
   const numeric = sibs.every((r) => sortKey(r) !== "" && !isNaN(num(r)));
   const sorted = sibs.slice().sort((x, y) => (numeric ? num(x) - num(y) : sortKey(x).localeCompare(sortKey(y))));
   const slots = sibs.map(blockOf);

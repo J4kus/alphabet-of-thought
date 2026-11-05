@@ -30,9 +30,10 @@ function check(name, ok) {
     "18", "@price*1.5", "(\"draft\", \"sent\")", "len(@note) < 40", "date(2026, 1, 1)", "@start",
     "@a if @c else @b", "[1, 2, 3]", "{\"a\": 1}", "f\"{@a}\"", "not @done", "a @ b", "-@x ** 2",
     "@basket size * @tax rate", "lambda x: x", "@price if \"a <= b\" else 1",
+    "18 years", "20 knots", "5 km/h", "30%", "$5,000", "(5 km)", "@a + 5 km", "3 m²", "5 if @a else 6",
   ];
   const prose = [
-    "none noted", "18 years", "20 knots", "", "   ", "(2", "\"open", "@price*", "a b c", "@ ",
+    "none noted", "18 years old", "5 km 6", "", "   ", "(2", "\"open", "@price*", "a b c", "@ ",
   ];
   check("readsAsExpression: every bound reads as Python", bounds.every((s) => readsAsExpression(s)));
   check("readsAsExpression: prose, an open bracket or string, or a dangling operator does not",
@@ -972,7 +973,7 @@ function realRuntime() {
     check("runtime: the sidecar loads, and an os.py beside it shadows nothing", opened.sidecar && opened.functions.includes("twice"));
     check("runtime: arithmetic", (await ev("math.factorial(10)")).value === 3628800);
     check("runtime: a sidecar function", (await ev("twice(21)")).value === 42);
-    check("runtime: values arrive typed — $1,204 is 1204", (await ev("_aot_ref(0) + 1", [{ kind: "value", text: "$1,204" }])).value === 1205);
+    check("runtime: values arrive typed — $1,204 is 1204 in dollars", (await ev("_aot_ref(0).value + 1", [{ kind: "value", text: "$1,204" }])).value === 1205);
     check("runtime: 2026-01 stays text (strict numbers)", (await ev("_aot_ref(0)", [{ kind: "value", text: "2026-01" }])).text === "2026-01");
     check("runtime: a date arrives as a date and leaves as yyyy-mm-dd", (await ev("_aot_ref(0) + timedelta(days=1)", [{ kind: "value", text: "2026-09-22" }])).text === "2026-09-23");
     check("runtime: a datetime with a time keeps it", (await ev("datetime(2026, 9, 22, 14, 30)")).text === "2026-09-22 14:30");

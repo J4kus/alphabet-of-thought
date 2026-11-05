@@ -20,8 +20,9 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation, defaultColon, isParentColumn, startsLower, startsUpper, startsCaseless } = require("./table");
+const { writtenForm, cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation, defaultColon, isParentColumn, startsLower, startsUpper, startsCaseless } = require("./table");
 const { bigPrimes } = require("./primes");
+const { isUnit } = require("./units");
 
 const INDENT = 4;
 
@@ -770,9 +771,37 @@ function verify(root, nodes, report, accepted) {
     const byContent = groupBy(realChildren(node), (c) =>
       `${c.kind} ${c.name.toLowerCase()} ${String(c.value).toLowerCase()} ${(c.alias || "").toLowerCase()}`);
     eachDuplicate(byContent, (d, where, group, others) => {
+      // an Example holds no value of its own to differ by: its name is what is repeated
+      if (d.kind === INDIVIDUAL) {
+        report.error(d.line, `rename one, or keep just one — Example '${d.name}' is written ${group.length} times under '${node.name}' (lines ${where}), and one name is one Example, so nothing can say which of them is meant`,
+          { related: others.map((o) => ({ line: o.line, message: `'${o.name}' repeated here` })) });
+        return;
+      }
       report.error(d.line, `give each '${d.name}' a different value, or keep just one — ${TYPE_NAME[d.kind]} '${d.name}' repeated under '${node.name}' with the same value (lines ${where}): two identical siblings add nothing and blur the meaning`,
         { related: others.map((o) => ({ line: o.line, message: `'${o.name}' repeated here` })) });
     });
+  }
+
+  // One attribute may hold several texts (`tag: a`, `tag: b`), but a number is one
+  // number: `discount: 10%` and `discount: 15%` on one Example contradict each
+  // other. A value counts when it reads as a plain number, or one with a unit Alpha
+  // knows, so `film: 12 Monkeys` and `film: 3 Idiots` are two texts.
+  for (const node of all) {
+    const byName = groupBy(realChildren(node).filter((c) => c.kind === DEFAULT && !c.header && c.value), (c) => c.name.toLowerCase());
+    for (const group of byName.values()) {
+      if (group.length < 2) continue;
+      const numbers = group.filter((c) => {
+        const form = writtenForm(c.value);
+        return form.number && (!form.unit || isUnit(form.unit));
+      });
+      const said = new Set(numbers.map((c) => String(c.value).trim().toLowerCase()));
+      if (numbers.length < 2 || said.size < 2) continue;
+      const shown = [...new Set(numbers.map((c) => `'${c.value}'`))].join(" and ");
+      for (const c of numbers) {
+        report.error(c.line, `keep the one that is right — '${node.name}' sets '${c.name}' to ${shown} (lines ${numbers.map((o) => o.line).join(", ")}), and a number has one value`,
+          { related: numbers.filter((o) => o !== c).map((o) => ({ line: o.line, message: `'${o.name}' is '${o.value}' here` })) });
+      }
+    }
   }
 
   // A sub-Example is a part, or a finer instance, of the Example it sits

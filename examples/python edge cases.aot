@@ -213,9 +213,9 @@ Python Edge Case
     - A Money Value Arrives As A Number
         area: references
         price: $1,204
-        case: 1,205 =int(@price) + 1
-        expected: 1,205 once run
-        because: a value arrives typed, and only a whole number is a number; the dollar sign and the comma are read away
+        case: $1,205 =@price + $1
+        expected: $1,205 once run
+        because: a value arrives typed, and only a whole number is a number; the dollar sign is its unit and the comma is read away
     - A Month Stays Text
         area: references
         month: 2026-01
@@ -336,7 +336,7 @@ Python Edge Case
         because: on an attribute a frame is a value, summarised; only a Concept line writes a table
     - A Money Value Keeps Its Dollar
         area: what comes back
-        case: 1,500 =int("1500")
+        case: $1,500 =int("1500")
         expected: $1,500 once run
         because: a dollar sign on the value a number replaces is kept
     - Leaving A Cell Calculates

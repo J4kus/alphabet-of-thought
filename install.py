@@ -32,6 +32,7 @@ SHIPPED = {
     "src",
     "syntaxes",
     "verify.js",  # the git merge driver runs it
+    "check.js",  # the check that calculates, for a terminal or a trusted CI job
 }
 
 
