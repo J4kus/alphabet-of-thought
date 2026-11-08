@@ -4,6 +4,11 @@
     "fileTypes": ["aot"],
 	"patterns": [
 		{
+            "comment": "divider: dashes crossed by '+' where a table's columns divide, '-----+----', grouping its rows. It carries no pipe, so it is claimed here before the row rule and the Example rule; a line opening '- ' is an Example, never a divider",
+            "match": "^\\s*(?!-\\s)[-+ ]*-[-+ ]*\\+[-+ ]*$|^\\s*(?!-\\s)[-+ ]*\\+[-+ ]*-[-+ ]*$",
+            "name": "punctuation.definition.table.aot"
+        },
+		{
             "comment": "table row: any line carrying a divider with no colon before it, claimed before the line rules below because a row's first cell now opens the line rather than sitting behind a border. A colon before the first pipe makes a 'name: value' line whose value holds the pipe, which the line rules below colour — unless the line is capitalised: 'Currency: EUR|symbol' is a table's header, its first cell the Concept and the default it states. An '=' inside a word ('a=b') is a letter of the cell; only a space-preceded one opens Python (a Concept's derivation in the first header cell). The pipes (and any stray dashes/crosses) share the separator's quiet chrome colour so all table symbols read alike, upright; cell text falls to cell-safe shapes and the extension's semantic tokens overlay the parsed truth (attribute / Example / value / formula)",
             "begin": "^(?!\\s*\\.{3})(?=(?:(?:[^|:=]|(?<!\\s)=)*(?:\\s=(?!=)[^|]*)?|\\s*[\\p{Lu}\\p{Lt}\\p{N}](?:[^|:=]|(?<!\\s)=)*:[^|]*)\\|)",
             "end": "$",

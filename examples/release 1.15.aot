@@ -1,0 +1,191 @@
+Release Check
+    area
+    fixture
+    try
+    expected
+    - D01 A Click Highlights The Value
+        area: cells
+        fixture: Ledger below
+        try: click inside 250 in the Basalt row and type 300, then click inside 300 a second time, then press Ctrl+Z
+        expected: the first click highlights 250 whole and typing replaces it; the second click leaves a caret where you clicked
+    - D02 A Click On A Formula Highlights The Formula
+        area: cells
+        fixture: Outing below
+        try: click after the colon of total
+        expected: only the formula is highlighted, from its equals sign to the end, and CHF 10.5 in front of it is left alone
+    - D03 The Status Bar Shows A Hidden Formula
+        area: cells
+        fixture: the vat column of Ledger
+        try: put the cursor in the vat cell of Agate, then click the formula in the status bar
+        expected: the status bar names Ledger, Agate and vat and shows the column's formula; the click goes to the vat header
+    - D04 Ctrl Arrow Jumps Only From A Highlighted Cell
+        area: cells
+        fixture: Ledger below
+        try: click the region of Agate and press Ctrl+Right twice; then click inside 1,000 twice and press Ctrl+Right
+        expected: from a highlighted cell each press jumps a cell and lands highlighted; from a caret it steps through the text, as anywhere in VS Code
+    - D05 Ctrl Shift Down Then Shift Right
+        area: cells
+        fixture: Ledger below
+        try: put the cursor on the amount header and press Ctrl+Shift+Down, then Shift+Right
+        expected: the six amounts are selected, each whole, no pipe and not the divider, and the status bar says Sum 1,965 dollars and Count 6; Shift+Right adds the vat cells
+    - D06 Typing Over Selected Cells
+        area: cells
+        fixture: the region column of Ledger
+        try: click the region of Agate, press Shift+Down twice, type East, then press Ctrl+Z
+        expected: Agate, Basalt and Cobalt all read East as you type; the undo puts them back
+    - D07 Copy Into Excel And Back
+        area: cells
+        fixture: Ledger below
+        try: select the amounts as in D05, press Ctrl+C and paste into Excel; then copy two rows of two cells in Excel, click the region of Ember and press Ctrl+V; then press Ctrl+Z
+        expected: Excel gets one amount a cell, as numbers; the paste fills the region and amount of Ember and Flint, and adds no column
+    - D08 Alt Down Moves The Selected Rows
+        area: cells
+        fixture: Ledger below
+        try: click the region of Agate, press Shift+Down, then Alt+Down, then Ctrl+Z
+        expected: Agate and Basalt move down past Cobalt together and stay selected
+    - D09 Ctrl Plus And Ctrl Minus
+        area: cells
+        fixture: Ledger and Supplier below
+        try: click the region of Basalt and press Shift+Right twice, then Ctrl+Shift+Equals, then Ctrl+Z; click the amount of Basalt alone and press Ctrl+Minus, then Escape; put the cursor on the Birch line and press Ctrl+Shift+Equals; outside both, press Ctrl+Shift+Equals
+        expected: the whole row selected gets an empty row above it; one cell asks how, as Excel does, to shift cells up or left, or the entire row or column; on Birch only Entire row and Entire column are offered; outside a table or a Concept's lines the editor zooms, as before
+    - D10 Ctrl Alt S Sorts
+        area: sorting
+        fixture: Ledger below
+        try: put the cursor in the amount of Basalt and press Ctrl+Alt+S, then again; then put it in a region cell and press it once more
+        expected: Cobalt, Basalt, Dune, Agate by amount, as numbers, and then the other way; by region Dune and its blank region go last; Ember and Flint below the divider never move
+    - D11 Alt Equals Writes A Total
+        area: adding up
+        fixture: Ledger below
+        try: turn formulas on, put the cursor in an amount and press Alt+Equals, then Ctrl+Z
+        expected: a line total amount with its formula goes in one level under the table, and calculates 1,965 dollars
+    - D12 Filter To A Value
+        area: filter
+        fixture: Ledger below
+        try: put the cursor on a North cell and press Ctrl+Shift+L; then press it on the header
+        expected: only Agate, Cobalt and Ember stay in view, the divider with them, and the status bar says 3 of 6 rows; on the header every row comes back and the status bar item goes
+    - D13 Fold A Group
+        area: filter
+        fixture: Ledger below
+        try: click the fold arrow beside the divider, then the one beside the header, then unfold both
+        expected: the divider folds Ember and Flint under it; the header folds the whole table to one line
+    - D14 A Column At A Glance
+        area: adding up
+        fixture: Ledger below
+        try: hover the region header
+        expected: 6 rows, 5 with a value, 1 blank, 3 different, and North the most common, three times
+    - D15 Tab Indents The Line
+        area: tab
+        fixture: Supplier below
+        try: put the cursor in the middle of Birch and press Tab, then Shift+Tab
+        expected: the whole line moves in a level and back, and Birch is never split
+    - D16 Ctrl A Then Tab Moves A Table
+        area: tab
+        fixture: Message below
+        try: put the cursor in the Message table, press Ctrl+A, then Tab, then Shift+Tab
+        expected: Ctrl+A selects the table; Tab indents all of it a level and keeps it selected; Shift+Tab brings it back
+    - D17 A Colon In A Row's Name
+        area: tables
+        fixture: Message below
+        try: run Format Document
+        expected: both lines starting re are rows of Message and line up under its header; nothing warns
+    - D18 The Divider Draws A Plus
+        area: tables
+        fixture: Old Stock below
+        try: run Format Document
+        expected: the divider of Old Stock is drawn with a plus where its pipe was, and still divides Hinge from Nail
+    - D19 A Tab In A Value
+        area: tabs
+        fixture: Supplier below
+        try: copy two neighbouring cells from a spreadsheet, paste them over net 30 under Alder, then press Ctrl+Z
+        expected: a red squiggle says to replace the tab with a space, and its lightbulb does
+    - D20 The First Subtype Opens
+        area: checks
+        fixture: Supplier below
+        try: on a new line under Birch, at the level of its dash, type Local Supplier, then click outside Supplier
+        expected: a dots line appears after Local Supplier and no lone-subtype warning shows; delete both lines and nothing comes back
+    - D21 A Picked Name Is Not Asked About
+        area: formulas
+        fixture: Outing below
+        try: with formulas on, on a new line under Outing type tip, a colon, an equals sign and an at sign, pick lunch from the list, type a star and 0.1, and press Ctrl+S at once
+        expected: tip calculates CHF 1, and no notice says formulas came from outside this editor
+    - D22 Picking Replaces What You Typed
+        area: formulas
+        fixture: Outing below
+        try: on a new line under Outing type tax, a colon, an equals sign, an at sign and coffee b, then pick coffee break from the list
+        expected: the line reads at coffee break once, with nothing of what you typed left before it
+    - D23 Your Own Units
+        area: units
+        fixture: Unit, Outing and Staffing below
+        try: turn formulas on; look at total and left in Outing and total effort in Staffing; hover CHF in the budget line
+        expected: total is CHF 10.5, left CHF 4.5, and total effort 3 FTE; the hover says Unit, Money, CHF, written in this repository; these units hold for every file of this repository
+    - D24 A File Name With Spaces Links
+        area: links
+        fixture: Earlier Release below
+        try: hover release 1.14.aot in Earlier Release, then Ctrl+click it
+        expected: it is underlined as a link and opens the 1.14 checklist beside this file
+    - D25 Identical Examples
+        area: checks
+        fixture: Transfer in release 1.15 errors.aot
+        try: open that file, hover T1, and choose the lightbulb that marks it
+        expected: T1 and T2 each warn that they carry the same 3 values; the lightbulb writes a dots column with a dots cell for T1, or a dots line under the table, and both warnings go
+    ... 65 more in release 1.12.aot:1, release 1.13.aot:1, release 1.14.aot:1
+
+
+Ledger|region|amount|vat =@amount*0.2
+Agate |North |$1,000|$200
+Basalt|South |$250  |$50
+Cobalt|North |$100  |$20
+Dune  |      |$500  |$100
+------+------+------+----------------
+Ember |North |$40   |$8
+Flint |West  |$75   |$15
+
+
+Supplier
+    terms
+    rating
+    - Alder
+        terms: net 30
+        rating: 4
+    - Birch
+        terms: net 60
+        rating: 5
+
+
+Message|status
+re: invoice 12|sent
+re: invoice 13|draft
+
+
+Old Stock|count
+Hinge    |40
+---------|-----
+Nail     |25
+
+
+Unit
+    Money |factor|format
+    CHF   |1     |CHF #
+    Rappen|0.01  |# Rp
+        measures: worth
+
+    Effort|factor
+    FTE   |1
+    PD    |1/220
+        measures: work
+
+Outing
+    budget (CHF): 15
+    lunch: CHF 10
+    coffee break: 50 Rp
+    total: CHF 10.5 =@lunch+@coffee break
+    left: CHF 4.5 =@budget-@total
+
+Staffing
+    staff: 2 FTE
+    contractors: 220 PD
+    total effort: 3 FTE =@staff+@contractors
+
+
+Earlier Release
+    checklist: release 1.14.aot

@@ -200,7 +200,7 @@ const GRID = aot("Order|price|qty", "A    |10   |1", "B    |20   |2");
   const ruled = aot("Order|price|qty", "-----|-----|---", "A    |10   |1", "B    |20   |2");
   const kept = merge(ruled, ruled.replace("A    |10   |1", "A    |11   |1"), ruled.replace("B    |20   |2", "B    |20   |9"), "Zoo");
   check("merge: a table with a divider merges cell by cell, the divider kept",
-    kept.clean && kept.text === aot("Order|price|qty", "-----|-----|---", "A    |11   |1", "B    |20   |9"));
+    kept.clean && kept.text === aot("Order|price|qty", "-----+-----+---", "A    |11   |1", "B    |20   |9"));
   // a row removed on one side takes the rows naming it as their parent
   const tree = aot("Order|parent (order)|price", "A    |              |10", "A1   |A             |1", "B    |              |20");
   const pruned = merge(tree, tree.replace("B    |              |20", "B    |              |21"),

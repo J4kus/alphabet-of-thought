@@ -11,15 +11,15 @@ const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
 const childProcess = require("child_process");
-const { lint, KIND } = require("./linter");
+const { lint, KIND, INDENT } = require("./linter");
 const {
-  resolve, owningConcept, externalIndex, unlistedValues, unitOf,
+  resolve, owningConcept, externalIndex, unlistedValues, unitOf, unitsFromTree,
   index: crosslinkIndex, conceptType, listedExamples,
 } = require("./crosslinks");
 const table = require("./table");
 const units = require("./units");
 const gates = require("./gates");
-const { suggest } = require("./fca");
+const { audit } = require("./fca");
 const godel = require("./godel");
 const { clashes } = godel;
 const armstrong = require("./armstrong");
@@ -31,14 +31,13 @@ const repo = require("./repo");
 const urls = require("./urls");
 const hold = require("./hold");
 const lineform = require("./lineform");
+const cells = require("./cells");
 const python = require("./python");
 const uvenv = require("./uvenv");
 const csvsync = require("./csvsync");
 const recalc = require("./recalc");
 
 const DEBOUNCE_MS = 300;
-// past this many Examples the lattice is no longer keystroke-cheap
-const MAX_FCA_OBJECTS = 200;
 
 // uri string -> { links, root, nodes } from the last analysis of that document
 const analysisByDoc = new Map();
@@ -206,6 +205,11 @@ function isInside(dir, file) {
 }
 
 const docRootName = (doc) => path.basename(doc.fileName || "").replace(/\.[^.]*$/, "");
+
+// Whether a document's line is a table row, read with the lines above it: an
+// Example's name may hold a colon under its table (table.isRowAt). Only the
+// lines it needs are read, so it is cheap on every cursor move.
+const rowAt = (doc, i) => table.isRowAt((j) => (j >= 0 && j < doc.lineCount ? doc.lineAt(j).text : undefined), i);
 
 // Whether a document is the file itself. The other side of an open diff is a
 // read-only copy of the last commit (a `git:` document) under the same file
@@ -417,7 +421,26 @@ function currentAnalysis(doc) {
   return hit.version === doc.version ? hit : null;
 }
 
+// The units the repository writes itself (units.js), handed to the units
+// module before a file is read: every indexed file's, with this document's own
+// lines as they stand now. Handing over the same units again changes nothing.
+function refreshUnits(doc) {
+  const list = [];
+  const mine = doc && doc.fileName ? fileKey(doc.fileName) : null;
+  for (const [key, entry] of workspaceIndex) {
+    if (key !== mine && entry.nodes) list.push(...unitsFromTree(entry.root, entry.nodes));
+  }
+  if (doc) {
+    try { const { root, nodes } = parsedDoc(doc); list.push(...unitsFromTree(root, nodes)); } catch { /* its own lines say none */ }
+  }
+  const before = units.unitsGeneration();
+  units.defineUnits(list);
+  // a parse read its values and bounds by the units it had: new ones, new parses
+  if (units.unitsGeneration() !== before) parsedByDoc.clear();
+}
+
 function analyse(doc) {
+  refreshUnits(doc);
   const rootName = path.basename(doc.fileName).replace(/\.[^.]*$/, "");
   const accepted = acceptedWords();
   // the repo option is read before the lint so this file's own entry, which
@@ -443,22 +466,24 @@ function analyse(doc) {
   let depWarnings = [];
   const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
   if (!errors.length) {
-    // one long table must not switch the row checks off without a word
-    if (objects > MAX_FCA_OBJECTS) depWarnings.push({ line: 1, message: gates.rowLimitNote(objects) });
-    if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
-      deepErrors = suggest(root, nodes).findings;
-      // inferred functional dependencies (derivable / equivalent attributes).
-      // Correlated attributes are allowed, so these squiggles are opt-in via
-      // aot.dependencyFindings (verify.js --fd always shows the full set).
-      // When on, only confident, witnessed dependencies are flagged: a bare
-      // one-to-one covariation (confidence 0) could be coincidence, and a
-      // finding over an ellipsis-marked (intentionally incomplete) Example
-      // set is provisional — both stay held back, like the same-name clash
-      // split below. An FD other FDs already imply by transitivity (the
-      // minimal cover) is held back too.
-      depWarnings = vscode.workspace.getConfiguration("aot").get("dependencyFindings", false)
-        ? armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied)
-        : [];
+    // the row checks (misfiled rows, sub-Concepts that overlap or leave gaps)
+    // run on a file of any length: their cost grows with the rows (fca.audit)
+    if (objects >= 2) deepErrors = audit(root, nodes).findings;
+    // inferred functional dependencies (derivable / equivalent attributes).
+    // Correlated attributes are allowed, so these squiggles are opt-in via
+    // aot.dependencyFindings (verify.js --fd always shows the full set).
+    // When on, only confident, witnessed dependencies are flagged: a bare
+    // one-to-one covariation (confidence 0) could be coincidence, and a
+    // finding over an ellipsis-marked (intentionally incomplete) Example
+    // set is provisional — both stay held back, like the same-name clash
+    // split below. An FD other FDs already imply by transitivity (the
+    // minimal cover) is held back too. They compare rows pairwise, so past
+    // gates.MAX_FD_OBJECTS rows in a file they stop, and say so.
+    if (vscode.workspace.getConfiguration("aot").get("dependencyFindings", false)) {
+      if (objects > gates.MAX_FD_OBJECTS) depWarnings.push({ line: 1, message: gates.rowLimitNote(objects) });
+      else if (objects >= 2) {
+        depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied);
+      }
     }
     // only the strong, content-identical clashes are flagged in the editor;
     // the weaker same-name clashes are not surfaced
@@ -611,7 +636,7 @@ function shortSpans(doc) {
     }
     // and a parked formula's value is still its number
     for (const s of park.parkedSpans(lines, nodes, rootName, parkedFormulas(doc))) {
-      if (!s.constraint) add(s.line - 1, s.startCol, s.endCol, table.isRowText(lines[s.line - 1] || "") ? s.endCol : undefined);
+      if (!s.constraint) add(s.line - 1, s.startCol, s.endCol, table.isRowAt(lines, s.line - 1) ? s.endCol : undefined);
     }
   } catch { /* an unparseable file shows what it holds */ }
   shortSpansByDoc.set(key, { version: doc.version, spans });
@@ -722,12 +747,46 @@ function lineEditText(doc, e) {
   return doc.eol === vscode.EndOfLine.CRLF ? e.text.replace(/\n/g, "\r\n") : e.text;
 }
 
+// Many rows saying one thing say it once. Twenty findings or more that open
+// with the same fix — three hundred rows breaking one rule, say — are one
+// finding at the first of them, its own message whole (so its lightbulb still
+// offers its fix) and the count after it, with the first few as related
+// locations: one line of the Problems panel, not three hundred. Hints are left
+// on their spans. Nothing counted is rolled up: V, the status bar's problems
+// and check.js count every one.
+const ROLL_UP_AT = 20;
+function rollUp(diags, doc) {
+  const groups = new Map();
+  const keyOf = (d) => `${d.severity}|${d.source || ""}|${String(d.message).split(" — ")[0]}`;
+  for (const d of diags) {
+    if (d.severity === vscode.DiagnosticSeverity.Hint) continue;
+    const k = keyOf(d);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(d);
+  }
+  const out = [];
+  for (const d of diags) {
+    const group = d.severity === vscode.DiagnosticSeverity.Hint ? null : groups.get(keyOf(d));
+    if (!group || group.length < ROLL_UP_AT) { out.push(d); continue; }
+    if (group[0] !== d) continue;
+    const one = new vscode.Diagnostic(d.range, `${d.message} — and ${(group.length - 1).toLocaleString("en-US")} more like it, the first of them under Related`, d.severity);
+    one.source = d.source;
+    if (d.code !== undefined) one.code = d.code;
+    one.relatedInformation = group.slice(1, 11).map((g) => new vscode.DiagnosticRelatedInformation(new vscode.Location(doc.uri, g.range), g.message));
+    out.push(one);
+  }
+  return out;
+}
+
+const analysisCost = new Map(); // uri -> how long the document's last reading took, in ms
 function refresh(diagnostics, decorationTypes, doc) {
   if (doc.languageId !== "aot") return;
   if (doc.fileName) watchAotRoot(aotRoot(doc));
   // the text a first edit will be read against, should it type over a name
   if (!textBefore.has(doc.uri.toString())) textBefore.set(doc.uri.toString(), doc.getText());
+  const began = Date.now();
   const { errors, warnings, hints, root, nodes } = analyse(doc);
+  analysisCost.set(doc.uri.toString(), Date.now() - began);
   const toDiagnostic = (severity) => ({ line, message, startCol, endCol, related }) => {
     // lines are 1-based; a finding that carries columns (a table cell)
     // squiggles just that span, otherwise the whole line's content
@@ -785,7 +844,7 @@ function refresh(diagnostics, decorationTypes, doc) {
       state.family = family;
     }
   }
-  diagnostics.set(doc.uri, publish);
+  diagnostics.set(doc.uri, rollUp(publish, doc));
   verdicts.set(doc.uri.toString(), errors.length);
   updateHoldStatus();
   // the Python findings live apart from the linter's: none of them is a
@@ -893,15 +952,25 @@ const referenceCompletion = {
     const lines = doc.getText().split(/\r?\n/);
     const registry = formulaRegistry(doc);
     const items = [];
+    // A name may hold spaces, and the editor's own word stops at one, so a
+    // pick replaces everything typed since the last '@' — `@list p` picking
+    // 'list price' writes `@list price`, not `@list list price`.
+    const typed = segs[segs.length - 1] || "";
+    const replacing = new vscode.Range(position.line, position.character - typed.length, position.line, position.character);
+    const fit = (it) => {
+      it.range = replacing;
+      it.filterText = typeof it.label === "string" ? it.label : it.label.label;
+      return it;
+    };
     const pushCols = (cols) => cols.forEach((c, i) => {
       const it = new vscode.CompletionItem(c, vscode.CompletionItemKind.Field);
       it.detail = "column"; it.sortText = "0" + String(i).padStart(3, "0");
-      items.push(it);
+      items.push(fit(it));
     });
     const pushRows = (rs) => rs.forEach((r, i) => {
       const it = new vscode.CompletionItem(r, vscode.CompletionItemKind.EnumMember);
       it.detail = "Example"; it.sortText = "1" + String(i).padStart(3, "0");
-      items.push(it);
+      items.push(fit(it));
     });
 
     // a part after a foreign table selector (@Table@…): offer that table's
@@ -941,7 +1010,7 @@ const referenceCompletion = {
         it.detail = "table"; it.sortText = "2" + String(i++).padStart(3, "0");
         it.insertText = name + "@";
         it.command = { command: "editor.action.triggerSuggest", title: "" };
-        items.push(it);
+        items.push(fit(it));
       }
     }
     return items;
@@ -1025,7 +1094,7 @@ const valueCompletion = {
     // fires on every keystroke, and re-linting the document each time to
     // suggest a value would be paying the linter's price for the editor's
     let parsed;
-    if (table.isRowText(line)) {
+    if (rowAt(doc, position.line)) {
       try { parsed = analysisByDoc.get(doc.uri.toString()) || analyse(doc); } catch { return []; }
       return tableCellItems(doc, position, line, parsed);
     }
@@ -1370,6 +1439,20 @@ function unitHover(doc, position) {
 }
 
 const hoverProvider = {
+  // a column's header also shows the column at a glance (columnProfileHover),
+  // after whatever else the header answers with — a crosslink's Concept, say
+  provideHover(doc, position) {
+    const profile = columnProfileHover(doc, position);
+    const other = hoverAt(doc, position);
+    if (!profile) return other;
+    if (!other) return profile;
+    const first = Array.isArray(other.contents) ? other.contents[0] : other.contents;
+    if (!first || typeof first.appendMarkdown !== "function") return other;
+    first.appendMarkdown(`\n\n---\n\n${profile.contents.value}`);
+    return other;
+  },
+};
+const hoverAtProvider = {
   provideHover(doc, position) {
     // a URL or file path answers (metadata / picture) before anything else
     const link = linkHoverAt(doc, position);
@@ -1435,6 +1518,8 @@ const hoverProvider = {
     return new vscode.Hover(md, range);
   },
 };
+// everything a hover answers but the column's profile
+const hoverAt = (doc, position) => hoverAtProvider.provideHover(doc, position);
 
 // Find All References (Shift+F12): the declaration plus every crosslink
 // that resolves to the Concept or Example under the cursor.
@@ -2117,6 +2202,17 @@ const DEAD_DEFAULT = /— '(.+?)' sets '(.+?): (.*?)' but every child overrides 
 const REPO_VALUE_CLASH = /— '(.+?)' sets '(.+?)' to '(.+?)' here but '(.+?)' in /;
 const REPO_GENUS_CLASH = /— '(.+?)' is filed under '.+?' here but '.+?' in /;
 const REPO_STALE_NOTE = /— '.+?' (lists \d+ of its Examples here and the rest live elsewhere|keeps a '\.\.\.' note saying where the rest of its Examples live)/;
+const TAB_FINDING = /^replace the tab with a space — /;
+const IDENTICAL_ROWS = /^give one a value that tells them apart, or add '\.\.\.' to one .* — '(.+?)' and '(.+?)'/;
+// The run of non-blank lines holding a tab around `line`, outside any table:
+// what a spreadsheet's rows look like pasted in. { from, to }, 0-based.
+function tabbedRun(doc, line) {
+  const tabbedAt = (i) => i >= 0 && i < doc.lineCount && /\S\t+\S/.test(doc.lineAt(i).text) && !rowAt(doc, i);
+  let from = line, to = line;
+  while (tabbedAt(from - 1)) from--;
+  while (tabbedAt(to + 1)) to++;
+  return { from, to };
+}
 const codeActionProvider = {
   provideCodeActions(doc, range, context) {
     const actions = [];
@@ -2224,6 +2320,56 @@ const codeActionProvider = {
       };
       actions.push(action);
     }
+    // two rows carrying the same data, meant to: a `...` on this one says it
+    // differs in something the file does not say, and one under its parent
+    // says the same of every row there
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot") continue;
+      const same = IDENTICAL_ROWS.exec(diagnostic.message);
+      if (!same) continue;
+      const line = diagnostic.range.start.line;
+      let parentName = "";
+      try {
+        const { nodes } = parsedDoc(doc);
+        const row = nodes.find((n) => n.line === line + 1 && n.kind === KIND.INDIVIDUAL);
+        parentName = row && row.parent ? row.parent.name : "";
+      } catch { /* the row's parent goes unnamed */ }
+      const own = new vscode.CodeAction(`Add '...' to '${same[1]}' (it differs in something not written here)`, vscode.CodeActionKind.QuickFix);
+      own.diagnostics = [diagnostic];
+      own.command = { command: "aot.markOpen", title: own.title, arguments: [doc.uri.toString(), line, "row"] };
+      actions.push(own);
+      const all = new vscode.CodeAction(`Add '...' under '${parentName || "the table"}' (its rows may repeat)`, vscode.CodeActionKind.QuickFix);
+      all.diagnostics = [diagnostic];
+      all.command = { command: "aot.markOpen", title: all.title, arguments: [doc.uri.toString(), line, "parent"] };
+      actions.push(all);
+    }
+    // a tab in a value or a name: a space in its place — and on lines pasted
+    // from a spreadsheet outside any table, the table those lines are
+    const tabbed = new Set();
+    for (const diagnostic of context.diagnostics || []) {
+      if (diagnostic.source !== "aot" || !TAB_FINDING.test(diagnostic.message)) continue;
+      const line = diagnostic.range.start.line;
+      if (tabbed.has(line) || line >= doc.lineCount) continue;
+      tabbed.add(line);
+      const text = doc.lineAt(line).text;
+      const lead = text.match(/^[ \t]*/)[0].length;
+      const fix = new vscode.CodeAction("Replace the tabs with spaces", vscode.CodeActionKind.QuickFix);
+      fix.diagnostics = [diagnostic];
+      fix.isPreferred = true;
+      fix.edit = new vscode.WorkspaceEdit();
+      fix.edit.replace(doc.uri, new vscode.Range(line, lead, line, text.length), text.slice(lead).replace(/\t+/g, " "));
+      actions.push(fix);
+      if (!rowAt(doc, line)) {
+        const run = tabbedRun(doc, line);
+        if (run.to > run.from) {
+          const title = `Create a table from these ${run.to - run.from + 1} tab-separated lines`;
+          const make = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+          make.diagnostics = [diagnostic];
+          make.command = { command: "aot.table.fromLines", title, arguments: [doc.uri.toString(), run.from, run.to] };
+          actions.push(make);
+        }
+      }
+    }
     for (const diagnostic of context.diagnostics || []) {
       if (diagnostic.source !== "aot") continue;
       const clash = REPO_VALUE_CLASH.exec(diagnostic.message);
@@ -2282,7 +2428,7 @@ const codeActionProvider = {
     // Example (line form)
     const at = range && range.start;
     const lineText = at && at.line < doc.lineCount ? doc.lineAt(at.line).text : "";
-    if (table.isRowText(lineText)) {
+    if (at && at.line < doc.lineCount && rowAt(doc, at.line)) {
       const cs = table.cells(lineText);
       const cell = cs.find((c) => at.character >= c.col && at.character <= c.col + Math.max(c.text.length, 1));
       if (cell && table.splitCell(cell.text).eq !== -1) {
@@ -2333,6 +2479,52 @@ const codeActionProvider = {
     return actions;
   },
 };
+
+// The lightbulb on two rows carrying the same data: a `...` on the row at
+// `line` (0-based) — in a table, its cell in the `...` column, which the table
+// gains if it has none — or, with `scope` "parent", a `...` under the row's
+// parent, the last of the parent's lines.
+async function markOpen(uri, line, scope) {
+  const doc = (vscode.workspace.textDocuments || []).find((d) => d.uri.toString() === uri);
+  if (!doc || line >= doc.lineCount) return false;
+  let nodes;
+  try { ({ nodes } = parsedDoc(doc)); } catch { return false; }
+  const row = nodes.find((n) => n.line === line + 1 && n.kind === KIND.INDIVIDUAL);
+  if (!row) return false;
+  const lines = doc.getText().split(/\r?\n/);
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const indentOf = (l) => (lines[l - 1] || "").match(/^ */)[0];
+  const edit = new vscode.WorkspaceEdit();
+  const edits = [];
+  // a line inserted after the 1-based line `after`
+  const insertAfter = (after, text) => {
+    const at = Math.min(after, lines.length) - 1;
+    const end = (lines[at] || "").length;
+    edits.push(vscode.TextEdit.insert(new vscode.Position(at, end), eol + text));
+  };
+  if (scope === "parent") {
+    const parent = row.parent;
+    if (!parent || !(parent.line >= 1)) insertAfter(lines.length, "...");
+    else insertAfter(derive.lastLineOf(parent), indentOf(parent.line) + " ".repeat(INDENT) + "...");
+  } else if (row.nameCol !== undefined && rowAt(doc, line)) {
+    const block = table.blockAt(lines, line);
+    const head = block ? table.headerIndex(block) : -1;
+    if (head === -1) return false;
+    table.padRows(block);
+    let col = block.rows[head].cells.findIndex((c, k) => k > 0 && String(c).trim() === "...");
+    if (col === -1) {
+      const width = table.widthsOf(block).length;
+      for (const r of block.rows) if (!r.sep) r.cells[width] = r === block.rows[head] ? "..." : "";
+      col = width;
+    }
+    block.rows[line - block.start].cells[col] = "...";
+    edits.push(vscode.TextEdit.replace(new vscode.Range(block.start, 0, block.end, lines[block.end].length), table.render(block).join(eol)));
+  } else {
+    insertAfter(derive.lastLineOf(row), indentOf(row.line) + " ".repeat(INDENT) + "...");
+  }
+  edit.set(doc.uri, edits);
+  return vscode.workspace.applyEdit(edit);
+}
 
 // AOT: Add Example — the lightbulb on an unlisted value. `value` joins the
 // Concept named by `conceptName` as an Example, in whichever form that
@@ -2423,6 +2615,37 @@ function opsToTextEdits(doc, ops) {
     }
   }
   return out;
+}
+
+// The `...` a Concept's first subtype brings with it. A parent with one
+// sub-Concept "simply is" that subtype (the lone-subtype warning), and that is
+// rarely what was meant the moment the first one is typed: the others are still
+// to come. So when a burst of typing ends — the cursor leaves what it was
+// writing in, or the file is saved — a parent whose one subtype was written in
+// that burst, with no `...` of its own and no other file giving it a second
+// one, gets a `...` line after the subtype's lines, saying the division goes
+// on. Typing two or three subtypes before moving on adds nothing. Once per
+// parent a session: a `...` deleted stays deleted, and an undo brings back what
+// it undid.
+const openedParents = new Set(); // `${uri}\0${parent name}`
+function openMarkerOps(doc, edited) {
+  if (!edited || !edited.size || doc.languageId !== "aot") return [];
+  let linted;
+  try { linted = lint(doc.getText(), docRootName(doc), acceptedWords(), repoOptionFor(doc)); } catch { return []; }
+  const lines = doc.getText().split(/\r?\n/);
+  const ops = [];
+  for (const w of linted.warnings) {
+    if (!w.loneSubtype) continue;
+    const parent = linted.nodes.find((n) => n.line === w.line && n.kind === KIND.CONCEPT);
+    const sub = parent && parent.children.find((c) => c.kind === KIND.CONCEPT);
+    if (!sub || !edited.has(sub.line - 1)) continue;
+    const key = `${doc.uri.toString()}\0${parent.name.toLowerCase()}`;
+    if (openedParents.has(key)) continue;
+    openedParents.add(key);
+    const indent = (lines[sub.line - 1] || "").match(/^ */)[0];
+    ops.push({ type: "insert", afterLine: derive.lastLineOf(sub), text: `${indent}...` });
+  }
+  return ops;
 }
 
 // AOT: Set Up Git Merge for .aot Files. git merges an .aot by meaning with
@@ -3149,6 +3372,35 @@ function markBroughtIn(doc, beforeText) {
   externalCode.set(key, set);
 }
 
+// What the editor last knew a .aot's Python on disk to be: fileKey -> Set of
+// code keys. Read when the document opens clean, after each save here, and
+// whenever a change leaves the document clean — a reload of what another tool
+// wrote, which is no writing of this editor's.
+const diskCode = new Map();
+function rememberDiskCode(doc) {
+  if (!doc || !doc.fileName || doc.languageId !== "aot") return;
+  try { diskCode.set(fileKey(doc.fileName), new Set(codeItemsOf(doc.getText(), docRootName(doc), parkedFormulas(doc)).keys())); } catch { /* a file that does not parse holds nothing */ }
+}
+
+// A save the will-save step never saw. VS Code gives every will-save listener
+// a shared time budget and stops calling one that runs over it a few times, for
+// the rest of the session — and then a formula written here and saved before
+// any calculation allowed it would reach the disk unallowed, and be asked
+// about as though it came from outside (picked from the '@' list and saved
+// with the cursor still in its cell, say). So the save itself decides: what is
+// new since the file last stood on disk, and not brought in by the editor from
+// elsewhere, was written here. A file the editor knew nothing of is asked about
+// as ever.
+function approveSavedHere(doc) {
+  const known = diskCode.get(fileKey(doc.fileName || ""));
+  if (!known) return;
+  const brought = externalCode.get(fileKey(doc.fileName)) || new Set();
+  let now;
+  try { now = codeItemsOf(doc.getText(), docRootName(doc), parkedFormulas(doc)); } catch { return; }
+  const own = [...now.keys()].filter((k) => !known.has(k) && !brought.has(k));
+  if (own.length) approveCode(doc.fileName, own);
+}
+
 // A .aot about to be saved here: what the writer wrote since the last save
 // — in the editor, not on disk, not brought in — is theirs. Taken as the save
 // begins, before any edit the save itself makes (a reconcile) is applied.
@@ -3837,7 +4089,7 @@ function outOfDate(h, rec, hash) {
 function cellAtPosition(doc, pos) {
   if (pos.line >= doc.lineCount) return { line: pos.line, cell: -1 };
   const text = doc.lineAt(pos.line).text;
-  return { line: pos.line, cell: table.isRowText(text) ? table.colAt(text, pos.character) : -1 };
+  return { line: pos.line, cell: rowAt(doc, pos.line) ? table.colAt(text, pos.character) : -1 };
 }
 function cursorsOf(editor) {
   const all = editor.selections && editor.selections.length ? editor.selections : editor.selection ? [editor.selection] : [];
@@ -3861,6 +4113,7 @@ async function runPython(target, opts) {
   const doc = target.document || target;
   const editor = target.document ? target : editorOf(doc);
   if (doc.languageId !== "aot" || !doc.fileName || !isRealDoc(doc)) return { ran: 0, failed: 0 };
+  refreshUnits(doc);
   const auto = opts.mode === "auto";
   const quietly = auto || opts.quiet;
   if (!pythonWorkIn(doc)) {
@@ -3977,6 +4230,7 @@ async function runPython(target, opts) {
         op: "open", file: doc.fileName, root: rootName, aotFiles: aotFilesDir(doc),
         sidecar: sideMtime === null ? null : side, sidecarMtime: sideMtime,
         repo: aotRoot(doc), pyFiles: index, approved: approvals(),
+        units: units.definedUnits(),
         install: entry.cmd && entry.cmd.project ? uvenv.installHint(entry.cmd.project, relToRepo(doc, entry.cmd.project)) : null,
       }, tree));
       entry.treeVersion = doc.version;
@@ -4461,7 +4715,7 @@ function aligned(doc, before, lines) {
   const out = lines.slice();
   const seen = new Set();
   for (let i = 0; i < out.length; i++) {
-    if (before[i] === out[i] || seen.has(i) || !table.isRowText(out[i])) continue;
+    if (before[i] === out[i] || seen.has(i) || !table.isRowAt(out, i)) continue;
     const block = table.blockAt(out, i);
     if (!block) continue;
     for (let l = block.start; l <= block.end; l++) seen.add(l);
@@ -4600,7 +4854,7 @@ function pythonFindings(doc) {
       out.push(d);
     }
   }
-  pyDiagnostics.set(doc.uri, out);
+  pyDiagnostics.set(doc.uri, rollUp(out, doc));
   pyDims.set(doc.uri.toString(), dims);
   calcCounts.set(doc.uri.toString(), {
     failed: out.filter((d) => d.severity === vscode.DiagnosticSeverity.Error).length,
@@ -6010,9 +6264,19 @@ async function importAllCsvFolders(opts) {
 const TOKEN_TYPES = ["aotAttribute", "aotExample", "aotValue", "aotPython"];
 const ATTR_TOKEN = 0, EXAMPLE_TOKEN = 1, VALUE_TOKEN = 2, PYTHON_TOKEN = 3;
 const semanticLegend = new vscode.SemanticTokensLegend(TOKEN_TYPES, []);
+// The whole document's colours, or — for the lines a range covers — only
+// theirs: VS Code asks for the lines on screen first in a long file, so a
+// 50,000-row table is coloured where you are looking before the rest is read.
+const semanticRangeProvider = {
+  provideDocumentRangeSemanticTokens(doc, range) {
+    return semanticProvider.provideDocumentSemanticTokens(doc, range);
+  },
+};
 const semanticProvider = {
-  provideDocumentSemanticTokens(doc) {
-    const { root, nodes } = parsedDoc(doc);
+  provideDocumentSemanticTokens(doc, range) {
+    const { root, nodes: all } = parsedDoc(doc);
+    // within a range, only the nodes on its lines (1-based node lines)
+    const nodes = range ? all.filter((n) => n.line - 1 >= range.start.line && n.line - 1 <= range.end.line) : all;
     const builder = new vscode.SemanticTokensBuilder(semanticLegend);
     const docLines = doc.getText().split(/\r?\n/);
     // a value as it stands on its line — escapes and all — which is what the
@@ -6058,7 +6322,8 @@ const semanticProvider = {
     // colour, so code reads apart from the data at a glance. A Concept's own
     // derivation is painted here too: the grammar cannot tell it from the
     // Concept's name.
-    for (const f of codeSpans(docLines, root, nodes, docRootName(doc))) {
+    for (const f of codeSpans(docLines, root, all, docRootName(doc))) {
+      if (range && (f.line - 1 < range.start.line || f.line - 1 > range.end.line)) continue;
       builder.push(f.line - 1, f.startCol, f.endCol - f.startCol, PYTHON_TOKEN);
     }
     return builder.build();
@@ -6078,43 +6343,57 @@ function runTableOp(editor, op) {
   const pos = editor.selection.active;
   const block = table.blockAt(lines, pos.line);
   if (!block) return;
-  // several cursors: Tab, Shift+Tab and Enter move every one of them
-  if (MOVE_OPS.has(op) && editor.selections && editor.selections.length > 1) return runTableMoves(editor, op, lines);
+  // a rectangle of cells (Ctrl+Shift+arrow, Shift+arrow) is one range; Tab,
+  // Shift+Tab and Enter leave it from its active cell, and several separate
+  // cursors move each in its own row
+  const range = rangeOf(editor, lines, block);
+  const fromRange = validRange(editor);
+  if (MOVE_OPS.has(op) && editor.selections && editor.selections.length > 1 && !fromRange) return runTableMoves(editor, op, lines);
   const cursorRow = pos.line - block.start;
   const col = table.colAt(lines[pos.line], pos.character);
   // A selection travels as cells — its two ends' rows (clamped into the
-  // block) and columns — for the operations that act on a range, the fills;
-  // every other operation takes the cursor's cell and ignores it.
+  // block) and columns — for the operations that act on a range: the fills,
+  // and the moves, inserts and deletes of rows and columns. Every other
+  // operation takes the cursor's cell and ignores it.
   const sel = editor.selection;
-  const span = sel.isEmpty ? undefined : {
+  const span = MOVE_OPS.has(op) ? undefined : range || (sel.isEmpty ? undefined : {
     anchor: {
       row: Math.max(0, Math.min(sel.anchor.line - block.start, block.rows.length - 1)),
       col: table.colAt(lines[sel.anchor.line] || "", sel.anchor.character),
     },
     active: { row: cursorRow, col },
-  };
+  });
   const target = op(block, cursorRow, col, span);
-  if (!target) {
+  if (!target || target.refused) {
+    if (target && target.refused) vscode.window.setStatusBarMessage(`AOT: nothing moved — ${target.refused}`, 5000);
     // the column keys leave the first column alone: it names the Concept
     // and its Examples, and is no attribute to move, copy or delete
-    if (col === 0 && [table.deleteColumn, tableOps["aot.table.moveColumnRight"], tableOps["aot.table.copyColumnLeft"],
+    if (col === 0 && [tableOps["aot.table.deleteColumn"], tableOps["aot.table.moveColumnRight"], tableOps["aot.table.copyColumnLeft"],
       tableOps["aot.table.copyColumnRight"]].includes(op)) {
       vscode.window.setStatusBarMessage("AOT: the first column names the Concept and its Examples — it is not an attribute column.", 4000);
     }
     return;
   }
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const range = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
-  editor.edit((b) => b.replace(range, table.render(block).join(eol))).then(() => {
+  const whole = new vscode.Range(block.start, 0, block.end, doc.lineAt(block.end).text.length);
+  const drawnLines = table.render(block);
+  const drawn = { start: block.start, lines: drawnLines, head: table.headerIndex(block) };
+  return editor.edit((b) => b.replace(whole, drawnLines.join(eol))).then(() => {
+    // a rectangle the key acted on stays selected where it now stands
+    if (target.range) return reselectRange(editor, block.start, target.range);
+    if (fromRange && span && target.anchor) return reselectRange(editor, block.start, { anchor: target.anchor, active: { row: target.row, col: target.col } });
     const line = block.start + target.row;
     const character = table.cellStart(block, target.col);
     // an operation that acted on a range hands its anchor back, so the
     // selection it filled stays selected, as a spreadsheet's does
-    const from = target.anchor
-      ? { line: block.start + target.anchor.row, character: table.cellStart(block, target.anchor.col) }
-      : { line, character };
-    editor.selection = new vscode.Selection(from.line, from.character, line, character);
-    editor.revealRange(new vscode.Range(line, character, line, character));
+    if (target.anchor && !(target.anchor.row === target.row && target.anchor.col === target.col)) {
+      const from = { line: block.start + target.anchor.row, character: table.cellStart(block, target.anchor.col) };
+      editor.selection = new vscode.Selection(from.line, from.character, line, character);
+      editor.revealRange(new vscode.Range(line, character, line, character));
+      return;
+    }
+    // the cell it lands in, selected: Ready
+    landCell(editor, line, target.col, drawn);
   });
 }
 
@@ -6171,14 +6450,16 @@ const tableOps = {
   "aot.table.demoteRow": table.demoteRow,
   "aot.table.promoteRow": table.promoteRow,
   "aot.table.nextRow": table.nextRow,
-  "aot.table.moveColumnLeft": (b, r, c) => table.moveColumn(b, r, c, -1),
-  "aot.table.moveColumnRight": (b, r, c) => table.moveColumn(b, r, c, 1),
-  "aot.table.moveRowUp": (b, r, c) => table.moveRow(b, r, c, -1),
-  "aot.table.moveRowDown": (b, r, c) => table.moveRow(b, r, c, 1),
-  "aot.table.insertColumn": table.insertColumn,
-  "aot.table.deleteColumn": table.deleteColumn,
-  "aot.table.insertRow": table.insertRow,
-  "aot.table.deleteRow": table.deleteRow,
+  // over a selection the moves, inserts and deletes take every row or column
+  // it covers, as a spreadsheet's do; over one cell, the cursor's
+  "aot.table.moveColumnLeft": (b, r, c, s) => (s ? table.moveColumns(b, s, -1) : table.moveColumn(b, r, c, -1)),
+  "aot.table.moveColumnRight": (b, r, c, s) => (s ? table.moveColumns(b, s, 1) : table.moveColumn(b, r, c, 1)),
+  "aot.table.moveRowUp": (b, r, c, s) => (s ? table.moveRows(b, s, -1) : table.moveRow(b, r, c, -1)),
+  "aot.table.moveRowDown": (b, r, c, s) => (s ? table.moveRows(b, s, 1) : table.moveRow(b, r, c, 1)),
+  "aot.table.insertColumn": (b, r, c, s) => (s ? table.insertColumns(b, s) : table.insertColumn(b, r, c)),
+  "aot.table.deleteColumn": (b, r, c, s) => (s ? table.deleteColumns(b, s) : table.deleteColumn(b, r, c)),
+  "aot.table.insertRow": (b, r, c, s) => (s ? table.insertRows(b, s) : table.insertRow(b, r, c)),
+  "aot.table.deleteRow": (b, r, c, s) => (s ? table.deleteRows(b, s) : table.deleteRow(b, r, c)),
   "aot.table.sortRows": table.sortRows,
   "aot.table.copyFormulaDown": table.copyFormulaDown,
   "aot.table.copyFormulaAcross": table.copyFormulaAcross,
@@ -6238,7 +6519,626 @@ function placeCursor(editor, at, extend) {
 }
 
 function moveInTable(editor, here, target, extend) {
-  placeCursor(editor, cellPosition(here, target), extend);
+  if (extend) return placeCursor(editor, cellPosition(here, target), true);
+  landCell(editor, here.block.start + target.row, target.col);
+}
+
+// --- Ready and Edit -------------------------------------------------------------
+// A spreadsheet has two states for the cell you are on (src/cells.js): Ready,
+// the cell selected, so what is typed replaces it and Ctrl+arrow travels the
+// cells; Edit, a caret in the cell's text, where Ctrl+arrow steps a word. They
+// are read off the selection alone: the whole of a value or a name selected —
+// the formula alone, when the cell carries one — or the caret in a cell that
+// holds nothing, is Ready. A click on a value or an Example's name selects it,
+// and a second click in the same cell leaves a caret where it lands; every
+// table key lands on its cell selected. The header's cells name the Concept and
+// its columns, and stay a plain caret: a name is typed over, never replaced
+// whole by a stray key.
+
+// Whether a table row is its table's header: the first row, over any `...`
+// lines above it. A divider is a row, never a header.
+function isHeaderRow(doc, line) {
+  if (line < 0 || line >= doc.lineCount || table.isSeparator(doc.lineAt(line).text.trim())) return false;
+  let j = line - 1;
+  while (j >= 0 && /^ *\.\.\./.test(doc.lineAt(j).text)) j--;
+  return !(j >= 0 && rowAt(doc, j));
+}
+
+// The cell a position stands in, as a span on its line — { start, end, kind }
+// — when a click or a key may select it: a data row's cell (never the header's,
+// never a divider), or a free-text Example's name or value. null elsewhere.
+function selectableCell(doc, line, character) {
+  if (line < 0 || line >= doc.lineCount) return null;
+  const text = doc.lineAt(line).text;
+  if (rowAt(doc, line)) {
+    if (table.isSeparator(text.trim()) || isHeaderRow(doc, line)) return null;
+    return cells.rowCellSpan(text, table.colAt(text, character));
+  }
+  if (!lineform.looksLikeCell((i) => (i >= 0 && i < doc.lineCount ? doc.lineAt(i).text : undefined), line)) return null;
+  const span = cells.lineCellSpan(text);
+  return span && character >= span.from ? span : null;
+}
+
+// Land on a table cell after a key, Ready: the cell selected with the caret at
+// its start (typing replaces it), or on a header or an empty cell the caret at
+// its start.
+// `drawn`, when given, is the block as it was just drawn ({ start, lines }), so
+// the cell is read from what the key wrote whatever the document says yet.
+function landCell(editor, line, col, drawn) {
+  const doc = editor.document;
+  const fromDrawn = drawn && line >= drawn.start && line < drawn.start + drawn.lines.length;
+  if (!fromDrawn && (line < 0 || line >= doc.lineCount)) return;
+  const text = fromDrawn ? drawn.lines[line - drawn.start] : doc.lineAt(line).text;
+  const span = cells.rowCellSpan(text, col);
+  const start = span ? span.start : text.length;
+  const header = fromDrawn ? line === drawn.start + drawn.head : isHeaderRow(doc, line);
+  const whole = span && span.end > span.start && !header && !table.isSeparator(text.trim());
+  editor.selection = whole ? new vscode.Selection(line, span.end, line, span.start) : new vscode.Selection(line, start, line, start);
+  editor.revealRange(new vscode.Range(line, start, line, start));
+}
+
+// The same on a free-text line: its name or value selected when the line is a
+// cell, else the caret where lineform put it.
+function landLine(editor, line, ch) {
+  const doc = editor.document;
+  const span = selectableCell(doc, line, Number.MAX_SAFE_INTEGER);
+  if (span && span.end > span.start) editor.selection = new vscode.Selection(line, span.end, line, span.start);
+  else editor.selection = new vscode.Selection(line, ch, line, ch);
+  editor.revealRange(new vscode.Range(line, ch, line, ch));
+}
+
+// The cell a mouse click lands in is selected whole — Ready — and a second
+// click in the cell it selected leaves the caret where it falls: Edit, as a
+// spreadsheet's double click is. A drag, a double click (a word) and a click
+// with Shift or Alt keep VS Code's own reading.
+const lastClick = new WeakMap(); // editor -> { uri, line, start, end }: the cell a click selected
+function clickSelects(editor, selections) {
+  const doc = editor.document;
+  if (doc.languageId !== "aot" || selections.length !== 1 || !selections[0].isEmpty) { lastClick.delete(editor); return; }
+  const at = selections[0].active;
+  const span = selectableCell(doc, at.line, at.character);
+  if (!span) { lastClick.delete(editor); return; }
+  const was = lastClick.get(editor);
+  if (was && was.uri === doc.uri.toString() && was.line === at.line && was.start === span.start) return; // the second click
+  lastClick.set(editor, { uri: doc.uri.toString(), line: at.line, start: span.start, end: span.end });
+  editor.selection = span.end > span.start
+    ? new vscode.Selection(at.line, span.end, at.line, span.start)
+    : new vscode.Selection(at.line, span.start, at.line, span.start);
+}
+// A selection that left the cell a click selected forgets it, so coming back
+// selects it again.
+function forgetClick(editor) {
+  const was = lastClick.get(editor);
+  if (!was) return;
+  const s = editor.selection;
+  if (s.active.line !== was.line || s.active.character < was.start || s.active.character > Math.max(was.end, was.start)) lastClick.delete(editor);
+}
+
+// --- a rectangle of cells ---------------------------------------------------------
+// Ctrl+Shift+arrow selects to the edge of the data and Shift+arrow a cell
+// further, as a spreadsheet's do, and the rectangle is held as one selection
+// per cell (cells.rectSelections). What it is a rectangle of — its anchor and
+// active cell — is kept per editor, and trusted only while the editor still
+// shows exactly those selections: typing into them, or a click, ends it.
+const rangeState = new WeakMap(); // editor -> { uri, kind, at, state: { anchor, active }, sels }
+const selKey = (s) => `${s.line}:${Math.min(s.start, s.end)}:${Math.max(s.start, s.end)}`;
+function validRange(editor) {
+  const st = rangeState.get(editor);
+  if (!st || !editor.document || st.uri !== editor.document.uri.toString()) return null;
+  const sels = editor.selections || [];
+  if (sels.length !== st.sels.length) return null;
+  const now = sels.map((s) => (s.start.line === s.end.line ? selKey({ line: s.start.line, start: s.start.character, end: s.end.character }) : "x")).sort();
+  const want = st.sels.map(selKey).sort();
+  return now.every((k, i) => k === want[i]) ? st : null;
+}
+
+// The grid the cursor stands in — a table's or a Concept's written as lines —
+// with what names it ({ kind, at }: the table's first line, or the Concept's).
+function gridAtCursor(editor, lines) {
+  const doc = editor.document;
+  lines = lines || doc.getText().split(/\r?\n/);
+  const line = editor.selection.active.line;
+  if (rowAt(doc, line)) {
+    const block = table.blockAt(lines, line);
+    if (!block || table.headerIndex(block) === -1) return null;
+    return { lines, block, grid: cells.tableGrid(lines, block, hiddenLines(doc, lines, block)), kind: "table", at: block.start };
+  }
+  const here = lineGridAt(editor);
+  if (!here) return null;
+  return { lines: here.lines, grid: cells.lineGrid(here.grid), kind: "lines", at: here.grid.concept.line };
+}
+
+// Select a rectangle as its cells, the active one first.
+function applyRange(editor, grid, state, kind, at) {
+  const sels = cells.rectSelections(grid, state);
+  if (!sels.length) return false;
+  const limit = Number(vscode.workspace.getConfiguration("editor").get("multiCursorLimit", 10000)) || 10000;
+  const held = sels.slice(0, limit);
+  editor.selections = held.map((s) => new vscode.Selection(s.line, s.end, s.line, s.start));
+  rangeState.set(editor, { uri: editor.document.uri.toString(), kind, at, state, sels: held.map(({ line, start, end }) => ({ line, start, end })) });
+  if (held.length < sels.length) {
+    vscode.window.setStatusBarMessage(`AOT: ${sels.length.toLocaleString("en-US")} cells, and the editor holds ${limit.toLocaleString("en-US")} selections at most (editor.multiCursorLimit), so the rest are left out`, 6000);
+  }
+  editor.revealRange(new vscode.Range(held[0].line, held[0].start, held[0].line, held[0].start));
+  updateTableContext();
+  updateRangeStatus();
+  return true;
+}
+
+// Shift+arrow (a cell further) and Ctrl+Shift+arrow (to the edge of the data),
+// in a table or in free text. A table drawn out of line is drawn again first,
+// so every cell has a place to stand. false when the cursor is in no grid.
+async function selectRange(editor, dr, dc, toEdge) {
+  const doc = editor.document;
+  let here = gridAtCursor(editor);
+  if (!here) return false;
+  const st = validRange(editor);
+  let state = st && st.kind === here.kind && st.at === here.at ? st.state : null;
+  if (!state) {
+    const pos = editor.selection.active;
+    const cell = here.grid.at(pos.line, pos.character);
+    if (!cell) return false;
+    state = { anchor: cell, active: cell };
+  }
+  if (here.kind === "table") {
+    const { block, lines } = here;
+    const drawn = table.render(block);
+    if (drawn.some((t, k) => t !== lines[block.start + k])) {
+      const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+      await editor.edit((b) => b.replace(new vscode.Range(block.start, 0, block.end, lines[block.end].length), drawn.join(eol)));
+      const now = doc.getText().split(/\r?\n/);
+      const again = table.blockAt(now, block.start);
+      if (!again) return true;
+      here = { ...here, lines: now, block: again, grid: cells.tableGrid(now, again, hiddenLines(doc, now, again)) };
+    }
+  }
+  applyRange(editor, here.grid, cells.extend(here.grid, state, dr, dc, toEdge), here.kind, here.at);
+  return true;
+}
+
+// The rectangle the selections cover in a table block, in block rows, for the
+// keys that act on a range — { anchor, active } — or undefined when it is one
+// caret, or not all of it stands in the table.
+function rangeOf(editor, lines, block) {
+  const grid = cells.tableGrid(lines, block, hiddenLines(editor.document, lines, block));
+  const toBlock = (p) => ({ row: grid.lineOf(p.r) - block.start, col: p.c });
+  const st = validRange(editor);
+  if (st && st.kind === "table" && st.at === block.start) {
+    const rect = cells.rectOf(st.state.anchor, st.state.active);
+    return { anchor: toBlock({ r: rect.top, c: rect.left }), active: toBlock({ r: rect.bottom, c: rect.right }) };
+  }
+  const sels = editor.selections && editor.selections.length ? editor.selections : [editor.selection];
+  if (sels.length < 2) return undefined;
+  const ends = [];
+  for (const s of sels) {
+    for (const p of [s.anchor, s.active]) {
+      const at = grid.at(p.line, p.character);
+      if (!at) return undefined;
+      ends.push(at);
+    }
+  }
+  const rect = ends.reduce((a, p) => ({ top: Math.min(a.top, p.r), bottom: Math.max(a.bottom, p.r), left: Math.min(a.left, p.c), right: Math.max(a.right, p.c) }),
+    { top: Infinity, bottom: -1, left: Infinity, right: -1 });
+  return { anchor: toBlock({ r: rect.top, c: rect.left }), active: toBlock({ r: rect.bottom, c: rect.right }) };
+}
+
+// After a key that acted on a range: the same rectangle selected where it now
+// stands. `range` is in block rows.
+function reselectRange(editor, blockStart, range) {
+  const now = editor.document.getText().split(/\r?\n/);
+  const block = table.blockAt(now, blockStart);
+  if (!block) return;
+  const grid = cells.tableGrid(now, block, hiddenLines(editor.document, now, block));
+  const rowOf = (row) => grid.at(block.start + row, 0);
+  const a = rowOf(range.anchor.row), b = rowOf(range.active.row);
+  if (!a || !b) return landCell(editor, block.start + range.active.row, range.active.col);
+  applyRange(editor, grid, { anchor: { r: a.r, c: range.anchor.col }, active: { r: b.r, c: range.active.col } }, "table", block.start);
+}
+
+// --- folding, and the filter --------------------------------------------------------
+// A long table folds to its header, and a divider's group of rows to its
+// divider, as any Concept folds to its line. Folding is also how a table is
+// filtered, as a spreadsheet filters a column: Ctrl+Shift+L on a cell shows
+// only the rows holding that value in that column — on a second column, those
+// holding both — and pressed on a filtered cell, or on the header, shows them
+// all again. Nothing is written: the rows the filter hides are folded away,
+// each run under the row above it, and the status bar says how many show.
+// The keys that select and add up cells step over the rows it hides.
+//
+// The provider below answers every fold of the file, since a language's own
+// folding replaces VS Code's folding by indent: the tree's (a node with lines
+// under it), each divider's group, and the filter's.
+const filters = new Map(); // uri -> { name (the table's Concept), conds: [{ col, label, value }], starts: [lines folded] }
+const foldingChanged = new vscode.EventEmitter();
+let filterStatus = null;
+
+// The rows a filter hides in its table, now: { block, headerLine, hidden: Set
+// of 0-based lines, shown, total } — or null when the table is gone.
+function filteredTable(lines, filter) {
+  for (let i = 0; i < lines.length; i++) {
+    const block = table.blockAt(lines, i);
+    if (!block) continue;
+    i = block.end;
+    const head = table.headerIndex(block);
+    if (head === -1) continue;
+    const header = block.rows[head].cells;
+    if (table.cleanName(header[0] || "").toLowerCase() !== filter.name.toLowerCase()) continue;
+    const colOf = (key) => (key === "" ? 0 : header.findIndex((h, k) => k > 0 && table.columnTerm(h || "").toLowerCase() === key));
+    const conds = filter.conds.map((c) => ({ k: colOf(c.col), value: c.value.toLowerCase() }));
+    const hidden = new Set();
+    let total = 0;
+    block.rows.forEach((r, j) => {
+      if (j <= head || r.sep) return;
+      total++;
+      const keep = conds.every((c) => c.k !== -1 && cells.valueOf(r.cells[c.k] || "").toLowerCase() === c.value);
+      if (!keep) hidden.add(block.start + j);
+    });
+    return { block, headerLine: block.start + head, hidden, shown: total - hidden.size, total };
+  }
+  return null;
+}
+
+// The 0-based lines a filter hides in this block, or null.
+function hiddenLines(doc, lines, block) {
+  const filter = filters.get(doc.uri.toString());
+  if (!filter) return null;
+  const f = filteredTable(lines, filter);
+  return f && f.block.start === block.start ? f.hidden : null;
+}
+
+// Every fold of the file: [startLine, endLine] pairs, 0-based.
+function foldingRanges(doc) {
+  const out = [];
+  let parsed;
+  try { parsed = parsedDoc(doc); } catch { return out; }
+  const lines = doc.getText().split(/\r?\n/);
+  const filter = filters.get(doc.uri.toString());
+  const filtered = filter ? filteredTable(lines, filter) : null;
+  const inFiltered = (line) => filtered && line >= filtered.block.start && line <= filtered.block.end;
+  // the tree: a node with lines of its own under it folds to its line; a
+  // table's rows never nest by place, and a cell shares its row's line
+  for (const n of parsed.nodes) {
+    if (n.kind === KIND.MAP || !(n.line >= 1)) continue;
+    if (n.kind === KIND.INDIVIDUAL && n.nameCol !== undefined) continue;
+    if (n.parent && n.parent.line === n.line) continue;
+    if (filtered && n.line - 1 === filtered.headerLine) continue; // the filter's folds are this table's
+    const last = derive.lastLineOf(n);
+    if (last > n.line) out.push([n.line - 1, last - 1]);
+  }
+  // each divider's group of rows, to the next divider or the table's end
+  for (let i = 0; i < lines.length; i++) {
+    const block = table.blockAt(lines, i);
+    if (!block) continue;
+    i = block.end;
+    if (inFiltered(block.start)) continue;
+    const seps = [];
+    block.rows.forEach((r, j) => { if (r.sep && r.note === undefined) seps.push(block.start + j); });
+    seps.forEach((s, k) => {
+      const end = k + 1 < seps.length ? seps[k + 1] - 1 : block.end;
+      if (end > s) out.push([s, end]);
+    });
+  }
+  // the filter: each run of hidden rows folds under the line above it
+  if (filtered) {
+    let runStart = -1;
+    for (let l = filtered.headerLine + 1; l <= filtered.block.end + 1; l++) {
+      if (l <= filtered.block.end && filtered.hidden.has(l)) {
+        if (runStart === -1) runStart = l;
+      } else if (runStart !== -1) {
+        out.push([runStart - 1, l - 1]);
+        runStart = -1;
+      }
+    }
+  }
+  // one fold a start line: the first stands
+  out.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  return out.filter((r, k) => k === 0 || r[0] !== out[k - 1][0]);
+}
+
+const foldingProvider = {
+  onDidChangeFoldingRanges: foldingChanged.event,
+  provideFoldingRanges(doc) {
+    return foldingRanges(doc).map(([s, e]) => new vscode.FoldingRange(s, e));
+  },
+};
+
+// The lines a filter's folds start on: the line above each run it hides.
+function filterStarts(doc) {
+  const filter = filters.get(doc.uri.toString());
+  if (!filter) return [];
+  const f = filteredTable(doc.getText().split(/\r?\n/), filter);
+  if (!f) return [];
+  const starts = [];
+  for (const l of [...f.hidden].sort((a, b) => a - b)) if (!f.hidden.has(l - 1)) starts.push(l - 1);
+  return starts;
+}
+
+function updateFilterStatus() {
+  if (!filterStatus) return;
+  const editor = vscode.window.activeTextEditor;
+  const filter = editor && filters.get(editor.document.uri.toString());
+  const f = filter && filteredTable(editor.document.getText().split(/\r?\n/), filter);
+  if (!f) return filterStatus.hide();
+  const said = filter.conds.map((c) => `${c.label} = ${c.value || "(blank)"}`).join(", ");
+  filterStatus.text = `$(filter) ${f.shown.toLocaleString("en-US")} of ${f.total.toLocaleString("en-US")} rows`;
+  filterStatus.tooltip = `${filter.name} filtered to ${said}. Click, or Ctrl+Shift+L on the header, to show every row again.`;
+  filterStatus.command = "aot.table.clearFilter";
+  filterStatus.show();
+}
+
+async function refold(editor, unfoldFirst) {
+  foldingChanged.fire();
+  // the editor asks for the folds again; they are folded once it has them
+  await new Promise((r) => setTimeout(r, 120));
+  if (unfoldFirst && unfoldFirst.length) await vscode.commands.executeCommand("editor.unfold", { levels: 1, selectionLines: unfoldFirst });
+  const filter = filters.get(editor.document.uri.toString());
+  if (filter) {
+    filter.starts = filterStarts(editor.document);
+    if (filter.starts.length) await vscode.commands.executeCommand("editor.fold", { levels: 1, selectionLines: filter.starts });
+  }
+  updateFilterStatus();
+}
+
+// Ctrl+Shift+L on a table cell: show only the rows holding its value.
+async function filterTable(editor) {
+  const doc = editor.document;
+  const lines = doc.getText().split(/\r?\n/);
+  const pos = editor.selection.active;
+  const block = table.blockAt(lines, pos.line);
+  if (!block) return;
+  const head = table.headerIndex(block);
+  if (head === -1) return;
+  const key = doc.uri.toString();
+  const was = filters.get(key);
+  const row = block.rows[pos.line - block.start];
+  const header = block.rows[head].cells;
+  const name = table.cleanName(header[0] || "");
+  // on the header (or a divider): every row again
+  if (pos.line - block.start === head || !row || row.sep) return clearFilter(editor);
+  const col = table.colAt(lines[pos.line], pos.character);
+  const colKey = col === 0 ? "" : table.columnTerm(header[col] || "").toLowerCase();
+  const label = col === 0 ? name : table.columnTerm(header[col] || "");
+  const value = cells.valueOf(row.cells[col] || "");
+  let filter = was && was.name.toLowerCase() === name.toLowerCase() ? was : null;
+  // pressed on a cell the filter already holds to: every row again
+  if (filter && filter.conds.some((c) => c.col === colKey && c.value.toLowerCase() === value.toLowerCase())) return clearFilter(editor);
+  const before = was ? was.starts || [] : [];
+  filter = { name, conds: [...(filter ? filter.conds.filter((c) => c.col !== colKey) : []), { col: colKey, label, value }], starts: [] };
+  filters.set(key, filter);
+  await refold(editor, before);
+}
+
+async function clearFilter(editor) {
+  editor = editor || vscode.window.activeTextEditor;
+  if (!editor) return;
+  const filter = filters.get(editor.document.uri.toString());
+  if (!filter) return updateFilterStatus();
+  filters.delete(editor.document.uri.toString());
+  await refold(editor, filter.starts || []);
+}
+
+// --- a column at a glance ----------------------------------------------------------
+// Hovering a column's header — a table's header cell, or an attribute's own
+// line over Examples written as lines — shows the column's profile: how many
+// cells, how many blank, how many different values and the commonest, and its
+// numbers added up. Read from the text on hover, nothing kept, nothing run.
+function columnProfileHover(doc, position) {
+  const lines = doc.getText().split(/\r?\n/);
+  let name = null, texts = null;
+  if (rowAt(doc, position.line)) {
+    if (!isHeaderRow(doc, position.line)) return null;
+    const block = table.blockAt(lines, position.line);
+    if (!block) return null;
+    const header = block.rows[table.headerIndex(block)].cells;
+    const col = table.colAt(lines[position.line], position.character);
+    if (col < 1 || col === table.parentColumnOf(header)) return null;
+    name = table.columnTerm(header[col] || "");
+    if (!name || name === "...") return null;
+    const grid = cells.tableGrid(lines, block, hiddenLines(doc, lines, block));
+    texts = [];
+    for (let r = 1; r < grid.rows; r++) texts.push(grid.text(r, col));
+  } else {
+    let nodes;
+    try { ({ nodes } = parsedDoc(doc)); } catch { return null; }
+    const g = lineform.gridAt(lines, nodes, position.line, { header: true });
+    if (!g || !g.header || !g.col) return null;
+    name = g.columns[g.col - 1].label;
+    texts = g.rows.map((r) => lineform.cellText(g, r, g.col));
+  }
+  if (!texts.length) return null;
+  const p = cells.profile(texts);
+  const n = (x) => Number(x).toLocaleString("en-US");
+  const md = new vscode.MarkdownString();
+  md.appendMarkdown(`**${mdText(name)}** · ${n(p.cells)} row${p.cells === 1 ? "" : "s"}: ${n(p.cells - p.blanks)} with a value, ${n(p.blanks)} blank, ${n(p.distinct)} different\n\n`);
+  if (p.mixed) md.appendMarkdown("Numbers in more than one unit: counted, not added up\n\n");
+  else if (p.numbers) md.appendMarkdown(`Sum ${mdText(p.shown.sum)} · Average ${mdText(p.shown.average)} · Min ${mdText(p.shown.min)} · Max ${mdText(p.shown.max)}\n\n`);
+  if (p.top.length) md.appendMarkdown(`Most common: ${p.top.map(([v, k]) => `${mdText(v)} ×${n(k)}`).join(", ")}\n`);
+  return new vscode.Hover(md);
+}
+
+// --- copy, cut and paste over cells ------------------------------------------------
+// A rectangle copied is its values as tab-separated rows, a spreadsheet's own
+// shape, so it pastes into Excel cell for cell; the formulas stay behind, as a
+// value is what a spreadsheet would read in their place. A paste of rows or of
+// tab-separated cells into a table fills its cells from the cursor's, growing
+// rows but never columns (a column needs a name): what arrives is data, so a
+// leading '=' is written as data and a pipe bends to '¦', as from a CSV.
+async function copyRange(editor, cut) {
+  const st = validRange(editor);
+  if (!st) return vscode.commands.executeCommand(cut ? "editor.action.clipboardCutAction" : "editor.action.clipboardCopyAction");
+  const doc = editor.document;
+  const lines = doc.getText().split(/\r?\n/);
+  let grid, block = null;
+  if (st.kind === "table") {
+    block = table.blockAt(lines, st.at);
+    if (!block) return;
+    grid = cells.tableGrid(lines, block, hiddenLines(doc, lines, block));
+  } else {
+    const here = gridAtCursor(editor, lines);
+    if (!here) return;
+    grid = here.grid;
+  }
+  const rect = cells.rectOf(st.state.anchor, st.state.active);
+  const text = cells.rectTexts(grid, rect)
+    .map((row) => row.map((t) => cells.valueOf(t).replace(/¦/g, "|").replace(new RegExp(table.LINE_BREAK, "g"), " ")).join("\t"))
+    .join(os.EOL);
+  if (vscode.env && vscode.env.clipboard) await vscode.env.clipboard.writeText(text);
+  if (!cut) return;
+  if (block) {
+    table.padRows(block);
+    for (let r = rect.top; r <= rect.bottom; r++) {
+      const row = block.rows[grid.lineOf(r) - block.start];
+      for (let c = Math.max(1, rect.left); c <= rect.right; c++) row.cells[c] = "";
+    }
+    const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+    await editor.edit((b) => b.replace(new vscode.Range(block.start, 0, block.end, lines[block.end].length), table.render(block).join(eol)));
+    landCell(editor, grid.lineOf(rect.top), Math.max(1, rect.left));
+  } else {
+    await editor.edit((b) => { for (const s of editor.selections) b.replace(s, ""); });
+  }
+}
+
+async function pasteCells(editor) {
+  const clip = vscode.env && vscode.env.clipboard ? await vscode.env.clipboard.readText() : "";
+  const text = String(clip || "").replace(/(\r?\n)+$/, "");
+  if (!/[\t\r\n]/.test(text)) return vscode.commands.executeCommand("editor.action.clipboardPasteAction");
+  const rows = text.split(/\r?\n/).map((l) => l.split("\t"));
+  // one line for each of several cursors is VS Code's own spread
+  if (editor.selections.length > 1 && rows.length === editor.selections.length && rows.every((r) => r.length === 1)) {
+    return vscode.commands.executeCommand("editor.action.clipboardPasteAction");
+  }
+  const doc = editor.document;
+  const lines = doc.getText().split(/\r?\n/);
+  const block = table.blockAt(lines, editor.selection.active.line);
+  if (!block || table.headerIndex(block) === -1) return vscode.commands.executeCommand("editor.action.clipboardPasteAction");
+  const grid = cells.tableGrid(lines, block);
+  const st = validRange(editor);
+  const pos = editor.selection.active;
+  const start = st && st.kind === "table" && st.at === block.start
+    ? { r: cells.rectOf(st.state.anchor, st.state.active).top, c: cells.rectOf(st.state.anchor, st.state.active).left }
+    : grid.at(pos.line, pos.character);
+  if (!start) return;
+  const width = Math.max(...rows.map((r) => r.length));
+  if (start.c + width > grid.cols) {
+    vscode.window.setStatusBarMessage(`AOT: the paste is ${width} cells wide, and from here the table has room for ${grid.cols - start.c} — add columns for the rest first`, 6000);
+    return;
+  }
+  table.padRows(block);
+  for (let k = 0; k < rows.length; k++) {
+    const r = start.r + k;
+    let row;
+    if (r < grid.rows) row = block.rows[grid.lineOf(r) - block.start];
+    else { row = { sep: false, cells: Array.from({ length: grid.cols }, () => "") }; block.rows.push(row); }
+    rows[k].forEach((t, j) => {
+      const c = start.c + j;
+      const v = String(t).trim().replace(/\|/g, "¦");
+      row.cells[c] = c === 0 ? table.rowName(v) : table.writtenValue(v);
+    });
+  }
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  await editor.edit((b) => b.replace(new vscode.Range(block.start, 0, block.end, lines[block.end].length), table.render(block).join(eol)));
+  const now = doc.getText().split(/\r?\n/);
+  const again = table.blockAt(now, block.start);
+  if (again) {
+    const g = cells.tableGrid(now, again);
+    applyRange(editor, g, { anchor: start, active: { r: start.r + rows.length - 1, c: start.c + width - 1 } }, "table", again.start);
+  }
+}
+
+// --- Ctrl+Plus and Ctrl+Minus: insert and delete, as a spreadsheet does --------
+// Whole rows selected: as many rows, above them. Whole columns: as many columns,
+// to their left. Anything else asks, as Excel's own dialog does: shift the cells
+// down or right (on delete, up or left), or the entire rows or columns. In free
+// text a cell is a line, so there is nothing to shift: a row is an Example and
+// a column an attribute.
+async function insertOrDeleteCells(editor, del) {
+  const doc = editor.document;
+  const lines = doc.getText().split(/\r?\n/);
+  const line = editor.selection.active.line;
+  const pick = async (items) => {
+    if (!vscode.window.showQuickPick) return items[0];
+    return vscode.window.showQuickPick(items, { placeHolder: del ? "Delete" : "Insert" });
+  };
+  if (!rowAt(doc, line)) {
+    const choice = await pick(["Entire row", "Entire column"]);
+    if (!choice) return;
+    const id = choice === "Entire row" ? (del ? "aot.table.deleteRow" : "aot.table.insertRow") : (del ? "aot.table.deleteColumn" : "aot.table.insertColumn");
+    return runLineOp(editor, id);
+  }
+  const block = table.blockAt(lines, line);
+  if (!block || table.headerIndex(block) === -1) return;
+  const grid = cells.tableGrid(lines, block);
+  const pos = editor.selection.active;
+  const span = rangeOf(editor, lines, block)
+    || { anchor: { row: pos.line - block.start, col: table.colAt(lines[pos.line], pos.character) }, active: { row: pos.line - block.start, col: table.colAt(lines[pos.line], pos.character) } };
+  const toGrid = (p) => grid.at(block.start + p.row, 0);
+  const a = toGrid(span.anchor), b = toGrid(span.active);
+  if (!a || !b) return;
+  const rect = { top: Math.min(a.r, b.r), bottom: Math.max(a.r, b.r), left: Math.min(span.anchor.col, span.active.col), right: Math.max(span.anchor.col, span.active.col) };
+  const wholeRows = rect.top >= 1 && rect.left <= 1 && rect.right >= grid.cols - 1;
+  const wholeCols = rect.left >= 1 && rect.top <= 1 && rect.bottom >= grid.rows - 1;
+  let how;
+  if (wholeRows && !wholeCols) how = "rows";
+  else if (wholeCols && !wholeRows) how = "columns";
+  else {
+    const shiftA = del ? "Shift cells up" : "Shift cells down";
+    const shiftB = del ? "Shift cells left" : "Shift cells right";
+    const choice = await pick([shiftA, shiftB, "Entire row", "Entire column"]);
+    if (!choice) return;
+    how = choice === "Entire row" ? "rows" : choice === "Entire column" ? "columns"
+      : choice === shiftA ? (del ? "up" : "down") : (del ? "left" : "right");
+  }
+  const target = how === "rows" ? (del ? table.deleteRows(block, span) : table.insertRows(block, span))
+    : how === "columns" ? (del ? table.deleteColumns(block, span) : table.insertColumns(block, span))
+    : table.shiftCells(block, span, how);
+  if (!target) return;
+  if (target.refused) {
+    vscode.window.setStatusBarMessage(`AOT: nothing moved — ${target.refused}`, 5000);
+    return;
+  }
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  await editor.edit((e) => e.replace(new vscode.Range(block.start, 0, block.end, lines[block.end].length), table.render(block).join(eol)));
+  landCell(editor, block.start + target.row, target.col);
+}
+
+// --- Tab on a whole table -------------------------------------------------------
+// Ctrl+A selects the table, and Tab then indents it a level — Shift+Tab takes
+// one off — and keeps it selected for the next press. A table that names its
+// Concept takes the lines under it along, since what no row says stands one
+// level under the table and is the Concept's: left behind, it would not be.
+function wholeTableSelected(editor) {
+  const sels = editor.selections || [editor.selection];
+  if (sels.length !== 1) return null;
+  const s = sels[0];
+  const lines = editor.document.getText().split(/\r?\n/);
+  const block = table.blockAt(lines, s.start.line);
+  if (!block || s.start.line !== block.start || s.end.line !== block.end) return null;
+  const lead = (lines[block.start].match(/^ */)[0] || "").length;
+  return s.start.character <= lead && s.end.character === lines[block.end].length ? { lines, block } : null;
+}
+
+async function indentTable(editor, dir) {
+  const whole = wholeTableSelected(editor);
+  if (!whole) return;
+  const { lines, block } = whole;
+  const doc = editor.document;
+  if (dir < 0 && block.indent.length < INDENT) return;
+  let last = block.end;
+  try {
+    const { nodes } = parsedDoc(doc);
+    const headerLine = block.start + table.headerIndex(block) + 1;
+    const owner = nodes.find((n) => n.kind === KIND.CONCEPT && n.cell && n.line === headerLine);
+    if (owner) last = Math.max(last, derive.lastLineOf(owner) - 1);
+  } catch { /* the table alone */ }
+  const out = [];
+  for (let i = block.start; i <= last; i++) {
+    const t = lines[i];
+    if (!t.trim()) out.push(t);
+    else out.push(dir > 0 ? " ".repeat(INDENT) + t : t.slice(Math.min(INDENT, t.match(/^ */)[0].length)));
+  }
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  await editor.edit((b) => b.replace(new vscode.Range(block.start, 0, last, lines[last].length), out.join(eol)));
+  editor.selection = new vscode.Selection(block.start, 0, block.end, doc.lineAt(block.end).text.length);
 }
 
 // --- the table keys in free text --------------------------------------------
@@ -6266,8 +7166,14 @@ function lineGridAt(editor, header) {
 
 // VS Code's own command for each key the table editor takes.
 const OWN_KEY = {
-  "aot.table.nextCell": "tab",
-  "aot.table.prevCell": "outdent",
+  // off a table Tab indents the line and Shift+Tab outdents it, whatever the
+  // cursor stands on: in free text the indent is the nesting
+  "aot.table.nextCell": "editor.action.indentLines",
+  "aot.table.prevCell": "editor.action.outdentLines",
+  "aot.table.extendUp": "cursorUpSelect",
+  "aot.table.extendDown": "cursorDownSelect",
+  "aot.table.extendLeft": "cursorLeftSelect",
+  "aot.table.extendRight": "cursorRightSelect",
   "aot.table.moveRowUp": "editor.action.moveLinesUpAction",
   "aot.table.moveRowDown": "editor.action.moveLinesDownAction",
   "aot.table.copyRowUp": "editor.action.insertCursorAbove",
@@ -6333,23 +7239,35 @@ async function runLineOp(editor, id) {
     await editor.edit((b) => b.replace(range, text));
   }
   if (!done.cursor) return;
-  const from = done.anchor || done.cursor;
-  editor.selection = new vscode.Selection(from.line, from.ch, done.cursor.line, done.cursor.ch);
-  editor.revealRange(new vscode.Range(done.cursor.line, done.cursor.ch, done.cursor.line, done.cursor.ch));
+  // a range filled stays selected; a key that lands on a cell selects it
+  if (done.anchor) {
+    editor.selection = new vscode.Selection(done.anchor.line, done.anchor.ch, done.cursor.line, done.cursor.ch);
+    editor.revealRange(new vscode.Range(done.cursor.line, done.cursor.ch, done.cursor.line, done.cursor.ch));
+    return;
+  }
+  landLine(editor, done.cursor.line, done.cursor.ch);
 }
 
-// A line-form move: the cursor to where lineform's answer puts it.
+// A line-form move: the cursor to where lineform's answer puts it, the cell
+// it lands on selected.
 function moveInLines(editor, here, answer, extend) {
   const at = answer && lineform.resolve(here.lines, answer).cursor;
-  if (at) placeCursor(editor, { line: at.line, character: at.ch }, extend);
+  if (!at) return;
+  if (extend) placeCursor(editor, { line: at.line, character: at.ch }, true);
+  else landLine(editor, at.line, at.ch);
 }
 
 // Each movement key answers false when the cursor is in no grid at all, and
 // the key then does what VS Code does with it.
 
 // Ctrl+arrow (Shift: select): to the edge of the data, table.jumpCell — or,
-// in free text, lineform.jump.
+// in free text, lineform.jump. With Shift it selects the cells on the way, a
+// rectangle of them (selectRange).
 function jumpInTable(editor, dRow, dCol, extend) {
+  if (extend) {
+    if (!rowAt(editor.document, editor.selection.active.line) && !lineGridAt(editor)) return false;
+    return selectRange(editor, dRow, dCol, true);
+  }
   const here = tableAtCursor(editor);
   if (here) {
     const target = table.jumpCell(here.block, here.row, here.col, dRow, dCol);
@@ -6375,6 +7293,14 @@ function cornerOfTable(editor, which, extend) {
   if (here) {
     const target = table.cornerCell(here.block, which);
     if (!target || (here.row === target.row && here.col === target.col)) return leave();
+    if (extend) {
+      // a rectangle from the cell the selection started in to the corner
+      const grid = cells.tableGrid(here.lines, here.block, hiddenLines(editor.document, here.lines, here.block));
+      const st = validRange(editor);
+      const from = st && st.kind === "table" && st.at === here.block.start ? st.state.anchor : grid.at(editor.selection.active.line, editor.selection.active.character);
+      const to = grid.at(here.block.start + target.row, 0);
+      if (from && to) return applyRange(editor, grid, { anchor: from, active: { r: to.r, c: target.col } }, "table", here.block.start);
+    }
     moveInTable(editor, here, target, extend);
     return true;
   }
@@ -6428,6 +7354,11 @@ const tableMoves = {
   "aot.table.selectToFirstCell": (e) => cornerOfTable(e, "home", true),
   "aot.table.selectToLastCell": (e) => cornerOfTable(e, "end", true),
   "aot.table.selectTable": selectTable,
+  // Shift+arrow over cells: a cell further, the rectangle growing
+  "aot.table.extendUp": (e) => selectRange(e, -1, 0, false),
+  "aot.table.extendDown": (e) => selectRange(e, 1, 0, false),
+  "aot.table.extendLeft": (e) => selectRange(e, 0, -1, false),
+  "aot.table.extendRight": (e) => selectRange(e, 0, 1, false),
 };
 
 // Ctrl+; / Ctrl+Shift+;: today's date, or the time now, at every cursor.
@@ -6445,17 +7376,30 @@ function insertNow(editor, what) {
 // Turn the selected delimited lines (CSV, TSV, or multi-space columns) into
 // an aligned table, org's C-c |: the first line is the header.
 function fromSelection(editor) {
-  const doc = editor.document;
   const sel = editor.selection;
   if (sel.isEmpty) return;
   const endLine = sel.end.character === 0 && sel.end.line > sel.start.line ? sel.end.line - 1 : sel.end.line;
+  return tableFromLines(editor, sel.start.line, endLine);
+}
+
+// The same for lines named by number (0-based, inclusive): the Quick Fix on
+// tab-separated lines pasted from a spreadsheet.
+async function tableFromLinesCommand(uri, from, to) {
+  const editor = (vscode.window.visibleTextEditors || []).find((e) => e.document.uri.toString() === uri)
+    || vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.toString() !== uri) return;
+  return tableFromLines(editor, from, to);
+}
+
+function tableFromLines(editor, startLine, endLine) {
+  const doc = editor.document;
   const lines = [];
-  for (let i = sel.start.line; i <= endLine; i++) lines.push(doc.lineAt(i).text);
+  for (let i = startLine; i <= endLine; i++) lines.push(doc.lineAt(i).text);
   const rendered = table.fromRegion(lines);
   if (!rendered) return;
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const range = new vscode.Range(sel.start.line, 0, endLine, doc.lineAt(endLine).text.length);
-  editor.edit((b) => b.replace(range, rendered.join(eol)));
+  const range = new vscode.Range(startLine, 0, endLine, doc.lineAt(endLine).text.length);
+  return editor.edit((b) => b.replace(range, rendered.join(eol)));
 }
 
 // The cursor sits in a table when its line is a row: one divider is all a
@@ -6477,12 +7421,162 @@ function updateTableContext() {
   const line = editor ? editor.selection.active.line : -1;
   const ok = !!(doc && doc.languageId === "aot" && line >= 0 && line < doc.lineCount);
   const textOf = (i) => (i >= 0 && i < doc.lineCount ? doc.lineAt(i).text : undefined);
-  const inTable = ok && table.isRowText(doc.lineAt(line).text);
+  const inTable = ok && rowAt(doc, line);
   const inGrid = inTable || (ok && lineform.looksLikeCell(textOf, line));
   const inColumn = inGrid || (ok && lineform.looksLikeDeclaration(textOf, line));
+  // aot.cellRange: a rectangle of cells the selection keys made, still held.
+  // aot.cellSelected: a cell is Ready — the whole of it selected, or the caret
+  // in one with nothing in it — or a rectangle is. Ctrl+←/→ travel the cells
+  // only then, and step a word while a caret edits the text; Shift+arrow grows
+  // a rectangle then, in a table, and selects text otherwise.
+  const cellRange = ok && !!validRange(editor) && editor.selections.length > 1;
+  let cellSelected = cellRange;
+  if (!cellSelected && inGrid && (editor.selections || [editor.selection]).length === 1) {
+    const sel = editor.selection;
+    if (sel.start.line === sel.end.line) {
+      const span = selectableCell(doc, line, sel.active.character);
+      cellSelected = !!span && cells.isWhole(span, sel.anchor.character, sel.active.character);
+    }
+  }
   vscode.commands.executeCommand("setContext", "aot.inTable", inTable);
   vscode.commands.executeCommand("setContext", "aot.inGrid", inGrid);
   vscode.commands.executeCommand("setContext", "aot.inColumn", inColumn);
+  vscode.commands.executeCommand("setContext", "aot.cellSelected", cellSelected);
+  vscode.commands.executeCommand("setContext", "aot.cellRange", cellRange);
+}
+
+// --- the status bar's numbers ---------------------------------------------------
+// Two cells or more selected, the status bar adds them up as a spreadsheet's
+// does — `Sum · Average · Count` — from what the cells say, with nothing run
+// and nothing written. A click writes the sum into the file as a formula under
+// the table (AOT Table: Summarise Column), where it is checked and calculated
+// like any other.
+let rangeStatus = null;
+function selectedTexts(editor) {
+  const doc = editor.document;
+  if (!doc || doc.languageId !== "aot") return null;
+  const st = validRange(editor);
+  // the cheap answers first: this runs on every cursor move
+  if (!st) {
+    const sel = editor.selection;
+    if (sel.isEmpty) return null;
+    if (sel.anchor.line === sel.active.line) {
+      const t = doc.lineAt(sel.active.line).text;
+      if (table.colAt(t, sel.anchor.character) === table.colAt(t, sel.active.character)) return null;
+    }
+  }
+  const lines = doc.getText().split(/\r?\n/);
+  if (st) {
+    let grid = null;
+    if (st.kind === "table") {
+      const block = table.blockAt(lines, st.at);
+      if (block) grid = cells.tableGrid(lines, block, hiddenLines(doc, lines, block));
+    } else {
+      const here = gridAtCursor(editor, lines);
+      grid = here && here.grid;
+    }
+    if (!grid) return null;
+    return cells.rectTexts(grid, cells.rectOf(st.state.anchor, st.state.active)).flat();
+  }
+  // a drag down a table, or across a row: the cells between its two ends
+  const sel = editor.selection;
+  if (sel.isEmpty || !rowAt(doc, sel.anchor.line) || !rowAt(doc, sel.active.line)) return null;
+  const block = table.blockAt(lines, sel.active.line);
+  if (!block || sel.anchor.line < block.start || sel.anchor.line > block.end) return null;
+  const grid = cells.tableGrid(lines, block, hiddenLines(doc, lines, block));
+  const a = grid.at(sel.anchor.line, sel.anchor.character), b = grid.at(sel.active.line, sel.active.character);
+  if (!a || !b || cells.sameCell(a, b)) return null;
+  const rect = cells.rectOf(a, b);
+  if (rect.top === 0) rect.top = 1; // the header names the columns: no value to add
+  return rect.top > rect.bottom ? null : cells.rectTexts(grid, rect).flat();
+}
+// AutoSum (Alt+=) and AOT Table: Summarise Column: a statistic of each
+// selected column — or of the cursor's — written as a value under the
+// Concept, `total price: =@Order@price.sum()`, which the file then calculates
+// like any formula. A line already saying so is gone to, not written twice.
+const STATS = [
+  { label: "Sum", word: "total", fn: "sum" },
+  { label: "Average", word: "average", fn: "mean" },
+  { label: "Count", word: "count", fn: "count" },
+  { label: "Min", word: "min", fn: "min" },
+  { label: "Max", word: "max", fn: "max" },
+  { label: "Median", word: "median", fn: "median" },
+];
+async function summarise(editor, statLabel) {
+  const doc = editor.document;
+  if (!doc || doc.languageId !== "aot") return;
+  let stat = STATS.find((s) => s.label === statLabel);
+  if (!stat) {
+    const picked = vscode.window.showQuickPick
+      ? await vscode.window.showQuickPick(STATS.map((s) => s.label), { placeHolder: "Summarise the column with" })
+      : "Sum";
+    stat = STATS.find((s) => s.label === picked);
+    if (!stat) return;
+  }
+  const lines = doc.getText().split(/\r?\n/);
+  let nodes;
+  try { ({ nodes } = parsedDoc(doc)); } catch { return; }
+  const pos = editor.selection.active;
+  // the Concept and the columns: a table's own, or a Concept's written as lines
+  let concept = null, names = [];
+  const st = validRange(editor);
+  if (rowAt(doc, pos.line)) {
+    const block = table.blockAt(lines, pos.line);
+    const head = block ? table.headerIndex(block) : -1;
+    if (head === -1) return;
+    const header = block.rows[head].cells;
+    const headerLine = block.start + head + 1;
+    concept = nodes.find((n) => n.kind === KIND.CONCEPT && n.cell && n.line === headerLine)
+      || nodes.find((n) => n.kind === KIND.CONCEPT && n.name && table.cleanName(header[0] || "").toLowerCase() === n.name.toLowerCase());
+    const grid = cells.tableGrid(lines, block);
+    const at = grid.at(pos.line, pos.character);
+    const cols = st && st.kind === "table" ? cells.rectOf(st.state.anchor, st.state.active) : { left: at ? at.c : 0, right: at ? at.c : 0 };
+    for (let c = Math.max(1, cols.left); c <= cols.right; c++) {
+      const name = table.columnTerm(header[c] || "");
+      if (name && name !== "..." && c !== table.parentColumnOf(header)) names.push(name);
+    }
+  } else {
+    const here = lineGridAt(editor);
+    if (!here) return;
+    concept = here.grid.concept;
+    const grid = cells.lineGrid(here.grid);
+    const at = grid.at(pos.line, pos.character);
+    const cols = st && st.kind === "lines" ? cells.rectOf(st.state.anchor, st.state.active) : { left: at ? at.c : 0, right: at ? at.c : 0 };
+    for (let c = Math.max(1, cols.left); c <= cols.right; c++) names.push(here.grid.columns[c - 1].label);
+  }
+  if (!concept || !(concept.line >= 1) || !names.length) {
+    vscode.window.setStatusBarMessage("AOT: put the cursor in a column of values to summarise it.", 4000);
+    return;
+  }
+  const indent = (lines[concept.line - 1].match(/^ */)[0] || "") + " ".repeat(INDENT);
+  const wanted = names.map((n) => ({ key: `${stat.word} ${n}`, text: `${indent}${stat.word} ${n}: =@${concept.name}@${n}.${stat.fn}()` }));
+  const have = (key) => concept.children.find((c) => (c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE) && c.name.toLowerCase() === key.toLowerCase());
+  const fresh = wanted.filter((w) => !have(w.key));
+  const lastLine = derive.lastLineOf(concept); // 1-based
+  if (fresh.length) {
+    const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+    const at = Math.min(lastLine, lines.length) - 1;
+    const end = new vscode.Range(at, lines[at].length, at, lines[at].length);
+    await editor.edit((b) => b.replace(end, eol + fresh.map((w) => w.text).join(eol)));
+    editor.selection = new vscode.Selection(at + 1, indent.length, at + 1, indent.length);
+  } else {
+    const line = have(wanted[0].key).line - 1;
+    editor.selection = new vscode.Selection(line, indent.length, line, indent.length);
+  }
+  editor.revealRange(editor.selection);
+}
+
+function updateRangeStatus() {
+  if (!rangeStatus) return;
+  const editor = vscode.window.activeTextEditor;
+  let texts = null;
+  try { texts = editor ? selectedTexts(editor) : null; } catch { texts = null; }
+  const said = texts && texts.length > 1 ? cells.statsText(cells.stats(texts)) : "";
+  if (!said) return rangeStatus.hide();
+  rangeStatus.text = said;
+  rangeStatus.tooltip = "The cells selected, added up from what they say. Click to write it under the table as a formula.";
+  rangeStatus.command = "aot.table.summarise";
+  rangeStatus.show();
 }
 
 // --- keeping your place in a wide or long table -----------------------------
@@ -6506,6 +7600,13 @@ let cellStatus = null;
 // The cell address at the cursor, or null when the cursor is not in a table
 // with a readable header.
 function cellAddress(editor) {
+  const found = cellAtCursor(editor);
+  return found ? found.address : null;
+}
+
+// The cell at the cursor: { address, header, row, col, headerLine } — the
+// header's and the row's cells, the column, and the header's line — or null.
+function cellAtCursor(editor) {
   const doc = editor.document;
   if (!doc || doc.languageId !== "aot") return null;
   const at = editor.selection.active;
@@ -6515,10 +7616,10 @@ function cellAddress(editor) {
   // including every left/right arrow, so it must not cost the file's length —
   // and a block is bounded by what is not a row (table.blockAt), so the run
   // around the cursor is all there is to read.
-  if (!table.isRowText(doc.lineAt(at.line).text)) return null;
+  if (!rowAt(doc, at.line)) return null;
   let first = at.line, last = at.line;
-  while (first > 0 && table.isRowText(doc.lineAt(first - 1).text)) first--;
-  while (last + 1 < doc.lineCount && table.isRowText(doc.lineAt(last + 1).text)) last++;
+  while (first > 0 && rowAt(doc, first - 1)) first--;
+  while (last + 1 < doc.lineCount && rowAt(doc, last + 1)) last++;
   // one line of margin on each side where the document has one, so the block
   // meets its own edges exactly as it would inside the whole file
   const from = Math.max(0, first - 1);
@@ -6537,17 +7638,70 @@ function cellAddress(editor) {
   const example = row === header ? null : (row.cells[0] || "").trim();
   const attribute = col > 0 ? table.cleanName(header.cells[col] || "") : null;
   const parts = [concept, example, col === 0 ? null : attribute].filter(Boolean);
-  return parts.length ? parts.join(" ▸ ") : null;
+  if (!parts.length) return null;
+  const headerLine = from + block.start + block.rows.indexOf(header);
+  return { address: parts.join(" ▸ "), header: header.cells, row: row.cells, col, isHeader: row === header, headerLine };
+}
+
+// The formula behind a cell that shows only its value: its column's
+// definition on the header (`net =@price*@qty`), or its own, parked in
+// aot.files. The status bar shows it as a spreadsheet's formula bar would, so
+// a value that is calculated is never taken for one typed by hand.
+const parkedSpansByDoc = new Map(); // uri -> { version, spans }
+function parkedSpansOf(doc) {
+  const key = doc.uri.toString();
+  const hit = parkedSpansByDoc.get(key);
+  if (hit && typeof doc.version === "number" && hit.version === doc.version) return hit.spans;
+  let spans = [];
+  try {
+    const store = parkedFormulas(doc);
+    if (store && store.length) {
+      const { nodes } = parsedDoc(doc);
+      spans = park.parkedSpans(doc.getText().split(/\r?\n/), nodes, docRootName(doc), store);
+    }
+  } catch { spans = []; }
+  parkedSpansByDoc.set(key, { version: doc.version, spans });
+  return spans;
+}
+function hiddenFormula(editor, found) {
+  if (!found || found.isHeader || found.col < 1) return null;
+  const own = table.splitCell(String(found.row[found.col] || "").trim());
+  if (own.eq !== -1) return null; // the formula is there to read
+  const at = editor.selection.active;
+  const parked = parkedSpansOf(editor.document).find((s) => !s.constraint && s.line === at.line + 1
+    && at.character >= s.startCol && at.character <= s.endCol);
+  if (parked) return { formula: String(parked.formula).trim(), parked: true };
+  const definition = table.splitConstraint(String(found.header[found.col] || "")).constraints.find((c) => c.op === "==");
+  if (definition) return { formula: `=${definition.formula}`, parked: false, line: found.headerLine };
+  return null;
 }
 
 function updateCellStatus() {
   if (!cellStatus) return;
   const editor = vscode.window.activeTextEditor;
-  const address = editor ? cellAddress(editor) : null;
-  if (!address) return cellStatus.hide();
-  cellStatus.text = `$(table) ${address}`;
-  cellStatus.tooltip = "The cell at the cursor: Concept ▸ Example ▸ attribute";
+  const found = editor ? cellAtCursor(editor) : null;
+  if (!found) return cellStatus.hide();
+  const hidden = hiddenFormula(editor, found);
+  const shownFormula = hidden && (hidden.formula.length > 60 ? hidden.formula.slice(0, 57) + "…" : hidden.formula);
+  cellStatus.text = `$(table) ${found.address}${hidden ? `  $(symbol-function) ${shownFormula}` : ""}`;
+  cellStatus.tooltip = !hidden ? "The cell at the cursor: Concept ▸ Example ▸ attribute"
+    : hidden.parked ? `The cell is calculated by ${hidden.formula}, parked in aot.files (Ctrl+Shift+\` brings it back). A value typed over it stays until the formula comes home.`
+      : `The cell is calculated by its column's formula, ${hidden.formula}, on the header. Click to go to it.`;
+  cellStatus.command = hidden && !hidden.parked
+    ? { command: "aot.table.goToLine", title: "Go to the column's formula", arguments: [editor.document.uri.toString(), hidden.line] }
+    : undefined;
   cellStatus.show();
+}
+
+// The status bar's formula: to the header line a column's formula stands on.
+function goToLine(uri, line) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.toString() !== uri || line >= editor.document.lineCount) return;
+  const text = editor.document.lineAt(line).text;
+  const eq = text.search(/\s=(?!=)/);
+  const ch = eq === -1 ? 0 : eq + 1;
+  editor.selection = new vscode.Selection(line, ch, line, ch);
+  editor.revealRange(new vscode.Range(line, ch, line, ch));
 }
 
 // The document's outline: the parsed tree as symbols, so breadcrumbs, the
@@ -6749,7 +7903,7 @@ async function maybeScaffold(event) {
   if (at >= doc.lineCount) return;
   const text = doc.lineAt(at).text;
   if (text.trim() !== "|") return;
-  const near = (i) => i >= 0 && i < doc.lineCount && table.isRowText(doc.lineAt(i).text);
+  const near = (i) => i >= 0 && i < doc.lineCount && rowAt(doc, i);
   if (near(at - 1) || near(at + 1)) return;
   const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
   if (!editor) return;
@@ -6850,10 +8004,14 @@ function activate(context) {
     decorationTypes.parked, decorationTypes.shortNumber, decorationTypes.stale, decorationTypes.pyLink, renameHintType, pyDiagnostics, flipDiagnostics);
 
   const timers = new Map();
+  // a file that takes long to read waits longer for the typing to pause — twice
+  // what its last reading took, from DEBOUNCE_MS to two seconds — so a long
+  // table never queues one reading behind another while you type
   const refreshSoon = (doc) => {
-    clearTimeout(timers.get(doc.uri.toString()));
-    timers.set(doc.uri.toString(),
-      setTimeout(() => refresh(diagnostics, decorationTypes, doc), DEBOUNCE_MS));
+    const key = doc.uri.toString();
+    clearTimeout(timers.get(key));
+    const wait = Math.min(2000, Math.max(DEBOUNCE_MS, 2 * (analysisCost.get(key) || 0)));
+    timers.set(key, setTimeout(() => refresh(diagnostics, decorationTypes, doc), wait));
   };
   // Cross-file findings (duplicate Concepts, crosslinks) are computed from
   // the workspace index at each document's own analyse — so when one file's
@@ -6874,12 +8032,26 @@ function activate(context) {
     const state = holdState.get(doc.uri.toString());
     if (!state) return;
     holdState.delete(doc.uri.toString());
+    // a first subtype written in the burst brings its `...` before what waited
+    // shows, so the lone-subtype warning never flashes up (openMarkerOps)
+    const marks = savingDocs.has(doc.uri.toString()) ? [] : openMarkerOps(doc, state.edited);
+    if (marks.length) {
+      const edit = new vscode.WorkspaceEdit();
+      edit.set(doc.uri, opsToTextEdits(doc, marks));
+      ownEdits++;
+      Promise.resolve(vscode.workspace.applyEdit(edit)).finally(() => {
+        ownEdits--;
+        refresh(diagnostics, decorationTypes, doc);
+        updateHoldStatus();
+      });
+      return;
+    }
     refresh(diagnostics, decorationTypes, doc);
     updateHoldStatus();
   };
   const trackEdits = (event) => {
     const doc = event.document;
-    if (doc.languageId !== "aot" || !event.contentChanges.length) return;
+    if (doc.languageId !== "aot" || !event.contentChanges.length || ownEdits > 0) return;
     // a burst is the writer's, in the editor being written in: an edit made
     // to a document no one is typing in (a CSV folded in, a peer reconciled)
     // has no cursor to leave its family, and holds nothing
@@ -6922,9 +8094,17 @@ function activate(context) {
   relintAll = () => vscode.workspace.textDocuments.forEach((doc) => refresh(diagnostics, decorationTypes, doc));
   relintAll();
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument((doc) => refresh(diagnostics, decorationTypes, doc)),
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      // what is on disk as the file opens: the Python a later save adds to it
+      // is the writer's (approveSavedHere)
+      if (doc.languageId === "aot" && !doc.isDirty) rememberDiskCode(doc);
+      refresh(diagnostics, decorationTypes, doc);
+    }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document.languageId === "aot") flipDiagnostics.delete(event.document.uri);
+      // a change leaving the document clean is the file as it stands on disk:
+      // a reload of what another tool wrote, or an undo back to the save
+      if (event.document.languageId === "aot" && event.document.isDirty === false && event.contentChanges.length) rememberDiskCode(event.document);
       trackCalc(event); // typing waits for its cell to be left; anything else calculates
       trackTypedRename(event); // a declared name typed over is a rename in progress
       maybeScaffold(event); // a first '|' on an empty line grows a skeleton
@@ -6941,6 +8121,11 @@ function activate(context) {
       diagnostics.delete(doc.uri);
       flipDiagnostics.delete(doc.uri);
       analysisByDoc.delete(doc.uri.toString());
+      analysisCost.delete(doc.uri.toString());
+      parkedSpansByDoc.delete(doc.uri.toString());
+      // a filter is the open file's view of it, and closes with it
+      filters.delete(doc.uri.toString());
+      diskCode.delete(fileKey(doc.fileName || ""));
       parsedByDoc.delete(doc.uri.toString());
       registryByDoc.delete(doc.uri.toString());
       // its Python session goes with it, and its place in the calculation
@@ -7038,6 +8223,8 @@ function activate(context) {
     vscode.commands.registerCommand("aot.setUpGitMerge", setUpGitMerge),
     // the Quick Fix that lists an unlisted value as an Example of its Concept
     vscode.commands.registerCommand("aot.addExample", addExample),
+    // the Quick Fix on two rows carrying the same data: a `...` on one, or under them
+    vscode.commands.registerCommand("aot.markOpen", markOpen),
     // the repo-wide sweep, and the lightbulb that settles a value two files
     // disagree about (src/repo.js)
     vscode.commands.registerCommand("aot.reconcileAcrossFiles", reconcileAcrossFiles),
@@ -7080,8 +8267,11 @@ function activate(context) {
         ].map((e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e)));
       },
     }),
-    // table cells coloured by their parsed kind, as their line forms are
+    // table cells coloured by their parsed kind, as their line forms are —
+    // and in a long file, the lines on screen first
     vscode.languages.registerDocumentSemanticTokensProvider({ language: "aot" }, semanticProvider, semanticLegend),
+    ...(vscode.languages.registerDocumentRangeSemanticTokensProvider
+      ? [vscode.languages.registerDocumentRangeSemanticTokensProvider({ language: "aot" }, semanticRangeProvider, semanticLegend)] : []),
     // the tree as symbols: breadcrumbs, the Outline view, and sticky scroll —
     // which is what pins a table's header line while you scroll its rows
     vscode.languages.registerDocumentSymbolProvider({ language: "aot" }, symbolProvider),
@@ -7099,8 +8289,12 @@ function activate(context) {
         // file: the keybindings are gated on aot.inTable, and a call from
         // anywhere else (the Command Palette) answers the same way.
         const line = editor.selection.active.line;
-        const onRow = line < editor.document.lineCount && table.isRowText(editor.document.lineAt(line).text);
-        if (!onRow && (id === "aot.table.nextCell" || id === "aot.table.prevCell")) return ownKey(id);
+        const onRow = line < editor.document.lineCount && rowAt(editor.document, line);
+        const tabKey = id === "aot.table.nextCell" || id === "aot.table.prevCell";
+        if (!onRow && tabKey) return ownKey(id);
+        // the whole table selected (Ctrl+A): Tab indents it a level, and
+        // Shift+Tab takes one off
+        if (onRow && tabKey && wholeTableSelected(editor)) return indentTable(editor, id === "aot.table.nextCell" ? 1 : -1);
         // a table row takes the table's operation; anywhere else the same key
         // works on the Concept's Examples written as lines
         if (onRow) return runTableOp(editor, op);
@@ -7109,11 +8303,37 @@ function activate(context) {
     // the spreadsheet's movement keys, which move the cursor and edit nothing;
     // in no grid at all, a key does what VS Code does with it
     ...Object.entries(tableMoves).map(([id, move]) => vscode.commands.registerTextEditorCommand(id, (editor) => {
-      if (move(editor) === false) return ownKey(id);
+      const done = move(editor);
+      if (done === false) return ownKey(id);
+      if (done && typeof done.then === "function") return done.then((v) => (v === false ? ownKey(id) : v));
+      return done;
     })),
+    // a range of cells copied, cut and pasted as a spreadsheet's are
+    vscode.commands.registerTextEditorCommand("aot.table.copyRange", (editor) => copyRange(editor, false)),
+    vscode.commands.registerTextEditorCommand("aot.table.cutRange", (editor) => copyRange(editor, true)),
+    vscode.commands.registerTextEditorCommand("aot.table.paste", pasteCells),
+    // Ctrl+Plus and Ctrl+Minus: insert and delete cells, rows and columns
+    vscode.commands.registerTextEditorCommand("aot.table.insertCells", (editor) => insertOrDeleteCells(editor, false)),
+    vscode.commands.registerTextEditorCommand("aot.table.deleteCells", (editor) => insertOrDeleteCells(editor, true)),
+    // AutoSum (Alt+=), and the other statistics from the Command Palette and
+    // the status bar's numbers
+    vscode.commands.registerTextEditorCommand("aot.table.autoSum", (editor) => summarise(editor, "Sum")),
+    vscode.commands.registerCommand("aot.table.goToLine", goToLine),
+    // a long table folds to its header, a divider's group to its divider —
+    // and a filter is folds: Ctrl+Shift+L shows the rows holding a cell's value
+    ...(vscode.languages.registerFoldingRangeProvider
+      ? [vscode.languages.registerFoldingRangeProvider({ language: "aot" }, foldingProvider)] : []),
+    vscode.commands.registerTextEditorCommand("aot.table.filter", filterTable),
+    vscode.commands.registerCommand("aot.table.clearFilter", () => clearFilter()),
+    vscode.commands.registerCommand("aot.table.summarise", (statLabel) => {
+      const editor = vscode.window.activeTextEditor;
+      return editor ? summarise(editor, typeof statLabel === "string" ? statLabel : undefined) : undefined;
+    }),
     vscode.commands.registerTextEditorCommand("aot.insertDate", (editor) => insertNow(editor, "date")),
     vscode.commands.registerTextEditorCommand("aot.insertTime", (editor) => insertNow(editor, "time")),
     vscode.commands.registerTextEditorCommand("aot.table.fromSelection", fromSelection),
+    // the Quick Fix on tab-separated lines pasted from a spreadsheet
+    vscode.commands.registerCommand("aot.table.fromLines", tableFromLinesCommand),
     // the formula commands: whole-document recompute, and the copy-downs
     vscode.commands.registerTextEditorCommand("aot.recomputeFormulas", recomputeFormulas),
     vscode.commands.registerTextEditorCommand("aot.copyFormulaToSiblings", copyFormulaToSiblings),
@@ -7130,8 +8350,16 @@ function activate(context) {
     // Ctrl+Alt+T: the Concept at the cursor as a table, and back as lines
     vscode.commands.registerTextEditorCommand("aot.toggleTableForm", toggleTableForm),
     vscode.window.onDidChangeTextEditorSelection((event) => {
+      // a click on a value or a name selects the cell (Ready); a second click
+      // in it leaves the caret (Edit)
+      const kinds = vscode.TextEditorSelectionChangeKind;
+      if (event && event.textEditor) {
+        if (kinds && event.kind === kinds.Mouse) clickSelects(event.textEditor, event.selections || [event.textEditor.selection]);
+        else forgetClick(event.textEditor);
+      }
       updateTableContext();
       updateCellStatus();
+      updateRangeStatus();
       const doc = event && event.textEditor && event.textEditor.document;
       if (!doc || doc.languageId !== "aot") return;
       // leaving what is being edited ends the burst: what waited shows
@@ -7156,6 +8384,7 @@ function activate(context) {
     }),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       updateTableContext();
+      updateFilterStatus();
       // another editor taking over ends every other document's burst, and
       // any name being typed over there
       for (const d of vscode.workspace.textDocuments || []) {
@@ -7191,6 +8420,9 @@ function activate(context) {
       // the Python written here since the last save is the writer's own —
       // taken now, before this save's own edits (a reconcile) land
       aotWillSave(doc);
+      // a first subtype written since the burst began brings its `...` on save
+      const burst = holdState.get(doc.uri.toString());
+      const marks = burst ? openMarkerOps(doc, burst.edited) : [];
       event.waitUntil(Promise.resolve().then(() => {
         const renumber = renumberEdits(doc);
         // reconcile last and only where the renumber is not already
@@ -7208,6 +8440,7 @@ function activate(context) {
         return [
           ...renumber.map((e) => vscode.TextEdit.replace(lineEditRange(doc, e), lineEditText(doc, e))),
           ...opsToTextEdits(doc, reconcileOpsFor(doc).filter(free)),
+          ...opsToTextEdits(doc, marks.filter(free)),
         ];
       }));
     }),
@@ -7225,6 +8458,12 @@ function activate(context) {
         return;
       }
       releaseHold(doc);
+      // the Python this save wrote is the writer's, even when the will-save
+      // step never ran for it (approveSavedHere); and the disk holds it now
+      if (doc.languageId === "aot" && doc.fileName) {
+        if (!savingDocs.has(doc.uri.toString())) approveSavedHere(doc);
+        rememberDiskCode(doc);
+      }
       savingDocs.delete(doc.uri.toString());
       if (doc.languageId === "aot" && doc.fileName) {
         reindexAot(doc.fileName, doc.getText());
@@ -7348,6 +8587,12 @@ function activate(context) {
     holdStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
     holdStatus.command = "aot.showHeldFindings";
     context.subscriptions.push(holdStatus);
+    // the selected cells added up, beside the cell address
+    rangeStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 101);
+    context.subscriptions.push(rangeStatus);
+    // how many rows a filter shows, and the click that shows them all
+    filterStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 102);
+    context.subscriptions.push(filterStatus);
     cellStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     context.subscriptions.push(cellStatus);
   }
@@ -7413,6 +8658,8 @@ const _test = {
   setGit: (fn) => { gitRun = fn || defaultGitRun; },
   // the status item that counts what waits while you write
   holdStatus: () => holdStatus,
+  // the status item that adds up the cells selected
+  rangeStatus: () => rangeStatus,
   repairGitMerge,
 };
 

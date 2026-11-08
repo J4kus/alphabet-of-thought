@@ -71,6 +71,13 @@ function check(name, ok) {
   check("findFiles: a URL is not a file, prose and plain Examples are not paths",
     !files.some((f) => f.line === 2) && !files.some((f) => f.line === 5)
     && !files.some((f) => f.line === 11) && files.length === 5);
+  // a file named with no path at all, spaces and all: found beside the .aot
+  const spaced = ["Doc", "    report: Q3 report.pdf", "Paper|file", "One  |my notes.md", "re: x|other notes.md"];
+  const beside = new Set(["Q3 report.pdf", "my notes.md", "other notes.md"]);
+  const found = findFiles(spaced, (t) => (beside.has(t) ? "/here/" + t : null));
+  check("findFiles: a bare name with spaces links, on a value line and in a table cell — a row whose name holds a colon too",
+    found.length === 3 && found.some((f) => f.line === 2 && f.startCol === 12 && f.endCol === 12 + "Q3 report.pdf".length)
+    && found.some((f) => f.line === 4 && f.path === "my notes.md") && found.some((f) => f.line === 5 && f.path === "other notes.md"));
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +89,10 @@ function check(name, ok) {
   check("looksLikePath: paths yes, prose no",
     looksLikePath("./a/b.csv") && looksLikePath("/etc/hosts") && looksLikePath("report.pdf")
     && !looksLikePath("just some words") && !looksLikePath("https://x.com/y"));
+  check("looksLikePath: a bare name may hold spaces, and a number is never one",
+    looksLikePath("Q3 report.pdf") && looksLikePath("rationale motivation.aot") && looksLikePath("track.mp3")
+    && !looksLikePath("3.14") && !looksLikePath("1,204.50") && !looksLikePath("v1.2") && !looksLikePath("3.5kg")
+    && !looksLikePath("e.g.") && !looksLikePath("Dr. Smith"));
 }
 
 // ---------------------------------------------------------------------------

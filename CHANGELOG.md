@@ -4,6 +4,43 @@ All notable changes to the "aot" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.15.0] - 2026-11-08
+
+- **Tables behave like Excel under the hands.** See [Selecting cells, as in a spreadsheet](docs/tables.md#selecting-cells-as-in-a-spreadsheet).
+  - **A click highlights the value or the Example's name**, or only the formula when the cell has one, so typing replaces it. A second click in the cell gives a caret. A formula on the header, or parked, shows in the status bar, as in Excel's formula bar.
+  - **Ready and Edit.** With the whole cell highlighted, `Ctrl+←`/`→` jump cells. With a caret in the text they step a word, as anywhere in VS Code. `Tab`, `Enter` and `Ctrl+`arrow land on a highlighted cell.
+    - *Consequence:* typing straight after `Tab` replaces the next cell, as in Excel.
+  - **`Ctrl+Shift+`arrow selects a column or row of cells** to the edge of the data, and `Shift+`arrow grows it a cell at a time. Typing and `Delete` act on every cell. `Ctrl+C` copies the values as tab-separated text that Excel reads, and `Ctrl+V` spreads tabbed text across cells.
+  - **`Alt+`arrow moves every selected row or column**, and `Alt+Shift+`arrow inserts or deletes as many.
+  - **`Ctrl++` and `Ctrl+-` insert and delete** cells, rows or columns, as in Excel, in tables and in line form.
+    - *Consequence:* inside a grid they no longer zoom, and in a table `Ctrl+Shift+L` no longer selects every match.
+  - **The status bar adds up the selected cells.** `Alt+=` writes a column's total under the table, as a formula, and **Summarise Column** offers average, count, min, max and median too.
+  - **`Ctrl+Alt+S` sorts** by the cursor's column, by name on the name column, and the other way when pressed again. A blank cell made a numeric column sort as text (`10` before `9`); blanks now go last.
+  - **Fold and filter.** A table and each divider's group fold. `Ctrl+Shift+L` filters a table to the cursor's value, as Excel's filter does, by folding the other rows away, so the file never changes.
+  - **Hover a column's header** for its profile: cells, blanks, distinct values, the commonest, and its numbers added up.
+  - **`Ctrl+A`, then `Tab`, indents a whole table**, and `Shift+Tab` outdents it.
+- **`Tab` in line form indents the line, and `Shift+Tab` outdents it**, wherever the cursor stands.
+- **A row's name may hold a colon.** `re: invoice 12|sent` ended a table, and the next row became a new header. Inside a table, a line at the rows' indent with a pipe is a row.
+  - *Consequence:* a `name: a|b` line directly under a table row, at the row's own indent, is now a row. One level deeper, it is still the Concept's value.
+- **Dividers are drawn `---+---`**, so a divider never reads as a row of dashes.
+  - *Consequence:* the old `---|---` still reads as a divider, and any redraw rewrites it.
+- **A tab in a name or a value is an error**, with a lightbulb that replaces it with a space and, for tab-separated lines pasted outside a table, **Create Table**. A CSV arriving and a formula's result write a space instead.
+  - *Breaking:* 1.14 allowed a tab inside a value.
+- **`...` in a table.** A `...` column marks a row that leaves something out, its cell holding what the `...` line would. `- ...` and a `...` between Examples flip into a table and back, where the flip used to make a Map named `|`, or leave the Example out.
+  - *Consequence:* `- ...` comes back from a table as `...`. Every check reads the two alike.
+  - The `...` column stays out of the CSV, and an edit coming back from the CSV leaves it as it is.
+- **Identical Examples are a warning.** Rows stating the same three or more values, at least one of them uncommon, are likely one entered twice. A `...` excuses them, and the lightbulb writes it.
+- **A lone subtype is fine when another file writes its siblings**, in the editor and `check.js`. **A first subtype gets a `...`** under its parent when the cursor leaves, so the warning doesn't show while you write. It stays until you delete it.
+- **Your own units and formats**, in plain Alphabet of Thought: rows of a kind under a Concept called `Unit`, each with a `factor` and, if you like, a `format` (`CHF #`, `# Rp`, `#.00`). They convert within their kind, win over a built-in unit of the same name, and are read by every file of the repository, in the editor, `verify.js` and `check.js`. A factor or format that can't be read is an error (rule 27). See [Your own units](docs/formulas.md#your-own-units).
+- **No 200-row limit.** Misfiled rows, overlapping sub-Concepts and gaps are checked in a file of any length. Only inferred dependencies stop, at 5,000 rows, and say so. Four passes that grew with the square of the rows now grow with the rows: a 50,000-row table is read in about 1.5 seconds, and `check.js` calculates one in 8.5 seconds, where it took about two minutes.
+  - Twenty or more findings alike show as one in the Problems panel, the rest under Related. Every count stays true.
+  - The pause before a reading grows with how long the last one took.
+- **A file name with spaces links**: `Q3 report.pdf` in a value opens the file beside the `.aot`. A number such as `3.14` no longer costs a look on disk.
+- **The notice that formulas "came from outside this editor"** could appear after picking from the `@` list and saving. A save that VS Code's will-save step missed now counts as yours, and code that really arrives from outside is still asked about.
+- **Picking `list price` from the `@` list after typing `@list p`** wrote `@list list price`. It now replaces what you typed.
+- **The README** has two ways to work with the four rationales: deep in one, or one Concept across all four. [The full version](docs/why.md#two-ways-to-work) is in Why.
+- See [docs/features-1.15.md](docs/features-1.15.md).
+
 ## [1.14.0] - 2026-11-05
 
 - **Numbers read the way an analyst writes them.** `30%` is `0.3`, and a `%` cell shows its result as a percent, so `$100,000` less `30%` is `$70,000`, where it was `-2,900,000` with no error. `€`, `£`, `¥` and `R` read as currencies, and `(1,000)` as negative.

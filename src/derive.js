@@ -28,7 +28,7 @@
 const { KIND, INDENT } = require("./linter");
 const {
   splitCell, splitConstraint, longestMatch,
-  tablesOf, updateTable, readValue, writtenValue, render, isRowText,
+  tablesOf, updateTable, readValue, writtenValue, render, isRowText, isRowAt,
   numberless, columnTerm, defaultColon, parentHeader, parentsOf,
   parentColumnOf: headerParentColumn,
   blockAt, cells, colAt, cellStart, dividers, rowsBetween, rowName, withUnit,
@@ -418,7 +418,7 @@ function constraintOf(d, parked) {
   const keys = [d.name.toLowerCase()];
   if (sameName(d)) keys.push(sameName(d));
   for (let p = d.parent; p; p = p.parent) {
-    for (const c of p.children) {
+    for (const c of attrKids(p)) {
       if (c.kind !== KIND.ATTRIBUTE) continue;
       const hidden = parked && parked.get(c);
       if (!c.constraints && !hidden) continue;
@@ -575,9 +575,9 @@ function inheritedValue(ex, key, concept) {
   let decl = ex.children.find((c) => isAttrKind(c) && (c.name.toLowerCase() === key || (c.alias && c.alias.toLowerCase() === key))) || null;
   for (let p = ex.parent; p; p = p.parent) {
     if (p.kind !== KIND.INDIVIDUAL) {
-      const hit = p.children.find((c) => c.kind === KIND.DEFAULT && match(c));
+      const hit = attrKids(p).find((c) => c.kind === KIND.DEFAULT && match(c));
       if (hit) return hit.value || "";
-      if (!decl) decl = p.children.find(match) || null;
+      if (!decl) decl = attrKids(p).find(match) || null;
     }
     if (p === concept) break;
   }
@@ -784,6 +784,18 @@ function renumberConcepts(root, nodes) {
 
 const isAttrKind = (c) => c.kind === KIND.DEFAULT || c.kind === KIND.ATTRIBUTE;
 
+// A node's attributes and values, gathered once: a Concept with thousands of
+// rows is not walked again for every value or row read under it (constraintOf,
+// the mirror's inherited values). Gathered again if its children change.
+const attrKidsMemo = new WeakMap();
+function attrKids(p) {
+  const hit = attrKidsMemo.get(p);
+  if (hit && hit.of === p.children && hit.n === p.children.length) return hit.list;
+  const list = p.children.filter(isAttrKind);
+  attrKidsMemo.set(p, { of: p.children, n: p.children.length, list });
+  return list;
+}
+
 // The first Concept up the tree from a node (the root when none nearer).
 function nearestConcept(n, root) {
   for (let p = n.parent; p; p = p.parent) if (p.kind === KIND.CONCEPT) return p;
@@ -877,9 +889,9 @@ function mirrorGrids(root, nodes) {
       let decl = r.children.find(match) || null;
       for (let p = r.parent; p; p = p.parent) {
         if (p.kind !== KIND.INDIVIDUAL) {
-          const hit = p.children.find((c) => c.kind === KIND.DEFAULT && !c.cell && match(c));
+          const hit = attrKids(p).find((c) => c.kind === KIND.DEFAULT && !c.cell && match(c));
           if (hit) return hit.value || "";
-          if (!decl) decl = p.children.find(match) || null;
+          if (!decl) decl = attrKids(p).find(match) || null;
         }
         if (p === concept) break;
       }
@@ -1035,7 +1047,7 @@ function updateScope(lines, root, nodes, concept, header, csvRows, rootName, opt
   // Concept's own shape — its direct table when it has one, else '- ' form
   // every Example of the scope written as lines, sub-Examples among them
   const lineNames = new Set(scopeRowsOf(concept)
-    .filter((c) => c.nameCol === undefined && !isRowText(lines[c.line - 1] || ""))
+    .filter((c) => c.nameCol === undefined && !isRowAt(lines, c.line - 1))
     .map((c) => c.name.toLowerCase()));
   const forLines = [], freshRows = [];
   for (const r of rows) {
@@ -1169,10 +1181,19 @@ function rawValueOf(lines, node) {
 // values, and a place in the tree: an Example whose children are attributes
 // with no structure of their own is a row, and so is one whose further
 // children are themselves rows — a sub-Example is a row naming its parent
-// in the `parent (thing)` column. A Map or a sub-Concept still has nowhere
-// to go in a grid, so an Example carrying one is no row.
-const isRowable = (c) => c.kind === KIND.INDIVIDUAL
-  && c.children.every((g) => (isAttrKind(g) && !g.children.length) || isRowable(g));
+// in the `parent (thing)` column — and one carrying a `...`, which its cell
+// in the `...` column holds. A second `...` or a sub-Concept still has nowhere
+// to go in a grid, so an Example carrying one is no row; nor is `- ...`, which
+// says more Examples are to come and is drawn as a `...` line among the rows.
+const isDots = (c) => c.kind === KIND.INDIVIDUAL && String(c.name).trim() === "...";
+const isRowable = (c) => c.kind === KIND.INDIVIDUAL && !isDots(c)
+  && c.children.filter((g) => g.kind === KIND.MAP).length <= 1
+  && c.children.every((g) => (isAttrKind(g) && !g.children.length) || isRowable(g)
+    || (g.kind === KIND.MAP && !g.children.length));
+// A row's `...` as its cell in the `...` column writes it, and back.
+const OPEN_COLUMN = "...";
+const dotsText = (map) => (map.name ? `... ${map.name}` : "...");
+const dotsLine = (cell) => (String(cell).trim().startsWith("...") ? String(cell).trim() : `... ${String(cell).trim()}`);
 
 // Those Examples depth-first, each tagged with the depth it is written at —
 // the order the grid draws them in; a row at depth 1 or more names its
@@ -1270,15 +1291,27 @@ function toTableForm(lines, concept) {
   // (alias) that crosslinks it, which is all such an attribute ever states.
   for (const { node: ex } of examples) {
     for (const child of ex.children) {
-      // a sub-Example is a row of its own, never a column
-      if (child.kind === KIND.INDIVIDUAL) continue;
+      // a sub-Example is a row of its own, never a column, and a `...` is
+      // the row's cell in the `...` column
+      if (child.kind === KIND.INDIVIDUAL || child.kind === KIND.MAP) continue;
       claim(child, child.name + (child.alias ? ` (${child.alias})` : ""));
     }
   }
+  // what a row leaves out: its `...` (or a `- ...` beneath it), in a column of
+  // its own, last, which the table gains only when some row has one
+  const dotsOf = (ex) => ex.children.find((g) => g.kind === KIND.MAP || isDots(g)) || null;
+  const open = examples.some(({ node }) => dotsOf(node));
+  // a `...` line or a `- ...` standing among the Examples stays among the rows,
+  // where it stood: a `...` line inside a table is the Concept's, as it was
+  const rowLines = examples.map((e) => e.node.line);
+  const firstRow = Math.min(...rowLines), lastRow = Math.max(...rowLines);
+  const among = (c) => c.line > firstRow && c.line < lastRow && !c.children.length
+    && ((c.kind === KIND.MAP && !NOTE_RE.test(c.name)) || isDots(c));
+  const between = examples.length ? concept.children.filter(among).sort((a, b) => a.line - b.line) : [];
   // a pipe cannot survive inside a pipe table, so it bends to a broken bar
   // exactly as an arriving CSV's does
   const cell = (text) => String(text).replace(/\|/g, "¦");
-  const consumed = new Set([...declared, ...examples.map((e) => e.node)]);
+  const consumed = new Set([...declared, ...examples.map((e) => e.node), ...between]);
   const kept = concept.children.filter((c) => !consumed.has(c) && c.line !== concept.line);
   const indent = " ".repeat(INDENT * concept.depth);
   // the Concept's own default as its line wrote it, escapes and all
@@ -1303,17 +1336,26 @@ function toTableForm(lines, concept) {
     }
     // where it sits: its parent's name, as the parent's own row writes it
     if (nested) cells.splice(1, 0, depth > 0 ? cell(ex.parent.name) : "");
+    if (open) {
+      const dots = dotsOf(ex);
+      cells.push(!dots ? "" : isDots(dots) ? OPEN_COLUMN : cell(dotsText(dots)));
+    }
     return cells;
   });
   const body = [];
+  let next = 0; // the next `...` among the Examples still to place
   examples.forEach(({ node: ex }, i) => {
+    for (; next < between.length && between[next].line < ex.line; next++) {
+      const c = between[next];
+      body.push({ sep: true, note: indent + (isDots(c) ? OPEN_COLUMN : String(lines[c.line - 1] || "").trim()), cells: [] });
+    }
     const above = ex.line - 2;
     if (above >= concept.line && !String(lines[above] || "").trim()) body.push({ sep: true, cells: [] });
     body.push({ sep: false, cells: rows[i] });
   });
   const block = {
     indent,
-    rows: [{ sep: false, cells: [cell(first), ...parentCells, ...columns.map((c) => cell(c.cell))] }, ...body],
+    rows: [{ sep: false, cells: [cell(first), ...parentCells, ...columns.map((c) => cell(c.cell)), ...(open ? [OPEN_COLUMN] : [])] }, ...body],
   };
   // no recompute here: a flip is a re-spelling, not a recalculation, and
   // the grid is not in the document yet — a formula reading the Concept's
@@ -1329,8 +1371,13 @@ function toTableForm(lines, concept) {
   const touches = (i) => i >= 0 && i < lines.length && isRowText(lines[i]);
   const out = touches(from - 1) ? [""] : [];
   out.push(...drawn);
-  // the lines that are kept travel whole, each with the subtree beneath it
-  for (const c of kept) putApart(out, lines.slice(c.line - 1, lastLineOf(c)));
+  // the lines that are kept travel whole, each with the subtree beneath it —
+  // a `- ...` left over says what a `...` says, and is written as one, so it
+  // comes back after the rows as every `...` under a table does
+  const keptIndent = " ".repeat(INDENT * (concept.depth + 1));
+  for (const c of kept) {
+    putApart(out, isDots(c) && !c.children.length ? [keptIndent + OPEN_COLUMN] : lines.slice(c.line - 1, lastLineOf(c)));
+  }
   if (touches(to + 1)) out.push("");
   return { form: "table", from, to, block: out };
 }
@@ -1387,8 +1434,10 @@ function toLineForm(lines, concept, grid) {
       // column's default
       label: (colon !== -1 ? bare.slice(0, colon).trim() : splitConstraint(bare).value.trim()) || bare,
     };
-  // the parent column is where a row is filed, and the nesting writes it
-  }).filter((c) => c.name && c.at !== pcol);
+  // the parent column is where a row is filed, and the nesting writes it; the
+  // `...` column is what each row leaves out, written as its `...` line
+  }).filter((c) => c.name && c.at !== pcol && c.name !== OPEN_COLUMN);
+  const ocol = grid.header.findIndex((h, k) => k > 0 && String(h || "").trim() === OPEN_COLUMN);
   const out = [];
   // a standalone grid stands where the Concept's line stands, so the flip
   // writes that line first and files everything a level under it; a merge
@@ -1396,10 +1445,12 @@ function toLineForm(lines, concept, grid) {
   // its children belong at
   if (standalone) out.push(grid.indent + (grid.header[0] || "").trim());
   const declIndent = grid.indent + (standalone ? " ".repeat(INDENT) : "");
-  // the lines under the table, each with the subtree beneath it
+  // the lines under the table, each with the subtree beneath it — a `...`
+  // among them after the rows, where it said what the rows leave out, with
+  // the maintained `... N more` note last of all
   const under = standalone ? concept.children.filter((c) => c.line - 1 > grid.end) : [];
   const isNote = (c) => c.kind === KIND.MAP && NOTE_RE.test(c.name);
-  for (const c of under) if (!isNote(c)) putApart(out, lines.slice(c.line - 1, lastLineOf(c)));
+  for (const c of under) if (c.kind !== KIND.MAP) putApart(out, lines.slice(c.line - 1, lastLineOf(c)));
   for (const col of columns) {
     if (outside.keeps(col)) continue;
     out.push(declIndent + col.term);
@@ -1429,9 +1480,11 @@ function toLineForm(lines, concept, grid) {
       const value = (row[col.at] || "").trim();
       if (value) out.push(rowIndent + " ".repeat(INDENT) + `${col.label}: ${value}`);
     }
+    if (ocol > 0 && String(row[ocol] || "").trim()) out.push(rowIndent + " ".repeat(INDENT) + dotsLine(row[ocol]));
     for (const k of kids.get(r) || []) write(k, level + 1);
   };
   for (const r of top) write(r, 0);
+  for (const c of under) if (c.kind === KIND.MAP && !isNote(c)) out.push(...lines.slice(c.line - 1, lastLineOf(c)));
   for (const c of under) if (isNote(c)) out.push(...lines.slice(c.line - 1, lastLineOf(c)));
   return { form: "lines", from: grid.start, to: Math.max(grid.end, ...under.map((c) => lastLineOf(c) - 1)), block: out };
 }
@@ -1549,7 +1602,7 @@ function writtenValueSpan(lines, node) {
     start = colon + 1 + (after.length - after.trimStart().length);
   }
   let end = raw.length;
-  if (isRowText(raw)) {
+  if (isRowAt(lines, node.line - 1)) {
     const next = dividers(raw).find((d) => d >= start);
     if (next !== undefined) end = next;
   }
@@ -1571,7 +1624,7 @@ function ideaAt(lines, nodes, concept, pos) {
   };
   const inValue = (n) => { const v = writtenValueSpan(lines, n); return v && ch >= v.start && ch <= v.end ? v : null; };
   const named = (n) => { const s = nameSpanOf(lines, n); return idea(n, "name", Math.min(ch - s.start, s.end - s.start)); };
-  if (isRowText(raw)) {
+  if (isRowAt(lines, pos.line)) {
     const block = blockAt(lines, pos.line);
     if (!block) return null;
     const head = block.rows.findIndex((r) => !r.sep);

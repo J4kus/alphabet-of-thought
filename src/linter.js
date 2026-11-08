@@ -20,9 +20,9 @@
 // Used by the VS Code extension (extension.js).
 
 const pluralize = require("pluralize");
-const { writtenForm, cells: tableCells, isSeparator, isRowText, splitCell, splitConstraint, readValue, numberless, lineDerivation, defaultColon, isParentColumn, startsLower, startsUpper, startsCaseless } = require("./table");
+const { writtenForm, cells: tableCells, isSeparator, isRowText, pipeBehindColon, splitCell, splitConstraint, readValue, numberless, lineDerivation, defaultColon, isParentColumn, startsLower, startsUpper, startsCaseless } = require("./table");
 const { bigPrimes } = require("./primes");
-const { isUnit } = require("./units");
+const { isUnit, parseFormat } = require("./units");
 
 const INDENT = 4;
 
@@ -169,21 +169,28 @@ function parse(text, rootName, report) {
       closeTable(); // a blank line ends a table, as in org
       return;
     }
-    // only the indentation is the language's: a tab further along is a
-    // character of the value, as it is in a line pasted from a spreadsheet
+    // A tab in the indentation is the indent's business; one further along is
+    // a value's or a name's, and a value or an Example's name holds none
+    // (noTabs, once the line has its nodes)
     const leading = /^[ \t]*/.exec(content)[0];
     if (leading.includes("\t")) {
       report.error(line, "replace the tab in the indentation with spaces — AOT indents with spaces only, four per level");
       content = leading.replace(/\t/g, " ".repeat(INDENT)) + content.slice(leading.length);
     }
     const spaces = content.length - content.replace(/^ +/, "").length;
+    // Under a row of an open table, at that row's own indent, a line whose
+    // first pipe stands behind a colon is one more row — an Example's name may
+    // hold a colon (`re: other|b|2`). Read alone it would be a value holding a
+    // pipe, and that is what it stays anywhere else, one level deeper included
+    // (table.isRowAt reads the same way).
+    const colonRow = !!table && table.lead === spaces && pipeBehindColon(content);
     // A row of an open table stands at its table's depth, however far it is
     // indented: a row never nests by its indent, and a parent cell says where
     // it is filed. A row whose name cell is empty — one still being filled —
     // is padded to its name column like every other row, so its leading spaces
     // ARE that empty cell and not an indent at all. The two indent laws below
     // have nothing to say about either.
-    const rowText = !isSeparator(content.trim()) && isRowText(content);
+    const rowText = !isSeparator(content.trim()) && (isRowText(content) || colonRow);
     const padded = rowText && (!((tableCells(content)[0] || {}).text)
       || (!!table && Math.floor(spaces / INDENT) >= table.depth));
     if (!padded && spaces % INDENT) {
@@ -203,7 +210,7 @@ function parse(text, rootName, report) {
     const marker = trimmed[0];
     // a row carries a '|' between its cells, and only a shallower line ends
     // the table
-    const isRow = isRowText(trimmed);
+    const isRow = isRowText(trimmed) || colonRow;
     // A '...' Map under a table is the Concept's like every other line there
     // (closeTable), and it is where a reader already reads it: '... 4 more in
     // other.aot:12' says what the grid is missing, never what its last row is
@@ -258,7 +265,9 @@ function parse(text, rootName, report) {
         // filed under already bears the same name, the table fills that
         // node in rather than declaring a twin, so a Concept can carry
         // line-form defaults and '- ' Examples beside its grid.
-        table = { depth, attrs: [], rows: [] };
+        // `lead`: the indent of the last row with a name, where a row whose
+        // name holds a colon must stand to be read as one
+        table = { depth, attrs: [], rows: [], lead: spaces };
         // the header names the Concept the whole table describes, so it is
         // the table's own line: its indent IS the table's
         let cName = row.length ? row[0].text : "", cAlias = null, cAliasCol;
@@ -363,6 +372,20 @@ function parse(text, rootName, report) {
           table.attrs.push(col);
         };
         for (const cell of row.slice(1)) {
+          // `...` heads no attribute but the table's own structure, as the
+          // parent column does: a row's cell under it is a `...` under that
+          // row's Example — the Example says it leaves something out — which
+          // is what lets a row carry one at all
+          if (cell.text === "...") {
+            if (table.attrs.some((a) => a && a.open)) {
+              report.error(line, "remove this column — it is a second '...' column, and a table marks what a row leaves out in one column",
+                { startCol: cell.col, endCol: cell.col + cell.text.length });
+              table.attrs.push(null);
+              continue;
+            }
+            table.attrs.push({ structural: true, open: true, line, nameCol: cell.col });
+            continue;
+          }
           // a cell with a colon states the column's default, exactly the line
           // that would state it under the Concept — `tax rate: 0.2` — so an
           // empty cell below inherits it as a silent Example does. It is the
@@ -465,6 +488,8 @@ function parse(text, rootName, report) {
         if (!row[0].text) {
           report.error(line, "write the Example's name in the row's first cell — the table row has an empty first cell, and the first column names the Example the row describes",
             { startCol: row[0].col, endCol: row[0].col + 1 });
+        } else {
+          table.lead = spaces;
         }
         if (row.length - 1 > table.attrs.length) {
           const first = row[table.attrs.length + 1];
@@ -484,9 +509,17 @@ function parse(text, rootName, report) {
         table.rows.push(example);
         for (let c = 1; c < row.length && c <= table.attrs.length; c++) {
           const attr = table.attrs[c - 1];
-          // the parent cell is structure: it names a row, and holds no value
+          // the parent cell is structure: it names a row, and holds no value;
+          // a cell under `...` is the row's own `...`, its text the note
           if (attr && attr.structural) {
-            if (row[c].text) example.parentCell = { text: row[c].text, col: row[c].col };
+            if (attr.open && row[c].text) {
+              const map = {
+                line, depth: depth + 1, kind: MAP, name: row[c].text.replace(/^\.\.\.\s*/, ""), value: null,
+                alias: null, parent: example, children: [], nameCol: row[c].col, cell: true,
+              };
+              example.children.push(map);
+              nodes.push(map);
+            } else if (!attr.open && row[c].text) example.parentCell = { text: row[c].text, col: row[c].col };
             continue;
           }
           // a formula ('10 =$1+10') derives the value: only the value part
@@ -610,8 +643,39 @@ function parse(text, rootName, report) {
     prevDepth = depth;
   });
   closeTable(); // the last table ends with the file
+  noTabs(lines, nodes, report);
   Object.defineProperty(nodes, "generators", { value: generators, enumerable: false });
   return { root, nodes, generators };
+}
+
+// A value or a name holds no tab — an Example's, a Concept's, an attribute's.
+// One shows as blank space, so two that look alike are not, and it splits the
+// text in two the moment it is pasted into a spreadsheet, where a tab divides
+// cells. A tab arrives with a paste (the Tab key indents, or moves between
+// cells), and the editor's Quick Fix replaces it with a space, or turns pasted
+// tab-separated lines into the table they are. A formula is Python, and its
+// text is its own business.
+const shownTabs = (text) => String(text).replace(/\t/g, "⇥");
+const NAMED_KIND = ["Example", "", "Concept", "attribute"];
+function noTabs(lines, nodes, report) {
+  for (const node of nodes) {
+    let what = null, inValue = false;
+    if (node.kind !== MAP && String(node.name || "").includes("\t")) {
+      what = `${NAMED_KIND[node.kind] || "attribute"} '${shownTabs(node.name)}'`;
+    } else if ((node.kind === DEFAULT || node.kind === CONCEPT) && node.value != null && String(node.value).includes("\t")) {
+      what = `the value '${shownTabs(node.value)}' of '${node.name}'`;
+      inValue = true;
+    }
+    if (what === null) continue;
+    const raw = lines[node.line - 1] || "";
+    const lead = raw.length - raw.replace(/^[ \t]*/, "").length;
+    const from = !inValue ? (node.nameCol !== undefined ? node.nameCol : lead)
+      : node.valueCol !== undefined ? node.valueCol : Math.max(lead, raw.indexOf(":") + 1);
+    const at = raw.indexOf("\t", from);
+    const span = at === -1 ? {} : { startCol: at, endCol: raw.slice(at).match(/^\t+/)[0].length + at };
+    report.error(node.line, `replace the tab with a space — ${what} holds a tab, which shows as blank space here and splits it in two wherever a tab divides cells, as in a spreadsheet`,
+      { ...span, tabs: true });
+  }
 }
 
 // A complete table's rows, filed under the rows their parent cells name.
@@ -784,6 +848,9 @@ function verify(root, nodes, report, accepted) {
     });
   }
 
+  identicalRows(all, report);
+  unitDefinitions(nodes, report);
+
   // One attribute may hold several texts (`tag: a`, `tag: b`), but a number is one
   // number: `discount: 10%` and `discount: 15%` on one Example contradict each
   // other. A value counts when it reads as a plain number, or one with a unit Alpha
@@ -886,8 +953,15 @@ function verify(root, nodes, report, accepted) {
       report.warn(node.line, `gather related sub-Concepts under an in-between kind — '${node.name}' has ${subConcepts} sub-Concepts, more than the eight a reader can take in at a glance (Examples and attributes may be any number)`);
     }
     if (node.children.some((c) => c.kind === MAP)) continue;
-    if (node.kind === CONCEPT && subConcepts === 1) {
-      report.warn(node.line, `add a sibling subtype, or merge the two — '${node.name}' has 1 sub-Concept, expected 0 or more than one: a single subtype divides nothing (the parent simply is that subtype)`);
+    // a repository's own kind of unit has the built-in kinds (Length, Mass …)
+    // for siblings, as a subtype may have them in another file (units.js)
+    const isUnit = node.kind === CONCEPT && numberless(node.name).trim().toLowerCase() === "unit";
+    if (node.kind === CONCEPT && subConcepts === 1 && !isUnit) {
+      // `loneSubtype` lets the repo pass drop it when another file's copy of
+      // the Concept writes a different subtype (repo.loneSubtypeExcused)
+      const sub = kids.find((c) => c.kind === CONCEPT);
+      report.warn(node.line, `add a sibling subtype, or merge the two — '${node.name}' has 1 sub-Concept, expected 0 or more than one: a single subtype divides nothing (the parent simply is that subtype)`,
+        { loneSubtype: { concept: node.name, sub: sub.name } });
     }
     if (node.kind === INDIVIDUAL && kids.filter((c) => c.kind === INDIVIDUAL).length === 1) {
       report.warn(node.line, `add another sub-Example, or merge the two — '${node.name}' has 1 sub-Example, expected 0 or more than one: a single sub-Example breaks nothing down (the parent simply is that sub-Example)`);
@@ -929,6 +1003,116 @@ function verify(root, nodes, report, accepted) {
       report.warn(c.line, `give each a differentia (a distinguishing attribute or value), or add a '...' Map under '${node.name}' if those differences are still to come — '${c.name}' shares its slots with a sibling under '${node.name}' (lines ${where}): same attributes and values, so only their order tells them apart`,
         { related: others.map((o) => ({ line: o.line, message: `'${o.name}' shares the same slots` })) });
     });
+  }
+}
+
+// Two Examples of one parent, differently named, carrying the same data: a row
+// written twice under two names, or two rows the file has not yet told apart.
+// Only what each states of itself counts — never a value it inherits — and
+// only what it states by hand: a value a formula computed, its own or its
+// column's (`net =@price*0.7`), follows from the others and says nothing new.
+// Three such values at least, every one the same, and nothing else stated.
+//
+// Matching by chance is common where the columns hold a few values each — three
+// yes/no columns over twenty rows match about 24 pairs — so at least one of the
+// shared values must be uncommon in its column, held by no more than √rows of
+// the rows. A duplicated payment shares an amount or a date few other rows
+// have; two rows that only agree on Yes, No and North do not.
+//
+// A `...` says the rows differ in something the file does not say: one on
+// either row, or under their parent, excuses them. The maintained `... N more
+// in` note does not. A warning: two rows may be meant to be identical.
+const MAINTAINED_NOTE = /^\d+ more in /;
+function identicalRows(all, report) {
+  for (const parent of all) {
+    const rows = parent.children.filter((c) => c.kind === INDIVIDUAL);
+    if (rows.length < 2) continue;
+    if (parent.children.some((c) => c.kind === MAP && !MAINTAINED_NOTE.test(c.name))) continue;
+    // the attributes a definition computes, declared here or on a kind above
+    const defined = new Set();
+    for (let k = parent; k; k = k.parent) {
+      for (const c of k.children) {
+        if (c.kind === ATTRIBUTE && (c.constraints || []).some((b) => b.op === "==")) defined.add(c.name.toLowerCase());
+      }
+    }
+    const stated = (r) => r.children.filter((c) => c.kind === DEFAULT && c.value != null && String(c.value).trim() !== ""
+      && !c.derived && c.formula === undefined && !c.header && !defined.has(c.name.toLowerCase()));
+    // each attribute's values over the rows, to tell an uncommon value
+    const counts = new Map(); // "name\0value" -> rows stating it
+    const facts = new Map(); // row -> its stated facts
+    for (const r of rows) {
+      const own = stated(r).map((c) => ({ name: c.name, value: String(c.value).trim(), key: `${c.name.toLowerCase()}\0${String(c.value).trim().toLowerCase()}` }));
+      facts.set(r, own);
+      for (const f of new Set(own.map((x) => x.key))) counts.set(f, (counts.get(f) || 0) + 1);
+    }
+    const common = Math.max(2, Math.floor(Math.sqrt(rows.length)));
+    const groups = new Map();
+    for (const r of rows) {
+      // a row that says it leaves something out, or that has rows of its own,
+      // is more than the values it states here
+      if (r.children.some((c) => c.kind === MAP || c.kind === INDIVIDUAL || c.kind === CONCEPT)) continue;
+      const own = facts.get(r);
+      const keys = [...new Set(own.map((f) => f.key))].sort();
+      if (keys.length < 3 || keys.length !== own.length) continue;
+      const sig = keys.join("\u0001");
+      if (!groups.has(sig)) groups.set(sig, []);
+      groups.get(sig).push(r);
+    }
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const shared = facts.get(group[0]);
+      if (!shared.some((f) => counts.get(f.key) <= common)) continue;
+      const said = shared.map((f) => `${f.name} ${f.value}`);
+      const listed = said.length > 4 ? `${said.slice(0, 4).join(", ")}, …` : said.join(", ");
+      for (const r of group) {
+        const others = group.filter((o) => o !== r);
+        const where = r.nameCol !== undefined ? { startCol: r.nameCol, endCol: r.nameCol + r.name.length } : {};
+        report.warn(r.line, `give one a value that tells them apart, or add '...' to one if they differ in something this file doesn't say — '${r.name}' and '${others[0].name}'${others.length > 1 ? ` (and ${others.length - 1} more)` : ""} carry the same ${shared.length} values (${listed}), so nothing written here tells them apart`,
+          { ...where, identicalRows: true, related: others.slice(0, 5).map((o) => ({ line: o.line, message: `'${o.name}' carries the same values` })) });
+      }
+    }
+  }
+}
+
+// A unit a repository writes itself (units.js): an Example of a kind filed
+// under a Concept called Unit. Its `factor` says how many of the kind's base
+// unit one of it is, so it is a plain number (`1000`, `0.0254`, or `1/3`);
+// its `format` shows where the number goes with a `#` (`CHF #`, `# km`). Either
+// written any other way would leave every value in that unit read wrongly. A
+// value's unit is the one word after its number, so a unit's name, and the mark
+// its format writes behind the number, is one word: `5 FTE day` is text.
+const ONE_WORD = /^(?:\p{L}|[°$€£¥%])+$/u;
+const oneWordLike = (text, fallback) => String(text).replace(/[^\p{L}°$€£¥%]/gu, "") || fallback;
+function unitDefinitions(nodes, report) {
+  const isUnitConcept = (n) => n.kind === CONCEPT && numberless(n.name).trim().toLowerCase() === "unit";
+  for (const unit of nodes.filter(isUnitConcept)) {
+    const walk = (kind) => {
+      for (const c of kind.children) {
+        if (c.kind === CONCEPT) walk(c);
+        if (c.kind !== INDIVIDUAL || kind === unit) continue;
+        const name = c.name.trim();
+        if (name && !ONE_WORD.test(name)) {
+          report.error(c.line, `name the unit in one word, as in '${oneWordLike(name, "km")}' — a value's unit is the one word after its number, so '5 ${name}' would read as text`);
+        }
+        for (const v of c.children) {
+          if (v.kind !== DEFAULT || v.value == null) continue;
+          const value = String(v.value).trim();
+          const at = v.valueCol !== undefined ? { startCol: v.valueCol, endCol: v.valueCol + value.length } : {};
+          if (v.name.toLowerCase() === "factor" && value && !/^(?:\d+(?:\.\d+)?|\d+\/\d+)$/.test(value.replace(/,/g, ""))) {
+            report.error(v.line, `write the factor as a plain number, as in 'factor: 1000' — the factor of unit '${c.name}' is '${value}', and a factor says how many of its kind's base unit one '${c.name}' is`, at);
+          }
+          if (v.name.toLowerCase() === "format" && value && !value.includes("#")) {
+            report.error(v.line, `put a '#' where the number goes, as in 'CHF #' or '# km' — the format of unit '${c.name}' is '${value}', which says nothing of where its number stands`, at);
+          } else if (v.name.toLowerCase() === "format" && value) {
+            const { suffix } = parseFormat(value, name);
+            if (suffix && !ONE_WORD.test(suffix)) {
+              report.error(v.line, `write the mark behind the number as one word, as in '# ${oneWordLike(suffix, name)}' — a value's unit is the one word after its number, so '5 ${suffix}' would read as text`, at);
+            }
+          }
+        }
+      }
+    };
+    walk(unit);
   }
 }
 
@@ -975,6 +1159,10 @@ function lint(text, rootName, accepted, repo) {
     const found = findings(repo.file, all, { autoReconcile: repo.autoReconcile !== false });
     for (const f of found.errors) report.error(f.line, f.message, { related: f.related });
     for (const f of found.warnings) report.warn(f.line, f.message, { related: f.related });
+    // a lone subtype here is no lone subtype when another file's copy of the
+    // Concept writes a different one: the division goes on there
+    const { dropExcusedLoneSubtypes } = require("./repo");
+    dropExcusedLoneSubtypes(report.warnings, repo.file, all);
   }
   const byLine = (a, b) => a.line - b.line;
   return {

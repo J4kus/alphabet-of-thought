@@ -334,9 +334,13 @@ const LITERAL_SYMBOL = new RegExp(`^[$€£¥](?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\
 const LITERAL_RAND = /^R(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\p{L}\p{N}_])/u;
 const LITERAL_NUMBER = /^(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d*)?|\.\d+)/;
 const OPENS_OPERAND = /^[\p{L}\p{N}_(]/u;
+// the number after a repository's own mark (`CHF 5`, units.js): a space from it
+// or glued, and never glued to a name after it
+const LITERAL_OWN = new RegExp(`^ ?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?(?:/${UNIT_WORD})*(?![\\p{L}\\p{N}_])`, "u");
 function quantityLiterals(src, references) {
   const out = [];
   const ends = new Map((references || []).map((r) => [r.start, r.start + r.length]));
+  const marks = units.prefixes();
   let i = 0;
   while (i < src.length) {
     if (ends.has(i)) { i = ends.get(i); continue; }
@@ -349,6 +353,13 @@ function quantityLiterals(src, references) {
       while (j < src.length && !src.startsWith(close, j)) j += src[j] === "\\" ? 2 : 1;
       i = Math.min(src.length, j + close.length);
       continue;
+    }
+    // a mark the repository writes in front of a number, longest first, and not
+    // the end of a name or an attribute (`x.CHF`)
+    if (marks.length && (i === 0 || !/[\p{L}\p{N}_.]/u.test(src[i - 1]))) {
+      const mark = marks.find((p) => src.startsWith(p, i));
+      const m = mark ? LITERAL_OWN.exec(src.slice(i + mark.length)) : null;
+      if (m) { out.push({ start: i, length: mark.length + m[0].length }); i += mark.length + m[0].length; continue; }
     }
     const rest = src.slice(i);
     if ("$€£¥".includes(ch)) {
@@ -1435,9 +1446,10 @@ function cellText(v) {
   return inertValue(String(v).replace(/\r\n|\r|\n/g, table.LINE_BREAK).replace(/\|/g, "¦"));
 }
 
-// An Example name: never thousands-separated (`2026` names a year, not a sum)
+// An Example name: never thousands-separated (`2026` names a year, not a sum),
+// and holding no tab, as no name does (linter noTabs)
 const nameText = (v) => (v === null || v === undefined ? ""
-  : inertName(String(numberIn(v) !== undefined ? numberIn(v) : v).replace(/\r?\n/g, " ").replace(/\|/g, "¦").trim()));
+  : inertName(String(numberIn(v) !== undefined ? numberIn(v) : v).replace(/\r?\n/g, " ").replace(/\t/g, " ").replace(/\|/g, "¦").trim()));
 
 // The table a Concept derivation writes: header [Concept, ...columns], rows
 // [[Example, ...cells]]. Its rows are numbered 1, 2, 3 — unless a column
@@ -1534,7 +1546,7 @@ function writeMergeGrid(lines, concept, grid) {
   // the line-form Examples: each one's whole subtree
   for (const c of concept.children) {
     if (c.kind !== KIND.INDIVIDUAL || c.line === concept.line) continue;
-    if (table.isRowText(out[c.line - 1] || "")) continue; // a grid row goes with its block
+    if (table.isRowAt(out, c.line - 1)) continue; // a grid row goes with its block
     removals.push([c.line - 1, derive.lastLineOf(c) - 1]);
   }
   const drawn = table.render({

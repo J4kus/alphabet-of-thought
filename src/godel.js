@@ -309,6 +309,20 @@ const conceptOf = (node, concepts) => conceptType(node, concepts);
 // declaration that won each attribute — the value's own, else the nearest
 // that names it — and `via` the attribute a crosslinked Concept name came
 // in through. Neither changes what G is.
+// A node's attribute lines — its declarations and its values — read off its
+// children once per parse. Every Example under a Concept walks up through it,
+// and the Concept's children are mostly those Examples: reading the whole list
+// each time made numbering a table cost the square of its rows.
+const attrsMemo = new WeakMap();
+function attrChildren(n) {
+  let out = attrsMemo.get(n);
+  if (!out) {
+    out = n.children.filter((c) => c.kind === ATTRIBUTE || c.kind === DEFAULT);
+    attrsMemo.set(n, out);
+  }
+  return out;
+}
+
 function effFeatures(node, concepts) {
   const names = new Set(); // attrKey present (name or crosslinked Concept)
   const valueByAttr = new Map(); // attrKey -> nearest declared value string
@@ -317,8 +331,7 @@ function effFeatures(node, concepts) {
   const valued = new Set();
   for (let n = node; n; n = n.parent) {
     if (n !== node && n.kind === INDIVIDUAL) continue;
-    for (const child of n.children) {
-      if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
+    for (const child of attrChildren(n)) {
       const aKey = keyOf(child.name);
       names.add(aKey);
       if (!fromByAttr.has(aKey)) fromByAttr.set(aKey, child);

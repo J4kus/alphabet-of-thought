@@ -74,7 +74,7 @@ function canonical(lines, rootName) {
 // --- what a node says of itself ------------------------------------------------
 
 // A row of a table: an Example whose own line is a grid row.
-const isRowNode = (d, n) => n.kind === KIND.INDIVIDUAL && n.nameCol !== undefined && table.isRowText(d.lines[n.line - 1] || "");
+const isRowNode = (d, n) => n.kind === KIND.INDIVIDUAL && n.nameCol !== undefined && table.isRowAt(d.lines, n.line - 1);
 // The Concept a standalone table names in its first header cell.
 const isHeaderNode = (d, n) => n.kind === KIND.CONCEPT && n.cell && table.isRowText(d.lines[n.line - 1] || "");
 

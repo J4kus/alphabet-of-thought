@@ -105,6 +105,30 @@ A file using one rationale can still reach `V = 0`. That is not a loophole: cons
 
 The counsel of perfection is not "finish all four before you write anything". It is: start where the knowledge is, and treat each rationale you have not reached yet as a `...` — a declared gap, in the model and in your understanding of the subject alike.
 
+### Two ways to work
+
+The four causes fall into two pairs. Matter and form are **intrinsic**: they are in the thing, and make it what it is. The agent and the end are **extrinsic**: they act on it from outside (*Metaphysics* Λ.4, 1070b22–23, where some causes are "present in" the thing and others, like the mover, "outside" it). Cross that with the oldest question about anything done, the end it serves or the means it takes, and each rationale has a square of its own:
+
+| | Ends | Means |
+|---|---|---|
+| **Extrinsic:** what acts on the subject from outside | **Motivation** (final cause): why, and for whom | **Factor** (efficient cause): who acts, in what order |
+| **Intrinsic:** what the subject is in itself | **Function** (formal cause): what it does | **Graph** (material cause): what it is made of |
+
+The extrinsic pair informs the intrinsic one. What a subject is for, and who works on it, shape what it does and what it is made of. That is why a Function tree with no Motivation above it cannot say what any capability is worth, and a Graph that no Factor ever touches cannot say which records matter. So there are two ways into a subject, and a good model uses both.
+
+**Go deep: one rationale, as far as it goes.** Take the rationale your question lives in and expand it, level by level, until you reach what you don't know, and write `...` there. A KPI tree that has to add up is a Motivation question; a schema to settle before anything is built is a Graph one. Depth is where the checks bite hardest: every level adds siblings that need a differentia, Examples that must be filed under the right kind, and columns that might be derivable. Expanding Motivation from *Grow Revenue* through *Win Enterprise Deals* to *Shorten Legal Review*, you reach a measure nobody owns, and that is the `...`: the file now says where your knowledge stops, and the checks hold everything above it.
+
+**Go across: one Concept, in all four.** Take one Concept and write it in each rationale in turn. For an invoice:
+
+| Rationale | The question | For an invoice |
+|---|---|---|
+| Motivation | Why does it exist, and for whom? | To be paid within 30 days, for Finance |
+| Function | What does it do? | Requests a payment, and records what is owed |
+| Graph | What is it made of? | Lines, a customer and a due date, kept in the ledger |
+| Factor | Who acts on it, in what order? | Sales raises it, Finance sends it, the customer pays |
+
+The row you can't fill in is the part you've been assuming. A team that writes the first three easily and stalls on Factor has never said who approves an invoice, or what waits on whom, and that is usually where the 30 days go. Going across suits a subject you are about to decide on; going deep suits one you are about to build.
+
 ### Motivation
 
 Focus: **what is measured, why, and who benefits from it.**
@@ -174,33 +198,3 @@ The following principles govern how Alphabet of Thought handles inheritance, inc
 - **Truth shows in consequences**: a definition is good when it lets two actors work on with the same meaning and verify it.
 - **Content over structure**: prefer Examples, attributes, and values over new Concepts. Keep the Concept tree lean.
 - **[Incompleteness is a feature](#incompleteness-is-a-feature)**: the referee checks for contradiction, never for coverage. Write the part you know, mark the part you don't with a `...`, and the file stays green the whole way.
-
-## What it costs to think in Alphabet of Thought
-
-Alphabet of Thought is terser than prose, but the interesting question is *where* and *by how much* — so it was measured rather than asserted. [`out/token-experiment.js`](../out/token-experiment.js) tokenises the same knowledge written both ways and prints the table below; run it yourself:
-
-```
-npm install --no-save gpt-tokenizer     # the extension itself needs no tokenizer
-node out/token-experiment.js
-```
-
-The prose it compares against is what a careful person would actually type — complete sentences, no padding, no repetition beyond the repetition prose itself forces. Counts are `o200k_base` (GPT-4o/4.1); Claude's tokenizer is not public and differs in detail, but the *ratio* between two English texts is stable across byte-pair encoders.
-
-**The saving is mostly in the tree, not the table.** These are the two shapes a model is made of, and they behave very differently:
-
-| Shape | Alphabet of Thought | Prose | Saving |
-|-------|-------|-------|-------------|
-| **Taxonomy**, 155 ideas (`- Bicycle` under `Land Vehicle` under `Vehicle`) | 666 | 1,565 | **57%** |
-| **Grid**, 100 Examples × 4 attributes (400 facts) | 2,330 | 3,007 | **23%** |
-| **Grid**, 5 Examples × 4 attributes (20 facts) | 151 | 163 | **7%** |
-| **Grid**, 1 Example × 4 attributes (4 facts) | 55 | 38 | **−45%** |
-
-Why the tree wins so much harder: an is-a edge costs Alphabet of Thought **four spaces of indentation**, while prose has no way to write it but a whole sentence — "A Bicycle is a kind of Land Vehicle." That is 4.3 tokens per edge against 10.1, and it holds steady at every size. The reference model, [`examples/alphabet of thought.aot`](../examples/alphabet%20of%20thought.aot), is 3,262 tokens for 555 ideas — **5.88 tokens per idea, with all 555 is-a edges included free**.
-
-The grid's saving is real but modest, and it **grows with size**: the header names each attribute once, so the more Examples you add the more prose's per-fact repetition ("Ada Lovelace was born on…, Alan Turing was born on…") costs it. Below about five Examples Alphabet of Thought genuinely costs *more* than prose — the header is overhead a single row cannot pay off. Alphabet of Thought is not a compression trick for small facts; it earns its keep on structure and on scale.
-
-**Three places the tokens land:**
-
-- **Input** — the numbers above. For bulk data there is a cheaper form you already have: the [CSV mirror](tables.md#the-csv-mirror) writes every table to `aot.files/<Concept>.csv` unaligned, and that same 100-Example grid is **1,892 tokens as CSV against 2,330 as an aligned table** — the column padding is 19% of the table's cost. Hand a model the tree for structure and the CSV for rows.
-- **Processing** — the one that actually dominates, and the one Alphabet of Thought changes in kind rather than degree. Ten questions over the 100-Example record cost prose 10 × 3,007 = **30,070 tokens**, because every question re-reads the text. In Alphabet of Thought the questions a model is *for* — is-a, genus, dependencies, contradictions — are arithmetic over the tree, so `verify.js --ask X Y` answers by dividing two integers at **zero** tokens, and reports exactly what the file says. This is the real economy: not that the file is smaller, but that the questions never reach the model.
-- **Output** — one change to the 100-Example record is **21 tokens in Alphabet of Thought (one row) against 30 in prose (one sentence)**, ~30% less. The deeper saving is that Alphabet of Thought's unit of change is a line: a fact edited mid-paragraph takes the whole paragraph with it, and a line-sized diff is one git reviews and an agent can loop on.

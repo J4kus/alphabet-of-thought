@@ -124,9 +124,15 @@ for (const [name, files, re] of caught) {
 {
   const r = run(VERIFY, { "Plain.aot": lines("Order|qty", "Acme|5") }, "Plain.aot");
   check("verify: a file with no formulas is told nothing more", r.status === 0 && !/not calculated/.test(r.out), r.out);
+  // the row checks run on a table of any length; only the inferred
+  // dependencies stop, past 5,000 rows, and the tools say so
   const big = ["Big|n", ...Array.from({ length: 205 }, (_, i) => `row ${i}|${i}`)].join("\n");
   const said = run(VERIFY, { "Big.aot": big }, "Big.aot");
-  check("verify: says when the row checks stopped", /warning: move the long table into a file of its own .* this file has 205 rows/.test(said.out), said.out);
+  check("verify: a 205-row file keeps every row check, with nothing said of a limit", said.status === 0 && !/move the long table/.test(said.out), said.out);
+  const huge = ["Big|n", ...Array.from({ length: 5005 }, (_, i) => `row ${i}|${i}`)].join("\n");
+  const told = run(VERIFY, { "Big.aot": huge }, "Big.aot");
+  check("verify: says when the dependency inference stopped",
+    /warning: move the long table into a file of its own .* this file has 5,005 rows, and inferred dependencies/.test(told.out), told.out);
 }
 
 // the brief's table of wrong numbers, each now right or a visible error

@@ -488,5 +488,30 @@ const JAKUS = {
     /- Bus\n\s+cost: 10\n\s+note: late/.test(lineWritten) && lint(lineWritten, "a").errors.length === 0);
 }
 
+// ---------------------------------------------------------------------------
+// a lone subtype is enough when another file's copy of the Concept writes a
+// different one: the division goes on there
+// ---------------------------------------------------------------------------
+{
+  const lone = (files, file) => {
+    const entries = build(files);
+    const mine = entries.find((e) => e.file === file);
+    const others = entries.filter((e) => e !== mine);
+    return lint(mine.text, mine.rootName, undefined, { file, others }).warnings
+      .filter((w) => /has 1 sub-Concept/.test(w.message)).length;
+  };
+  const car = aot("Vehicle", "    wheels", "    Car", "        doors");
+  check("lone subtype: alone in the repo, it warns", lone({ "a.aot": car }, "a.aot") === 1);
+  check("lone subtype: another file's copy writing a different subtype answers it",
+    lone({ "a.aot": car, "b.aot": aot("Vehicle", "    wheels", "    Truck", "        axles") }, "a.aot") === 0);
+  check("lone subtype: another file writing the same subtype does not",
+    lone({ "a.aot": car, "b.aot": car }, "a.aot") === 1);
+  const entries = build({ "a.aot": car, "b.aot": aot("Vehicle", "    Truck") });
+  const all = repo.occurrences(entries);
+  const warnings = entries[0].warnings.slice();
+  check("lone subtype: dropExcusedLoneSubtypes clears it for the command line too",
+    warnings.length > 0 && repo.dropExcusedLoneSubtypes(warnings, "a.aot", all).every((w) => !/has 1 sub-Concept/.test(w.message)));
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

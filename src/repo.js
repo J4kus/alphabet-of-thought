@@ -334,6 +334,25 @@ function findings(file, all, opts) {
   return { errors: errors.sort(byLine), warnings: warnings.sort(byLine) };
 }
 
+// A Concept with one subtype in this file divides nothing here, but when
+// another file's copy of the Concept writes a different subtype the division
+// goes on there, so the one here is enough: true then.
+function loneSubtypeExcused(file, all, concept, sub) {
+  const mine = fold(sub);
+  return (all.get(fold(concept)) || []).some((o) => o.file !== file
+    && o.node.children.some((c) => c.kind === KIND.CONCEPT && fold(c.name) !== mine));
+}
+
+// Drop, in place, the lone-subtype warnings (linter.verify marks them
+// `loneSubtype`) that another file answers. `all` is occurrences(entries).
+function dropExcusedLoneSubtypes(warnings, file, all) {
+  for (let k = warnings.length - 1; k >= 0; k--) {
+    const w = warnings[k];
+    if (w.loneSubtype && loneSubtypeExcused(file, all, w.loneSubtype.concept, w.loneSubtype.sub)) warnings.splice(k, 1);
+  }
+  return warnings;
+}
+
 // --- auto-reconcile ---------------------------------------------------------
 
 // One child of a peer as lines for this file: the raw subtree re-indented so
@@ -567,7 +586,7 @@ function applyOps(lines, ops) {
 }
 
 module.exports = {
-  occurrences, peersOf, findings,
+  occurrences, peersOf, findings, loneSubtypeExcused, dropExcusedLoneSubtypes,
   reconcileOps, reconcileFile, applyOps,
   noteFor, noteSpans, noteParts, maintainedNotes, declared, effective, genusOf,
   NOTE_RE,

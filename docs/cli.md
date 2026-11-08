@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-`verify.js` is the extension's referee without the editor: it wraps the same `src/` modules, applies the same gates and filters, and prints every finding with its `file:line`. The whole-file check ends in a verdict and an exit code, which makes `V = 0` scriptable — in CI, in a git hook, or as the acceptance test in an LLM loop. It judges **what is in front of it** and nothing else — a file whose derivations are [parked](formulas.md#parking-the-derivations) is judged on the values it carries, and the store is never read:
+`verify.js` is the extension's referee without the editor: it wraps the same `src/` modules, applies the same gates and filters, and prints every finding with its `file:line`. The whole-file check ends in a verdict and an exit code, which makes `V = 0` scriptable — in CI, in a git hook, or as the acceptance test in an LLM loop. It judges **what is in front of it** and nothing else — a file whose derivations are [parked](formulas.md#parking-the-derivations) is judged on the values it carries, and the store is never read. One thing comes from beside it: the [units a repository writes itself](formulas.md#your-own-units) are every file's, so it first reads them off the other `.aot` files of the file's repository, as the editor does, parsing only a file with a line that could open a Concept called `Unit`:
 
 ```
 $ node verify.js examples/thought.aot

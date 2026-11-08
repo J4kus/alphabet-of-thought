@@ -8,9 +8,12 @@
 // believed when its brackets and strings close and no two operands stand
 // side by side with nothing between them (`none noted`). An `@` reference is one
 // operand however many words its name holds, and so is a number with its unit:
-// `18 years`, `5 km/h`, `30%`.
+// `18 years`, `5 km/h`, `30%`, and a number behind a mark the repository
+// writes in front of one: `CHF 500`.
 //
-// Pure: no I/O, no requires.
+// Pure: no I/O. It asks units.js, itself a leaf, only for those marks.
+
+const { prefixes } = require("./units");
 
 // Python's words that sit between operands, as an operator does.
 const KEYWORDS = new Set(["and", "or", "not", "in", "is", "if", "else", "for", "lambda", "async", "await"]);
@@ -31,9 +34,20 @@ function readsAsExpression(src) {
     pending = false;
     return true;
   };
+  const marks = prefixes();
   while (i < s.length) {
     const ch = s[i];
     if (ch === " ") { i++; continue; }
+    // a repository's mark in front of a number is the number's, so the two
+    // are one operand: step over it, and the number is read next
+    if (marks.length && (i === 0 || !/[\p{L}\p{N}_.]/u.test(s[i - 1]))) {
+      const mark = marks.find((p) => s.startsWith(p, i) && /^ ?[0-9]/.test(s.slice(i + p.length)));
+      if (mark) {
+        i += mark.length;
+        while (s[i] === " ") i++;
+        continue;
+      }
+    }
     if (ch === "'" || ch === "\"") {
       let j = i + 1;
       while (j < s.length && s[j] !== ch) j += s[j] === "\\" ? 2 : 1;

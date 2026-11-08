@@ -31,6 +31,8 @@ let documentLinkProvider = null;
 let completionProvider = null;      // the '@' reference completion
 let valueCompletionProvider = null; // the value completion (no trigger char)
 let symbolProvider = null;          // the outline, which sticky scroll reads
+let foldingProvider = null;         // the folds, a filter's among them
+let rangeSemanticProvider = null;   // the colours of the lines on screen
 const plainCommands = new Map();
 const configStore = {};
 const vscode = {
@@ -84,6 +86,8 @@ const vscode = {
     registerRenameProvider: (selector, provider) => { renameProvider = provider; return { dispose() {} }; },
     registerInlayHintsProvider: (selector, provider) => { inlayProvider = provider; return { dispose() {} }; },
     registerDocumentLinkProvider: (selector, provider) => { documentLinkProvider = provider; return { dispose() {} }; },
+    registerFoldingRangeProvider: (selector, provider) => { foldingProvider = provider; return { dispose() {} }; },
+    registerDocumentRangeSemanticTokensProvider: (selector, provider) => { rangeSemanticProvider = provider; return { dispose() {} }; },
     registerCompletionItemProvider: (selector, provider, ...triggers) => {
       // two are registered: the '@' reference completion and, with no trigger
       // character, the value completion
@@ -96,6 +100,7 @@ const vscode = {
   CompletionItem: class { constructor(label, kind) { Object.assign(this, { label, kind }); } },
   CompletionItemKind: { Field: 4, EnumMember: 19, Function: 2, Module: 8, Value: 11, Constant: 20 },
   DocumentLink: class { constructor(range, target) { Object.assign(this, { range, target }); } },
+  FoldingRange: class { constructor(start, end, kind) { Object.assign(this, { start, end, kind }); } },
   Uri: {
     parse: (s) => ({ toString: () => s }),
     file: (p) => {
@@ -135,6 +140,15 @@ const vscode = {
   },
   EndOfLine: { LF: 1, CRLF: 2 },
   TextDocumentChangeReason: { Undo: 1, Redo: 2 },
+  TextEditorSelectionChangeKind: { Keyboard: 1, Mouse: 2, Command: 3 },
+  // the clipboard a range of cells is copied to and pasted from
+  env: {
+    clipboard: {
+      _text: "",
+      readText: async () => vscode.env.clipboard._text,
+      writeText: async (t) => { vscode.env.clipboard._text = t; },
+    },
+  },
   DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   commands: {
     registerTextEditorCommand: (id, fn) => { registeredCommands.set(id, fn); return { dispose() {} }; },
@@ -738,10 +752,11 @@ const listed = [
     const ok = applied
       && applied.t.split("\n")[1] === "    Ollie|5"
       && editor.selection.active.line === 2 && editor.selection.active.character === 10;
-    // 53 table and formula commands (AutoSum went with the formula language;
-    // Define Column joined them), plus Ctrl+Alt+F9's fresh calculation
-    console.log(ok && registeredCommands.size === 54
-      ? "PASS (table editor: 54 commands; Tab aligns and moves to the next cell)"
+    // 53 table and formula commands, plus Ctrl+Alt+F9's fresh calculation —
+    // and since 1.15 the cell keys: Shift+arrow over cells (4), copy, cut and
+    // paste of a range, Ctrl+Plus and Ctrl+Minus, AutoSum, and the filter
+    console.log(ok && registeredCommands.size === 65
+      ? "PASS (table editor: 65 commands; Tab aligns and moves to the next cell)"
       : "UNEXPECTED table editor " + JSON.stringify({ n: registeredCommands.size, applied, sel: editor.selection.a }));
   });
 }
@@ -792,19 +807,19 @@ const listed = [
   const noIndent = lines.join("\n") === written
     && !vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines")
     && editor.selection.active.line === 2 && editor.selection.active.character === 6;
-  // line form: VS Code's own Tab and Shift+Tab, selected or not
+  // line form: Tab indents the lines and Shift+Tab outdents them, selected or not
   lines.splice(0, lines.length, "Otter", "    - Ollie", "    - Pup");
   editor.selection = new vscode.Selection(1, 0, 2, 0);
   vscode.commands._calls.length = 0;
   registeredCommands.get("aot.table.nextCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const lineTab = vscode.commands._calls.some((c) => c[0] === "tab");
+  const lineTab = vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines");
   vscode.commands._calls.length = 0;
   registeredCommands.get("aot.table.prevCell")(editor);
   await new Promise((r) => setImmediate(r));
-  const lineOutdent = vscode.commands._calls.some((c) => c[0] === "outdent");
+  const lineOutdent = vscode.commands._calls.some((c) => c[0] === "editor.action.outdentLines");
   console.log(kept && toNext && back && noIndent && lineTab && lineOutdent
-    ? "PASS (table editor: Tab travels the cells and indents nothing, selected or not; off a table Tab and Shift+Tab are VS Code's own)"
+    ? "PASS (table editor: Tab travels the cells and indents nothing, rows selected or not; off a table Tab indents and Shift+Tab outdents)"
     : "UNEXPECTED table indent " + JSON.stringify({ lines, kept, toNext, back, noIndent, lineTab, lineOutdent, sel: editor.selection.a }));
 })();
 
@@ -816,6 +831,16 @@ const listed = [
     && /aot\.inTable/.test(when("shift+tab")) && !/aot\.inGrid/.test(when("shift+tab"))
     ? "PASS (keys: Tab and Shift+Tab are the table's only on a table row)"
     : "UNEXPECTED Tab binding " + JSON.stringify([when("tab"), when("shift+tab")]));
+  // off a table Tab always indents the line and Shift+Tab outdents it; Ctrl+←/→
+  // travel the cells only while a cell is Ready, and step a word while editing
+  const bound = (command, key) => manifest.contributes.keybindings.find((k) => k.command === command && k.key === key);
+  const indent = bound("editor.action.indentLines", "tab"), outdent = bound("editor.action.outdentLines", "shift+tab");
+  const left = bound("aot.table.jumpLeft", "ctrl+left"), up = bound("aot.table.jumpUp", "ctrl+up");
+  console.log(indent && /!aot\.inTable/.test(indent.when) && /!suggestWidgetVisible/.test(indent.when)
+    && outdent && /!aot\.inTable/.test(outdent.when)
+    && left && /aot\.cellSelected/.test(left.when) && up && !/aot\.cellSelected/.test(up.when)
+    ? "PASS (keys: off a table Tab indents and Shift+Tab outdents; Ctrl+←/→ jump only from a Ready cell, Ctrl+↑/↓ always)"
+    : "UNEXPECTED line keys " + JSON.stringify({ indent, outdent, left, up }));
 }
 
 // 5b2a) Ctrl+/ writes the language's own `...`, and there is no block comment
@@ -1329,7 +1354,7 @@ const listed = [
     const parsed = lint(text, "Day");
     const rows = parsed.nodes.filter((n) => n.kind === 0).map((n) => n.name);
     const hosts = require("../src/python").hostsOf(parsed.nodes, text.split(/\r?\n/), "Day");
-    console.log(parsed.errors.length === 0 && !hosts.length && rows.join("|") === "Lunch|10:30 Standup|＝x()|standup： late|… rest"
+    console.log(parsed.errors.length === 0 && !hosts.length && rows.join("|") === "Lunch|10:30 Standup|＝x()|standup: late|… rest"
       && !/^=/m.test(text) && /10:30 Standup,B/.test(read(csv))
       ? "PASS (csv: a new row's name stays a row, unchanged where it can be, and never becomes code)"
       : "UNEXPECTED row names " + JSON.stringify({ rows, hosts: hosts.length, errors: parsed.errors.map((e) => e.message), csv: read(csv) }));
@@ -2200,6 +2225,350 @@ if (process.platform === "win32" || process.platform === "darwin") {
 // commit; a repository with no .gitattributes, and one whose last line has
 // no newline; and the repair on activation passing over what it cannot read
 // or set.
+// The cell keys (1.15), as a spreadsheet's: a click selects a value whole
+// (Ready) and a second click leaves a caret (Edit); Ctrl+Shift+arrow selects a
+// rectangle of cells and Shift+arrow grows it; Alt+arrow moves every row it
+// covers; Ctrl+C copies it as tab-separated rows and Ctrl+V spreads them back;
+// Ctrl+Plus inserts whole rows; Ctrl+A then Tab indents the table and what it
+// holds; Ctrl+Alt+S sorts, and again the other way. Run from the sequential
+// block: these hold the active editor across awaits.
+async function cellKeys() {
+  let lines = [
+    "Deal|price|qty|region",
+    "Acme|100  |2  |North",
+    "Bolt|40   |5  |South",
+    "Kite|70   |1  |North",
+    "    max qty: 9",
+  ];
+  const offset = (l, c) => lines.slice(0, l).reduce((n, x) => n + x.length + 1, 0) + c;
+  const doc = {
+    languageId: "aot", fileName: "c:\\repo\\Cells.aot", eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///c:/repo/Cells.aot" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  const editor = {
+    document: doc,
+    selections: [new vscode.Selection(0, 0, 0, 0)],
+    get selection() { return this.selections[0]; },
+    set selection(s) { this.selections = [s]; },
+    edit: (cb) => {
+      const edits = [];
+      cb({ replace: (range, t) => edits.push({ range, t }) });
+      edits.sort((x, y) => offset(y.range.a[0], y.range.a[1]) - offset(x.range.a[0], x.range.a[1]));
+      for (const { range, t } of edits) {
+        const [sl, sc, el, ec] = range.a;
+        const text = lines.join("\n");
+        lines = (text.slice(0, offset(sl, sc)) + t + text.slice(offset(el, ec))).split("\n");
+      }
+      return Promise.resolve(true);
+    },
+    revealRange: () => {},
+    setDecorations: () => {},
+  };
+  const before = vscode.window.activeTextEditor;
+  const pin = () => { vscode.window.activeTextEditor = editor; };
+  const click = (line, ch) => {
+    pin();
+    editor.selection = new vscode.Selection(line, ch, line, ch);
+    vscode.window._selectionChanged({ textEditor: editor, selections: [editor.selection], kind: vscode.TextEditorSelectionChangeKind.Mouse });
+  };
+  const context = (key) => {
+    pin();
+    vscode.commands._calls.length = 0;
+    vscode.window._selectionChanged({ textEditor: editor, selections: editor.selections, kind: vscode.TextEditorSelectionChangeKind.Keyboard });
+    const set = vscode.commands._calls.filter((c) => c[0] === "setContext" && c[1] === key).pop();
+    return set && set[2];
+  };
+  const sel = (s) => `${s.anchor.line}:${s.anchor.character}-${s.active.line}:${s.active.character}`;
+  try {
+    // a click on a value selects it whole, the caret at its start; a second
+    // click in it leaves the caret where it fell; a header cell is a caret
+    click(1, 7);
+    const whole = sel(editor.selection) === "1:8-1:5";
+    const ready = context("aot.cellSelected") === true;
+    click(1, 7);
+    const caret = sel(editor.selection) === "1:7-1:7" && context("aot.cellSelected") === false;
+    click(0, 7);
+    const header = sel(editor.selection) === "0:7-0:7";
+    console.log(whole && ready && caret && header
+      ? "PASS (cells: a click selects a value whole — Ready — a second click leaves a caret, and a header cell is only a caret)"
+      : "UNEXPECTED click " + JSON.stringify({ whole, ready, caret, header, sel: sel(editor.selection) }));
+
+    // Ctrl+Shift+↓ from a header cell selects the column's values, and
+    // Shift+→ takes in the next column too
+    pin();
+    editor.selection = new vscode.Selection(0, 5, 0, 5); // 'price'
+    await registeredCommands.get("aot.table.selectToEdgeDown")(editor);
+    const column = editor.selections.length === 3 && editor.selections.every((s) => s.anchor.line >= 1 && s.anchor.line <= 3)
+      && context("aot.cellRange") === true;
+    // and the status bar adds them up, as a spreadsheet's does
+    const sums = ext._test.rangeStatus();
+    const added = sums && sums.shown && sums.text === "Sum 210 · Average 70 · Count 3" && sums.command === "aot.table.summarise";
+    console.log(added
+      ? "PASS (cells: the status bar adds up the cells selected — Sum, Average, Count — and a click writes it as a formula)"
+      : "UNEXPECTED status sums " + JSON.stringify(sums && { shown: sums.shown, text: sums.text }));
+    pin();
+    await registeredCommands.get("aot.table.extendRight")(editor);
+    const twoColumns = editor.selections.length === 6;
+    console.log(column && twoColumns
+      ? "PASS (cells: Ctrl+Shift+↓ from a header selects the column's values, one selection a cell, and Shift+→ adds the next column)"
+      : "UNEXPECTED range " + JSON.stringify({ column, twoColumns, sels: editor.selections.map(sel) }));
+
+    // Ctrl+C: the values as tab-separated rows, as a spreadsheet copies them
+    pin();
+    await registeredCommands.get("aot.table.copyRange")(editor);
+    const copied = vscode.env.clipboard._text.split(/\r?\n/).join("|") === "100\t2|40\t5|70\t1";
+    console.log(copied
+      ? "PASS (cells: Ctrl+C copies the rectangle as tab-separated rows)"
+      : "UNEXPECTED copy " + JSON.stringify(vscode.env.clipboard._text));
+
+    // Alt+↓ over two rows moves both, and they stay selected
+    pin();
+    editor.selection = new vscode.Selection(1, 0, 1, 0);
+    await registeredCommands.get("aot.table.selectToEdgeRight")(editor); // Ready not needed: the command is called
+    pin();
+    await registeredCommands.get("aot.table.extendDown")(editor);
+    pin();
+    await registeredCommands.get("aot.table.moveRowDown")(editor);
+    const moved = lines[1].startsWith("Kite") && lines[2].startsWith("Acme") && lines[3].startsWith("Bolt")
+      && editor.selections.length > 1 && editor.selections.every((s) => s.anchor.line >= 2 && s.anchor.line <= 3);
+    console.log(moved
+      ? "PASS (cells: Alt+↓ moves every row the selection covers, and they stay selected)"
+      : "UNEXPECTED rows moved " + JSON.stringify({ lines, sels: editor.selections.map(sel) }));
+
+    // Ctrl+V: tab-separated rows fill the cells from the cursor's
+    vscode.env.clipboard._text = "11\t3\n12\t4";
+    pin();
+    editor.selection = new vscode.Selection(1, 5, 1, 5); // Kite's price
+    await registeredCommands.get("aot.table.paste")(editor);
+    const pasted = /^Kite\|11 +\|3 +\|North$/.test(lines[1]) && /^Acme\|12 +\|4 +\|North$/.test(lines[2]);
+    console.log(pasted
+      ? "PASS (cells: Ctrl+V spreads tab-separated rows over the cells from the cursor's)"
+      : "UNEXPECTED paste " + JSON.stringify(lines));
+
+    // Ctrl+Plus with a whole row selected inserts a row above it
+    pin();
+    editor.selection = new vscode.Selection(2, 0, 2, 0);
+    await registeredCommands.get("aot.table.selectToEdgeRight")(editor);
+    pin();
+    await registeredCommands.get("aot.table.insertCells")(editor);
+    const inserted = lines.length === 6 && /^ *\|/.test(lines[2]) && lines[3].startsWith("Acme");
+    console.log(inserted
+      ? "PASS (cells: Ctrl+Plus over a whole row inserts a row above it)"
+      : "UNEXPECTED insert " + JSON.stringify(lines));
+    pin();
+    editor.selection = new vscode.Selection(2, 0, 2, 0);
+    await registeredCommands.get("aot.table.selectToEdgeRight")(editor);
+    pin();
+    await registeredCommands.get("aot.table.deleteCells")(editor);
+    const deleted = lines.length === 5 && lines[2].startsWith("Acme");
+    console.log(deleted
+      ? "PASS (cells: Ctrl+Minus over a whole row deletes it)"
+      : "UNEXPECTED delete " + JSON.stringify(lines));
+
+    // Ctrl+Alt+S sorts by the cursor's column, and pressed again the other way
+    pin();
+    editor.selection = new vscode.Selection(2, 0, 2, 0); // the name column
+    await registeredCommands.get("aot.table.sortRows")(editor);
+    const asc = lines.slice(1, 4).map((l) => l.split("|")[0].trim()).join(",") === "Acme,Bolt,Kite";
+    pin();
+    editor.selection = new vscode.Selection(1, 0, 1, 0);
+    await registeredCommands.get("aot.table.sortRows")(editor);
+    const desc = lines.slice(1, 4).map((l) => l.split("|")[0].trim()).join(",") === "Kite,Bolt,Acme";
+    console.log(asc && desc
+      ? "PASS (cells: Ctrl+Alt+S sorts the rows by the cursor's column, and pressed again sorts them the other way)"
+      : "UNEXPECTED sort " + JSON.stringify(lines));
+
+    // Ctrl+A then Tab indents the table, and the line under it with it
+    pin();
+    editor.selection = new vscode.Selection(1, 0, 1, 0);
+    registeredCommands.get("aot.table.selectTable")(editor);
+    pin();
+    await registeredCommands.get("aot.table.nextCell")(editor);
+    const indented = lines.every((l) => l.startsWith("    ")) && lines[4] === "        max qty: 9"
+      && editor.selection.start.line === 0 && editor.selection.end.line === 3;
+    pin();
+    await registeredCommands.get("aot.table.prevCell")(editor);
+    const back = lines[0].startsWith("Deal|") && lines[4] === "    max qty: 9";
+    console.log(indented && back
+      ? "PASS (cells: Ctrl+A then Tab indents the whole table and what it holds; Shift+Tab takes it back)"
+      : "UNEXPECTED table indent " + JSON.stringify({ indented, back, lines }));
+  } finally {
+    vscode.window.activeTextEditor = before;
+  }
+}
+
+// A Concept's first subtype, typed, brings a `...` with it when the cursor
+// leaves what it was writing — before the lone-subtype warning can show — and
+// once only: a `...` deleted stays deleted.
+async function firstSubtypeOpens() {
+  const doc = {
+    lines: ["Vehicle", "    wheels", "Stone"],
+    languageId: "aot", fileName: "c:\\repo\\Open.aot", eol: vscode.EndOfLine.LF,
+    get lineCount() { return this.lines.length; },
+    getText() { return this.lines.join("\n"); },
+    lineAt(i) { return { range: new vscode.Range(i, 0, i, this.lines[i].length), text: this.lines[i] }; },
+  };
+  doc.uri = { toString: () => "file:///open-subtype", __doc: doc };
+  const editor = { document: doc, selection: new vscode.Selection(1, 10, 1, 10), setDecorations: () => {}, revealRange: () => {} };
+  const before = vscode.window.activeTextEditor;
+  const settle = () => new Promise((r) => setTimeout(r, 400));
+  const moveTo = (line, ch) => {
+    vscode.window.activeTextEditor = editor;
+    editor.selection = new vscode.Selection(line, ch, line, ch);
+    vscode.window._selectionChanged({ textEditor: editor, selections: [editor.selection] });
+  };
+  const lone = () => (published.get(doc.uri.toString()) || []).some((d) => /has 1 sub-Concept/.test(d.message));
+  try {
+    vscode.window.activeTextEditor = editor;
+    vscode.workspace._open(doc);
+    doc.lines.splice(2, 0, "    Car");
+    vscode.workspace._changed({ document: doc, contentChanges: [{ text: "\n    Car", range: new vscode.Range(1, 10, 1, 10) }] });
+    moveTo(2, 7);
+    await settle();
+    moveTo(3, 2); // Stone: out of Vehicle's family
+    await settle();
+    const opened = doc.lines.join("|") === "Vehicle|    wheels|    Car|    ...|Stone" && !lone();
+    // deleted, and the burst over again: it stays deleted
+    doc.lines.splice(3, 1);
+    vscode.workspace._changed({ document: doc, contentChanges: [{ text: "", range: new vscode.Range(2, 7, 3, 7) }] });
+    moveTo(2, 7);
+    await settle();
+    moveTo(3, 2);
+    await settle();
+    const once = doc.lines.join("|") === "Vehicle|    wheels|    Car|Stone";
+    console.log(opened && once
+      ? "PASS (first subtype: leaving it adds a '...' after it, so no lone-subtype warning shows; deleted, it stays deleted)"
+      : "UNEXPECTED first subtype " + JSON.stringify({ opened, once, lines: doc.lines, lone: lone() }));
+  } finally {
+    vscode.window.activeTextEditor = before;
+  }
+}
+
+// The lightbulb on two rows carrying the same data: a `...` on the row, in a
+// `...` column the table gains; or a `...` under the table.
+async function identicalRowsFix() {
+  const doc = {
+    lines: ["Payment|amount|payee|date", "P1     |1,234 |Shop |2026-01-05", "P2     |1,234 |Shop |2026-01-05", "P3     |9     |Rent |2026-01-06"],
+    languageId: "aot", fileName: "c:\\repo\\Twins.aot", eol: vscode.EndOfLine.LF,
+    get lineCount() { return this.lines.length; },
+    getText() { return this.lines.join("\n"); },
+    lineAt(i) { return { range: new vscode.Range(i, 0, i, this.lines[i].length), text: this.lines[i] }; },
+  };
+  doc.uri = { toString: () => "file:///identical-rows", __doc: doc };
+  vscode.workspace._open(doc);
+  const textDocs = vscode.workspace.textDocuments;
+  vscode.workspace.textDocuments = [...textDocs, doc];
+  try {
+    const twin = (published.get(doc.uri.toString()) || []).find((d) => /^give one a value that tells them apart/.test(d.message) && d.range.start.line === 2);
+    const fixes = twin ? codeActionsProvider.provideCodeActions(doc, twin.range, { diagnostics: [twin] }) : [];
+    const own = fixes.find((f) => f.command && f.command.command === "aot.markOpen" && f.command.arguments[2] === "row");
+    const under = fixes.find((f) => f.command && f.command.command === "aot.markOpen" && f.command.arguments[2] === "parent");
+    if (own) await plainCommands.get("aot.markOpen")(...own.command.arguments);
+    const marked = doc.lines[0].endsWith("|...") && /\|\.\.\.$/.test(doc.lines[2]) && !/\.\.\./.test(doc.lines[1]);
+    const after = lint(doc.lines.join("\n"), "Twins").warnings.filter((w) => /^give one a value/.test(w.message)).length === 0;
+    console.log(twin && own && under && /Add '\.\.\.' under 'Payment'/.test(under.title) && marked && after
+      ? "PASS (identical rows: the lightbulb marks the row with '...' in a '...' column, or puts one under the table, and the warning goes)"
+      : "UNEXPECTED identical rows fix " + JSON.stringify({ twin: twin && twin.message, fixes: fixes.map((f) => f.title), lines: doc.lines }));
+  } finally {
+    vscode.workspace.textDocuments = textDocs;
+  }
+}
+
+// A long table folds to its header and a divider's group to its divider; a
+// filter (Ctrl+Shift+L) is folds over the rows not holding the cell's value,
+// said in the status bar and cleared on the header; a column's header hovers
+// with its profile; and twenty findings opening with one fix are one.
+async function foldAndFilter() {
+  let lines = [
+    "Order|region|amount",
+    "A    |North |10",
+    "B    |South |20",
+    "-----+------+------",
+    "C    |North |30",
+    "D    |North |",
+    "    note: x",
+  ];
+  const doc = {
+    languageId: "aot", fileName: "c:\\repo\\Fold.aot", eol: vscode.EndOfLine.LF,
+    uri: { toString: () => "file:///fold" },
+    get lineCount() { return lines.length; },
+    getText: () => lines.join("\n"),
+    lineAt: (i) => ({ range: new vscode.Range(i, 0, i, lines[i].length), text: lines[i] }),
+  };
+  const editor = {
+    document: doc, selections: [new vscode.Selection(0, 0, 0, 0)],
+    get selection() { return this.selections[0]; },
+    set selection(s) { this.selections = [s]; },
+    edit: () => Promise.resolve(true), revealRange: () => {}, setDecorations: () => {},
+  };
+  const before = vscode.window.activeTextEditor;
+  vscode.window.activeTextEditor = editor;
+  try {
+    const folds = () => (foldingProvider ? foldingProvider.provideFoldingRanges(doc) : []).map((f) => `${f.start}-${f.end}`).join(",");
+    console.log(folds() === "0-6,3-5"
+      ? "PASS (folding: a table folds to its header, what it holds with it, and a divider's group to its divider)"
+      : "UNEXPECTED folds " + JSON.stringify(folds()));
+
+    // Ctrl+Shift+L on a North cell: South's row is folded away under A's
+    vscode.commands._calls.length = 0;
+    editor.selection = new vscode.Selection(1, 6, 1, 6);
+    await registeredCommands.get("aot.table.filter")(editor);
+    const folded = vscode.commands._calls.find((c) => c[0] === "editor.fold");
+    const filteredFolds = folds();
+    console.log(folded && JSON.stringify(folded[1].selectionLines) === "[1]" && /(^|,)1-2(,|$)/.test(filteredFolds)
+      ? "PASS (filter: Ctrl+Shift+L folds away the rows not holding the cell's value, each run under the row above it)"
+      : "UNEXPECTED filter " + JSON.stringify({ folded, filteredFolds }));
+    // a second column narrows it: North and an empty amount — D alone, the
+    // divider staying in sight between the two runs it hides
+    editor.selection = new vscode.Selection(5, 15, 5, 15);
+    await registeredCommands.get("aot.table.filter")(editor);
+    const narrowed = /(^|,)0-2(,|$)/.test(folds()) && /(^|,)3-4(,|$)/.test(folds());
+    // the keys and the status bar's numbers step over hidden rows
+    editor.selection = new vscode.Selection(0, 7, 0, 7);
+    await registeredCommands.get("aot.table.selectToEdgeDown")(editor);
+    const visibleOnly = editor.selections.length === 1 && editor.selections[0].anchor.line === 5;
+    // on the header: every row again
+    vscode.commands._calls.length = 0;
+    editor.selection = new vscode.Selection(0, 2, 0, 2);
+    await registeredCommands.get("aot.table.filter")(editor);
+    const unfolded = vscode.commands._calls.some((c) => c[0] === "editor.unfold") && folds() === "0-6,3-5";
+    console.log(narrowed && visibleOnly && unfolded
+      ? "PASS (filter: a second column narrows it, the keys step over hidden rows, and Ctrl+Shift+L on the header shows every row again)"
+      : "UNEXPECTED filter narrowing " + JSON.stringify({ narrowed, visibleOnly, unfolded, folds: folds(), sels: editor.selections.map((s) => s.a) }));
+    // closed, the file takes its filter with it: reopened, every row shows
+    editor.selection = new vscode.Selection(1, 6, 1, 6);
+    await registeredCommands.get("aot.table.filter")(editor);
+    const whileOpen = folds();
+    vscode.workspace._close(doc);
+    console.log(whileOpen !== "0-6,3-5" && folds() === "0-6,3-5"
+      ? "PASS (filter: closing the file drops its filter, so it reopens with every row)"
+      : "UNEXPECTED filter after close " + JSON.stringify({ whileOpen, after: folds() }));
+
+    // hovering a column's header: the column at a glance
+    lines = ["Order|region|amount", "A|North|$10", "B|South|$20", "C|North|$30", "D|North|"];
+    const hover = hoverProvider.provideHover(doc, new vscode.Position(0, 14));
+    const said = hover && (Array.isArray(hover.contents) ? hover.contents[0] : hover.contents).value;
+    console.log(said && /\*\*amount\*\* · 4 rows: 3 with a value, 1 blank, 3 different/.test(said) && /Sum \$60 · Average \$20 · Min \$10 · Max \$30/.test(said)
+      ? "PASS (profile: hovering a column's header shows its cells, blanks, distinct values and its numbers added up)"
+      : "UNEXPECTED profile " + JSON.stringify(said));
+  } finally {
+    vscode.window.activeTextEditor = before;
+  }
+
+  // twenty rows breaking one rule are one finding, its fix whole, the rest related
+  const many = ["Order|qty >=1"];
+  for (let i = 0; i < 25; i++) many.push(`R${i}|0`);
+  const tabbed = makeDoc("c:\\repo\\Many.aot", ["Thing", ...Array.from({ length: 25 }, (_, i) => `    note ${i}: a\tb`)].join("\n"));
+  vscode.workspace._open(tabbed);
+  const rolled = (published.get(tabbed.uri.toString()) || []).filter((d) => /^replace the tab with a space/.test(d.message));
+  console.log(rolled.length === 1 && /and 24 more like it/.test(rolled[0].message) && rolled[0].relatedInformation.length === 10
+    ? "PASS (findings: twenty or more with one fix are one, its own message whole, the first others under Related)"
+    : "UNEXPECTED roll-up " + JSON.stringify(rolled.map((d) => d.message.slice(-60))));
+}
+
 async function gitMergeEdges() {
   const os = require("os");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aot-gitedges-"));
@@ -2458,24 +2827,32 @@ async function hoistAndReconcile() {
   ];
   const doc = makeDoc("c:\\repo\\Keys.aot", lines.join("\n"));
   let edited = 0;
+  // as VS Code's own: the selection is the first of the selections
   const editor = {
     document: doc,
-    selection: new vscode.Selection(1, 7, 1, 7), // in Ollie's size
+    selections: [new vscode.Selection(1, 7, 1, 7)], // in Ollie's size
+    get selection() { return this.selections[0]; },
+    set selection(s) { this.selections = [s]; },
     edit: () => { edited++; return Promise.resolve(true); },
     revealRange: () => {},
   };
   registeredCommands.get("aot.table.jumpDown")(editor);
-  const jumped = editor.selection.active.line === 3 && editor.selection.active.character === 7;
-  registeredCommands.get("aot.table.selectToEdgeUp")(editor);
-  const selected = editor.selection.anchor.line === 3 && editor.selection.active.line === 1;
+  // the cell it lands on is selected whole, the caret at its start: Ready
+  const jumped = editor.selection.active.line === 3 && editor.selection.active.character === 7
+    && editor.selection.anchor.character === 8;
+  await registeredCommands.get("aot.table.selectToEdgeUp")(editor);
+  // Ctrl+Shift+↑ selects the cells to the edge of the data, one selection a
+  // cell, the active one (Ollie's 5) first; Pebble's empty cell a caret
+  const at = (s) => `${s.anchor.line}:${s.anchor.character}-${s.active.line}:${s.active.character}`;
+  const selected = editor.selections.map(at).join(",") === "1:8-1:7,2:7-2:7,3:8-3:7";
   registeredCommands.get("aot.table.lastCell")(editor);
   const last = editor.selection.active.line === 3 && editor.selection.isEmpty;
   vscode.commands._calls.length = 0;
   registeredCommands.get("aot.table.lastCell")(editor);
   const leaves = vscode.commands._calls.some((c) => c[0] === "cursorBottom");
   console.log(jumped && selected && last && leaves && edited === 0
-    ? "PASS (spreadsheet keys: Ctrl+arrow jumps, Shift selects, Ctrl+End twice leaves the table — no edit)"
-    : "UNEXPECTED spreadsheet moves " + JSON.stringify({ jumped, selected, last, leaves, edited, sel: editor.selection.a }));
+    ? "PASS (spreadsheet keys: Ctrl+arrow jumps to a cell selected, Ctrl+Shift selects the cells, Ctrl+End twice leaves the table — no edit)"
+    : "UNEXPECTED spreadsheet moves " + JSON.stringify({ jumped, selected, last, leaves, edited, sels: editor.selections.map(at) }));
 
   registeredCommands.get("aot.table.selectTable")(editor);
   const table1 = editor.selection.start.line === 0 && editor.selection.end.line === 3;
@@ -2547,25 +2924,31 @@ async function hoistAndReconcile() {
     ? "PASS (free text: an Example's line takes the table keys; a bare attribute line does not)"
     : "UNEXPECTED grid context " + JSON.stringify({ onExample, onDeclaration }));
 
-  // on an Example's line and on an attribute alike, Tab is VS Code's own
+  // on an Example's line and on an attribute alike, Tab indents the line
   const ownTabAt = async (line, ch) => {
     editor.selection = new vscode.Selection(line, ch, line, ch);
     vscode.commands._calls.length = 0;
     await registeredCommands.get("aot.table.nextCell")(editor);
-    return vscode.commands._calls.some((c) => c[0] === "tab") && editor.selection.active.line === line;
+    return vscode.commands._calls.some((c) => c[0] === "editor.action.indentLines") && editor.selection.active.line === line;
   };
   const onExampleTab = await ownTabAt(2, 6), onValueTab = await ownTabAt(3, 13), onAttrTab = await ownTabAt(1, 4);
   console.log(onExampleTab && onValueTab && onAttrTab
-    ? "PASS (free text: Tab is VS Code's own, on an Example, a value and an attribute)"
+    ? "PASS (free text: Tab indents the line, on an Example, a value and an attribute)"
     : "UNEXPECTED free-text Tab " + JSON.stringify({ onExampleTab, onValueTab, onAttrTab, sel: editor.selection.a }));
 
   editor.selection = new vscode.Selection(7, 14, 7, 14); // Bob's city
   await registeredCommands.get("aot.table.fillDown")(editor);
   const filled = lines[7] === "        city: Paris" && lines.length === 8;
-  const noSum = !registeredCommands.has("aot.table.autoSum");
-  console.log(filled && noSum
-    ? "PASS (free text: Ctrl+D fills from the Example above; AutoSum went with the formula language)"
-    : "UNEXPECTED free-text fill " + JSON.stringify({ lines, noSum }));
+  // AutoSum (Alt+=) writes the column's total under the Concept, as a formula
+  editor.selection = new vscode.Selection(6, 13, 6, 13); // Bob's age
+  await registeredCommands.get("aot.table.autoSum")(editor);
+  const summed = lines[lines.length - 1] === "    total age: =@Person@age.sum()";
+  await registeredCommands.get("aot.table.autoSum")(editor);
+  const once = lines.filter((l) => /total age/.test(l)).length === 1;
+  lines = lines.filter((l) => !/total age/.test(l)); // the checks below read the grid as it was
+  console.log(filled && summed && once
+    ? "PASS (free text: Ctrl+D fills from the Example above; Alt+= writes the column's total under the Concept, once)"
+    : "UNEXPECTED free-text fill " + JSON.stringify({ lines, summed, once }));
 
   editor.selection = new vscode.Selection(3, 13, 3, 13); // Ann's age
   await registeredCommands.get("aot.table.moveRowDown")(editor);
@@ -2713,6 +3096,19 @@ async function hoistAndReconcile() {
   console.log(item && !item.shown
     ? "PASS (status bar: away from a table the address hides)"
     : "UNEXPECTED cell address off-table " + JSON.stringify(item && item.text));
+
+  // a value its column's formula calculates: the status bar shows the formula,
+  // as a spreadsheet's formula bar does, and a click goes to it
+  const defined = makeDoc("c:\\repo\\Defined.aot", ["Deal|price|qty|net =@price*@qty", "Acme|10   |2  |20"].join("\n"));
+  vscode.window.activeTextEditor = {
+    document: defined, selection: new vscode.Selection(1, 15, 1, 15),
+    setDecorations: () => {}, revealRange: () => {},
+  };
+  vscode.window._selectionChanged({ textEditor: vscode.window.activeTextEditor, selections: [vscode.window.activeTextEditor.selection] });
+  console.log(item && item.shown && /Deal ▸ Acme ▸ net .*=@price\*@qty/.test(item.text)
+    && item.command && item.command.command === "aot.table.goToLine" && item.command.arguments[1] === 0
+    ? "PASS (status bar: a value its column's formula calculates shows that formula, and a click goes to it)"
+    : "UNEXPECTED formula bar " + JSON.stringify(item && { text: item.text, command: item.command }));
   vscode.window.activeTextEditor = undefined;
 }
 
@@ -3388,6 +3784,14 @@ late(3200, async () => {
     && items[0].detail === "column"
     ? "PASS (completion: '@' in a table cell offers columns first, then Examples)"
     : "UNEXPECTED completion " + JSON.stringify({ cols, exs }));
+  // a name holding a space, half typed: the pick replaces all of it
+  const spaced = ["Order", "    name |list price|total", "    Alpha|10        |=@list p"].join("\n");
+  const docSp = makeDoc("c:\\repo\\Spaced.aot", spaced);
+  const spCol = spaced.split("\n")[2].length;
+  const spItem = completionProvider.provideCompletionItems(docSp, new vscode.Position(2, spCol)).find((i) => i.label === "list price");
+  console.log(spItem && spItem.range && spItem.range.a.join(",") === `2,${spCol - "list p".length},2,${spCol}`
+    ? "PASS (completion: picking a name with a space replaces everything typed since the '@')"
+    : "UNEXPECTED completion range " + JSON.stringify(spItem && spItem.range && spItem.range.a));
 
   const lineForm = [
     "Order",
@@ -3466,6 +3870,9 @@ late(3200, async () => {
   await settle();
   const waitsAgain = !lone();
   moveTo(3, 2);
+  // what waited shows once the release has written what it writes first (a
+  // first subtype's `...`, which this stand-in document does not take)
+  await new Promise((r) => setTimeout(r, 0));
   const shown = lone() && plural() && !status.shown;
   vscode.window.activeTextEditor = activeBefore;
   console.log(before && waiting && stillWaiting && moot && waitsAgain && shown
@@ -4207,6 +4614,22 @@ setTimeout(async () => {
       && approveSent.length === 1 && Object.keys(approveSent[0].files)[0] === finance
       ? "PASS (python: a module anywhere in the repository runs once allowed, asked about by its own path)"
       : "UNEXPECTED repository module " + JSON.stringify({ lines: g.lines(), warnings: vscode.window._warnings.slice(reached), approveSent }));
+
+    // the repository's own units go with the open, read off the file's lines,
+    // so the formulas calculate by them as the editor reads them
+    {
+      const answerWas = vscode.window._warningAnswer;
+      vscode.window._warningAnswer = "Enable";
+      const s = live(path.join(root, "Swiss.aot"), ["Swiss", "    total: =1+1", "Unit", "    Money|factor|format", "    CHF|1|CHF #", "    Rappen|0.01|# Rp"]);
+      await run(s, 1);
+      const opened = requests.filter((r) => r.op === "open").pop();
+      const sent = opened && opened.units;
+      console.log(Array.isArray(sent) && sent.some((u) => u.name === "CHF" && u.prefix === "CHF" && u.kind === "Money")
+        && sent.some((u) => u.name === "Rappen" && u.suffix === "Rp" && u.factor === "0.01")
+        ? "PASS (python: the repository's own units go with the open, read off the file's lines)"
+        : "UNEXPECTED units sent " + JSON.stringify(sent));
+      vscode.window._warningAnswer = answerWas;
+    }
 
     // changed on disk, outside the editor: what names it is out of date, nothing else is
     await new Promise((r) => setTimeout(r, 30));
@@ -5062,6 +5485,30 @@ setTimeout(async () => {
         vscode.workspace._close(st.doc);
       }
 
+      // a formula written here and saved by a save the will-save step never
+      // saw (VS Code stops calling a listener that ran over its time budget) is
+      // still the writer's: it runs without being asked about. One another
+      // tool wrote to the disk, reloaded into the editor, is asked about.
+      {
+        const own = live(path.join(root, "Consent.aot"), ["Consent", "    a: 2"]);
+        vscode.workspace.textDocuments = [f.doc, own.doc];
+        vscode.workspace._open(own.doc);
+        own.set(own.text() + "\n    b: =@a*7");
+        fs.writeFileSync(own.doc.fileName, own.text());
+        vscode.workspace._save(own.doc); // no _willSave first
+        const mine = await ext._test.runPython(own.editor, { mode: "auto" });
+        const fromOutside = own.text() + "\n    c: =@a*9";
+        fs.writeFileSync(own.doc.fileName, fromOutside);
+        own.set(fromOutside);
+        own.doc.isDirty = false; // the editor reloading what the other tool wrote
+        vscode.workspace._changed({ document: own.doc, contentChanges: [{ text: "\n    c: =@a*9", range: new vscode.Range(2, 11, 2, 11) }] });
+        const theirs = await ext._test.runPython(own.editor, { mode: "auto" });
+        console.log(mine.blocked !== "consent" && theirs.blocked === "consent"
+          ? "PASS (consent: a formula saved here is the writer's though the will-save step never ran; one reloaded from another tool is asked about)"
+          : "UNEXPECTED consent without will-save " + JSON.stringify({ mine, theirs }));
+        vscode.workspace._close(own.doc);
+      }
+
       // a CSV edit arriving: the .aot takes it, calculates, and goes back to disk
       // with what it computed
       {
@@ -5239,6 +5686,10 @@ setTimeout(async () => {
     }
     await hoistAndReconcile();
     await gitMergeEdges();
+    await cellKeys();
+    await firstSubtypeOpens();
+    await identicalRowsFix();
+    await foldAndFilter();
     vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
 
     // Ctrl+Enter is VS Code's own again: nothing here binds it, and no command stands behind it

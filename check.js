@@ -36,6 +36,7 @@ const park = require("./src/park");
 const repo = require("./src/repo");
 const table = require("./src/table");
 const derive = require("./src/derive");
+const units = require("./src/units");
 const { unlistedValues, externalIndex } = require("./src/crosslinks");
 
 const BATCH = 64;
@@ -156,6 +157,7 @@ async function calculate(e, others, root, exe) {
         op: "open", file: e.file, root: e.rootName, aotFiles,
         sidecar: sidecarMtime === null ? null : sidecar, sidecarMtime,
         repo: root, pyFiles: files, approved, tree: python.treeOf(e.root),
+        units: units.definedUnits(),
       });
     } catch (err) {
       tally.failed++;
@@ -314,15 +316,17 @@ async function main() {
     console.error(`no .aot files under '${args.join(" ") || "."}', so nothing was checked`);
     process.exit(2);
   }
-  const entries = universe.map((file) => {
+  const read = universe.map((file) => {
     let text;
     try { text = fs.readFileSync(file, "utf8"); } catch (err) {
       console.error(`could not read '${file}' — ${err.message}`);
       process.exit(2);
     }
-    const rootName = path.basename(file).replace(/\.[^.]*$/, "");
-    return { file, text, rootName, ...gates.judge(text, rootName) };
+    return { file, text, rootName: path.basename(file).replace(/\.[^.]*$/, "") };
   });
+  // the repository's own units before any file is judged, as in the editor
+  gates.defineUnitsFrom(read);
+  const entries = read.map((e) => ({ ...e, ...gates.judge(e.text, e.rootName) }));
   const all = repo.occurrences(entries);
   const exe = findPython(explicit, root);
   let warned = false;
@@ -333,6 +337,9 @@ async function main() {
       tally.violations++;
       say(e.file, line, "error", message);
     }
+    // a lone subtype another file's copy of the Concept answers is no finding,
+    // as in the editor
+    repo.dropExcusedLoneSubtypes(e.warnings, e.file, all);
     for (const { line, message } of [...e.warnings, ...e.depWarnings, ...e.notes]) say(e.file, line, "warning", message);
     const cross = repo.findings(e.file, all, { autoReconcile: false });
     for (const { line, message } of cross.errors) {

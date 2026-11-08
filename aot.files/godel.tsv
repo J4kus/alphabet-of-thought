@@ -385,6 +385,23 @@ a	number of columns	2647
 a	quantum	2657
 a	thickness	2659
 a	timber	2663
+a	budget	2671
+a	checklist	2677
+a	coffee break	2683
+a	contractors	2687
+a	date	2689
+a	effort	2693
+a	factor	2699
+a	lunch	2707
+a	measures	2711
+a	payee	2713
+a	picture	2719
+a	rating	2729
+a	region	2731
+a	staff	2741
+a	sum	2749
+a	terms	2753
+a	total effort	2767
 v	active	2	No
 v	actual	2	9
 v	actual	3	average
@@ -444,6 +461,14 @@ v	amount	10	900
 v	amount	11	2,000
 v	amount	12	20,000
 v	amount	13	4,480
+v	amount	14	$1,000
+v	amount	15	$100
+v	amount	16	$250
+v	amount	17	$4,210
+v	amount	18	$40
+v	amount	19	$500
+v	amount	20	$75
+v	amount	21	$90
 v	area	2	constraints
 v	area	3	editor
 v	area	4	every derivation is Python
@@ -474,6 +499,13 @@ v	area	28	checks
 v	area	29	inheritance
 v	area	30	numbers
 v	area	31	units
+v	area	32	adding up
+v	area	33	cells
+v	area	34	filter
+v	area	35	formulas
+v	area	36	sorting
+v	area	37	tab
+v	area	38	tabs
 v	attribute	2	"version"
 v	attribute	3	value
 v	attribute one	2	0
@@ -919,6 +951,31 @@ v	expected	200	the net of Acme is $70,000 and of Kite €17,000
 v	expected	201	the net says n/a is text, so it can't be multiplied, and keeps its value
 v	expected	202	the status bar counts the problem though V is 0, then says formulas not calculated
 v	expected	203	the total comes back in miles
+v	expected	204	6 rows, 5 with a value, 1 blank, 3 different, and North the most common, three times
+v	expected	205	Agate and Basalt move down past Cobalt together and stay selected
+v	expected	206	Agate, Basalt and Cobalt all read East as you type; the undo puts them back
+v	expected	207	Cobalt, Basalt, Dune, Agate by amount, as numbers, and then the other way; by region Dune and its blank region go last; Ember and Flint below the divider never move
+v	expected	208	Ctrl+A selects the table; Tab indents all of it a level and keeps it selected; Shift+Tab brings it back
+v	expected	209	Excel gets one amount a cell, as numbers; the paste fills the region and amount of Ember and Flint, and adds no column
+v	expected	210	T1 and T2 each warn that they carry the same 3 values; the lightbulb writes a dots column with a dots cell for T1, or a dots line under the table, and both warnings go
+v	expected	211	a dots line appears after Local Supplier and no lone-subtype warning shows; delete both lines and nothing comes back
+v	expected	212	a line total amount with its formula goes in one level under the table, and calculates 1,965 dollars
+v	expected	213	a red squiggle says to replace the tab with a space, and its lightbulb does
+v	expected	214	both lines starting re are rows of Message and line up under its header; nothing warns
+v	expected	215	from a highlighted cell each press jumps a cell and lands highlighted; from a caret it steps through the text, as anywhere in VS Code
+v	expected	216	it is underlined as a link and opens the 1.14 checklist beside this file
+v	expected	217	only Agate, Cobalt and Ember stay in view, the divider with them, and the status bar says 3 of 6 rows; on the header every row comes back and the status bar item goes
+v	expected	218	only the formula is highlighted, from its equals sign to the end, and CHF 10.5 in front of it is left alone
+v	expected	219	the divider folds Ember and Flint under it; the header folds the whole table to one line
+v	expected	220	the divider of Old Stock is drawn with a plus where its pipe was, and still divides Hinge from Nail
+v	expected	221	the first click highlights 250 whole and typing replaces it; the second click leaves a caret where you clicked
+v	expected	222	the line reads at coffee break once, with nothing of what you typed left before it
+v	expected	223	the six amounts are selected, each whole, no pipe and not the divider, and the status bar says Sum 1,965 dollars and Count 6; Shift+Right adds the vat cells
+v	expected	224	the status bar names Ledger, Agate and vat and shows the column's formula; the click goes to the vat header
+v	expected	225	the whole line moves in a level and back, and Birch is never split
+v	expected	226	the whole row selected gets an empty row above it; one cell asks how, as Excel does, to shift cells up or left, or the entire row or column; on Birch only Entire row and Entire column are offered; outside a table or a Concept's lines the editor zooms, as before
+v	expected	227	tip calculates CHF 1, and no notice says formulas came from outside this editor
+v	expected	228	total is CHF 10.5, left CHF 4.5, and total effort 3 FTE; the hover says Unit, Money, CHF, written in this repository; these units hold for every file of this repository
 v	exponent	2	1
 v	extension description	2	alphabet of thought
 v	extension identifier	2	aot
@@ -989,8 +1046,21 @@ v	fixture	56	Stock below, aot.files/Stock.csv, and the setting aot.tableCsvSyncM
 v	fixture	57	Hand Tool and Spare Kit below
 v	fixture	58	Grove below
 v	fixture	59	Stock below and aot.files/Stock.csv
+v	fixture	60	Earlier Release below
+v	fixture	61	Ledger and Supplier below
+v	fixture	62	Ledger below
+v	fixture	63	Message below
+v	fixture	64	Old Stock below
+v	fixture	65	Outing below
+v	fixture	66	Supplier below
+v	fixture	67	Transfer in release 1.15 errors.aot
+v	fixture	68	Unit, Outing and Staffing below
+v	fixture	69	the region column of Ledger
+v	fixture	70	the vat column of Ledger
 v	flag	2	Yes
 v	format	2	plain text
+v	format	3	# Rp
+v	format	4	CHF #
 v	from the ledger	2	12
 v	from the ledger	3	20
 v	fuel	2	gas
@@ -1068,6 +1138,7 @@ v	leaf	2	black
 v	leaf	3	none
 v	left	2	a
 v	left	3	b
+v	left	4	CHF 4.5
 v	legs	2	2
 v	legs	3	4
 v	length	2	3
@@ -1099,6 +1170,7 @@ v	minimum bit count	2	0
 v	minimum number of elements	2	1
 v	month	2	2026-01
 v	month	3	2026-04
+v	month	4	2026-02
 v	mood	2	calm
 v	mood	3	glad
 v	multiplier	2	1
@@ -1237,6 +1309,8 @@ v	start	2	:
 v	state	2	open
 v	state	3	paid
 v	status	2	void
+v	status	3	draft
+v	status	4	sent
 v	stops	2	
 v	stops	3	2
 v	storage capacity	2	1 shared broadcast item between specialist processes
@@ -1308,6 +1382,7 @@ v	total	7	90
 v	total	8	22
 v	total	9	240.7008 km
 v	total	10	240.70080000000002 km
+v	total	11	CHF 10.5
 v	total units	2	1,204
 v	total units	3	1,380
 v	total units	4	990
@@ -1395,6 +1470,30 @@ v	try	78	turn formulas on and leave the discount cell in Deal below
 v	try	79	type 99999 over the net of Kite and leave the cell
 v	try	80	type n/a over the list price of Acme and leave the cell
 v	try	81	write 5 kg in front of the formula on total in Trip Summary
+v	try	82	click after the colon of total
+v	try	83	click inside 250 in the Basalt row and type 300, then click inside 300 a second time, then press Ctrl+Z
+v	try	84	click the fold arrow beside the divider, then the one beside the header, then unfold both
+v	try	85	click the region of Agate and press Ctrl+Right twice; then click inside 1,000 twice and press Ctrl+Right
+v	try	86	click the region of Agate, press Shift+Down twice, type East, then press Ctrl+Z
+v	try	87	click the region of Agate, press Shift+Down, then Alt+Down, then Ctrl+Z
+v	try	88	click the region of Basalt and press Shift+Right twice, then Ctrl+Shift+Equals, then Ctrl+Z; click the amount of Basalt alone and press Ctrl+Minus, then Escape; put the cursor on the Birch line and press Ctrl+Shift+Equals; outside both, press Ctrl+Shift+Equals
+v	try	89	copy two neighbouring cells from a spreadsheet, paste them over net 30 under Alder, then press Ctrl+Z
+v	try	90	hover release 1.14.aot in Earlier Release, then Ctrl+click it
+v	try	91	hover the region header
+v	try	92	on a new line under Birch, at the level of its dash, type Local Supplier, then click outside Supplier
+v	try	93	on a new line under Outing type tax, a colon, an equals sign, an at sign and coffee b, then pick coffee break from the list
+v	try	94	open that file, hover T1, and choose the lightbulb that marks it
+v	try	95	put the cursor in the Message table, press Ctrl+A, then Tab, then Shift+Tab
+v	try	96	put the cursor in the amount of Basalt and press Ctrl+Alt+S, then again; then put it in a region cell and press it once more
+v	try	97	put the cursor in the middle of Birch and press Tab, then Shift+Tab
+v	try	98	put the cursor in the vat cell of Agate, then click the formula in the status bar
+v	try	99	put the cursor on a North cell and press Ctrl+Shift+L; then press it on the header
+v	try	100	put the cursor on the amount header and press Ctrl+Shift+Down, then Shift+Right
+v	try	101	run Format Document
+v	try	102	select the amounts as in D05, press Ctrl+C and paste into Excel; then copy two rows of two cells in Excel, click the region of Ember and press Ctrl+V; then press Ctrl+Z
+v	try	103	turn formulas on, put the cursor in an amount and press Alt+Equals, then Ctrl+Z
+v	try	104	turn formulas on; look at total and left in Outing and total effort in Staffing; hover CHF in the budget line
+v	try	105	with formulas on, on a new line under Outing type tip, a colon, an equals sign and an at sign, pick lunch from the list, type a star and 0.1, and press Ctrl+S at once
 v	turns	2	WIDGET into widget
 v	turns	3	a packed value into its fields
 v	turns	4	a part into its position, or zero when it is absent
@@ -1417,6 +1516,12 @@ v	vat	3	20
 v	vat	4	716.8
 v	vat	5	16
 v	vat	6	716.8000000000001
+v	vat	7	$100
+v	vat	8	$15
+v	vat	9	$20
+v	vat	10	$200
+v	vat	11	$50
+v	vat	12	$8
 v	volume	2	1.7
 v	waiting for	2	external instrument
 v	waiting for	3	a signal from another task
@@ -1428,6 +1533,7 @@ v	weight	3	15
 v	weight	4	2
 v	weight	5	40
 v	weight	6	9
+v	weight	7	5
 v	what type of extension do you want to create	2	New Language Support
 v	wheels	2	4
 v	when no	2	0
@@ -1471,6 +1577,8 @@ v	count	6	6
 v	count	7	4
 v	count	8	20
 v	count	9	10
+v	count	10	25
+v	count	11	40
 v	philosopher	2	Socrates
 v	warmth	2	100
 v	warmth	3	150
@@ -1698,6 +1806,7 @@ v	material	2	concrete
 v	material	3	sheeting
 v	material	4	single brick wall
 v	material	5	wood
+v	material	6	wood posts
 v	meters	2	13
 v	meters	3	18
 v	meters	4	25
@@ -1709,3 +1818,29 @@ v	quantum	5	500
 v	quantum	6	56
 v	thickness	2	0.4mm-0.53mm
 v	timber	2	treated pine
+v	budget	2	15
+v	checklist	2	release 1.14.aot
+v	coffee break	2	50 Rp
+v	contractors	2	220 PD
+v	date	2	2026-03-02
+v	date	3	2026-03-04
+v	factor	2	0.01
+v	factor	3	1
+v	factor	4	1/220
+v	lunch	2	CHF 10
+v	measures	2	work
+v	measures	3	worth
+v	payee	2	Orchard
+v	payee	3	Quarry
+v	picture	2	
+v	picture	3	aot.files/Sales.picture.png
+v	rating	2	4
+v	rating	3	5
+v	region	2	North
+v	region	3	South
+v	region	4	West
+v	staff	2	2 FTE
+v	sum	2	3,584
+v	terms	2	net 30
+v	terms	3	net 60
+v	total effort	2	3 FTE

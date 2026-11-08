@@ -4,7 +4,7 @@
 // timeout-bounded, and only ever on demand. Pure apart from the network;
 // the request function is injectable so the tests never touch the wire.
 
-const { isRowText, splitCell } = require("./table");
+const { isRowAt, splitCell } = require("./table");
 const dns = require("dns");
 const http = require("http");
 const https = require("https");
@@ -29,15 +29,19 @@ function findUrls(lines) {
 }
 
 // A path-shaped value: an absolute Windows (`C:\...`) or POSIX (`/...`) path,
-// a `~`-home path, a relative path with a slash, or a bare `name.ext`. Taken
-// from after the colon of a `attribute: value` line, or a whole table cell —
-// the value must look like a path, not merely contain a dotted word.
+// a `~`-home path, a relative path with a slash, or a bare `name.ext` — spaces
+// and all, `Q3 report.pdf`, since a bare name is looked for beside the .aot.
+// Taken from after the colon of a `attribute: value` line, or a whole table
+// cell — the value must look like a path, not merely contain a dotted word. An
+// extension starts with a letter, so a number (`3.14`, `1,204.50`, `v1.2`) is
+// never looked for on disk.
 const WIN_ABS = /^[A-Za-z]:[\\/]/;
+const BARE_NAME = /^[^\\/:*?"<>|\s](?:[^\\/:*?"<>|]*[^\\/:*?"<>|\s])?\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 const looksLikePath = (v) => {
   const s = v.trim();
   if (!s || /^https?:\/\//.test(s)) return false;
   return WIN_ABS.test(s) || s.startsWith("/") || s.startsWith("~/") || s.startsWith("./") || s.startsWith("../")
-    || s.includes("/") || s.includes("\\") || /^[^\s]+\.[A-Za-z0-9]{1,8}$/.test(s);
+    || s.includes("/") || s.includes("\\") || BARE_NAME.test(s);
 };
 
 // Every file-path value in the lines that `resolve(pathText)` maps to an
@@ -61,7 +65,7 @@ function findFiles(lines, resolve) {
       const lead = after.length - after.trimStart().length;
       const text = after.trim();
       if (text) spans.push({ startCol: dash + 2 + lead, text });
-    } else if (isRowText(raw)) {
+    } else if (isRowAt(lines, i)) {
       // table row: each cell's trimmed content is a candidate, the first
       // opening at the line itself
       let start = 0;

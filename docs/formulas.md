@@ -118,12 +118,42 @@ B   |75 mi        |1       |120.7008
 - **The same goes for an attribute on its line**: `distance (km)` on a Concept puts every `distance: 120` beneath it in km.
 - **A result lands in its cell's unit.** A cell that says `5 m` shows `120 km` as `120,000 m`. A cell holding only a built-in unit chooses it before the first calculation: `speed: mph =@distance/@time`. A result of the wrong kind is an error, and a plain number takes the unit the cell names.
 - **A number written straight in a column's rule is in its unit**: `distance (km) <=500`, `discount (%) <=35`. Anywhere else, write it: `distance <=500 km`.
-- **The file's own Concept of that name wins**, as its own names always do: with a Concept `Hour` in the file, `start (hour)` is typed by that. A Concept filed under one called `Unit` is a unit of the file's own, which a column can use: `size (fte)`.
+- **The file's own Concept of that name wins**, as its own names always do: with a Concept `Hour` in the file, `start (hour)` is typed by that. A Concept filed under one called `Unit` is a unit of the file's own, which a column can use: `size (fte)`. To give your own units a worth and a written form, see [Your own units](#your-own-units).
 - **Consequence:** an alias that is also a unit is a unit. `height (h)` means hours, so a short name for `height` has to be another word.
 
 **In a formula or a rule** write them as you would anywhere: `=@price + $5,000`, `=@distance + 5 km`, `=@price*30%`, `=@start + 30 days`, `distance <=500 km`. No spaces inside a unit, so `5 km / rate` divides 5 km by a rate. `7 % 3`, with a space, stays the remainder.
 
 **A column with units is still a column:** `.sum()`, `.mean()`, `.median()`, `.min()`, `.max()`, `.std()`, `.cumsum()`, sorting, filtering, `merge` and `groupby(...).sum()` or `.mean()` keep the unit. `groupby(...).std()` is an error rather than a number. `@a.value` is the plain number and `@a.unit` its unit, `@a.to("mi")` converts, and `aot.quantity(5, "km")` makes one in a Python file. `float(@a)` and `math.sqrt(@a)` are errors until you write `.value`, because a function that takes a plain number would otherwise lose the unit without saying so. A value that only looks like a quantity (`12 Monkeys`, a code like `R100`) still behaves as the text it is, until it is calculated with.
+
+### Your own units
+
+A repository writes its own units as it writes anything else: as rows of a kind, under a Concept called `Unit`.
+
+```aot
+Unit
+    Money|factor|format
+    CHF  |1     |CHF #
+    Rappen|0.01 |# Rp
+        measures: worth
+
+    Effort|factor
+    FTE   |1
+    PD    |1/220
+        measures: work
+```
+
+With that anywhere in the repository, `CHF 10` plus `50 Rp` is `CHF 10.5`, and `2 FTE` plus `220 PD` is `3 FTE`.
+
+- **A Concept under `Unit` is a kind, and each of its Examples is a unit.** Units convert only within their kind. A kind named as a built-in one (`Length`, `Mass`, `Time` and the rest) converts with the built-in units of that kind too: `league|4828` under `Length` makes `@a.to("km")` of `2 league` give `9.656 km`.
+- **`factor` is what one unit is worth in the kind's base**, the unit whose factor is `1`: a whole number, a decimal, `1,000`, or a fraction such as `1/220`. A unit with no factor converts to nothing, as `46 clients` doesn't.
+- **`format` says how a value in it is written**, `#` standing for the number: `CHF #` writes `CHF 1,200`, `# Rp` writes `50 Rp`, and `CHF #.00` keeps two decimals. The mark names the unit too, so `50 Rp` is 50 Rappen and `CHF 5` is 5 CHF. With no format, a value reads `5 FTE`.
+- **A unit you write wins over a built-in one of the same name.** `CHF` above is your `Money`, which converts to Rappen and to no built-in currency.
+- **Every file of the repository reads them**, wherever they are written: the editor, `verify.js` and `check.js` alike. Two files giving one unit two factors contradict each other, and both go red ([rule 22](checks.md#errors--red-squiggle-counted-in-v-the-file-does-not-verify)).
+- **They work wherever a unit does:** in a cell, in a column's alias (`price (CHF)`), in a formula (`=@price + CHF 5`) and in a rule (`price <=CHF 500`). Hover the alias for where the unit sits and what it is worth: *Unit ▸ Money ▸ Rappen, written in this repository. 1 Rappen = 0.01 CHF.*
+
+**Each kind says what it measures.** The kinds are sibling Concepts, so they need a [differentia](checks.md#warnings--yellow-squiggle-in-the-problems-panel-but-not-counted-in-v) like any others: two kind tables with the same columns and nothing else carry one definition, which is an error. A line one level under each table, `measures: worth` and `measures: work` above, tells them apart. Two kind tables need a blank line between them, as any two tables do. A `Unit` with a single kind of its own is fine, since the built-in kinds are its siblings.
+
+**A definition must be readable** ([rule 27](checks.md#errors--red-squiggle-counted-in-v-the-file-does-not-verify)): a factor that is a plain number, a `#` in a format, and a unit's name, and the mark its format writes behind the number, of one word each, since a value's unit is the one word after its number. `FTE day` is two words, so `5 FTE day` would read as text; `PD` is one.
 
 ## Constraints
 

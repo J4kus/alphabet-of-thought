@@ -160,10 +160,13 @@ check("Tab: line form has no next-cell or previous-cell operation",
   const lifted = run(PEOPLE, 10, "promoteRow");
   check("lift: a sub-Example comes out a level; a top-level one cannot",
     lifted && lifted.lines[10] === "    - Kid" && run(PEOPLE, 2, "promoteRow") === null);
-  const sorted = run(["P", "    - B", "        n: 2", "    - A", "        n: 10"], 2, "sortRows");
+  const sorted = run(["P", "    - A", "        n: 10", "    - B", "        n: 2"], 2, "sortRows");
   check("sort: by the cursor's column, numbers as numbers",
     sorted && sorted.lines.join("|") === "P|    - B|        n: 2|    - A|        n: 10"
     && run(["P", "    - B", "        n: 2", "    - A", "        n: 10"], 1, "sortRows").lines[1] === "    - A");
+  const turned = run(["P", "    - B", "        n: 2", "    - A", "        n: 10"], 2, "sortRows");
+  check("sort: pressed on a run already in order, it sorts the other way round",
+    turned && turned.lines.join("|") === "P|    - A|        n: 10|    - B|        n: 2");
 }
 
 // ---------------------------------------------------------------------------

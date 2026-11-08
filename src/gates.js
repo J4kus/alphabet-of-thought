@@ -13,18 +13,24 @@
 
 const fs = require("fs");
 const path = require("path");
-const { lint, KIND } = require("./linter");
-const { suggest } = require("./fca");
+const { lint, parse, KIND } = require("./linter");
+const { audit } = require("./fca");
 const godel = require("./godel");
 const armstrong = require("./armstrong");
 const python = require("./python");
+const units = require("./units");
+const { unitsFromTree } = require("./crosslinks");
 
-// past this many Examples the lattice is no longer cheap; matches the extension
-const MAX_FCA_OBJECTS = 200;
+// The row checks — misfiled rows, sub-Concepts that overlap or leave gaps
+// (fca.audit) — run on a file of any length: their cost grows with the rows.
+// Inferred dependencies (armstrong.findings, a column another determines)
+// compare the rows' values pairwise, so past this many Examples in a file they
+// are not worked out; matches the extension.
+const MAX_FD_OBJECTS = 5000;
 
 // What a file over the limit loses, said where it can be seen: without this, one
-// long table quietly switches off the row-level checks for the whole file.
-const rowLimitNote = (rows) => `move the long table into a file of its own to bring these back — this file has ${rows.toLocaleString("en-US")} rows, and misfiled rows, overlaps and gaps are only checked in a file of up to ${MAX_FCA_OBJECTS}`;
+// long table would quietly switch the dependency inference off for the whole file.
+const rowLimitNote = (rows) => `move the long table into a file of its own to bring them back — this file has ${rows.toLocaleString("en-US")} rows, and inferred dependencies (a column the others determine) are only worked out in a file of up to ${MAX_FD_OBJECTS.toLocaleString("en-US")}`;
 
 function judge(text, rootName) {
   const { root, nodes, errors, warnings, subsumption } = lint(text, rootName);
@@ -33,10 +39,10 @@ function judge(text, rootName) {
   const notes = [];
   if (!errors.length) {
     const objects = nodes.filter((n) => n.kind === KIND.INDIVIDUAL).length;
-    if (objects >= 2 && objects <= MAX_FCA_OBJECTS) {
-      deepErrors = suggest(root, nodes).findings;
+    if (objects >= 2) deepErrors = audit(root, nodes).findings;
+    if (objects >= 2 && objects <= MAX_FD_OBJECTS) {
       depWarnings = armstrong.findings(root, nodes).filter((f) => f.confidence >= armstrong.MIN_CONFIDENCE && !f.incomplete && !f.implied);
-    } else if (objects > MAX_FCA_OBJECTS) {
+    } else if (objects > MAX_FD_OBJECTS) {
       notes.push({ line: 1, message: rowLimitNote(objects) });
     }
     deepErrors = deepErrors.concat(godel.clashes(root, nodes).findings.filter((f) => f.kind === "content"));
@@ -45,6 +51,26 @@ function judge(text, rootName) {
     depWarnings = depWarnings.concat(godel.hoists(root, nodes));
   }
   return { root, nodes, errors, warnings, subsumption, deepErrors, depWarnings, notes };
+}
+
+// The units a repository writes itself (units.js), read off every file and handed
+// to the units module before any file is judged, as the extension does: a value
+// reads by them wherever it stands. Takes [{ text, rootName }]; answers what was
+// defined, for the formulas' runtime.
+// A file with no line that could open a Concept called Unit (`Unit`, `2. Unit`,
+// `Unit|factor`) writes no units, and is not parsed to find that out: verify.js
+// on one file reads every file of its repository for them.
+const MAY_HOLD_UNITS = /^[ \t]*(?:[\d.]+[ \t]+)?unit\b/im;
+function defineUnitsFrom(entries) {
+  const quiet = { error() {}, warn() {} };
+  const list = [];
+  for (const { text, rootName } of entries) {
+    if (!MAY_HOLD_UNITS.test(text)) continue;
+    const { root, nodes } = parse(text, rootName, quiet);
+    list.push(...unitsFromTree(root, nodes));
+  }
+  units.defineUnits(list);
+  return units.definedUnits();
 }
 
 // How many formulas and rules a file carries that a check of its text alone says
@@ -84,4 +110,4 @@ function repoRootOf(startDir) {
   }
 }
 
-module.exports = { MAX_FCA_OBJECTS, rowLimitNote, judge, uncalculated, walkAot, repoRootOf };
+module.exports = { MAX_FD_OBJECTS, rowLimitNote, judge, defineUnitsFrom, uncalculated, walkAot, repoRootOf };

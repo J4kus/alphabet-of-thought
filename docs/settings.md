@@ -12,7 +12,7 @@
 | `aot.synonymWarnings` | `true` | Warn when two Concepts look like two names for one idea (rule 14). Repo-wide. |
 | `aot.distinctConcepts` | `[]` | Pairs you have declared genuinely different, written `client\|customer` — fed by the Quick Fix on a synonym warning. |
 | `aot.godelRegistry` | `true` | Keep the [Gödel numbers](checks.md#gödel-numbering) stable in `aot.files/godel.tsv`, written on save when the repository gains an attribute or a value. Commit it; **AOT: Set Up Git Merge for .aot Files** merges it with git's union driver. Safe to delete: it is rebuilt, with new numbers. |
-| `aot.dependencyFindings` | `false` | Surface the inferred functional-dependency warnings (rules 12–13) as squiggles. Off by default: correlated attributes are allowed; `verify.js --fd` always prints the full set. |
+| `aot.dependencyFindings` | `false` | Surface the inferred functional-dependency warnings (rules 12–13) as squiggles. Off by default: correlated attributes are allowed; `verify.js --fd` always prints the full set. Past 5,000 Examples in a file they are not worked out, and a warning on the first line says so. |
 | `aot.chainHints` | `true` | Write the first dependency chain in small print (an inlay hint) at the end of each crosslinked line; the full chains stay on hover. |
 | `aot.urlMetadata` | `true` | Hovering a URL fetches its status, content type, and last-modified date (one cached HEAD request); Ctrl+click opens it regardless. |
 | `aot.parkedValueMarks` | `true` | Tint every value whose derivation is [parked](formulas.md#parking-the-derivations), so a computed number is never mistaken for a typed one; hover names the derivation and offers the key back. |

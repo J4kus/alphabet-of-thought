@@ -237,7 +237,7 @@ Dave    |Writer   |Marketing
     ... 4 more in team roster.aot:12
 ```
 
-That is the only place a table has for a Map, and it is why the note is found again on the next save and kept true rather than written a second time. (A *row* that needs a `...` of its own is written in line form, where it has a line to hang one under.) Everything else applies to a table either way: attributes a peer declares arrive as new columns, and a row gains the values its Example was given elsewhere.
+That is where a table keeps the Concept's own Map, and it is why the note is found again on the next save and kept true rather than written a second time. A *row* that needs a `...` of its own carries it in a column headed `...`, its cell holding what the line would: `Bolt|200|... terms still open` is `- Bolt` with `... terms still open` under it, and a bare `...` in the cell is a bare `...`. The flip writes each as the other, and a `...` or `- ...` between Examples in line form becomes a `...` line in place in the table. Everything else applies to a table either way: attributes a peer declares arrive as new columns, and a row gains the values its Example was given elsewhere.
 
 ### Aliases and Maps
 
@@ -246,7 +246,7 @@ Alphabet of Thought is **not a word-explanation language**: a definition termina
 | Notation | Syntax | Purpose |
 |----------|--------|---------|
 | **Alias** (has-another-name) | Parentheses after a term: `Human (Natural Person)` | Provides an alternative or derived name for an idea. If some or all of an attribute's trailing words match a Concept, those words already act as an alias — no parentheses required. |
-| **Map** | An indented `...` line, optionally followed by a note: `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never** a plain description of the line above it. To explain or rename a term, use an alias instead. A Map excuses its parent from the completeness checks (see [Verification](checks.md)). One shape, `... N more in file.aot:12`, is [maintained for you](#concepts-across-files) and says where the rest of a Concept's Examples live; every other Map is yours alone. |
+| **Map** | An indented `...` line, optionally followed by a note: `... todo: list the remaining operations` | Marks **only** what is intentionally omitted, still a todo, or held at low confidence — **never** a plain description of the line above it. To explain or rename a term, use an alias instead. A Map excuses its parent from the completeness checks (see [Verification](checks.md)). One shape, `... N more in file.aot:12`, is [maintained for you](#concepts-across-files) and says where the rest of a Concept's Examples live; every other Map is yours alone. A table row carries one in its [`...` column](tables.md). |
 
 **`Ctrl+/` takes a line out of the model and puts it back.** The comment mark is `...`, so a commented-out line is a Map. `... Rail|20` in a table is no row: the Example is gone from the model and its CSV, the table stays one table, and every redraw keeps the line where it stands, as written. A Map excuses its parent from the completeness checks, so a commented-out line does too, and commenting out a parent but not its children gives the usual "Map has children" error.
 

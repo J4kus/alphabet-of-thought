@@ -576,8 +576,8 @@ const parsed = (text) => {
     mixedTable.text === aot("Order|price|vat", "Acme |100  |20 =@price*@tax rate", "    tax rate: 0.2", "    ... more to come"));
   check("flipForm: the flip never recomputes — a cell reading the Concept's default keeps its value",
     mixedTable.text.includes("|20 =@price*@tax rate"));
-  check("flipForm: and they come back as the Concept's first lines",
-    flip(mixedTable.text, "Order").text === aot("Order", "    tax rate: 0.2", "    ... more to come", "    price", "    vat", "    - Acme", "        price: 100", "        vat: 20 =@price*@tax rate"));
+  check("flipForm: and they come back as the Concept's lines — the value first, the Map after the rows",
+    flip(mixedTable.text, "Order").text === aot("Order", "    tax rate: 0.2", "    price", "    vat", "    - Acme", "        price: 100", "        vat: 20 =@price*@tax rate", "    ... more to come"));
   // the shape a Concept with totals takes: a table, and the values below it
   const trip = aot(
     "Trip",
@@ -653,8 +653,20 @@ const parsed = (text) => {
   const notedMap = flip(aot("Order", "    price", "    ... more to come", "    - Acme", "        price: 100", "    ... 2 more in a.aot:1"), "Order");
   check("flipForm: a Map you wrote stands under the table, and the note among the lines there",
     notedMap.text === aot("Order|price", "Acme |100", "    ... more to come", "    ... 2 more in a.aot:1"));
-  check("flipForm: on the way back the Map comes first, and the maintained note stays last",
-    flip(notedMap.text, "Order").text === aot("Order", "    ... more to come", "    price", "    - Acme", "        price: 100", "    ... 2 more in a.aot:1"));
+  check("flipForm: on the way back the Map comes after the rows, and the maintained note stays last",
+    flip(notedMap.text, "Order").text === aot("Order", "    price", "    - Acme", "        price: 100", "    ... more to come", "    ... 2 more in a.aot:1"));
+  // `...` in a row's place: a row carries its own in a `...` column, and a
+  // `...` or a `- ...` among the Examples stays among the rows
+  const dotsRows = aot("Person", "    age", "    - Ann", "        age: 30", "        ...", "    ...", "    - Bob", "        age: 40", "        ... still checking", "    - ...");
+  const dotsTable = flip(dotsRows, "Person");
+  check("flipForm: an Example's `...` is its cell in a `...` column, and `...` among the Examples a line among the rows",
+    dotsTable.text === aot("Person|age|...", "Ann   |30 |...", "...", "Bob   |40 |... still checking", "    ..."));
+  const dotsParsed = lint(dotsTable.text, "T");
+  check("flipForm: the table says what the lines said — a `...` under each row's Example, two under the Concept",
+    dotsParsed.errors.length === 0
+    && dotsParsed.nodes.filter((n) => n.kind === KIND.MAP).map((n) => `${n.parent.name}:${n.name}`).join(",") === "Ann:,Person:,Bob:still checking,Person:");
+  check("flipForm: and back, each `...` where it stood, a `- ...` written as the `...` it means",
+    flip(dotsTable.text, "Person").text === aot("Person", "    age", "    - Ann", "        age: 30", "        ...", "    ...", "    - Bob", "        age: 40", "        ... still checking", "    ..."));
   const defaultsOnly = aot("Order", "    tax rate: 0.2", "    price", "    - Acme", "        price: 100");
   const standalone = flip(defaultsOnly, "Order");
   check("flipForm: a default no row states stands under the table, and comes back where it stood",
@@ -729,7 +741,7 @@ const parsed = (text) => {
   );
   const spacedGrid = flip(spaced, "Thing");
   check("flipForm: blank lines between Examples become dividers, one under the header for the first",
-    spacedGrid.text === aot("Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"));
+    spacedGrid.text === aot("Thing|age", "-----+---", "A    |1", "-----+---", "B    |2"));
   check("flipForm: and the dividers come back as the blank lines they were",
     flip(spacedGrid.text, "Thing").text === spaced);
 
@@ -922,7 +934,7 @@ const parsed = (text) => {
     deep.join("\n") === ["Outer", "    Payment|amount", "    P1     |10", "    P2     |20", "    P3     |30", "        currency: EUR", "    other: 1"].join("\n") && quiet(deep));
   const grouped = run(["Payment|currency|amount", "P1     |EUR     |10", "-------|--------|------", "P2     |EUR     |20", "... Old|EUR|1", "P3     |EUR     |30"], 1, "currency", "EUR");
   check("hoistOps: a divider and a `...` line keep their places among the rows",
-    grouped.join("\n") === ["Payment|amount", "P1     |10", "-------|------", "P2     |20", "... Old|EUR|1", "P3     |30", "    currency: EUR"].join("\n"));
+    grouped.join("\n") === ["Payment|amount", "P1     |10", "-------+------", "P2     |20", "... Old|EUR|1", "P3     |30", "    currency: EUR"].join("\n"));
   const noColumn = run(["Vehicle|colour", "Paint  |red", "    Car", "        wheels: 4", "    Van", "        wheels: 4"], 1, "wheels", "4");
   check("hoistOps: with no column to drop, the table is untouched and the fact stands straight under it",
     noColumn.join("\n") === ["Vehicle|colour", "Paint  |red", "    wheels: 4", "    Car", "    Van"].join("\n"));

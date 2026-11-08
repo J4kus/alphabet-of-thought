@@ -101,6 +101,20 @@ node check.js "path/to/Q3 Revenue.aot"
 - **A big file:** keep it out of the text. `raw: =pd.read_csv("/path/to/big.csv")` holds a live frame, and the file only says how big it is. Then `total: =@raw["amount"].sum()`.
 - **Your own Python:** any `.py` file in the repository is there by name, as in `=finance.revenue(@Sale)`, and it runs on your machine with your packages.
 
+## Two ways to work
+
+Each [rationale](docs/why.md#the-four-rationales) answers one question about a subject:
+
+| | Ends | Means |
+|---|---|---|
+| **Extrinsic:** from outside | Motivation: why, and for whom | Factor: who acts, in what order |
+| **Intrinsic:** in itself | Function: what it does | Graph: what it's made of |
+
+Motivation and Factor inform Function and Graph. So there are two ways in:
+
+- **Go deep.** Expand one rationale until you reach what you don't know, and mark it `...`.
+- **Go across.** Write one Concept in all four. The one you can't write is what you've been assuming.
+
 ## Make your LLM answer in the file
 
 A claim in chat can't be checked. A claim in the file can.
@@ -133,7 +147,7 @@ A claim in chat can't be checked. A claim in the file can.
 ## Questions analysts ask first
 
 - **Can the LLM cheat the check?** Yes, by editing a rule or a formula. That's why you read the diff.
-- **How many rows?** Keep raw data in files and load it into a live frame. A 5,000-row table with a formula column checked in 1.3 seconds in a test run. Row-level checks, such as misfiled rows and derivable columns, stop at 200 rows per file, and the tools say so.
+- **How many rows?** Keep raw data in files and load it into a live frame. In a test run, `check.js` calculated a 50,000-row table with a formula column in 8.5 seconds. Every check runs at any size except derivable columns, which stop at 5,000 rows, and the tools say so.
 - **Can I send it to my boss?** Every table is a CSV that Excel opens. There's no `.xlsx` export.
 - **Does my data leave my laptop?** There's no telemetry. Hovering a URL makes one request (`aot.urlMetadata` turns that off). A formula runs with your permissions, so it can do what your Python can, and your LLM is your own choice.
 - **Is it safe to open someone's file?** Formulas are off until you enable them, and code from elsewhere asks first. A file with formulas is a program: read [Trust](docs/trust.md).
@@ -154,17 +168,17 @@ More in [Working in a team](docs/team.md).
 | Read | For |
 |---|---|
 | [The language](docs/language.md) | The notation in sixty seconds, a quick start, the four kinds of line, classifying correctly, inheritance, Concepts across files, aliases and `...` markers, numbering, crosslinks, starting a model, style rules |
-| [Tables](docs/tables.md) | Pipe tables, the table editor and its keys, keeping your place, the CSV mirror, flipping between a table and free text |
-| [Formulas](docs/formulas.md) | Where a formula goes, `@` references, numbers and units, rules, your own Python, what comes back, how a number shows, when a file calculates, libraries, the uv environment, parking formulas |
+| [Tables](docs/tables.md) | Pipe tables, the table editor and its keys, Excel-style selecting, sums, sorting and filters, the CSV mirror, flipping between a table and free text |
+| [Formulas](docs/formulas.md) | Where a formula goes, `@` references, numbers and units, your own units, rules, your own Python, what comes back, how a number shows, when a file calculates, libraries, the uv environment, parking formulas |
 | [Trust](docs/trust.md) | What may run, what's asked first, what a formula is held to, what it may write |
 | [The checks](docs/checks.md) | Every rule, errors and warnings, two names for one idea, Gödel numbering, dependency inference |
 | [Settings](docs/settings.md) | Every setting |
 | [The command line](docs/cli.md) | `verify.js` and its queries, `check.js`, merging with git |
 | [Using an LLM](docs/llm.md) | The workflow, assumptions in their own file, the rules to paste |
 | [Working in a team](docs/team.md) | Review, governance, the conformance examples |
-| [Why](docs/why.md) | The idea behind it, a KPI-tree case study, incompleteness, the four rationales, design principles from Aristotle and Leibniz, what it costs in tokens |
+| [Why](docs/why.md) | The idea behind it, a KPI-tree case study, incompleteness, the four rationales and two ways to work with them, design principles from Aristotle and Leibniz, what it costs in tokens |
 | [Repository layout](docs/repository.md) | Every file, and how to build from source |
-| [Changelog](CHANGELOG.md), [feature notes](docs/features-1.14.md) | What changed, release by release |
+| [Changelog](CHANGELOG.md), [feature notes](docs/features-1.15.md) | What changed, release by release |
 
 ## License
 

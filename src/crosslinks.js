@@ -180,6 +180,37 @@ function typeDefaultOf(node) {
 // do, and is a unit when it is filed under a Concept called Unit: that is how a
 // file adds one of its own. An alias naming neither is only another name.
 
+// The units a file writes itself (units.js): every Example of a kind filed under
+// a Concept called Unit, with its `factor` and `format` as written —
+// [{ name, kind, factor, format, line }]. A kind is the Unit's sub-Concept (at
+// any depth beneath it), whether its units are rows of its table or `- `
+// lines. Read off the tree, so a file read once answers every time.
+const unitsByTree = new WeakMap();
+function unitsFromTree(root, nodes) {
+  const hit = unitsByTree.get(nodes);
+  if (hit) return hit;
+  const out = [];
+  const isUnitConcept = (n) => n.kind === KIND.CONCEPT && numberless(n.name).trim().toLowerCase() === "unit";
+  for (const unitNode of nodes.filter(isUnitConcept)) {
+    const walk = (kind) => {
+      for (const c of kind.children) {
+        if (c.kind === KIND.CONCEPT) walk(c);
+        if (c.kind !== KIND.INDIVIDUAL || kind === unitNode) continue;
+        const valueOf = (key) => {
+          const v = c.children.find((k) => k.kind === KIND.DEFAULT && k.name.toLowerCase() === key);
+          if (v) return v.value;
+          const d = kind.children.find((k) => k.kind === KIND.DEFAULT && k.name.toLowerCase() === key && !k.cell);
+          return d ? d.value : "";
+        };
+        out.push({ name: c.name.trim(), kind: numberless(kind.name).trim(), factor: String(valueOf("factor") || "").trim(), format: String(valueOf("format") || "").trim(), line: c.line });
+      }
+    };
+    walk(unitNode);
+  }
+  unitsByTree.set(nodes, out);
+  return out;
+}
+
 // The unit an alias names, as written, in the file `node` stands in; else null.
 function unitNamed(alias, node) {
   if (!alias) return null;
@@ -669,5 +700,5 @@ function resolve(text, root, nodes, external) {
 module.exports = {
   resolve, index, externalIndex, conceptType, wordStarts, instantiates,
   exampleOfConcept, individualsIndex, valueTarget, listedTarget, owningConcept,
-  unlistedValues, listedExamples, typeDefault, typeDefaultOf, unitOf, unitNamed,
+  unlistedValues, listedExamples, typeDefault, typeDefaultOf, unitOf, unitNamed, unitsFromTree,
 };

@@ -51,11 +51,18 @@
     Tester|tax rate|vat                                            |total                      |rows           |revenue                      |chart
     1     |0.2     |716.8000000000001 =@Sales@units.sum()*@tax rate|53,760 =@Sales@amount.sum()|6 =len(@Person)|53,760 =@Sales@units.sum()*15|aot.files/Tester.chart.1.png =@Sales.plot.bar(y="units", rot=0)
 
-    Sales|month  |units|amount
-    P1   |2026-01|1,000|15,000
-    Q1   |2026-01|1,204|18,060
-    Q2   |2026-04|1,380|20,700
-    
+    Sales|parent (sales)|month  |units|amount
+    -----+--------------+-------+-----+------
+    P1   |              |2026-01|1,000|15,000
+    P2   |P1            |2026-02|     |
+    Q1   |              |2026-01|1,204|18,060
+    Q2   |              |2026-04|1,380|20,700
+        sum: 3,584 =@Sales@units.sum()
+        picture: aot.files/Sales.picture.png =@Sales.plot.bar(y="amount", rot=0)
+
+
+        
+
     sum if test: 60 =@Person@age[@Person@is alive == False].sum()
 
 

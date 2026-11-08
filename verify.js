@@ -104,11 +104,16 @@ function main() {
       console.error(`no .aot files under '${root}', so nothing was checked`);
       process.exit(2);
     }
-    const read = () => files.map((f) => ({
-      file: f,
-      text: readFile(f),
-      rootName: path.basename(f).replace(/\.[^.]*$/, ""),
-    })).map((e) => ({ ...e, ...lint(e.text, e.rootName) }));
+    const read = () => {
+      const raw = files.map((f) => ({
+        file: f,
+        text: readFile(f),
+        rootName: path.basename(f).replace(/\.[^.]*$/, ""),
+      }));
+      // the repository's own units before any file is read, as in the editor
+      gates.defineUnitsFrom(raw);
+      return raw.map((e) => ({ ...e, ...lint(e.text, e.rootName) }));
+    };
 
     let entries = read();
     if (fix) {
@@ -277,6 +282,16 @@ function main() {
   }
   const rootName = path.basename(file).replace(/\.[^.]*$/, "");
   const text = readFile(file);
+  // the units the repository writes itself are every file's, as in the editor:
+  // read off each file of the repository this one sits in, or off this one alone;
+  // this file's own come last, so they win, as a file's own names always do
+  const repoRoot = repoRootOf(path.dirname(path.resolve(file)));
+  const peers = repoRoot ? walkAot(repoRoot).filter((f) => path.resolve(f) !== path.resolve(file)) : [];
+  gates.defineUnitsFrom([...peers.map((f) => {
+    let t = "";
+    try { t = fs.readFileSync(f, "utf8"); } catch { /* an unreadable peer says no units */ }
+    return { text: t, rootName: path.basename(f).replace(/\.[^.]*$/, "") };
+  }), { text, rootName }]);
   const { root, nodes, errors, warnings, subsumption, deepErrors, depWarnings, notes } = gates.judge(text, rootName);
 
   let i;

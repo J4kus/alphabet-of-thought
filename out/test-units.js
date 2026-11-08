@@ -16,7 +16,8 @@ const derive = require("../src/derive");
 const units = require("../src/units");
 const csvsync = require("../src/csvsync");
 const { readsAsExpression } = require("../src/pyshape");
-const { unitOf, unitNamed } = require("../src/crosslinks");
+const { unitOf, unitNamed, unitsFromTree } = require("../src/crosslinks");
+const gates = require("../src/gates");
 
 let failures = 0;
 function check(name, ok, detail) {
@@ -151,7 +152,109 @@ check("bound: a number with its unit reads as a bound", ["500 km", "$5,000", "30
   check("flip: and each value still in km", values.length === 2 && values.every((v) => unitOf(v) === "km"), values.map((v) => v.alias));
 }
 
-// --- 7. the formula engine --------------------------------------------------------------
+// --- 7. a repository's own units ---------------------------------------------------------
+// Rows of a kind under a Concept called Unit: each Example a unit, `factor` its
+// worth in the kind's base, `format` where the number goes.
+const OWN = [
+  "Unit",
+  "    Money|factor|format",
+  "    CHF  |1     |CHF #",
+  "    Rappen|0.01 |# Rp",
+  "        measures: worth",
+  "",
+  "    Effort|factor",
+  "    FTE   |1",
+  "    PD    |1/220",
+  "        measures: work",
+  "",
+  "    Length|factor",
+  "    league|4828",
+  "        measures: distance",
+  "",
+  "    Seating|format",
+  "    seat   |# seats",
+  "        measures: places",
+];
+{
+  const { root, nodes, errors, warnings } = lint(OWN.join("\n"), "T");
+  check("own: rows of a kind lint clean once each kind says what it measures", !errors.length && !warnings.length, [...errors, ...warnings].map((e) => e.message));
+  const list = unitsFromTree(root, nodes);
+  check("own: each row is a unit of the kind above it",
+    JSON.stringify(list.map((u) => [u.name, u.kind, u.factor, u.format])) === JSON.stringify([
+      ["CHF", "Money", "1", "CHF #"], ["Rappen", "Money", "0.01", "# Rp"], ["FTE", "Effort", "1", ""], ["PD", "Effort", "1/220", ""],
+      ["league", "Length", "4828", ""], ["seat", "Seating", "", "# seats"]]), list);
+  check("own: read once per parse", unitsFromTree(root, nodes) === list);
+
+  const same = lint(["Unit", "    Money|factor|format", "    CHF|1|CHF #", "", "    Effort|factor|format", "    FTE|1|# FTE"].join("\n"), "T");
+  check("own: two kinds saying nothing apart are told so, as any two kinds are",
+    same.errors.some((e) => /^give one a differentia, or merge them — 'Effort' and 'Money' carry the same definition/.test(e.message)), same.errors.map((e) => e.message));
+  const spaced = lint(["Unit", "    Effort|factor|format", "    FTE|1|# FTE", "    FTE day|1/220|# FTE days"].join("\n"), "T");
+  check("own: a unit's name is one word, or no value could name it",
+    spaced.errors.some((e) => e.line === 4 && /^name the unit in one word, as in 'FTEday' — a value's unit is the one word after its number, so '5 FTE day' would read as text$/.test(e.message)), spaced.errors.map((e) => e.message));
+  check("own: and so is the mark its format writes behind the number",
+    spaced.errors.some((e) => e.line === 4 && /^write the mark behind the number as one word, as in '# FTEdays' — /.test(e.message)) && spaced.errors.length === 2, spaced.errors.map((e) => e.message));
+  const lone = lint(["Unit", "    Effort|factor", "    FTE|1", "", "Animal", "    Dog", "        - Rex"].join("\n"), "T");
+  check("own: one kind of the repository's own is enough, the built-in kinds are its siblings",
+    !lone.warnings.some((w) => w.loneSubtype && w.loneSubtype.concept === "Unit") && lone.warnings.some((w) => w.loneSubtype && w.loneSubtype.concept === "Animal"), lone.warnings.map((w) => w.message));
+  const bad = lint(["Unit", "    Money|factor|format", "    CHF|ten|CHF"].join("\n"), "T");
+  check("own: a factor that is no number is an error, and says so",
+    bad.errors.some((e) => /^write the factor as a plain number, as in 'factor: 1000' — the factor of unit 'CHF' is 'ten'/.test(e.message)), bad.errors.map((e) => e.message));
+  check("own: a format with no # is an error, and says so",
+    bad.errors.some((e) => /^put a '#' where the number goes, as in 'CHF #' or '# km' — the format of unit 'CHF' is 'CHF'/.test(e.message)), bad.errors.map((e) => e.message));
+  const fine = lint(["Unit", "    Money|factor", "    Rappen|1,000", "    Half|1/2", "    Tenth|0.1"].join("\n"), "T");
+  check("own: a factor may be whole, grouped, a fraction or a decimal", !fine.errors.length, fine.errors.map((e) => e.message));
+
+  check("format: # is the number, the text around it how it is written",
+    JSON.stringify(units.parseFormat("CHF #", "CHF")) === JSON.stringify({ prefix: "CHF", prefixSpace: true, suffix: "", suffixSpace: false, decimals: null })
+    && JSON.stringify(units.parseFormat("R#.00", "R")) === JSON.stringify({ prefix: "R", prefixSpace: false, suffix: "", suffixSpace: false, decimals: 2 })
+    && JSON.stringify(units.parseFormat("#x", "x")) === JSON.stringify({ prefix: "", prefixSpace: false, suffix: "x", suffixSpace: false, decimals: null }));
+  check("format: none is the number and the unit's name", JSON.stringify(units.parseFormat("", "FTE")) === JSON.stringify({ prefix: "", prefixSpace: false, suffix: "FTE", suffixSpace: true, decimals: null }));
+
+  const before = units.unitsGeneration();
+  units.defineUnits(list);
+  const after = units.unitsGeneration();
+  units.defineUnits(list.map((u) => ({ ...u })));
+  check("define: the same units handed again rebuild nothing", after === before + 1 && units.unitsGeneration() === after);
+  check("define: a unit of the repository's own is a unit", units.isUnit("FTE") && units.isUnit("Rappen") && units.isUnit("PD") && units.isUnit("seat") && units.isUnit("CHF/PD"));
+  check("define: a format's mark names the unit too", units.builtIn("Rp").name === "Rappen" && units.builtIn("seats").name === "seat");
+  check("define: at three letters case is aside, as for the built-in ones", units.builtIn("rappen").name === "Rappen" && units.builtIn("fte").name === "FTE" && units.builtIn("pd") === null && units.builtIn("rp") === null);
+  {
+    const lit = (s) => python.quantityLiterals(s, []).map((q) => s.slice(q.start, q.start + q.length));
+    check("literal: a mark of the repository's own, a space from its number or glued",
+      JSON.stringify(lit("@a + CHF 5")) === JSON.stringify(["CHF 5"]) && JSON.stringify(lit("CHF1,200.50*2")) === JSON.stringify(["CHF1,200.50"]) && JSON.stringify(lit("CHF 5/PD")) === JSON.stringify(["CHF 5/PD"]), [lit("@a + CHF 5"), lit("CHF1,200.50*2"), lit("CHF 5/PD")]);
+    check("literal: never the end of a name, nor a name itself", JSON.stringify(lit("xCHF 5")) === "[]" && JSON.stringify(lit("x.CHF 5")) === "[]" && JSON.stringify(lit("CHF5x")) === "[]" && JSON.stringify(lit("CHF * 5")) === "[]", [lit("xCHF 5"), lit("x.CHF 5"), lit("CHF5x"), lit("CHF * 5")]);
+    check("literal: a mark behind reads as any unit does", JSON.stringify(lit("@a + 50 Rp")) === JSON.stringify(["50 Rp"]));
+    check("bound: a number behind the repository's mark reads as a bound, so 'price <=CHF 500' is a rule",
+      readsAsExpression("CHF 500") && readsAsExpression("@cap - CHF 5") && !readsAsExpression("CHF francs") && !readsAsExpression("x CHF 5"));
+  }
+  check("define: a word the repository writes wins over the built-in one", units.builtIn("CHF").kind === "Money" && units.builtIn("CHF").own);
+  check("define: the built-in ones stay", units.builtIn("km").kind === "Length" && units.isUnit("$"));
+  check("define: the marks in front of a number, longest first", JSON.stringify(units.prefixes()) === JSON.stringify(["CHF"]));
+  check("describe: worth in the kind's base", units.describe("Rappen") === "Unit ▸ Money ▸ Rappen, written in this repository. 1 Rappen = 0.01 CHF.", units.describe("Rappen"));
+  check("describe: a kind Alpha knows has its base", units.describe("league") === "Unit ▸ Length ▸ league, written in this repository. 1 league = 4828 m.", units.describe("league"));
+  check("describe: no factor converts to nothing", units.describe("seat") === "Unit ▸ Seating ▸ seat, written in this repository. It converts to no other unit.", units.describe("seat"));
+  check("describe: the base itself", units.describe("CHF") === "Unit ▸ Money ▸ CHF, written in this repository.", units.describe("CHF"));
+
+  check("value: a mark in front is read as the number's", table.numericValue("CHF 1,200") === 1200 && table.numericValue("CHF1,200") === 1200 && table.numericValue("-CHF 5") === -5);
+  check("value: a mark behind", table.numericValue("120 Rp") === 120 && table.writtenForm("120 Rp").unit === "Rp");
+  check("form: a mark in front is the unit", table.writtenForm("CHF 1,200").unit === "CHF" && table.writtenForm("CHF 1,200").number);
+  check("write: as the format says", table.formatNumberText("1200.5", "", "CHF") === "CHF 1,200.5" && table.withUnit("5", "Rappen") === "5 Rp", [table.formatNumberText("1200.5", "", "CHF"), table.withUnit("5", "Rappen")]);
+  check("write: a cell's mark stays in front", table.formatNumberText("1200", "CHF 5") === "CHF 1,200", table.formatNumberText("1200", "CHF 5"));
+  check("short: a mark stays in front", table.shortNumber("CHF 0.3333333333") === "CHF 0.3̅" || /^CHF 0\.3/.test(table.shortNumber("CHF 0.3333333333")), table.shortNumber("CHF 0.3333333333"));
+  units.defineUnits([{ name: "CHF", kind: "Money", factor: "1", format: "CHF #.00" }]);
+  check("write: .00 fixes the decimals", table.formatNumberText("1200.5", "", "CHF") === "CHF 1,200.50" && table.formatNumberText("3", "", "CHF") === "CHF 3.00", [table.formatNumberText("1200.5", "", "CHF"), table.formatNumberText("3", "", "CHF")]);
+
+  units.defineUnits([]);
+  check("define: none handed back, none left", units.builtIn("Rappen") === null && units.builtIn("CHF").kind === "Currency" && isNaN(table.numericValue("CHF 1,200")) && !units.isUnit("FTE") && !readsAsExpression("CHF 500"));
+
+  // the command line reads every file's before it judges any, as the editor does
+  const defined = gates.defineUnitsFrom([{ text: "Notes\n    - A", rootName: "Notes" }, { text: OWN.join("\n"), rootName: "Units" }]);
+  check("define: the command line reads them off every file", defined.length === 6 && units.builtIn("Rappen").kind === "Money"
+    && JSON.stringify(defined.find((u) => u.name === "CHF")) === JSON.stringify({ name: "CHF", kind: "Money", factor: "1", prefix: "CHF", suffix: "", decimals: null }), defined);
+  units.defineUnits([]);
+}
+
+// --- 8. the formula engine --------------------------------------------------------------
 function pythonHere() {
   const interpreter = (process.platform === "win32" ? ["python"] : ["python3", "python"]).find((p) => {
     const r = spawnSync(p, ["-c", "import sys; print(sys.version_info[0])"], { encoding: "utf8", timeout: 15000 });
@@ -177,7 +280,8 @@ async function calc(session, rootName, text) {
   }));
   const { order } = python.orderDerivations(hosts, (a) => (resolved.get(a) || { deps: [] }).deps);
   await session.request({ op: "reset" });
-  await session.request({ op: "open", root: rootName, aotFiles: os.tmpdir(), tree: python.treeOf(root), sidecar: null, sidecarMtime: null });
+  // the repository's own units go with every open, as the editor sends them
+  await session.request({ op: "open", root: rootName, aotFiles: os.tmpdir(), tree: python.treeOf(root), sidecar: null, sidecarMtime: null, units: units.definedUnits() });
   const out = new Map();
   for (const a of order) {
     const h = hosts.find((x) => x.address === a);
@@ -381,6 +485,42 @@ async function engine({ interpreter, pandas }) {
     const std = await calc(session, "T", ["Trip|r|d", "A|x|1 km", "B|x|2 km", "Summary", "    s: =@Trip.groupby(\"r\")[\"d\"].std().iloc[0]"].join("\n"));
     check("pandas: groupby std says it can't, rather than a wrong number", !!std.out.get("@Summary@s").error || /km$/.test(std.out.get("@Summary@s").text), std.out.get("@Summary@s"));
   } else console.log("SKIP pandas (not installed)");
+
+  // a repository's own units: defined as the extension defines them, from the
+  // file's lines, and sent with the open
+  {
+    const ownCalc = async (lines) => {
+      const text = [...OWN, ...lines].join("\n");
+      const parsed = lint(text, "T");
+      units.defineUnits(unitsFromTree(parsed.root, parsed.nodes));
+      return calc(session, "T", text);
+    };
+    const got = async (name, lines, address, want) => {
+      const r = await ownCalc(lines);
+      const at = r.out ? r.out.get(address) : r;
+      check(name, !!at && (want instanceof RegExp ? want.test(at.text || at.error || "") : at.text === want), at);
+    };
+    await got("own: CHF 10 + 50 Rp, in the first one's unit", ["Bill", "    a: CHF 10", "    b: 50 Rp", "    t: =@a+@b"], "@Bill@t", "CHF 10.5");
+    await got("own: and the other way round", ["Bill", "    a: CHF 10", "    b: 50 Rp", "    t: =@b+@a"], "@Bill@t", /^1,050 Rp$/);
+    await got("own: a kind of the repository's own converts within itself", ["Team", "    a: 2 FTE", "    b: 220 PD", "    t: =@a+@b"], "@Team@t", "3 FTE");
+    await got("own: a unit added to a kind Alpha knows converts with its units", ["Trip", "    a: 2 league", "    t: =@a.to(\"km\")"], "@Trip@t", "9.656 km");
+    await got("own: with no factor it converts to nothing", ["Hall", "    a: 5 seats", "    b: 2 km", "    t: =@a+@b"], "@Hall@t", /don't convert into each other/);
+    await got("own: it still adds to itself", ["Hall", "    a: 5 seats", "    b: 2 seats", "    t: =@a+@b"], "@Hall@t", "7 seats");
+    await got("own: a kind of its own converts to no built-in currency", ["Bill", "    a: CHF 10", "    b: $5", "    t: =@a+@b"], "@Bill@t", /don't convert into each other/);
+    await got("own: a literal in a formula reads by the format too", ["Bill", "    a: CHF 10", "    t: =@a + CHF 5"], "@Bill@t", "CHF 15");
+    {
+      const text = [...OWN, "Bill|price (CHF)|net (Rappen) =@price", "A|120|", "", "Cap", "    price <=CHF 500", "    - Low", "        price: CHF 400", "    - High", "        price: CHF 600"].join("\n");
+      const parsed = lint(text, "T");
+      units.defineUnits(unitsFromTree(parsed.root, parsed.nodes));
+      const r = await calc(session, "T", text);
+      check("own: a column's alias names the unit, and a result converts into the column's", (r.out.get("@Bill@net@A") || {}).text === "12,000", r.out.get("@Bill@net@A"));
+      const held = (v) => r.rules.find((x) => x.value === v);
+      check("own: a rule's bound in the repository's unit", held("CHF 400") && held("CHF 400").holds === true && held("CHF 600") && held("CHF 600").holds === false, r.rules);
+    }
+    units.defineUnits([]);
+    const plain = await calc(session, "T", ["Bill", "    a: 50 Rp", "    t: =@a*2"].join("\n"));
+    check("own: none sent back, the runtime forgets them", (plain.out.get("@Bill@t") || {}).text === "100 Rp", plain.out.get("@Bill@t"));
+  }
 
   try { await session.request({ op: "bye" }, 2000); } catch { /* gone */ }
   session.kill("done");

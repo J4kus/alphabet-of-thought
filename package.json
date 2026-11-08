@@ -25,7 +25,7 @@
   "bugs": {
     "url": "https://github.com/J4kus/alphabet-of-thought/issues"
   },
-  "version": "1.14.2",
+  "version": "1.14.3",
   "publisher": "Jakus",
   "icon": "alpha.png",
   "engines": {
@@ -57,7 +57,7 @@
     }
   },
   "scripts": {
-    "test": "node out/test-linter.js && node out/test-table.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js && node out/test-csvsync.js && node out/test-messages.js && node out/test-recalc.js && node out/test-units.js && node out/test-mistakes.js && node out/test-check.js && node out/test-readme.js"
+    "test": "node out/test-linter.js && node out/test-table.js && node out/test-cells.js && node out/test-extension.js && node out/test-armstrong.js && node out/test-fca.js && node out/test-godel.js && node out/test-derive.js && node out/test-repo.js && node out/test-urls.js && node out/test-hold.js && node out/test-synonyms.js && node out/test-park.js && node out/test-lineform.js && node out/test-python.js && node out/test-uv.js && node out/test-merge.js && node out/test-csvsync.js && node out/test-messages.js && node out/test-recalc.js && node out/test-units.js && node out/test-mistakes.js && node out/test-check.js && node out/test-readme.js"
   },
   "contributes": {
     "configurationDefaults": {
@@ -400,6 +400,41 @@
         "enablement": "editorLangId == aot"
       },
       {
+        "command": "aot.table.insertCells",
+        "title": "Insert Cells, Rows or Columns",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.deleteCells",
+        "title": "Delete Cells, Rows or Columns",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.autoSum",
+        "title": "AutoSum the Column (a total under the table)",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.summarise",
+        "title": "Summarise Column (Sum, Average, Count, Min, Max, Median)",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.filter",
+        "title": "Filter the Table to This Cell's Value",
+        "category": "AOT Table",
+        "enablement": "editorLangId == aot"
+      },
+      {
+        "command": "aot.table.clearFilter",
+        "title": "Show Every Row Again (Clear the Filter)",
+        "category": "AOT Table"
+      },
+      {
         "command": "aot.table.copyFormulaDown",
         "title": "Copy Formula Down the Column",
         "category": "AOT Table",
@@ -724,6 +759,16 @@
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable && !suggestWidgetVisible && !inSnippetMode && !inlineSuggestionVisible"
       },
       {
+        "command": "editor.action.indentLines",
+        "key": "tab",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && !aot.inTable && !suggestWidgetVisible && !inSnippetMode && !inlineSuggestionVisible && !inlineEditIsVisible && !editorTabMovesFocus"
+      },
+      {
+        "command": "editor.action.outdentLines",
+        "key": "shift+tab",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && !aot.inTable && !suggestWidgetVisible && !inSnippetMode && !inlineSuggestionVisible && !inlineEditIsVisible && !editorTabMovesFocus"
+      },
+      {
         "command": "aot.table.nextRow",
         "key": "enter",
         "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable && !suggestWidgetVisible"
@@ -836,12 +881,12 @@
       {
         "command": "aot.table.jumpLeft",
         "key": "ctrl+left",
-        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && !suggestWidgetVisible"
+        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && aot.cellSelected && !suggestWidgetVisible"
       },
       {
         "command": "aot.table.jumpRight",
         "key": "ctrl+right",
-        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && !suggestWidgetVisible"
+        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && aot.cellSelected && !suggestWidgetVisible"
       },
       {
         "command": "aot.table.selectToEdgeUp",
@@ -856,12 +901,82 @@
       {
         "command": "aot.table.selectToEdgeLeft",
         "key": "ctrl+shift+left",
-        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && !suggestWidgetVisible"
+        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && aot.cellSelected && !suggestWidgetVisible"
       },
       {
         "command": "aot.table.selectToEdgeRight",
         "key": "ctrl+shift+right",
-        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && !suggestWidgetVisible"
+        "when": "editorTextFocus && editorLangId == aot && aot.inGrid && aot.cellSelected && !suggestWidgetVisible"
+      },
+      {
+        "command": "aot.table.extendUp",
+        "key": "shift+up",
+        "when": "editorTextFocus && editorLangId == aot && aot.cellSelected && !suggestWidgetVisible && (aot.cellRange || aot.inTable)"
+      },
+      {
+        "command": "aot.table.extendDown",
+        "key": "shift+down",
+        "when": "editorTextFocus && editorLangId == aot && aot.cellSelected && !suggestWidgetVisible && (aot.cellRange || aot.inTable)"
+      },
+      {
+        "command": "aot.table.extendLeft",
+        "key": "shift+left",
+        "when": "editorTextFocus && editorLangId == aot && aot.cellSelected && !suggestWidgetVisible && (aot.cellRange || aot.inTable)"
+      },
+      {
+        "command": "aot.table.extendRight",
+        "key": "shift+right",
+        "when": "editorTextFocus && editorLangId == aot && aot.cellSelected && !suggestWidgetVisible && (aot.cellRange || aot.inTable)"
+      },
+      {
+        "command": "aot.table.copyRange",
+        "key": "ctrl+c",
+        "when": "editorTextFocus && editorLangId == aot && aot.cellRange"
+      },
+      {
+        "command": "aot.table.cutRange",
+        "key": "ctrl+x",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.cellRange"
+      },
+      {
+        "command": "aot.table.paste",
+        "key": "ctrl+v",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inTable"
+      },
+      {
+        "command": "aot.table.insertCells",
+        "key": "ctrl+shift+=",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+      },
+      {
+        "command": "aot.table.insertCells",
+        "key": "ctrl+numpad_add",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+      },
+      {
+        "command": "aot.table.deleteCells",
+        "key": "ctrl+-",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+      },
+      {
+        "command": "aot.table.deleteCells",
+        "key": "ctrl+numpad_subtract",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+      },
+      {
+        "command": "aot.table.sortRows",
+        "key": "ctrl+alt+s",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+      },
+      {
+        "command": "aot.table.autoSum",
+        "key": "alt+=",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == aot && aot.inGrid"
+      },
+      {
+        "command": "aot.table.filter",
+        "key": "ctrl+shift+l",
+        "when": "editorTextFocus && editorLangId == aot && aot.inTable && !suggestWidgetVisible"
       },
       {
         "command": "aot.table.firstCell",

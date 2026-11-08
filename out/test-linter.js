@@ -413,8 +413,8 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
   check("cells: offsets point at the cell text", cells("a | b")[1].col === 4);
   check("cells: a leading divider opens an empty name cell", cells("|gegeg").length === 2
     && cells("|gegeg")[0].text === "" && cells("|gegeg")[1].text === "gegeg");
-  check("isSeparator: dashes and a pipe yes; a '+' rule, a name and a lone dash no",
-    isSeparator("---|---") && !isSeparator("---+---") && !isSeparator("a") && !isSeparator("-"));
+  check("isSeparator: a '+' rule and the older pipe rule yes; a name and a lone dash no",
+    isSeparator("---+---") && isSeparator("---|---") && !isSeparator("a") && !isSeparator("-"));
 
   const messy = aot(
     "Otter",
@@ -427,7 +427,7 @@ const hasError = (report, re) => report.errors.some((e) => re.test(e.message));
     && edits.some((e) => e.text === "    Ollie|5"));
   check("align: a divider is redrawn to its columns",
     align(aot("Otter", "    name|size", "    ----|----", "    Ollie|5"))
-      .some((e) => e.line === 3 && e.text === "    -----|----"));
+      .some((e) => e.line === 3 && e.text === "    -----+----"));
   check("align: an already aligned table needs no edits",
     align(aot("Otter", "    name |size", "    Ollie|5")).length === 0);
   // no attributes, no pair of cells to divide: there the pipe closes the row,
@@ -712,6 +712,68 @@ check("verify: a well-formed tree yields no errors",
   ), "Books");
   check("name identity: the same Example written twice, name and all, still clashes",
     godel.clashes(again.root, again.nodes).findings.some((f) => f.kind === "content" && /'- P1' and '- P1'/.test(f.message)));
+}
+
+// ---------------------------------------------------------------------------
+// an Example's name may hold a colon under its table
+// ---------------------------------------------------------------------------
+{
+  const colons = lint(aot(
+    "Email|subject|n",
+    "Re: Invoice|a|1",
+    "re: other|b|2",
+    "last|d|4",
+    "    rule: a | b",
+    "",
+    "note: a|b",
+  ), "Mail");
+  const named = (n) => colons.nodes.find((x) => x.name === n);
+  check("colon in a row's name: a lowercase colon under the table is a row, and the table goes on past it",
+    colons.errors.length === 0 && named("re: other") && named("re: other").kind === INDIVIDUAL
+    && named("last") && named("last").kind === INDIVIDUAL && named("last").parent.name === "Email");
+  check("colon in a row's name: one level deeper it is still a value holding a pipe",
+    named("rule") && named("rule").kind === DEFAULT && named("rule").value === "a | b" && named("rule").parent.name === "Email");
+  check("colon in a row's name: with no table open, a lowercase colon line is a value",
+    named("note") && named("note").kind === DEFAULT && named("note").value === "a|b");
+}
+
+// ---------------------------------------------------------------------------
+// two rows carrying the same data
+// ---------------------------------------------------------------------------
+{
+  const same = (...lines) => lint(aot(...lines), "Books").warnings.filter((w) => w.identicalRows);
+  check("identical rows: two rows stating the same three values, one of them uncommon, warn at both",
+    same("Payment|amount|payee|date", "P1|1,234.56|Shop|2026-01-05", "P2|1,234.56|Shop|2026-01-05", "P3|250|Rent|2026-01-06")
+      .map((w) => w.line).join(",") === "2,3");
+  check("identical rows: two values are not enough",
+    same("Payment|amount|payee", "P1|100|Shop", "P2|100|Shop").length === 0);
+  check("identical rows: a `...` on either row excuses them, and one under the table excuses all",
+    same("Payment|amount|payee|date|...", "P1|1|Shop|2026-01-05|", "P2|1|Shop|2026-01-05|...").length === 0
+    && same("Payment|amount|payee|date", "P1|1|Shop|2026-01-05", "P2|1|Shop|2026-01-05", "    ...").length === 0);
+  check("identical rows: the maintained '... N more' note excuses nothing",
+    same("Payment|amount|payee|date", "P1|1|Shop|2026-01-05", "P2|1|Shop|2026-01-05", "    ... 3 more in other.aot:1").length === 2);
+  check("identical rows: a value a formula computes is no evidence",
+    same("Deal|list price|discount|net =@list price*(1-@discount)", "A|100|10%|90", "B|100|10%|90").length === 0
+    && same("Deal|price|qty|net", "A|100|2|200 =@price*@qty", "B|100|2|200 =@price*@qty").length === 0);
+  const flags = ["Survey|q1|q2|q3"];
+  for (let i = 0; i < 20; i++) flags.push(`R${i}|${["yes", "no"][i % 2]}|${["yes", "no"][(i >> 1) % 2]}|${["yes", "no"][(i >> 2) % 2]}`);
+  check("identical rows: rows agreeing only on common values (three yes/no columns, 20 rows) do not warn",
+    same(...flags).length === 0);
+  check("identical rows: line form alike",
+    same("Person", "    - Ann", "        age: 30", "        city: Paris", "        role: Lead", "    - Anne", "        age: 30", "        city: Paris", "        role: Lead").length === 2);
+}
+
+// ---------------------------------------------------------------------------
+// the `...` column: what each row leaves out
+// ---------------------------------------------------------------------------
+{
+  const dots = lint(aot("Payment|amount|...", "P1|1|", "P2|2|...", "P3|3|... still checking"), "Books");
+  const maps = dots.nodes.filter((n) => n.kind === MAP);
+  check("'...' column: a mark in a row is a Map under that row's Example, its text the note",
+    dots.errors.length === 0 && maps.length === 2 && maps[0].parent.name === "P2" && maps[0].name === ""
+    && maps[1].parent.name === "P3" && maps[1].name === "still checking");
+  check("'...' column: it is no attribute",
+    !dots.nodes.some((n) => n.kind === ATTRIBUTE && n.name === "..."));
 }
 
 // ---------------------------------------------------------------------------
@@ -1001,14 +1063,22 @@ check("verify: a well-formed tree yields no errors",
 }
 
 // ---------------------------------------------------------------------------
-// a tab: only the indentation is the language's
+// a tab: a value or a name holds none, and the indentation is still the indent's
 // ---------------------------------------------------------------------------
 {
+  const tabError = (r) => r.errors.filter((e) => /^replace the tab with a space — /.test(e.message));
   const inValue = lint(["Thing", "    note: one\ttwo", ""].join("\n"), "Model");
-  check("tab: inside a value it is a character of the value, and no error",
-    inValue.errors.length === 0 && inValue.nodes.find((n) => n.name === "note").value === "one\ttwo");
-  const inRow = lint(["Thing|note", "A|one\ttwo", ""].join("\n"), "Model");
-  check("tab: inside a table cell likewise", inRow.errors.length === 0);
+  check("tab: inside a value it is an error, squiggled on the tab",
+    tabError(inValue).length === 1 && tabError(inValue)[0].startCol === 13 && tabError(inValue)[0].endCol === 14
+    && /the value 'one⇥two' of 'note'/.test(tabError(inValue)[0].message));
+  const inRow = lint(["Thing|note", "A|one\ttwo", "B\tC|x", ""].join("\n"), "Model");
+  check("tab: inside a table cell and an Example's name likewise",
+    tabError(inRow).length === 2 && tabError(inRow).some((e) => /Example 'B⇥C'/.test(e.message)));
+  const pasted = lint(["Name\tAge", "Ann\t30", ""].join("\n"), "Model");
+  check("tab: tab-separated lines pasted outside a table are flagged, so the Quick Fix can make them a table",
+    tabError(pasted).length === 2);
+  const inFormula = lint(["Thing", "    note: =len(\"a\tb\")", ""].join("\n"), "Model");
+  check("tab: inside a formula it is Python's own, and no error", tabError(inFormula).length === 0);
   const leading = lint(["Thing", "\tfoo", ""].join("\n"), "Model");
   check("tab: in the indentation it is still an error, and reads as a level",
     leading.errors.some((e) => /tab in the indentation/.test(e.message)) && leading.nodes.find((n) => n.name === "foo").depth === 1);

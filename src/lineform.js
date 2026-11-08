@@ -41,7 +41,7 @@
 // Pure: no vscode, no I/O. The caller parses, applies, and places the cursor.
 
 const { KIND, INDENT } = require("./linter");
-const { isRowText, splitCell, splitConstraint, readValue, numberless, numericValue } = require("./table");
+const { isRowText, isRowAt, splitCell, splitConstraint, readValue, numberless, sortOrder } = require("./table");
 const { lastLineOf } = require("./derive");
 
 const { INDIVIDUAL, DEFAULT, CONCEPT, ATTRIBUTE } = KIND;
@@ -101,7 +101,7 @@ function cellStart(text) {
 // the parse (gridAt) has the last word when a key is pressed.
 function looksLikeCell(textOf, lineIdx) {
   const text = textOf(lineIdx);
-  if (text === undefined || text === null || isRowText(text)) return false;
+  if (text === undefined || text === null || isRowAt(textOf, lineIdx)) return false;
   const t = text.trim();
   if (t.startsWith("-")) return true;
   if (!/^[^\p{Lu}\p{Lt}\s\-][^:]*:/u.test(t)) return false;
@@ -206,6 +206,12 @@ function gridAt(lines, nodes, lineIdx, opts) {
 const valueNode = (g, r, col) => (col < 1 || col > g.columns.length ? null
   : r.children.find((c) => isLineValue(c, g.lines) && key(c.name) === g.columns[col - 1].key) || null);
 const colOf = (g, v) => g.index.get(key(v.name));
+// The line (0-based) a row's value for column `col` stands on, or -1 when
+// nobody wrote it.
+const valueLineOf = (g, r, col) => {
+  const v = valueNode(g, r, col);
+  return v ? v.line - 1 : -1;
+};
 
 function cellText(g, r, col) {
   if (col === 0) return nameText(g.lines[r.line - 1] || "");
@@ -414,16 +420,16 @@ function shiftDepth(g, dir) {
   return { edits, cursor: { line: g.at } };
 }
 
-// Sort the Examples around the cursor by the cursor's column — numbers as
-// numbers when every key reads as one — each carrying its sub-Examples.
-// Lines standing between them keep their places.
+// Sort the Examples around the cursor by the cursor's column — the name
+// column by name — each carrying its sub-Examples, as table.sortOrder orders
+// them: numbers as numbers, blanks last, and pressed again on a sorted run,
+// the other way round. Lines standing between them keep their places.
 function sortRows(g) {
   const sibs = subRowsOf(g.row.parent, g.lines);
   if (sibs.length < 2) return null;
   const sortKey = (r) => readValue(splitCell(cellText(g, r, g.col)).value);
-  const num = (r) => numericValue(sortKey(r));
-  const numeric = sibs.every((r) => sortKey(r) !== "" && !isNaN(num(r)));
-  const sorted = sibs.slice().sort((x, y) => (numeric ? num(x) - num(y) : sortKey(x).localeCompare(sortKey(y))));
+  const { order } = sortOrder(sibs.map(sortKey));
+  const sorted = order.map((i) => sibs[i]);
   const slots = sibs.map(blockOf);
   const first = slots[0].from, last = slots[slots.length - 1].to;
   const out = [];
@@ -760,6 +766,6 @@ const ops = {
 };
 
 module.exports = {
-  gridAt, looksLikeCell, looksLikeDeclaration, COLUMN_OPS, cellStart, cellText, ops, jump, corner, conceptSpan,
+  gridAt, looksLikeCell, looksLikeDeclaration, COLUMN_OPS, cellStart, cellText, valueLineOf, ops, jump, corner, conceptSpan,
   applyEdits, resolve, changedLines,
 };

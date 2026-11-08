@@ -226,6 +226,11 @@ _SUPERS = {"²": 2, "³": 3}
 _BASE_MARK = "\0"
 
 
+# each built-in kind's dimensions, by its name lowercased: a unit a repository
+# writes under a kind of the same name (Length) converts with these
+_KIND_DIMS = {}
+
+
 def _load_units():
     """{word: (factor, dims)}, and the same by lowercase for words of three
     letters or more: `Hours` is `hours` and `kwh` is `kWh`, but `M` is never `m`."""
@@ -235,8 +240,10 @@ def _load_units():
             table = json.load(fh)
     except (OSError, ValueError):
         return exact, folded
-    for entry in table.values():
+    for kind_name, entry in table.items():
         measures = tuple(sorted((_BASE_MARK + base, power) for base, power in entry.get("measures", {}).items()))
+        if measures:
+            _KIND_DIMS[kind_name.lower()] = measures
         for row in entry["units"]:
             factor = fractions.Fraction(row[0])
             # each currency is a thing of its own: nothing converts it to another
@@ -249,6 +256,51 @@ def _load_units():
 
 
 _UNITS, _UNITS_FOLDED = _load_units()
+_BUILT_IN = (dict(_UNITS), dict(_UNITS_FOLDED))
+# the marks a repository's own units are written with in front of a number
+# (`CHF 1,200`): mark -> unit word
+_OWN_PREFIX = {}
+
+
+def _define_units(units):
+    """The units a repository writes itself, as rows of a kind under a Concept
+    called Unit (the editor reads them; see units.js): each one's factor in its
+    kind's base unit, and the mark its format puts in front of a number. A kind
+    named as a built-in one (Length) converts with the built-in units of that
+    kind; a kind of the repository's own (Money) converts within itself. A unit
+    with no factor converts to nothing. Each call replaces the last: the units
+    are the repository's as it stands."""
+    global _VALUE
+    _UNITS.clear()
+    _UNITS.update(_BUILT_IN[0])
+    _UNITS_FOLDED.clear()
+    _UNITS_FOLDED.update(_BUILT_IN[1])
+    _OWN_PREFIX.clear()
+    _MEASURES.clear()
+    for u in units or []:
+        name = str(u.get("name") or "").strip()
+        if not name:
+            continue
+        kind = str(u.get("kind") or "").strip()
+        factor_text = str(u.get("factor") or "").strip().replace(",", "")
+        if factor_text:
+            try:
+                factor = fractions.Fraction(factor_text)
+            except (ValueError, ZeroDivisionError):
+                continue
+            dims = _KIND_DIMS.get(kind.lower()) or ((_BASE_MARK + "own " + kind.lower(), 1),)
+        else:
+            factor, dims = fractions.Fraction(1), ((_BASE_MARK + "own " + name, 1),)
+        words = [name] + [m for m in (u.get("suffix"), u.get("prefix")) if m and m != name]
+        for w in words:
+            _UNITS[w] = (factor, dims)
+            if len(w) >= 3:
+                _UNITS_FOLDED[w.lower()] = (factor, dims)
+        if u.get("prefix"):
+            _OWN_PREFIX[str(u["prefix"])] = name
+    marks = sorted(_OWN_PREFIX, key=len, reverse=True)
+    front = "|".join([re.escape(m) for m in marks] + [f"[{_SYMBOLS}]"])
+    _VALUE = re.compile(rf"^([-+]?)(?:({front}) ?)?([-+]?)({_DIGITS})(.*)$", re.S)
 
 
 def _known(word):
@@ -390,6 +442,9 @@ def _group(text):
 def _compose(digits, label):
     """A number and its unit as the file writes them: `$1,204`, `-$5`, `$10/kg`,
     `120 km`."""
+    if label in _OWN_PREFIX:
+        sign = "-" if digits.startswith("-") else ""
+        return f"{sign}{label} {digits.lstrip('-')}"
     if re.match(r"^[$€£¥R](?=$|[/*·])", label):
         sign = "-" if digits.startswith("-") else ""
         return f"{sign}{label[0]}{digits.lstrip('-')}{label[1:]}"
@@ -2242,6 +2297,9 @@ def _handle(req):
         # (a tree the session already holds is not sent again)
         if "tree" in req:
             _api.tree = req.get("tree")
+        # the units the repository writes itself, as it stands
+        if "units" in req:
+            _define_units(req.get("units"))
         _api.file = req.get("file")
         _api.root = req.get("root")
         _api.files = Path(req["aotFiles"]) if req.get("aotFiles") else None

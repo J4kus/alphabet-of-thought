@@ -127,19 +127,21 @@ function check(name, ok) {
     })());
 }
 
-// --- dividers: '-----|----' groups the rows ------------------------------------
+// --- dividers: '-----+----' groups the rows ------------------------------------
 {
   check("dividers: a divider is kept, drawn to its columns' widths",
     render(blockAt(["Thing|age", "---|---", "A|1", "------|-", "B|2"], 0)).join("\n")
-    === ["Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"].join("\n"));
-  check("dividers: a one-column table's divider closes with its pipe, as its rows do",
-    render(blockAt(["Org|", "-|", "A  |"], 0)).join("\n") === ["Org|", "---|", "A  |"].join("\n"));
+    === ["Thing|age", "-----+---", "A    |1", "-----+---", "B    |2"].join("\n"));
+  check("dividers: a one-column table's divider closes with its cross, as its rows close with their pipe",
+    render(blockAt(["Org|", "-|", "A  |"], 0)).join("\n") === ["Org|", "---+", "A  |"].join("\n"));
+  check("dividers: a '+' divider reads back as one, and draws the same",
+    render(blockAt(["Thing|age", "-----+---", "A    |1"], 0)).join("\n") === ["Thing|age", "-----+---", "A    |1"].join("\n"));
   check("dividers: the linter reads past one without ending the table",
     lint(["Thing|age", "-----|---", "A    |1", "-----|---", "B    |2"].join("\n"), "Zoo").nodes
       .filter((n) => n.kind === 0 && n.parent.name === "Thing").map((n) => n.name).join(",") === "A,B");
   const grouped = ["Thing|age", "Zeta |3", "Alpha|5", "-----|---", "Mid  |1", "Beta |2"];
   check("dividers: a sort stays within the group the cursor stands in",
-    (() => { const x = blockAt(grouped, 0); sortRows(x, 1, 0); return render(x).join("\n") === ["Thing|age", "Alpha|5", "Zeta |3", "-----|---", "Mid  |1", "Beta |2"].join("\n"); })());
+    (() => { const x = blockAt(grouped, 0); sortRows(x, 1, 0); return render(x).join("\n") === ["Thing|age", "Alpha|5", "Zeta |3", "-----+---", "Mid  |1", "Beta |2"].join("\n"); })());
   check("dividers: Tab steps over a divider to the next row",
     (() => { const x = blockAt(grouped, 0); const t = nextCell(x, 2, 1); return t.row === 4 && t.col === 0; })());
   check("dividers: deleting a divider takes only the divider",
@@ -150,7 +152,7 @@ function check(name, ok) {
     (() => {
       const lines = ["Thing|age", "A    |1", "-----|---", "B    |2"];
       const u = updateTable(lines, "Thing", ["Thing", "age"], [["A", "1"], ["B", "2"], ["C", "3"]], "Zoo");
-      return u.block.join("\n") === ["Thing|age", "A    |1", "-----|---", "B    |2", "C    |3"].join("\n");
+      return u.block.join("\n") === ["Thing|age", "A    |1", "-----+---", "B    |2", "C    |3"].join("\n");
     })());
 }
 
@@ -214,7 +216,7 @@ const fresh = () => blockAt(doc, 2);
   check("blockAt: a non-pipe line is no block", blockAt(doc, 0) === null && blockAt(doc, 4) === null);
   const ruled = blockAt(["name|size", "----|----", "Ollie|5"], 0);
   check("blockAt: a divider is kept, and drawn to its columns",
-    ruled.rows[1].sep === true && render(ruled).join("/") === "name |size/-----|----/Ollie|5");
+    ruled.rows[1].sep === true && render(ruled).join("/") === "name |size/-----+----/Ollie|5");
   check("blockAt: a row with an empty name cell is a row like any other",
     blockAt(doc, 5).start === 5 && blockAt(doc, 5).end === 5
     && blockAt(doc, 5).rows[0].cells.join(",") === ",gegeg");
@@ -228,8 +230,10 @@ const fresh = () => blockAt(doc, 2);
   check("render: an empty name cell is drawn as the spaces of its column",
     render(ragged)[2] === "     |3   |grey");
 
-  check("isSeparator: dashes and a pipe; a '+' rule, a lone dash and dashes alone are no divider",
-    isSeparator("-----|---") && isSeparator("---|") && !isSeparator("---+---") && !isSeparator("-") && !isSeparator("---"));
+  check("isSeparator: dashes crossed by '+', and the older pipe form; a lone dash, dashes alone and '- +' are no divider",
+    isSeparator("---+---") && isSeparator("---+") && isSeparator("-+-") && isSeparator("--- + ---")
+    && isSeparator("-----|---") && isSeparator("---|")
+    && !isSeparator("-") && !isSeparator("---") && !isSeparator("- +") && !isSeparator("+"));
 
   check("widthsOf: widest cell per column", widthsOf(block).join(",") === "6,4,6");
   check("render: redraws aligned (no gutters)", render(block)[1] === "    Ollie |5   |brown");
@@ -332,7 +336,19 @@ const fresh = () => blockAt(doc, 2);
   b = blockAt(money, 1);
   sortRows(b, 1, 0);
   check("sortRows: alphabetic otherwise", b.rows.slice(1).map((r) => r.cells[0]).join(",") === "Acme,Bolt,Kite");
-  check("sortRows: the header cannot anchor a sort", sortRows(blockAt(money, 1), 0, 0) === null);
+  b = blockAt(money, 1);
+  check("sortRows: pressed on the header it sorts the rows by that column, the header kept first",
+    sortRows(b, 0, 0) !== null && b.rows[0].cells[0] === "name"
+    && b.rows.slice(1).map((r) => r.cells[0]).join(",") === "Acme,Bolt,Kite");
+  b = blockAt(money, 1);
+  sortRows(b, 1, 0);
+  sortRows(b, 1, 0);
+  check("sortRows: pressed again on a sorted run it sorts the other way round",
+    b.rows.slice(1).map((r) => r.cells[0]).join(",") === "Kite,Bolt,Acme");
+  const gappy = blockAt(["T|n", "a|10", "b|", "c|9", "d|100"], 0);
+  sortRows(gappy, 1, 1);
+  check("sortRows: a blank cell goes last and the rest still sort as numbers",
+    gappy.rows.slice(1).map((r) => r.cells[1] || "").join(",") === "9,10,100,");
 }
 
 // ---------------------------------------------------------------------------
@@ -570,7 +586,7 @@ const fresh = () => blockAt(doc, 2);
   check("no alignment: every column is padded on its right",
     drawn[2] === "1      |1   |1    |1");
   check("no alignment: a divider is dashes alone, to its columns' widths",
-    drawn.length === 4 && drawn[0] === "default|left|right|centre" && drawn[1] === "-------|----|-----|------");
+    drawn.length === 4 && drawn[0] === "default|left|right|centre" && drawn[1] === "-------+----+-----+------");
 
   // the formatter must not churn: drawing an aligned table again changes
   // nothing, or every save would rewrite the file
@@ -773,7 +789,7 @@ const fresh = () => blockAt(doc, 2);
   const ruledEdits = align(ruled);
   check("align: a divider is redrawn to its columns, line for line",
     ruledEdits.length === 2 && ruledEdits[0].line === 2 && ruledEdits[0].text === "    name |size"
-    && ruledEdits[1].line === 3 && ruledEdits[1].text === "    -----|----");
+    && ruledEdits[1].line === 3 && ruledEdits[1].text === "    -----+----");
 }
 
 // ---------------------------------------------------------------------------
@@ -992,7 +1008,7 @@ const fresh = () => blockAt(doc, 2);
     check(`rowName: '${name}' stays as it is`, t.rowName(name) === name);
   }
   check("rowName: a formula is inert", t.rowName("=x()") === "＝x()" && t.rowName("x =evil()") === "x ＝evil()");
-  check("rowName: a lowercase colon would make a value line", t.rowName("standup: late") === "standup： late");
+  check("rowName: a lowercase colon stays, since under its header the line is a row", t.rowName("standup: late") === "standup: late");
   check("rowName: '...' would make a Map", t.rowName("... rest") === "… rest");
   check("rowName: all dashes would make a divider", !t.isSeparator(`${t.rowName("---")}|`));
   check("rowName: empty stays empty, and it reads back as itself", t.rowName("  ") === "" && t.rowName(t.rowName("=x()")) === "＝x()");

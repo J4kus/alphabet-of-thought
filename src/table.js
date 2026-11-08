@@ -56,12 +56,14 @@
 // table, its spreadsheet and a DataFrame of it are one shape, and a row can
 // stand anywhere: sorted, moved, parent below child.
 //
-// A DIVIDER — dashes between the pipes, `-----|----` — groups the rows, as a
-// blank line groups an outline's lines (the flip turns one into the other).
-// It holds no cells, says nothing to the model, and every key steps over it.
+// A DIVIDER — dashes crossed where the columns divide, `-----+----` — groups
+// the rows, as a blank line groups an outline's lines (the flip turns one into
+// the other). It holds no cells, says nothing to the model, and every key steps
+// over it. A divider drawn before 1.15 crossed with pipes, `-----|----`; it
+// still reads as one, and any redraw writes it with '+'.
 
 const { readsAsExpression } = require("./pyshape");
-const { isUnit, wordsOf } = require("./units");
+const { isUnit, wordsOf, ownUnit, prefixes, unitsGeneration } = require("./units");
 
 // Case says what a term is, and case belongs to every alphabet that has it, so
 // these read Unicode's letter classes rather than a to z: `ête`, `één` and
@@ -76,10 +78,18 @@ const startsUpper = (text) => /^[\p{Lu}\p{Lt}]/u.test(String(text));
 // Concept (linter.classify).
 const startsCaseless = (text) => /^[\p{Lo}\p{Lm}]/u.test(String(text));
 
-// A divider row — '----|----' — groups a table's rows: dashes, pipes and
-// spaces, with at least one of each of the first two. The pipe is what keeps a
-// lone '-', an Example whose name is still being typed, from reading as one.
-const isSeparator = (text) => /^[\s\-|]*$/.test(text) && text.includes("-") && text.includes("|");
+// A divider row — '----+----' — groups a table's rows: dashes crossed by '+'
+// where the columns divide, spaces aside. The cross is what keeps a lone '-',
+// an Example whose name is still being typed, from reading as one, and a line
+// opening '- ' is an Example ('- +' names one), never a divider. The pipe form
+// '----|----' drawn before 1.15 still reads as a divider: read any other way it
+// would be an Example called '----'.
+const isSeparator = (text) => {
+  const t = String(text);
+  if (!t.includes("-")) return false;
+  if (/^[\s\-|]*$/.test(t) && t.includes("|")) return true;
+  return /^[\s\-+]*$/.test(t) && t.includes("+") && !/^\s*-\s/.test(t);
+};
 
 // A line is a table row when it carries a '|': the divider between two
 // cells is the only pipe a row has, so one is all it takes.
@@ -120,6 +130,55 @@ const isRowText = (text) => {
   const term = d.eq > 0 ? head.slice(0, d.eq) : head;
   return !term.includes(":") || /^[\p{Lu}\p{Lt}\p{N}]/u.test(term.trim());
 };
+
+// A line whose first divider stands behind a lowercase colon — `re: other|b|2`
+// — which isRowText, reading the line alone, takes for a value holding a pipe.
+// A `- ` line, a `...` line and a bare `=` line are never one.
+const pipeBehindColon = (text) => {
+  const t = String(text || "").trim();
+  if (!t || t.startsWith("...") || t.startsWith("- ") || t.startsWith("=") || isRowText(t)) return false;
+  return dividers(t).length > 0;
+};
+
+// Whether line `i` is a table row, read with the lines above it. A line alone
+// is a row as isRowText says; under a row of an open table, at that row's own
+// indent, a line whose first pipe stands behind a colon is one more row — an
+// Example's name may hold a colon, `re: other|b|2` — and one level deeper it is
+// a value holding a pipe, as everywhere else. `lines` is an array, or a
+// function from an index to its line (undefined past either end).
+//
+// The rows above are walked over `...` lines and dividers to the nearest named
+// row. A caller asking about many lines of one text (blockAt) passes a `memo`
+// Map of its own, so a long run of such rows is walked once, not once a row.
+const indentWidth = (text) => String(text).match(/^ */)[0].length;
+function isRowAt(lines, i, memo) {
+  const at = typeof lines === "function" ? lines : (j) => lines[j];
+  const text = at(i);
+  if (text === undefined || text === null) return false;
+  if (isRowText(text)) return true;
+  if (!pipeBehindColon(text)) return false;
+  if (memo && memo.has(i)) return memo.get(i);
+  const lead = indentWidth(text);
+  const waiting = [i];
+  let answer = false;
+  for (let j = i - 1; j >= 0; j--) {
+    const above = at(j);
+    if (above === undefined || above === null || !above.trim()) break;
+    if (/^ *\.\.\./.test(above) || isSeparator(above.trim())) continue;
+    if (memo && memo.has(j)) { answer = memo.get(j) && indentWidth(above) === lead; break; }
+    if (isRowText(above)) {
+      // a row still waiting for its name is padded, not indented: the named
+      // row above it says where the table stands
+      if (!(cells(above)[0] || {}).text) continue;
+      answer = indentWidth(above) === lead;
+      break;
+    }
+    if (!pipeBehindColon(above) || indentWidth(above) !== lead) break;
+    waiting.push(j);
+  }
+  if (memo) for (const k of waiting) memo.set(k, answer);
+  return answer;
+}
 
 // Where a row's dividers stand. Every pipe divides — except inside the
 // Python a Concept's derivation carries in the first cell, while that
@@ -269,7 +328,8 @@ function cells(line) {
 // the rows ends the table, and one past the last row is the table's Map, under
 // it, as the linter reads both.
 function blockAt(lines, lineIdx) {
-  const isRow = (i) => i >= 0 && i < lines.length && isRowText(lines[i]);
+  const memo = new Map();
+  const isRow = (i) => i >= 0 && i < lines.length && isRowAt(lines, i, memo);
   if (!isRow(lineIdx)) return null;
   const isNote = (i) => i >= 0 && i < lines.length && /^ *\.\.\./.test(lines[i]);
   const indentOf = (i) => lines[i].match(/^ */)[0];
@@ -487,13 +547,14 @@ function render(block) {
   const drawRow = (parts) => (closes
     ? block.indent + parts.join("|") + "|"
     : (block.indent + parts.join("|")).replace(/\s+$/, ""));
-  // a divider is dashes the width of each column, divided where the rows
-  // are — a one-column table's closing with its pipe as its rows do (read
-  // back from the file, that pipe is an empty last column, nothing to draw)
+  // a divider is dashes the width of each column, crossed where the rows
+  // divide — a one-column table's closing with its cross as its rows close
+  // with their pipe (read back from the file, that pipe is an empty last
+  // column, nothing to draw)
   const last = widths.length - 1;
   const emptyLast = last > 0 && block.rows.every((r) => r.sep || !String(r.cells[last] || "").trim());
-  const dashed = (emptyLast ? widths.slice(0, -1) : widths).map((w) => "-".repeat(Math.max(w, 1))).join("|");
-  const rule = block.indent + dashed + (closes || emptyLast ? "|" : "");
+  const dashed = (emptyLast ? widths.slice(0, -1) : widths).map((w) => "-".repeat(Math.max(w, 1))).join("+");
+  const rule = block.indent + dashed + (closes || emptyLast ? "+" : "");
   return block.rows.map((row) => (row.note !== undefined ? row.note
     : row.sep ? rule
     : drawRow(widths.map((w, k) => padCell(drawn(row, k), w)))));
@@ -642,29 +703,218 @@ function deleteRow(block, row, col) {
   return { row: Math.min(row - before, block.rows.length - 1), col };
 }
 
+// --- the keys over a range of rows and columns ------------------------------
+// A rectangle of cells selected (Ctrl+Shift+arrow, Shift+arrow) reaches these
+// as `span`, { anchor: { row, col }, active: { row, col } } in block rows, and
+// each acts on every row or column the rectangle covers, as a spreadsheet's
+// keys do. Each answers { row, col, range } — `range` the rectangle to select
+// again where it now stands — or null to leave the table alone.
+
+const spanBounds = (span) => ({
+  top: Math.min(span.anchor.row, span.active.row), bottom: Math.max(span.anchor.row, span.active.row),
+  left: Math.min(span.anchor.col, span.active.col), right: Math.max(span.anchor.col, span.active.col),
+});
+const shifted = (span, dRow, dCol) => ({
+  anchor: { row: span.anchor.row + dRow, col: span.anchor.col + dCol },
+  active: { row: span.active.row + dRow, col: span.active.col + dCol },
+});
+
+// Alt+↑ / Alt+↓ over several rows: they move together past the line beyond
+// them — a row, a divider or a `...` line — and the header stays first.
+function moveRows(block, span, dir) {
+  const { top, bottom } = spanBounds(span);
+  const head = headerIndex(block);
+  if (top <= head) return null;
+  const other = dir < 0 ? top - 1 : bottom + 1;
+  if (other <= head || other >= block.rows.length) return null;
+  const moving = block.rows.slice(top, bottom + 1);
+  const passed = block.rows[other];
+  if (dir < 0) block.rows.splice(other, moving.length + 1, ...moving, passed);
+  else block.rows.splice(top, moving.length + 1, passed, ...moving);
+  const range = shifted(span, dir, 0);
+  return { row: range.active.row, col: range.active.col, range };
+}
+
+// Alt+← / Alt+→ over several columns: they move together past the column
+// beyond them. The name column stays first.
+function moveColumns(block, span, dir) {
+  const { left, right } = spanBounds(span);
+  const numCols = widthsOf(block).length;
+  const other = dir < 0 ? left - 1 : right + 1;
+  if (left < 1 || other < 1 || other >= numCols) return null;
+  padRows(block);
+  for (const r of block.rows) {
+    if (r.sep) continue;
+    const moving = r.cells.slice(left, right + 1);
+    const passed = r.cells[other];
+    if (dir < 0) r.cells.splice(other, moving.length + 1, ...moving, passed);
+    else r.cells.splice(left, moving.length + 1, passed, ...moving);
+  }
+  const range = shifted(span, 0, dir);
+  return { row: range.active.row, col: range.active.col, range };
+}
+
+// The data rows a span covers, as block indices.
+const spanDataRows = (block, span) => {
+  const { top, bottom } = spanBounds(span);
+  const head = headerIndex(block);
+  const out = [];
+  for (let i = Math.max(top, head + 1); i <= bottom && i < block.rows.length; i++) if (!block.rows[i].sep) out.push(i);
+  return out;
+};
+
+// As many empty rows as the span covers, above it — the header stays first.
+function insertRows(block, span) {
+  const head = headerIndex(block);
+  const { top, bottom } = spanBounds(span);
+  const n = Math.max(1, spanDataRows(block, span).length || bottom - top + 1);
+  const at = Math.max(top, head + 1);
+  block.rows.splice(at, 0, ...Array.from({ length: n }, () => ({ sep: false, cells: [] })));
+  return { row: at, col: 0 };
+}
+
+// Every row the span covers goes, each with the rows whose parents lead back to
+// it, as deleteRow takes one.
+function deleteRows(block, span) {
+  const rows = spanDataRows(block, span);
+  if (!rows.length) return null;
+  const gone = new Set();
+  for (const r of rows) for (const g of [r, ...branchOf(block, r)]) gone.add(g);
+  const first = rows[0];
+  block.rows = block.rows.filter((_, i) => !gone.has(i));
+  if (!block.rows.length) return null;
+  const before = [...gone].filter((i) => i < first).length;
+  return { row: Math.min(first - before, block.rows.length - 1), col: span.active.col };
+}
+
+// As many empty columns as the span covers, where it starts (the name column
+// stays first).
+function insertColumns(block, span) {
+  const { left, right } = spanBounds(span);
+  const at = Math.max(1, left);
+  const n = right - left + 1;
+  padRows(block);
+  for (const r of block.rows) {
+    if (!r.sep) r.cells.splice(Math.min(at, r.cells.length), 0, ...Array.from({ length: n }, () => ""));
+  }
+  return { row: span.active.row, col: at };
+}
+
+// Every column the span covers goes; the name column never does.
+function deleteColumns(block, span) {
+  const { left, right } = spanBounds(span);
+  const numCols = widthsOf(block).length;
+  const from = Math.max(1, left);
+  if (from > right || from >= numCols) return null;
+  padRows(block);
+  for (const r of block.rows) if (!r.sep) r.cells.splice(from, right - from + 1);
+  return { row: span.active.row, col: Math.max(0, Math.min(from, widthsOf(block).length - 1)) };
+}
+
+// Excel's insert and delete of cells, the rest of the rows or columns moving
+// to make room or close the gap: "right" and "down" insert, "left" and "up"
+// delete. Only data cells move — the header names the columns, and the name
+// column names the rows — so a span reaching into either moves only the data
+// it covers. A shift that would push a value past the last column moves
+// nothing: a table gains a column only by naming one ({ refused }).
+function shiftCells(block, span, how) {
+  const { left, right } = spanBounds(span);
+  const from = Math.max(1, left);
+  if (from > right) return null;
+  const n = right - from + 1;
+  const numCols = widthsOf(block).length;
+  const rows = spanDataRows(block, span);
+  if (!rows.length) return null;
+  padRows(block);
+  const head = headerIndex(block);
+  const data = [];
+  block.rows.forEach((r, i) => { if (i > head && !r.sep) data.push(i); });
+  if (how === "right") {
+    for (const i of rows) {
+      if (block.rows[i].cells.slice(numCols - n).some((c) => String(c || "").trim())) return { refused: "a value would be pushed past the last column" };
+    }
+    for (const i of rows) {
+      block.rows[i].cells.splice(from, 0, ...Array.from({ length: n }, () => ""));
+      block.rows[i].cells.length = numCols;
+    }
+  } else if (how === "left") {
+    for (const i of rows) {
+      block.rows[i].cells.splice(from, n);
+      while (block.rows[i].cells.length < numCols) block.rows[i].cells.push("");
+    }
+  } else {
+    const first = data.indexOf(rows[0]);
+    const count = rows.length;
+    for (let c = from; c <= right; c++) {
+      const column = data.map((i) => block.rows[i].cells[c] || "");
+      const next = how === "down"
+        ? [...column.slice(0, first), ...Array.from({ length: count }, () => ""), ...column.slice(first)]
+        : [...column.slice(0, first), ...column.slice(first + count), ...Array.from({ length: count }, () => "")];
+      // what moves past the last row lands in new rows below it
+      while (data.length < next.length && next.slice(data.length).some((v) => String(v).trim())) {
+        block.rows.push({ sep: false, cells: Array.from({ length: numCols }, () => "") });
+        data.push(block.rows.length - 1);
+      }
+      data.forEach((i, k) => { block.rows[i].cells[c] = next[k] || ""; });
+    }
+  }
+  return { row: rows[0], col: from };
+}
+
+// The order a sort puts keys in, as indices into them: numbers as numbers
+// when every key that is not blank reads as one ($, % and thousands commas
+// aside), text otherwise — `Row 9` before `Row 10` — and blanks last either
+// way, so one empty cell never turns a column of numbers into text. Stable, so
+// equal keys keep their order. Keys already in that order sort the other way
+// round, blanks still last: pressing the key again turns the sort.
+function sortOrder(keys) {
+  const all = keys.map((k, i) => ({ k: String(k == null ? "" : k).trim(), i }));
+  const filled = all.filter((x) => x.k !== "");
+  const blanks = all.filter((x) => x.k === "");
+  const numeric = filled.length > 0 && filled.every((x) => !isNaN(numericValue(x.k)));
+  const cmp = (a, b) => (numeric ? numericValue(a.k) - numericValue(b.k) : a.k.localeCompare(b.k, undefined, { numeric: true, sensitivity: "base" }));
+  const up = [...filled].sort((a, b) => cmp(a, b) || a.i - b.i).concat(blanks).map((x) => x.i);
+  if (!up.every((v, j) => v === j)) return { order: up, descending: false };
+  const down = [...filled].sort((a, b) => cmp(b, a) || a.i - b.i).concat(blanks).map((x) => x.i);
+  return { order: down, descending: true };
+}
+
 // C-c ^: sort the data rows around the cursor — the header standing first
-// is what keeps it out of the run — by the cursor's column: numerically
-// when every key reads as a number ($, % and thousands commas ignored),
-// alphabetically otherwise.
+// is what keeps it out of the run — by the cursor's column (sortOrder): the
+// name column sorts by Example name. Pressed on the header, every group of
+// rows (a divider bounds one) sorts by that column, each within itself.
 function sortRows(block, row, col) {
   if (block.rows[row].sep) return null;
   const head = headerIndex(block);
-  if (row <= head) return null;
-  let a = row, b = row;
-  while (a > head + 1 && !block.rows[a - 1].sep) a--;
-  while (b < block.rows.length - 1 && !block.rows[b + 1].sep) b++;
-  if (a === b) return null;
+  if (row < head) return null;
+  const runs = [];
+  if (row === head) {
+    for (let a = head + 1; a < block.rows.length; a++) {
+      if (block.rows[a].sep) continue;
+      let b = a;
+      while (b < block.rows.length - 1 && !block.rows[b + 1].sep) b++;
+      runs.push([a, b]);
+      a = b;
+    }
+  } else {
+    let a = row, b = row;
+    while (a > head + 1 && !block.rows[a - 1].sep) a--;
+    while (b < block.rows.length - 1 && !block.rows[b + 1].sep) b++;
+    runs.push([a, b]);
+  }
   const key = (r) => readValue(splitCell((r.cells[col] || "").trim()).value);
-  const num = (r) => numericValue(key(r));
-  const run = block.rows.slice(a, b + 1);
-  // A row names its parent rather than standing under it, so the run sorts
-  // as the flat list it is and the tree comes through whole: a child sorted
-  // above its parent still names it. Stable, so equal keys keep their order.
-  const numeric = run.every((r) => key(r) !== "" && !isNaN(num(r)));
-  const order = run.map((r, i) => ({ r, i }));
-  order.sort((x, y) => (numeric ? num(x.r) - num(y.r) : key(x.r).localeCompare(key(y.r))) || x.i - y.i);
-  block.rows.splice(a, run.length, ...order.map((o) => o.r));
-  return { row, col };
+  let moved = false;
+  for (const [a, b] of runs) {
+    if (a === b) continue;
+    // A row names its parent rather than standing under it, so the run sorts
+    // as the flat list it is and the tree comes through whole: a child sorted
+    // above its parent still names it.
+    const run = block.rows.slice(a, b + 1);
+    const { order } = sortOrder(run.map(key));
+    block.rows.splice(a, run.length, ...order.map((i) => run[i]));
+    moved = true;
+  }
+  return moved ? { row, col } : null;
 }
 
 // Nest Row Under the Row Above, and Lift Row Out: the row's place in the
@@ -1077,7 +1327,9 @@ const readValue = (text) => String(text)
 // longer, so none of them can open a derivation. What Python returns, what a
 // CSV brings and every fact a quick fix moves is written through here: data
 // never becomes code.
+// A tab becomes a space on the way in: a value holds none (linter noTabs).
 const writtenValue = (value) => String(value == null ? "" : value)
+  .replace(/\t/g, " ")
   .replace(/(^|\s)(=+)/g, (m, lead, run) => lead + run + "=");
 
 // Split a cell (or line-form value) into its value and its '=' derivation:
@@ -1231,7 +1483,12 @@ function valueType(v) {
 const numericValue = (text) => {
   const t = String(text).trim();
   const bracketed = /^\(.*\)$/.test(t);
-  const n = parseFloat((bracketed ? t.slice(1, -1) : t).replace(/^([-+]?)R(?=[\d\s])/, "$1").replace(/[$€£¥,%\s]/g, ""));
+  let body = bracketed ? t.slice(1, -1).trim() : t;
+  // a mark the repository writes in front of its own unit (`CHF 1,200`)
+  const sign = /^[-+]/.test(body) ? body[0] : "";
+  const mark = prefixes().find((p) => body.slice(sign.length).startsWith(p));
+  if (mark) body = sign + body.slice(sign.length + mark.length);
+  const n = parseFloat(body.replace(/^([-+]?)R(?=[\d\s])/, "$1").replace(/[$€£¥,%\s]/g, ""));
   return bracketed ? -n : n;
 };
 
@@ -1269,20 +1526,50 @@ function longestMatch(rest, candidates) {
   return best;
 }
 
-// A number and its unit, as the file writes them: `$1,204`, `$10/kg`, `30%`, `120 km`.
+// A number written to a fixed number of decimals, its thousands grouped:
+// `1,215.6` to 2 is `1,215.60`.
+function fixedDecimals(digits, decimals) {
+  const n = Number(String(digits).replace(/,/g, ""));
+  if (!isFinite(n)) return digits;
+  const [whole, frac] = Math.abs(n).toFixed(decimals).split(".");
+  return `${n < 0 ? "-" : ""}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ? `.${frac}` : ""}`;
+}
+
+// A number and its unit, as the file writes them: `$1,204`, `$10/kg`, `30%`,
+// `120 km` — and a unit the repository writes itself in its own format
+// (units.js): `CHF 1,200`, `R1,200.00`, `3x`.
 const composed = (digits, unit, glued) => {
   if (!unit) return digits;
+  const mine = ownUnit(unit);
+  if (mine && (mine.format.prefix || mine.format.suffix)) {
+    const f = mine.format;
+    const d = f.decimals === null ? digits : fixedDecimals(digits, f.decimals);
+    const behind = f.suffix ? `${f.suffixSpace ? " " : ""}${f.suffix}` : "";
+    return f.prefix ? `${f.prefix}${f.prefixSpace ? " " : ""}${d}${behind}` : `${d}${behind}`;
+  }
   if (/^[$€£¥R](?=$|[/*·])/.test(unit)) return `${unit[0]}${digits}${unit.slice(1)}`;
   return unit === "%" || glued ? `${digits}${unit}` : `${digits} ${unit}`;
 };
 
 // How a cell writes its number: its unit, whether that is glued on (`5km`), and
 // whether a negative stands in brackets. A text that is no number has no form.
-const WRITTEN_NUMBER = /^([-+]?)([$€£¥R]?) ?([-+]?)((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(.*)$/su;
+// The marks in front of a number are the currencies Alpha knows and the
+// prefixes of the repository's own units, longest first, so the pattern is
+// built again whenever those change (units.unitsGeneration).
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+let writtenNumberMemo = { gen: -1, re: null };
+function writtenNumber() {
+  const gen = unitsGeneration();
+  if (writtenNumberMemo.gen !== gen) {
+    const marks = [...prefixes().map(escapeRe), "[$€£¥R]"].join("|");
+    writtenNumberMemo = { gen, re: new RegExp(`^([-+]?)(${marks})? ?([-+]?)((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)(.*)$`, "su") };
+  }
+  return writtenNumberMemo.re;
+}
 function writtenForm(old) {
   const t = String(old == null ? "" : old).trim();
   const brackets = /^\(.*\)$/.test(t);
-  const m = WRITTEN_NUMBER.exec(brackets ? t.slice(1, -1).trim() : t);
+  const m = writtenNumber().exec(brackets ? t.slice(1, -1).trim() : t);
   const none = { unit: "", glued: false, brackets: false, number: false };
   if (!m) return none;
   const tail = m[5];
@@ -1323,7 +1610,8 @@ function formatNumberText(text, old, unit) {
   return form.brackets ? `(${body})` : `-${body}`;
 }
 function formatValue(v, old, unit) {
-  if (typeof v === "string") return v.replace(/\|/g, "¦");
+  // a tab is no character of a value (linter noTabs): it becomes a space
+  if (typeof v === "string") return v.replace(/\|/g, "¦").replace(/\t/g, " ");
   if (!isFinite(v)) throw new Error("the result is not a number");
   const digits = v.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
   return formatNumberText(digits, old, unit);
@@ -1367,10 +1655,21 @@ function withUnit(text, unit) {
 // nothing to replace.
 const OVERLINE = "̅";
 const MIN_REPEAT_DIGITS = 5, MIN_REPEATS = 3, MAX_BLOCK = 3, SHOWN_DIGITS = 3;
+let shortMemo = { gen: -1, re: null };
+function shortPattern() {
+  const gen = unitsGeneration();
+  if (shortMemo.gen !== gen) {
+    // a repository's own prefix may stand a space from its number: `CHF 1.5`
+    const own = prefixes().map(escapeRe);
+    const front = own.length ? `(?:(?:${own.join("|")}) ?|[$€£¥R])?` : "[$€£¥R]?";
+    shortMemo = { gen, re: new RegExp(`^(-?${front}-?)((?:\\d{1,3}(?:,\\d{3})+|\\d+))(?:\\.(\\d+))?(%|\\s*(?:\\p{L}|[°$€£¥/])\\S*)?$`, "u") };
+  }
+  return shortMemo.re;
+}
 function shortNumber(written) {
   const t = String(written).trim();
   const bracketed = /^\(.*\)$/.test(t);
-  const m = /^(-?[$€£¥R]?-?)((?:\d{1,3}(?:,\d{3})+|\d+))(?:\.(\d+))?(%|\s*(?:\p{L}|[°$€£¥/])\S*)?$/u.exec(bracketed ? t.slice(1, -1).trim() : t);
+  const m = shortPattern().exec(bracketed ? t.slice(1, -1).trim() : t);
   if (!m || !m[3]) return null; // not a number, or a whole one (rule 1)
   const sign = `${bracketed ? "(" : ""}${m[1]}`;
   const after = `${m[4] || ""}${bracketed ? ")" : ""}`;
@@ -1444,7 +1743,8 @@ function referenceNamesFrom(header, rows) {
   const columns = [];
   (header || []).slice(1).forEach((cell) => {
     const name = columnTerm(cell);
-    if (name) columns.push(name);
+    // the `...` column says what each row leaves out: no value to reference
+    if (name && name !== "...") columns.push(name);
   });
   const rowNames = rows.map((cells) => splitCell(cells[0] || "").value).filter((n) => n);
   return { columns, rows: rowNames };
@@ -1784,7 +2084,8 @@ function fromCsv(text) {
     }
     cell += ch;
   }
-  return grid.map((r) => r.map((c) => c.replace(/\r\n|\r|\n/g, LINE_BREAK).replace(/\|/g, "¦")));
+  // a tab in a cell becomes a space: a value holds none (linter noTabs)
+  return grid.map((r) => r.map((c) => c.replace(/\r\n|\r|\n/g, LINE_BREAK).replace(/\|/g, "¦").replace(/\t/g, " ")));
 }
 
 // A name that must not read as code or as anything but a name: its operators
@@ -1799,15 +2100,15 @@ function inertName(s) {
 
 // A new row's name as the first cell of a row must hold it, so a spreadsheet's
 // text stays one row with that name: left as it is when it reads back as itself
-// (`10:30 Standup`), and made inert only when it would not — `=x()` opening a
-// line is a bare formula, `standup: 10:30` a value line, `... rest` a Map.
+// under its header (`10:30 Standup`, `standup: 10:30`), and made inert only when
+// it would not — `=x()` opening a line is a bare formula, `... rest` a Map.
 function rowName(name) {
   let t = String(name == null ? "" : name).trim();
   if (!t) return t;
   if (t.startsWith("...")) t = "…" + t.slice(3);
-  if (isSeparator(`${t}|`)) t = t.replace(/-/g, "–");
+  if (isSeparator(`${t}|`) || isSeparator(`${t}+`)) t = t.replace(/-/g, "–");
   const row = `${t}|x`;
-  const reads = isRowText(row) && splitCell(t).eq === -1 && (cells(row)[0] || {}).text === t;
+  const reads = isRowAt(["Name|x", row], 1) && splitCell(t).eq === -1 && (cells(row)[0] || {}).text === t;
   return reads ? t : inertName(t);
 }
 
@@ -1828,7 +2129,7 @@ function updateTable(lines, name, header, rows, rootName, registry, breaks) {
   let selfBlock = null;
   for (let i = 0; i < lines.length; i++) {
     const t = (lines[i] || "").trim();
-    if (!isRowText(t) || isSeparator(t)) continue;
+    if (!isRowAt(lines, i) || isSeparator(t)) continue;
     const b = blockAt(lines, i);
     i = b.end;
     if (headerIndex(b) === -1) continue;
@@ -1846,7 +2147,7 @@ function updateTable(lines, name, header, rows, rootName, registry, breaks) {
     let conceptLine = -1, conceptIndent = -1;
     for (let i = 0; i < lines.length; i++) {
       const t = lines[i].trim();
-      if (!t || isRowText(t)) continue;
+      if (!t || isRowAt(lines, i)) continue;
       if (cleanName(t).toLowerCase() === low) {
         conceptLine = i;
         conceptIndent = lines[i].match(/^ */)[0].length;
@@ -1957,9 +2258,10 @@ function align(text, registry, rootName) {
 
 module.exports = {
   startsLower, startsUpper, startsCaseless,
-  cells, dividers, isSeparator, isRowText, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
+  cells, dividers, isSeparator, isRowText, isRowAt, pipeBehindColon, align, blockAt, widthsOf, render, cellStart, colAt, padRows, dataRow,
   nextCell, prevCell, nextRow, moveColumn, moveRow, insertColumn, deleteColumn,
-  insertRow, deleteRow, sortRows, fromRegion, copyFormulaDown, copyFormulaAcross, columnDefinition, defineColumn,
+  insertRow, deleteRow, sortRows, sortOrder, fromRegion,
+  moveRows, moveColumns, insertRows, deleteRows, insertColumns, deleteColumns, shiftCells, copyFormulaDown, copyFormulaAcross, columnDefinition, defineColumn,
   demoteRow, promoteRow, parentsOf, branchOf, breaksOf, notesOf, rowsBetween,
   headerTerm, isParentColumn, parentColumnOf, parentHeader, PARENT_TERM,
   copyCell, moveCell, copyRow, copyColumn,

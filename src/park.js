@@ -41,11 +41,13 @@
 
 const { KIND } = require("./linter");
 const {
-  cells, dividers, blockAt, isRowText, splitCell, splitConstraint, STORED_OPS, columnTerm, cleanName, numberless,
+  cells, dividers, blockAt, isRowText, isRowAt, splitCell, splitConstraint, STORED_OPS, columnTerm, cleanName, numberless,
   lineDerivation,
 } = require("./table");
 
 const fold = (name) => numberless(String(name || "").trim()).toLowerCase();
+// a line alone (a header, a Concept's line); a data row is read with the lines
+// above it, since a row's name may hold a colon (table.isRowAt)
 const isRow = (text) => isRowText(text);
 
 // The Example path from a node up to the Concept that owns it, outermost
@@ -115,7 +117,7 @@ function cellIndex(lines, nodes, rootName) {
   }
   let at = 0;
   while (at < lines.length) {
-    if (!isRow(lines[at])) { at++; continue; }
+    if (!isRowAt(lines, at)) { at++; continue; }
     const block = blockAt(lines, at);
     if (!block) { at++; continue; }
     // the header stands first; every row under it is an Example
@@ -293,7 +295,7 @@ function park(lines, nodes, rootName, generated) {
   for (const line of [...byLine.keys()].sort((a, b) => a - b)) {
     const at = line - 1;
     const text = out[at];
-    if (text === undefined || !isRow(text)) continue;
+    if (text === undefined || !isRowAt(out, at)) continue;
     const texts = cells(text).map((c) => c.text);
     let touched = false;
     for (const { address, col } of byLine.get(line).sort((a, b) => a.col - b.col)) {
@@ -312,7 +314,7 @@ function park(lines, nodes, rootName, generated) {
     if (node.kind !== KIND.DEFAULT || !node.name || node.cell) continue;
     const at = node.line - 1;
     const text = out[at];
-    if (text === undefined || isRow(text)) continue;
+    if (text === undefined || isRowAt(out, at)) continue;
     const span = valueSpan(text);
     if (!span) continue;
     const split = splitCell(span.value);
@@ -337,7 +339,7 @@ function park(lines, nodes, rootName, generated) {
     const text = out[at];
     if (text === undefined) continue;
     const decls = declsByLine.get(line);
-    if (isRow(text)) {
+    if (isRowAt(out, at)) {
       const texts = cells(text).map((c) => c.text);
       let touched = false;
       for (const node of decls) {
@@ -454,7 +456,7 @@ function unpark(lines, nodes, rootName, parked) {
     const text = out[at];
     if (text === undefined) continue;
     const group = byLine.get(line);
-    if (isRow(text)) {
+    if (isRowAt(out, at)) {
       const texts = cells(text).map((c) => c.text);
       let touched = false;
       for (const { col, formula } of group) {
@@ -478,7 +480,7 @@ function unpark(lines, nodes, rootName, parked) {
     const text = out[at];
     if (text === undefined) continue;
     const group = declsByLine.get(line);
-    if (isRow(text)) {
+    if (isRowAt(out, at)) {
       const texts = cells(text).map((c) => c.text);
       let touched = false;
       for (const { node, formula, address } of group) {
@@ -566,7 +568,7 @@ function ownedRows(lines, concept) {
     for (const c of node.children) {
       if (c.kind !== KIND.INDIVIDUAL) continue;
       const text = lines[c.line - 1];
-      if (text !== undefined && c.line !== concept.line && isRow(text)) {
+      if (text !== undefined && c.line !== concept.line && isRowAt(lines, c.line - 1)) {
         const start = text.length - text.trimStart().length;
         const end = text.trimEnd().length;
         if (end > start) out.push({ line: c.line, startCol: start, endCol: end });

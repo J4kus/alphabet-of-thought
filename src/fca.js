@@ -56,6 +56,15 @@ const setKey = (s) => [...s].sort().join("\0");
 //                             column: `age integer` yields `integer`
 function buildContext(root, nodes) {
   const { concepts, individuals } = index(root, nodes);
+  // a node's attribute lines, read once: every Example walks up through its
+  // Concept, whose children are mostly those Examples, so reading the whole
+  // list each time made a table cost the square of its rows
+  const attrsOf = new Map();
+  const attrChildren = (n) => {
+    let out = attrsOf.get(n);
+    if (!out) attrsOf.set(n, (out = n.children.filter((c) => c.kind === ATTRIBUTE || c.kind === DEFAULT)));
+    return out;
+  };
   const display = new Map();
   const keyOf = (text) => {
     const k = text.trim().toLowerCase();
@@ -125,8 +134,7 @@ function buildContext(root, nodes) {
         if (n === g) direct.add(k);
         if (!origin.has(k)) origin.set(k, n);
       };
-      for (const child of n.children) {
-        if (child.kind !== ATTRIBUTE && child.kind !== DEFAULT) continue;
+      for (const child of attrChildren(n)) {
         put(child.name);
         const type = conceptOf(child);
         if (type) put(type.name);
@@ -191,12 +199,25 @@ function computeConcepts(objects, intents) {
 // { objects, columns, concepts, confirmed, findings } where findings
 // are { line, message } sorted by line; or { tooFew: true } when there
 // are fewer than two Examples to analyse.
+//
+// The findings — drift and exhaustion — are read off each Concept's extent and
+// intent and never off the lattice, which only `confirmed` and the count of
+// formal concepts need (verify.js --fca). The lattice closes the Examples'
+// intents under intersection, which can grow exponentially; so audit() gives
+// the findings alone, at a cost that grows with the rows, and the editor and
+// the command-line checks run that, on a table of any length.
 function suggest(root, nodes) {
+  return auditWith(root, nodes, true);
+}
+function audit(root, nodes) {
+  return auditWith(root, nodes, false);
+}
+function auditWith(root, nodes, withLattice) {
   const { objects, intents, origins, display } = buildContext(root, nodes);
   if (objects.length < 2) {
     return { objects: objects.length, columns: display.size, concepts: 0, confirmed: [], findings: [], tooFew: true };
   }
-  const lattice = computeConcepts(objects, intents);
+  const lattice = withLattice ? computeConcepts(objects, intents) : null;
   const extKey = (extent) => extent.map((g) => g.line).join(",");
 
   // Each hand-written Concept's extent (Examples beneath it, by
@@ -207,17 +228,15 @@ function suggest(root, nodes) {
     if (!extent.length) continue;
     let intent = new Set(intents.get(extent[0]));
     for (const g of extent.slice(1)) intent = intersect(intent, intents.get(g));
-    infos.set(c, { extent, intent });
-  }
-  const namedExtents = new Map();
-  for (const [c, info] of infos) {
-    if (!namedExtents.has(extKey(info.extent))) namedExtents.set(extKey(info.extent), c);
+    infos.set(c, { extent, intent, members: new Set(extent) });
   }
 
-  const latticeExtents = new Set(lattice.map((fc) => extKey(fc.extent)));
   const confirmed = [];
-  for (const [c, info] of infos) {
-    if (c !== root && info.extent.length >= 2 && latticeExtents.has(extKey(info.extent))) confirmed.push(c.name);
+  if (lattice) {
+    const latticeExtents = new Set(lattice.map((fc) => extKey(fc.extent)));
+    for (const [c, info] of infos) {
+      if (c !== root && info.extent.length >= 2 && latticeExtents.has(extKey(info.extent))) confirmed.push(c.name);
+    }
   }
 
   const findings = [];
@@ -269,8 +288,15 @@ function suggest(root, nodes) {
   // declared on it or beneath it (its Examples included), never inherited.
   // A home that declares nothing states no differentia to hold or release
   // an Example by, so no drift is reported from it.
+  // (worked out once per Concept: every Example of a long table asks it of the
+  // same home, and walking every attribute line of the file each time cost the
+  // square of the rows)
   const attrDecls = nodes.filter((n) => n.kind === ATTRIBUTE || n.kind === DEFAULT);
-  const ownsAttr = (c) => attrDecls.some((n) => n.chi % c.chi === 0n);
+  const ownsMemo = new Map();
+  const ownsAttr = (c) => {
+    if (!ownsMemo.has(c)) ownsMemo.set(c, attrDecls.some((n) => n.chi % c.chi === 0n));
+    return ownsMemo.get(c);
+  };
   const homeOf = (g) => {
     for (let a = g.parent; a; a = a.parent) if (a.kind === CONCEPT) return a;
     return root;
@@ -284,13 +310,18 @@ function suggest(root, nodes) {
   // incomplete, so drift over it is provisional and not reported: neither
   // toward an open Concept, nor away from an open home (and an ellipsis
   // Example itself never drifts).
-  const open = (n) => incomplete(n)
-    || n.children.some((c) => c.kind === INDIVIDUAL && c.name.trim() === "...");
+  const openMemo = new Map();
+  const open = (n) => {
+    if (!openMemo.has(n)) {
+      openMemo.set(n, incomplete(n) || n.children.some((c) => c.kind === INDIVIDUAL && c.name.trim() === "..."));
+    }
+    return openMemo.get(n);
+  };
   const driftByObject = new Map();
   for (const [c, info] of infos) {
     if (c === root || !info.intent.size || vacuous.has(c) || allInherited(c, info) || open(c)) continue;
     for (const g of objects) {
-      if (info.extent.includes(g)) continue;
+      if (info.members.has(g)) continue;
       if (g.name.trim() === "...") continue;
       if (!ownsAttr(homeOf(g)) || open(homeOf(g))) continue;
       if (isSuperset(intents.get(g), info.intent)) {
@@ -355,7 +386,7 @@ function suggest(root, nodes) {
   }
 
   findings.sort((a, b) => a.line - b.line);
-  return { objects: objects.length, columns: display.size, concepts: lattice.length, confirmed, findings };
+  return { objects: objects.length, columns: display.size, concepts: lattice ? lattice.length : null, confirmed, findings };
 }
 
-module.exports = { suggest, buildContext, computeConcepts };
+module.exports = { suggest, audit, buildContext, computeConcepts };
